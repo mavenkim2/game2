@@ -17,6 +17,10 @@ typedef uint16_t uint16;
 typedef uint32_t uint32;
 typedef uint64_t uint64;
 
+struct Vector2 {
+    float x;
+    float y;
+};
 #define ArrayLength(array) sizeof(array) / sizeof((array)[0])
 #define kilobytes(value) ((value)*1024LL)
 #define megabytes(value) (kilobytes(value) * 1024LL)

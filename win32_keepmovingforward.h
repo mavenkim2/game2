@@ -1,7 +1,7 @@
 #ifndef WIN32_GAME_H
 
-#include "keepmovingforward_types.h"
 #include "keepmovingforward.h"
+#include "keepmovingforward_types.h"
 #include <windows.h>
 #include <xaudio2.h>
 
@@ -25,8 +25,26 @@ struct Win32WindowDimension
     int height;
 };
 
+struct Win32ReplayState
+{
+    HANDLE fileHandle;
+    char filename[MAX_PATH];
+
+    void* fileMemory;
+    uint64 totalSize;
+};
+
 struct Win32State
 {
+    HANDLE recordingHandle;
+    int currentRecordingIndex;
+
+    HANDLE playbackHandle;
+    int currentPlaybackIndex;
+
+    Win32ReplayState replayStates[4];
+    void* memory;
+
     char executableFullPath[MAX_PATH];
     char executableDirectory[MAX_PATH];
 };

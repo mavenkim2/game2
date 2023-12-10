@@ -64,11 +64,6 @@ struct GameSoundOutput
 };
 struct GameState
 {
-    int xOffset;
-    int yOffset;
-    int toneHz;
-    float tSine;
-
     int playerX;
     int playerY;
 };

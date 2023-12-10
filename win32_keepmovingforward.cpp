@@ -166,6 +166,90 @@ static void Win32UnloadGameCode(Win32GameCode *win32GameCode)
     win32GameCode->gameCodeDLL = 0;
 }
 
+inline Win32ReplayState *Win32GetReplayState(Win32State *state, int index)
+{
+    return &state->replayStates[index];
+}
+// begin writing
+static void Win32BeginRecording(Win32State *state, int recordingIndex)
+{
+    state->currentRecordingIndex = recordingIndex;
+    Win32ReplayState *replayState = Win32GetReplayState(state, recordingIndex);
+
+    char file[MAX_PATH];
+    wsprintfA(file, "keepmovingforward_%d_input.kmf", recordingIndex);
+    char filename[MAX_PATH];
+    Win32GetEXEDirectoryFilepath(state, filename, file);
+
+    state->recordingHandle =
+        CreateFileA(filename, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (state->recordingHandle != INVALID_HANDLE_VALUE)
+    {
+        CopyMemory(replayState->fileMemory, state->memory, replayState->totalSize);
+    }
+    else
+    {
+        OutputDebugStringA("Recording file could not be created.");
+    }
+}
+
+// stop writing
+static void Win32EndRecording(Win32State *state)
+{
+    CloseHandle(state->recordingHandle);
+    state->currentRecordingIndex = 0;
+}
+
+static void Win32Record(Win32State *state, GameInput *input)
+{
+    DWORD bytesWritten;
+    WriteFile(state->recordingHandle, input, sizeof(*input), &bytesWritten, NULL);
+}
+
+// begin reading
+static void Win32BeginPlayback(Win32State *state, int playbackIndex)
+{
+    state->currentPlaybackIndex = playbackIndex;
+    Win32ReplayState *replayState = Win32GetReplayState(state, playbackIndex);
+
+    char file[MAX_PATH];
+    wsprintfA(file, "keepmovingforward_%d_input.kmf", playbackIndex);
+    char filename[MAX_PATH];
+    Win32GetEXEDirectoryFilepath(state, filename, file);
+
+    state->playbackHandle = CreateFileA(filename, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_ALWAYS,
+                                        FILE_ATTRIBUTE_NORMAL, NULL);
+    if (state->playbackHandle != INVALID_HANDLE_VALUE)
+    {
+        CopyMemory(state->memory, replayState->fileMemory, replayState->totalSize);
+    }
+    else
+    {
+        OutputDebugStringA("Could not open file to playback input.");
+    }
+}
+
+// stop reading
+static void Win32EndPlayback(Win32State *state)
+{
+    CloseHandle(state->playbackHandle);
+    state->currentPlaybackIndex = 0;
+}
+
+static void Win32Playback(Win32State *state, GameInput *input)
+{
+    DWORD bytesRead;
+    if (ReadFile(state->playbackHandle, input, sizeof(*input), &bytesRead, NULL))
+    {
+        if (bytesRead != sizeof(*input))
+        {
+            Win32EndPlayback(state);
+            Win32BeginPlayback(state, 1);
+            ReadFile(state->playbackHandle, input, sizeof(*input), &bytesRead, NULL);
+        }
+    }
+}
+
 //*******************************************
 // DEBUG END
 //*******************************************
@@ -200,7 +284,7 @@ static void Win32ResizeDIBSection(Win32OffscreenBuffer *buffer, int width, int h
 static void Win32DisplayBufferInWindow(Win32OffscreenBuffer *buffer, HDC deviceContext,
                                        int clientWidth, int clientHeight)
 {
-    StretchDIBits(deviceContext, 0, 0, clientWidth, clientHeight, 0, 0, buffer->width,
+    StretchDIBits(deviceContext, 0, 0, buffer->width, buffer->height, 0, 0, buffer->width,
                   buffer->height, buffer->memory, &(buffer->info), DIB_RGB_COLORS, SRCCOPY);
 }
 
@@ -414,7 +498,7 @@ static void Win32ProcessKeyboardMessages(GameButtonState *buttonState, bool isDo
     }
 }
 
-static void Win32ProcessPendingMessages(GameControllerInput *keyboardController)
+static void Win32ProcessPendingMessages(Win32State *state, GameControllerInput *keyboardController)
 {
     MSG message;
     while (PeekMessageW(&message, 0, 0, 0, PM_REMOVE))
@@ -450,6 +534,25 @@ static void Win32ProcessPendingMessages(GameControllerInput *keyboardController)
             if (keyCode == VK_F4 && altWasDown)
             {
                 RUNNING = false;
+            }
+            if (keyCode == 'L')
+            {
+                if (isDown && isDown != wasDown)
+                {
+                    if (state->currentPlaybackIndex)
+                    {
+                        Win32EndPlayback(state);
+                    }
+                    else if (!state->currentRecordingIndex)
+                    {
+                        Win32BeginRecording(state, 1);
+                    }
+                    else if (state->currentRecordingIndex && !state->currentPlaybackIndex)
+                    {
+                        Win32EndRecording(state);
+                        Win32BeginPlayback(state, 1);
+                    }
+                }
             }
             break;
         }
@@ -519,7 +622,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     UINT desiredSchedulerMs = 1;
     bool sleepIsGranular = (timeBeginPeriod(desiredSchedulerMs) == TIMERR_NOERROR);
 
-    Win32ResizeDIBSection(&GLOBAL_BACK_BUFFER, 1280, 720);
+    Win32ResizeDIBSection(&GLOBAL_BACK_BUFFER, 960, 540);
 
     WNDCLASSW windowClass = {};
     windowClass.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
@@ -540,6 +643,12 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     }
     HDC deviceContext = GetDC(windowHandle);
 
+    // NOTE: this works, lowered framerate for testing
+    // int gameUpdateHz = GetDeviceCaps(deviceContext, VREFRESH);
+    // if (gameUpdateHz <= 1)
+    // {
+    //     gameUpdateHz = 60;
+    // }
     int gameUpdateHz = 144;
     float expectedSecondsPerFrame = 1.f / (float)gameUpdateHz;
 
@@ -573,10 +682,10 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
 
     GameMemory gameMemory = {};
     gameMemory.PersistentStorageSize = megabytes(64);
-    gameMemory.TransientStorageSize = gigabytes(4);
-    gameMemory.PersistentStorageMemory = VirtualAlloc(
-        baseAddress, gameMemory.PersistentStorageSize + gameMemory.TransientStorageSize,
-        MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    gameMemory.TransientStorageSize = gigabytes(1);
+    uint64 totalStorageSize = gameMemory.PersistentStorageSize + gameMemory.TransientStorageSize;
+    gameMemory.PersistentStorageMemory =
+        VirtualAlloc(baseAddress, totalStorageSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     gameMemory.TransientStorageMemory =
         (uint8 *)gameMemory.PersistentStorageMemory + gameMemory.PersistentStorageSize;
 
@@ -597,6 +706,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     GameInput *newInput = &input[1];
 
     Win32State win32State = {};
+    win32State.memory = gameMemory.PersistentStorageMemory;
     Win32GetEXEFilepath(&win32State);
 
     char sourceDLLFilename[MAX_PATH] = {};
@@ -605,6 +715,31 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     Win32GetEXEDirectoryFilepath(&win32State, tempDLLFilename, "keepmovingforward_temp.dll");
 
     Win32GameCode win32GameCode = Win32LoadGameCode(sourceDLLFilename, tempDLLFilename);
+
+    // NOTE: creates memory mapped files which hold data for looped live coding
+    for (int i = 0; i < ArrayLength(win32State.replayStates); i++)
+    {
+        Win32ReplayState *replayState = Win32GetReplayState(&win32State, i);
+
+        char file[MAX_PATH];
+        wsprintfA(file, "keepmovingforward_%d_state.kmf", i);
+        Win32GetEXEDirectoryFilepath(&win32State, replayState->filename, file);
+        replayState->fileHandle = CreateFileA(replayState->filename, GENERIC_READ | GENERIC_WRITE,
+                                              0, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (replayState->fileHandle != INVALID_HANDLE_VALUE)
+        {
+            LARGE_INTEGER fileSize;
+            fileSize.QuadPart = totalStorageSize;
+
+            // unused elsewhere?
+            HANDLE fileMappingHandle =
+                CreateFileMappingA(replayState->fileHandle, NULL, PAGE_READWRITE, fileSize.HighPart,
+                                   fileSize.LowPart, NULL);
+            replayState->fileMemory =
+                MapViewOfFile(fileMappingHandle, FILE_MAP_ALL_ACCESS, 0, 0, totalStorageSize);
+            replayState->totalSize = totalStorageSize;
+        }
+    }
 
     LARGE_INTEGER lastPerformanceCount = Win32GetWallClock();
     uint64 lastCycleCount = __rdtsc();
@@ -631,7 +766,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
                 oldKeyboardController->buttons[buttonIndex].keyDown;
         }
 
-        Win32ProcessPendingMessages(newKeyboardController);
+        Win32ProcessPendingMessages(&win32State, newKeyboardController);
 
         GameOffscreenBuffer backBuffer = {};
         backBuffer.memory = GLOBAL_BACK_BUFFER.memory;
@@ -643,15 +778,22 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
         GameSoundOutput soundOutput = {};
         soundOutput.samplesPerSecond = samplesPerSecond;
 
-        if (win32GameCode.GameUpdateAndRender)
-        {
-            win32GameCode.GameUpdateAndRender(&gameMemory, &backBuffer, &soundOutput, newInput);
-        }
-
         XAUDIO2_BUFFER audioBuffer = {};
         audioBuffer.AudioBytes = bufferSize;
         audioBuffer.pAudioData = (BYTE *)soundOutput.samples;
 
+        if (win32State.currentRecordingIndex)
+        {
+            Win32Record(&win32State, newInput);
+        }
+        if (win32State.currentPlaybackIndex)
+        {
+            Win32Playback(&win32State, newInput);
+        }
+        if (win32GameCode.GameUpdateAndRender)
+        {
+            win32GameCode.GameUpdateAndRender(&gameMemory, &backBuffer, &soundOutput, newInput);
+        }
         // Sleep until next frame
         {
             LARGE_INTEGER workCounter = Win32GetWallClock();
@@ -677,7 +819,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
             }
             else
             {
-                OutputDebugStringA("Missed frame rate somehow");
+                OutputDebugStringA("Missed frame rate somehow\n");
             }
         }
 
@@ -695,6 +837,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
         oldInput = newInput;
         newInput = Temp;
 
+#if 0
         uint64 endCycleCount = __rdtsc();
 
         double framesPerSecond = 1 / (double)(msPerFrame / 1000.f);
@@ -706,6 +849,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
         OutputDebugStringA(printBuffer);
 
         lastCycleCount = endCycleCount;
+#endif
     }
 
     return 0;

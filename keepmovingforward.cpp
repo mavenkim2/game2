@@ -23,6 +23,7 @@ void GameOutputSound(GameSoundOutput *soundBuffer, int toneHz)
     }
 }
 
+#if 0
 void RenderGradient(GameOffscreenBuffer *buffer, int xOffset, int yOffset)
 {
     uint8 *row = (uint8 *)buffer->memory;
@@ -43,24 +44,50 @@ void RenderGradient(GameOffscreenBuffer *buffer, int xOffset, int yOffset)
         row += buffer->pitch;
     }
 }
+#endif
 
-void RenderPlayer(GameOffscreenBuffer *buffer, int playerX, int playerY)
+inline uint32 RoundFloatToUint32(float value) { return (uint32)(value + 0.5f); }
+inline uint32 RoundFloatToInt32(float value) { return (int32)(value + 0.5f); }
+
+void DrawRectangle(GameOffscreenBuffer *buffer, float floatMinX, float floatMinY, float floatMaxX,
+                   float floatMaxY, float r, float g, float b)
 {
-    uint32 color = 0xFFFFFFFF;
-    uint8 *memoryStart = (uint8 *)buffer->memory;
-    uint8 *endOfBuffer = memoryStart + buffer->pitch * buffer->height;
-    for (int x = playerX; x < playerX + 10; x++)
+    int minX = RoundFloatToInt32(floatMinX);
+    int minY = RoundFloatToInt32(floatMinY);
+    int maxX = RoundFloatToInt32(floatMaxX);
+    int maxY = RoundFloatToInt32(floatMaxY);
+
+    if (minX < 0)
     {
-        uint8 *pixel =
-            memoryStart + (playerY * buffer->pitch) + (x * buffer->bytesPerPixel);
-        for (int y = playerY; y < playerY + 10; y++)
+        minX = 0;
+    }
+    if (minY < 0)
+    {
+        minY = 0;
+    }
+    if (maxX > buffer->width)
+    {
+        maxX = buffer->width;
+    }
+    if (maxY > buffer->height)
+    {
+        maxY = buffer->height;
+    }
+    uint32 red = RoundFloatToUint32(r * 255.f);
+    uint32 blue = RoundFloatToUint32(b * 255.f);
+    uint32 green = RoundFloatToUint32(g * 255.f);
+
+    uint32 color = blue | green << 8 | red << 16;
+
+    uint8 *row = (uint8 *)buffer->memory + minY * buffer->pitch + minX * buffer->bytesPerPixel;
+    for (int y = minY; y < maxY; y++)
+    {
+        uint32 *pixel = (uint32 *)row;
+        for (int x = minX; x < maxX; x++)
         {
-            if (pixel >= memoryStart && (pixel+4) <= endOfBuffer)
-            {
-                *(uint32*)pixel = color;
-            }
-            pixel += buffer->pitch;
+            *pixel++ = color;
         }
+        row += buffer->pitch;
     }
 }
 
@@ -70,39 +97,11 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
     if (!memory->isInitialized)
     {
-#if INTERNAL
-        char const *fileName = __FILE__;
-        DebugReadFileOutput readFileOutput = memory->DebugPlatformReadFile(fileName);
-        if (readFileOutput.contents)
-        {
-            memory->DebugPlatformWriteFile("test.out", readFileOutput.fileSize,
-                                           readFileOutput.contents);
-            memory->DebugPlatformFreeFile(readFileOutput.contents);
-        }
-#endif
-        gameState->tSine = 0.f;
-        gameState->toneHz = 256;
-
-        gameState->playerX = 100;
-        gameState->playerY = 100;
         memory->isInitialized = true;
     }
 
-    GameControllerInput *player1 = &(input->controllers[0]);
-
-    gameState->toneHz = 256 + (player1->up.keyDown ? 128 : 0);
-
-    gameState->yOffset += player1->up.keyDown ? -1 : 0;
-    gameState->yOffset += player1->down.keyDown ? 1 : 0;
-    gameState->xOffset += player1->left.keyDown ? -1 : 0;
-    gameState->xOffset += player1->right.keyDown ? 1 : 0;
-
-    gameState->playerY -= player1->up.keyDown ? 1 : 0;
-    gameState->playerY += player1->down.keyDown ? 1 : 0;
-    gameState->playerX -= player1->left.keyDown ? 1 : 0;
-    gameState->playerX += player1->right.keyDown ? 1 : 0;
+    // GameControllerInput *player1 = &(input->controllers[0]);
 
     // GameOutputSound(soundBuffer, gameState->toneHz);
-    RenderGradient(offscreenBuffer, gameState->xOffset, gameState->yOffset);
-    RenderPlayer(offscreenBuffer, gameState->playerX, gameState->playerY);
+    DrawRectangle(offscreenBuffer, 0.f, 0.f, 960, 540, 1.f, 1.f, 1.f);
 }
