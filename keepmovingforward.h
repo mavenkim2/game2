@@ -53,6 +53,7 @@ struct GameControllerInput
 
 struct GameInput
 {
+    float dT;
     GameControllerInput controllers[4];
 };
 
@@ -64,8 +65,10 @@ struct GameSoundOutput
 };
 struct GameState
 {
-    int playerX;
-    int playerY;
+    float playerX;
+    float playerY;
+    float playerWidth;
+    float playerHeight;
 };
 
 struct GameMemory

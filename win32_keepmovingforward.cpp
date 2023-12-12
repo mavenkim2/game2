@@ -756,6 +756,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
             win32GameCode = Win32LoadGameCode(sourceDLLFilename, tempDLLFilename);
         }
 
+        oldInput->dT = expectedSecondsPerFrame;
         GameControllerInput *oldKeyboardController = &(oldInput->controllers[0]);
         GameControllerInput *newKeyboardController = &(newInput->controllers[0]);
         *newKeyboardController = {};

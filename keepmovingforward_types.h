@@ -17,10 +17,12 @@ typedef uint16_t uint16;
 typedef uint32_t uint32;
 typedef uint64_t uint64;
 
-struct Vector2 {
+struct Vector2
+{
     float x;
     float y;
 };
+
 #define ArrayLength(array) sizeof(array) / sizeof((array)[0])
 #define kilobytes(value) ((value)*1024LL)
 #define megabytes(value) (kilobytes(value) * 1024LL)
@@ -28,7 +30,11 @@ struct Vector2 {
 #define terabytes(value) (gigabytes(value) * 1024LL)
 
 #if UNOPTIMIZED
-#define Assert(expression) if (!(expression)) {*(volatile int *)0 = 0;}
+#define Assert(expression)                                                                         \
+    if (!(expression))                                                                             \
+    {                                                                                              \
+        *(volatile int *)0 = 0;                                                                    \
+    }
 #else
 #define Assert(expression) (void)0
 #endif
