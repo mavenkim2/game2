@@ -284,7 +284,7 @@ static void Win32ResizeDIBSection(Win32OffscreenBuffer *buffer, int width, int h
 static void Win32DisplayBufferInWindow(Win32OffscreenBuffer *buffer, HDC deviceContext,
                                        int clientWidth, int clientHeight)
 {
-    StretchDIBits(deviceContext, 0, 0, buffer->width, buffer->height, 0, 0, buffer->width,
+    StretchDIBits(deviceContext, 0, 0, clientWidth, clientHeight, 0, 0, buffer->width,
                   buffer->height, buffer->memory, &(buffer->info), DIB_RGB_COLORS, SRCCOPY);
 }
 
@@ -531,6 +531,10 @@ static void Win32ProcessPendingMessages(Win32State *state, GameControllerInput *
             {
                 Win32ProcessKeyboardMessages(&keyboardController->right, isDown);
             }
+            if (keyCode == VK_SPACE)
+            {
+                Win32ProcessKeyboardMessages(&keyboardController->jump, isDown);
+            }
             if (keyCode == VK_F4 && altWasDown)
             {
                 RUNNING = false;
@@ -622,7 +626,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     UINT desiredSchedulerMs = 1;
     bool sleepIsGranular = (timeBeginPeriod(desiredSchedulerMs) == TIMERR_NOERROR);
 
-    Win32ResizeDIBSection(&GLOBAL_BACK_BUFFER, 960, 540);
+    Win32ResizeDIBSection(&GLOBAL_BACK_BUFFER, 320, 180);
 
     WNDCLASSW windowClass = {};
     windowClass.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;

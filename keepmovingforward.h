@@ -14,8 +14,7 @@ typedef DEBUG_PLATFORM_FREE_FILE(DebugPlatformFreeFileFunctionType);
 #define DEBUG_PLATFORM_READ_FILE(name) DebugReadFileOutput name(const char *fileName)
 typedef DEBUG_PLATFORM_READ_FILE(DebugPlatformReadFileFunctionType);
 
-#define DEBUG_PLATFORM_WRITE_FILE(name)                                                            \
-    bool name(const char *fileName, uint32 fileSize, void *fileMemory)
+#define DEBUG_PLATFORM_WRITE_FILE(name) bool name(const char *fileName, uint32 fileSize, void *fileMemory)
 typedef DEBUG_PLATFORM_WRITE_FILE(DebugPlatformWriteFileFunctionType);
 #endif
 
@@ -40,13 +39,14 @@ struct GameControllerInput
 {
     union
     {
-        GameButtonState buttons[4];
+        GameButtonState buttons[5];
         struct
         {
             GameButtonState up;
             GameButtonState down;
             GameButtonState left;
             GameButtonState right;
+            GameButtonState jump;
         };
     };
 };
@@ -63,12 +63,41 @@ struct GameSoundOutput
     int samplesPerSecond;
     int sampleCount;
 };
+
+// struct Player
+// {
+//     Vector2 position;
+//     Vector2 velocity;
+//     Vector2 acceleration;
+// };
+
+struct MemoryArena
+{
+    void *base;
+    size_t size;
+    size_t used;
+};
+
+struct Level
+{
+    uint32 *tileMap;
+};
+
 struct GameState
 {
     float playerX;
     float playerY;
+
+    float dx;
+    float dy;
+
     float playerWidth;
     float playerHeight;
+
+    bool isJumping;
+
+    MemoryArena worldArena;
+    Level *level;
 };
 
 struct GameMemory
@@ -115,12 +144,10 @@ inline void AddStrings(char *destination, const char *source)
     }
 }
 
-#define GAME_UPDATE_AND_RENDER(name)                                                               \
-    void name(GameMemory *memory, GameOffscreenBuffer *offscreenBuffer,                            \
-              GameSoundOutput *soundBuffer, GameInput *input)
+#define GAME_UPDATE_AND_RENDER(name)                                                                                                                 \
+    void name(GameMemory *memory, GameOffscreenBuffer *offscreenBuffer, GameSoundOutput *soundBuffer, GameInput *input)
 
 typedef GAME_UPDATE_AND_RENDER(GameUpdateAndRenderFunctionType);
-
 
 #define KEEPMOVINGFORWARD_H
 #endif
