@@ -33,7 +33,7 @@ static uint32 GetTileValue(uint32 *tileMap, uint32 tileX, uint32 tileY, uint32 t
     return result;
 }
 
-static bool CheckTileHasCollision(uint32 *tileMap, uint32 tileX, uint32 tileY, uint32 tileMapXCount, uint32 tileMapYCount)
+static bool CheckTileIsSolid(uint32 *tileMap, uint32 tileX, uint32 tileY, uint32 tileMapXCount, uint32 tileMapYCount)
 {
     bool result = false;
     uint32 tileValue = GetTileValue(tileMap, tileX, tileY, tileMapXCount, tileMapYCount);

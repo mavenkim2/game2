@@ -92,36 +92,45 @@ void DrawRectangle(GameOffscreenBuffer *buffer, const float floatMinX, const flo
         row += buffer->pitch;
     }
 }
-
-// NOTE: offset from start of struct
-struct BmpHeader
+void DrawBitmap(GameOffscreenBuffer *buffer, DebugBmpResult *bmp, const float floatX, const float floatY)
 {
-    // File Header
-    uint16 fileType;
-    uint32 fileSize;
-    uint16 reserved1;
-    uint16 reserved2;
-    uint32 offset;
-    // BMP Info Header
-    uint32 structSize;
-    int32 width;
-    int32 height;
-    uint16 planes;
-    uint16 bitCount;
-    uint32 compression;
-    uint32 imageSize;
-    int32 xPixelsPerMeter;
-    int32 yPixelsPerMeter;
-    uint32 colororUsed;
-    uint32 importantColors;
-};
+    int minX = RoundFloatToInt32(floatX);
+    int minY = RoundFloatToInt32(floatY);
+    int maxX = RoundFloatToInt32(floatX + bmp->width);
+    int maxY = RoundFloatToInt32(floatY + bmp->height);
 
-struct DebugBmpResult
-{
-    uint32 *pixels;
-    int32 width;
-    int32 height;
-};
+    if (minX < 0)
+    {
+        minX = 0;
+    }
+    if (minY < 0)
+    {
+        minY = 0;
+    }
+    if (maxX > buffer->width)
+    {
+        maxX = buffer->width;
+    }
+    if (maxY > buffer->height)
+    {
+        maxY = buffer->height;
+    }
+
+    // NOTE: assuming first row in pixels is bottom of screen
+    uint32 *sourceRow = (uint32 *)bmp->pixels + bmp->width * (bmp->height - 1);
+    uint8 *destRow = ((uint8 *)buffer->memory + minY * buffer->pitch + minX * buffer->bytesPerPixel);
+    for (int y = minY; y < maxY; y++)
+    {
+        uint32 *source = sourceRow;
+        uint32 *dest = (uint32 *)destRow;
+        for (int x = minX; x < maxX; x++)
+        {
+            *dest++ = *source++;
+        }
+        sourceRow -= bmp->width;
+        destRow += buffer->pitch;
+    }
+}
 
 static DebugBmpResult DebugLoadBMP(DebugPlatformReadFileFunctionType *PlatformReadFile, const char *filename)
 {
@@ -159,24 +168,6 @@ static bool CheckCollision(const CollisionBox box1, const CollisionBox box2)
     return false;
 }
 
-static bool CheckCollision(const uint32 *tileMap, const int tileMapSideInPixels, const uint32 tileMapXCount, const uint32 tileMapYCount,
-                           const float playerX, const float playerY)
-{
-    bool result = false;
-    uint32 playerTileX = (uint32)((float)playerX / tileMapSideInPixels);
-    uint32 playerTileY = (uint32)((float)playerY / tileMapSideInPixels);
-
-    if (playerTileX >= 0 && playerTileY >= 0 && playerTileX < tileMapXCount && playerTileY < tileMapYCount)
-    {
-        if (tileMap[playerTileY * tileMapXCount + playerTileX] == 1)
-        {
-            result = true;
-        }
-    }
-
-    return result;
-}
-
 static void InitializeArena(MemoryArena *arena, void *base, size_t size)
 {
     arena->size = size;
@@ -204,7 +195,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
     if (!memory->isInitialized)
     {
-        DebugBmpResult bmpTest = DebugLoadBMP(memory->DebugPlatformReadFile, "test/tree.bmp");
+        gameState->bmpTest = DebugLoadBMP(memory->DebugPlatformReadFile, "test/tile.bmp");
         gameState->playerX = 4.f;
         gameState->playerY = 4.f;
         gameState->playerWidth = tileMapSideInMeters;
@@ -223,16 +214,6 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     Level *level = gameState->level;
     GameControllerInput *player1 = &(input->controllers[0]);
 
-    /* NOTE: this game is going to be like stick fight/duck game. 2d, multiplayer,
-     no real camera work or anything like that. just a level with platforms.
-     for now im going to represent this like tilemaps, but this will obviously change
-     since there will be a notion of gravity, and you can't just walk wherever.
-
-     just random ideas/thoughts:
-     - notion of platform
-     - resolution independent
-     */
-
     int lowerLeftX = 0;
     int lowerLeftY = offscreenBuffer->height + tileMapSideInPixels / 2;
     // NOTE: tileMap X Y
@@ -243,7 +224,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     {
         for (int x = 0; x < TILE_MAP_X_COUNT; x++)
         {
-            if (CheckTileHasCollision(level->tileMap, x, y, TILE_MAP_X_COUNT, TILE_MAP_Y_COUNT))
+            if (CheckTileIsSolid(level->tileMap, x, y, TILE_MAP_X_COUNT, TILE_MAP_Y_COUNT))
             {
                 CollisionBox box;
                 box.x = x * tileMapSideInMeters;
@@ -270,22 +251,30 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         for (int col = 0; col < TILE_MAP_X_COUNT; col++)
         {
             float gray = 1.f;
-            if (CheckTileHasCollision(level->tileMap, col, row, TILE_MAP_X_COUNT, TILE_MAP_Y_COUNT))
-            {
-                gray = 0.5f;
-            }
             float minX = lowerLeftX + (float)col * tileMapSideInPixels;
             float minY = lowerLeftY - (float)row * tileMapSideInPixels;
             float maxX = minX + tileMapSideInPixels;
             float maxY = minY - tileMapSideInPixels;
-            DrawRectangle(offscreenBuffer, minX, maxY, maxX, minY, gray, gray, gray);
+            if (CheckTileIsSolid(level->tileMap, col, row, TILE_MAP_X_COUNT, TILE_MAP_Y_COUNT))
+            {
+                DrawBitmap(offscreenBuffer, &gameState->bmpTest, minX, maxY);
+            }
+            else
+            {
+                DrawRectangle(offscreenBuffer, minX, maxY, maxX, minY, gray, gray, gray);
+            }
         }
     }
 
     gameState->dx = 0;
     gameState->dx += player1->right.keyDown ? 1.f : 0.f;
     gameState->dx += player1->left.keyDown ? -1.f : 0.f;
-    gameState->dx *= 2;
+    float multiplier = 3;
+    if (player1->shift.keyDown)
+    {
+        multiplier = 7;
+    }
+    gameState->dx *= multiplier;
 
     // JUMP!
     // TODO: finite state machine for movement: OnGround, AirBorn, etc.
@@ -325,10 +314,10 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         if (CheckCollision(playerBox, boxes[i]))
         {
             collided = true;
+            gameState->dy = 0;
             if (boxes[i].collisionLevel == 2)
             {
                 gameState->isJumping = false;
-                gameState->dy = 0;
             }
             break;
         }

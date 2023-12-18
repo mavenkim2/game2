@@ -18,6 +18,42 @@ typedef DEBUG_PLATFORM_READ_FILE(DebugPlatformReadFileFunctionType);
 typedef DEBUG_PLATFORM_WRITE_FILE(DebugPlatformWriteFileFunctionType);
 #endif
 
+// NOTE: offset from start of struct
+#pragma pack(push, 1)
+struct BmpHeader
+{
+    // File Header
+    uint16 fileType;
+    uint32 fileSize;
+    uint16 reserved1;
+    uint16 reserved2;
+    uint32 offset;
+    // BMP Info Header
+    uint32 structSize;
+    int32 width;
+    int32 height;
+    uint16 planes;
+    uint16 bitCount;
+    uint32 compression;
+    uint32 imageSize;
+    int32 xPixelsPerMeter;
+    int32 yPixelsPerMeter;
+    uint32 colororUsed;
+    uint32 importantColors;
+    // Masks (why does this exist? who knows)
+    uint32 redMask;
+    uint32 greenMask;
+    uint32 blueMask;
+};
+#pragma pack(pop)
+
+struct DebugBmpResult
+{
+    uint32 *pixels;
+    int32 width;
+    int32 height;
+};
+
 struct GameOffscreenBuffer
 {
     void *memory;
@@ -39,7 +75,7 @@ struct GameControllerInput
 {
     union
     {
-        GameButtonState buttons[5];
+        GameButtonState buttons[6];
         struct
         {
             GameButtonState up;
@@ -47,6 +83,7 @@ struct GameControllerInput
             GameButtonState left;
             GameButtonState right;
             GameButtonState jump;
+            GameButtonState shift;
         };
     };
 };
@@ -98,6 +135,8 @@ struct GameState
 
     MemoryArena worldArena;
     Level *level;
+
+    DebugBmpResult bmpTest;
 };
 
 struct GameMemory
