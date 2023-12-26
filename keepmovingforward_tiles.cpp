@@ -1,12 +1,12 @@
 #include "keepmovingforward_tiles.h"
 
-static void SetTileValue(uint32 *tileMap, uint32 tileX, uint32 tileY, uint32 tileMapXCount, uint32 tileMapYCount, uint32 value)
+internal void SetTileValue(uint32 *tileMap, uint32 tileX, uint32 tileY, uint32 tileMapXCount, uint32 tileMapYCount, uint32 value)
 {
     Assert(tileX >= 0 && tileY >= 0 && tileX < tileMapXCount && tileY < tileMapYCount);
     tileMap[tileY * tileMapXCount + tileX] = value;
 }
 
-static void GenerateLevel(uint32 *tileMap, uint32 tileMapXCount, uint32 tileMapYCount)
+internal void GenerateLevel(uint32 *tileMap, uint32 tileMapXCount, uint32 tileMapYCount)
 {
     for (uint32 y = 0; y < tileMapYCount; y++)
     {
@@ -26,14 +26,14 @@ static void GenerateLevel(uint32 *tileMap, uint32 tileMapXCount, uint32 tileMapY
     }
 }
 
-static uint32 GetTileValue(uint32 *tileMap, uint32 tileX, uint32 tileY, uint32 tileMapXCount, uint32 tileMapYCount)
+internal uint32 GetTileValue(uint32 *tileMap, uint32 tileX, uint32 tileY, uint32 tileMapXCount, uint32 tileMapYCount)
 {
     Assert(tileX >= 0 && tileY >= 0 && tileX < tileMapXCount && tileY < tileMapYCount);
     uint32 result = tileMap[tileY * tileMapXCount + tileX];
     return result;
 }
 
-static bool CheckTileIsSolid(uint32 *tileMap, uint32 tileX, uint32 tileY, uint32 tileMapXCount, uint32 tileMapYCount)
+internal bool CheckTileIsSolid(uint32 *tileMap, uint32 tileX, uint32 tileY, uint32 tileMapXCount, uint32 tileMapYCount)
 {
     bool result = false;
     uint32 tileValue = GetTileValue(tileMap, tileX, tileY, tileMapXCount, tileMapYCount);

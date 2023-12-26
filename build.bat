@@ -8,6 +8,8 @@ pushd ..\..\build
 
 REM 64-bit executable
 del *.pdb > NUL 2> NUL
+echo WAITING FOR PDB > lock.tmp
 cl %DefaultCompilerFlags% ..\keepmovingforward\src\keepmovingforward.cpp -Fmkeepmovingforward.map -LD /link -incremental:no -opt:ref -PDB:keepmovingforward_%random%.pdb -EXPORT:GameUpdateAndRender
 cl %DefaultCompilerFlags% ..\keepmovingforward\src\win32_keepmovingforward.cpp -Fmwin32_keepmovingforward.map /link %DefaultLinkerFlags%
+del *.tmp
 popd

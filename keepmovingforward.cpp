@@ -1,11 +1,11 @@
 #include "keepmovingforward.h"
-#include "keepmovingforward_intrinsic.h"
+#include "keepmovingforward_math.h"
 #include "keepmovingforward_tiles.cpp"
 #include "keepmovingforward_types.h"
-#include <math.h>
 
 const float GRAVITY = 98.f;
 
+#if 0
 void GameOutputSound(GameSoundOutput *soundBuffer, int toneHz)
 {
     static float tSine = 0;
@@ -28,7 +28,6 @@ void GameOutputSound(GameSoundOutput *soundBuffer, int toneHz)
     }
 }
 
-#if 0
 void RenderGradient(GameOffscreenBuffer *buffer, int xOffset, int yOffset)
 {
     uint8 *row = (uint8 *)buffer->memory;
@@ -51,8 +50,9 @@ void RenderGradient(GameOffscreenBuffer *buffer, int xOffset, int yOffset)
 }
 #endif
 
-void DrawRectangle(GameOffscreenBuffer *buffer, const float floatMinX, const float floatMinY, const float floatMaxX, const float floatMaxY,
-                   const float r, const float g, const float b)
+void DrawRectangle(GameOffscreenBuffer *buffer, const float floatMinX, const float floatMinY,
+                   const float floatMaxX, const float floatMaxY, const float r, const float g,
+                   const float b)
 {
     int minX = RoundFloatToInt32(floatMinX);
     int minY = RoundFloatToInt32(floatMinY);
@@ -92,6 +92,26 @@ void DrawRectangle(GameOffscreenBuffer *buffer, const float floatMinX, const flo
         row += buffer->pitch;
     }
 }
+
+struct DrawData
+{
+    int lowerLeftX;
+    int lowerLeftY;
+    float metersToPixels;
+};
+
+// TODO: x and y located at bottom center, maybe change to center center?
+void DrawMovable(GameOffscreenBuffer *buffer, DrawData data, const Entity *entity)
+{
+    float playerMinX =
+        data.lowerLeftX + entity->pos.x * data.metersToPixels - entity->size.x / 2 * data.metersToPixels;
+    float playerMinY = data.lowerLeftY - entity->pos.y * data.metersToPixels;
+    float playerMaxX = playerMinX + entity->size.x * data.metersToPixels;
+    float playerMaxY = playerMinY - entity->size.y * data.metersToPixels;
+    DrawRectangle(buffer, playerMinX, playerMaxY, playerMaxX, playerMinY, entity->r, entity->g,
+                  entity->b);
+}
+
 void DrawBitmap(GameOffscreenBuffer *buffer, DebugBmpResult *bmp, const float floatX, const float floatY)
 {
     int minX = RoundFloatToInt32(floatX);
@@ -132,7 +152,8 @@ void DrawBitmap(GameOffscreenBuffer *buffer, DebugBmpResult *bmp, const float fl
     }
 }
 
-static DebugBmpResult DebugLoadBMP(DebugPlatformReadFileFunctionType *PlatformReadFile, const char *filename)
+internal DebugBmpResult DebugLoadBMP(DebugPlatformReadFileFunctionType *PlatformReadFile,
+                                     const char *filename)
 {
     DebugBmpResult result = {};
     DebugReadFileOutput output = PlatformReadFile(filename);
@@ -148,27 +169,42 @@ static DebugBmpResult DebugLoadBMP(DebugPlatformReadFileFunctionType *PlatformRe
     return result;
 }
 
-// NOTE: this is dumb, but that's ok. x y are bottom left. in meters.
-struct CollisionBox
+enum CollisionType
 {
-    float x;
-    float y;
-    float width;
-    float height;
-
-    uint32 collisionLevel;
+    GROUND,
+    WALL,
+    GROUNDWALL,
+    TERMINATOR,
 };
 
-static bool CheckCollision(const CollisionBox box1, const CollisionBox box2)
+// TODO: struct to represent rect?
+struct CollisionBox
 {
-    if (box1.x < box2.x + box2.width && box1.y < box2.y + box2.height && box2.x < box1.x + box1.width && box2.y < box1.y + box1.height)
+    union
     {
-        return true;
-    }
-    return false;
-}
+        struct
+        {
+            v2 pos;
+            v2 size;
+        };
+        struct
+        {
+            float x;
+            float y;
+            float width;
+            float height;
+        };
+    };
+    CollisionType type;
+};
 
-static void InitializeArena(MemoryArena *arena, void *base, size_t size)
+struct CollisionResponse
+{
+    bool collided;
+    v2 normal;
+};
+
+internal void InitializeArena(MemoryArena *arena, void *base, size_t size)
 {
     arena->size = size;
     arena->base = base;
@@ -177,7 +213,7 @@ static void InitializeArena(MemoryArena *arena, void *base, size_t size)
 
 #define PushArray(arena, type, count) (type *)PushArena(arena, sizeof(type) * (count))
 #define PushStruct(arena, type) (type *)PushArray(arena, type, 1)
-static void *PushArena(MemoryArena *arena, size_t size)
+internal void *PushArena(MemoryArena *arena, size_t size)
 {
     Assert(arena->used + size <= arena->size);
     void *result = (uint8 *)arena->base + arena->used;
@@ -185,23 +221,308 @@ static void *PushArena(MemoryArena *arena, size_t size)
     return result;
 }
 
+inline Entity *GetPlayer(GameState *gameState)
+{
+    Entity *player = &gameState->entities[gameState->playerIndex];
+    return player;
+}
+
+// TODO: IDs, remove entity
+inline int CreateEntity(GameState *gameState)
+{
+    int entityIndex = gameState->entityCount++;
+    Entity *entity = &gameState->entities[entityIndex];
+    // TODO: no 0 initialization?
+    *entity = {};
+
+    return entityIndex;
+}
+
+struct Polygon
+{
+    // v2 *points;
+    // TODO: actually support all polygons
+    v2 points[4];
+    int numPoints;
+};
+
+// TODO: probably needs to store more info to actually get the distance/closest point
+struct Simplex
+{
+    v2 vertexA;
+    v2 vertexB;
+    v2 vertexC;
+
+    int count;
+};
+
+// TODO: define different support function for different shapes (e.g circle)
+static int GetSupport(const Polygon *polygon, const v2 d)
+{
+    int index = 0;
+    float bestValue = Dot(polygon->points[0], d);
+    for (int i = 1; i < polygon->numPoints; i++)
+    {
+        float tempValue = Dot(polygon->points[i], d);
+        if (tempValue > bestValue)
+        {
+            index = i;
+            bestValue = tempValue;
+        }
+    }
+    return index;
+}
+
+internal bool lineCase(Simplex *simplex, v2 *d);
+internal bool triangleCase(Simplex *simplex, v2 *d);
+// NOTE: implement this once you use something other than boxes for collision, not before
+static bool GJKMainLoop(Polygon *p1, Polygon *p2)
+{
+
+    // * d = ??
+    // * S = Support( ? ), Support(polygon1, d) - Support(polygon2, -d)
+    // * Points += S
+    // * d = -S (points to origin)
+    // * while
+    // *      S = GetSupport(d)
+    // *      if (S * d) < 0 (point is opposite direction of d, meaning you can't cross origin)
+    // *          game over
+    // *      Points += S
+    // *      if HandleSimplex(Points, d)
+    //              collision detected
+    // *
+    v2 d = Normalize(p2->points[0] - p1->points[0]);
+    Simplex simplex = {};
+
+    simplex.vertexA = p2->points[GetSupport(p2, d)] - p1->points[GetSupport(p1, -d)];
+    d = -simplex.vertexA;
+    simplex.count = 1;
+
+    while (1)
+    {
+        if (Dot(d, d) == 0)
+        {
+            return false;
+        }
+
+        simplex.vertexC = simplex.vertexB; 
+        simplex.vertexB = simplex.vertexA;
+
+        v2 a = p2->points[GetSupport(p2, d)] - p1->points[GetSupport(p1, -d)];
+        // Didn't cross origin
+        if (Dot(a, d) < 0)
+        {
+            return false;
+        }
+        simplex.vertexA = a;
+        simplex.count += 1;
+
+        bool result = false;
+        switch (simplex.count)
+        {
+        case 1:
+            break;
+        case 2:
+            result = lineCase(&simplex, &d);
+            break;
+        case 3:
+            result = triangleCase(&simplex, &d);
+            break;
+        default:
+            Assert(false);
+        }
+        if (result)
+        {
+            return true;
+        }
+    }
+}
+
+internal bool lineCase(Simplex *simplex, v2 *d)
+{
+    v2 a = simplex->vertexA;
+    v2 b = simplex->vertexB;
+    // Don't need to check voronoi regions, since A is the most recently added point,
+    // it is past origin with respect to B.
+    v2 ab = b - a;
+    v2 ao = -a;
+
+    v2 abperp = Cross(Cross(ab, ao), ab);
+    // case where it's on line
+    if (Dot(abperp, ao) == 0)
+    {
+        return true;
+    }
+
+    *d = abperp;
+    return false;
+}
+
+internal bool triangleCase(Simplex *simplex, v2 *d)
+{
+    v2 a = simplex->vertexA;
+    v2 b = simplex->vertexB;
+    v2 c = simplex->vertexC;
+
+    v2 ab = b - a;
+    v2 ac = c - a;
+    v2 ao = -a;
+
+    v2 abperp = Cross(Cross(ac, ab), ab);
+    v2 acperp = Cross(Cross(ab, ac), ac);
+
+    if (Dot(abperp, ao) > 0)
+    {
+        simplex->vertexC = {};
+        simplex->count -= 1;
+        *d = abperp;
+        return false;
+    }
+    else if (Dot(acperp, ao) > 0)
+    {
+        simplex->vertexB = simplex->vertexC;
+        simplex->vertexC = {};
+        simplex->count -= 1;
+        *d = acperp;
+        return false;
+    }
+    return true;
+}
+
+internal bool TestWallCollision(float wallLocation, float playerRelWall, float playerRelWallParallel,
+                                float playerDelta, float *tMin, float wallStart, float wallEnd)
+{
+    bool hit = false;
+    float epsilon = 0.00001f;
+    float t = (wallLocation - playerRelWall) / playerDelta;
+    if (t >= 0 && t < *tMin)
+    {
+        float y = playerRelWallParallel + t * playerDelta;
+        if (y >= wallStart && y <= wallEnd)
+        {
+            hit = true;
+            *tMin = Max(0.f, t - epsilon);
+        }
+    }
+    return hit;
+}
+
+struct CollisionResult
+{
+    v2 normal;
+    bool hit;
+};
+
+internal CollisionResult TestMovingEntityCollision(const CollisionBox *dynamic,
+                                                   const CollisionBox *fixed, v2 delta, float *tResult)
+
+{
+    CollisionResult result = {};
+
+    float diameterWidth = dynamic->width + fixed->width;
+    float diameterHeight = dynamic->height + fixed->height;
+
+    v2 minCorner = -0.5f * v2{diameterWidth, diameterHeight};
+    v2 maxCorner = 0.5f * v2{diameterWidth, diameterHeight};
+
+    // subtract centers of boxes
+    v2 relative = (dynamic->pos + v2{dynamic->width / 2.f, dynamic->height / 2.f}) -
+                  (fixed->pos + v2{fixed->width / 2.f, fixed->height / 2.f});
+
+    v2 normal = {};
+    if (delta.x != 0)
+    {
+        if (delta.x > 0)
+        {
+            if (TestWallCollision(minCorner.x, relative.x, relative.y, delta.x, tResult, minCorner.y,
+                                  maxCorner.y))
+            {
+                normal = v2{-1, 0};
+            }
+        }
+        if (delta.x < 0)
+        {
+            if (TestWallCollision(maxCorner.x, relative.x, relative.y, delta.x, tResult, minCorner.y,
+                                  maxCorner.y))
+            {
+
+                normal = v2{1, 0};
+            }
+        }
+    }
+    if (delta.y != 0 && fixed->type != WALL)
+    {
+        if (delta.y > 0)
+        {
+            if (TestWallCollision(minCorner.y, relative.y, relative.x, delta.y, tResult, minCorner.x,
+                                  maxCorner.x))
+            {
+
+                normal = v2{0, -1};
+            }
+        }
+
+        if (delta.y < 0)
+        {
+            if (TestWallCollision(maxCorner.y, relative.y, relative.x, delta.y, tResult, minCorner.x,
+                                  maxCorner.x))
+            {
+
+                normal = v2{0, 1};
+            }
+        }
+    }
+    if (normal.x != 0 || normal.y != 0)
+    {
+        result.hit = true;
+    }
+    result.normal = normal;
+    return result;
+}
+
 extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 {
+    // Initialization
     GameState *gameState = (GameState *)memory->PersistentStorageMemory;
 
     int tileMapSideInPixels = 8;
     float tileMapSideInMeters = 1.f;
     float metersToPixels = tileMapSideInPixels / tileMapSideInMeters;
+    int lowerLeftX = 0;
+    int lowerLeftY = offscreenBuffer->height + tileMapSideInPixels / 2;
 
     if (!memory->isInitialized)
     {
         gameState->bmpTest = DebugLoadBMP(memory->DebugPlatformReadFile, "test/tile.bmp");
-        gameState->playerX = 4.f;
-        gameState->playerY = 4.f;
-        gameState->playerWidth = tileMapSideInMeters;
-        gameState->playerHeight = 2 * tileMapSideInMeters;
 
-        InitializeArena(&gameState->worldArena, (uint8 *)memory->PersistentStorageMemory + sizeof(GameState),
+        CreateEntity(gameState);
+
+        // player init
+
+        int playerIndex = gameState->entityCount;
+        Entity *player = GetPlayer(gameState);
+        player->airborne = true;
+        player->pos.x = 4.f;
+        player->pos.y = 4.f;
+        player->size.x = tileMapSideInMeters;
+        player->size.y = 2 * tileMapSideInMeters;
+        player->r = 1.f;
+        player->g = 0.f;
+        player->b = 1.f;
+
+        gameState->swapIndex = CreateEntity(gameState);
+        Entity *swap = &gameState->entities[gameState->swapIndex];
+        *swap = {};
+        swap->pos.x = 8.f;
+        swap->pos.y = 8.f;
+        swap->size.x = tileMapSideInMeters;
+        swap->size.y = tileMapSideInMeters;
+        swap->r = 0.f;
+        swap->g = 1.f;
+        swap->b = 1.f;
+
+        InitializeArena(&gameState->worldArena,
+                        (uint8 *)memory->PersistentStorageMemory + sizeof(GameState),
                         memory->PersistentStorageSize - sizeof(GameState));
 
         gameState->level = PushStruct(&gameState->worldArena, Level);
@@ -214,9 +535,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     Level *level = gameState->level;
     GameControllerInput *player1 = &(input->controllers[0]);
 
-    int lowerLeftX = 0;
-    int lowerLeftY = offscreenBuffer->height + tileMapSideInPixels / 2;
-    // NOTE: tileMap X Y
+    // Collision
 
     CollisionBox boxes[TILE_MAP_Y_COUNT * TILE_MAP_X_COUNT] = {};
     int index = 0;
@@ -231,112 +550,208 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
                 box.y = y * tileMapSideInMeters;
                 box.width = tileMapSideInMeters;
                 box.height = tileMapSideInMeters;
-                if (GetTileValue(level->tileMap, x, y, TILE_MAP_X_COUNT, TILE_MAP_Y_COUNT) == 2)
+                if (GetTileValue(level->tileMap, x, y, TILE_MAP_X_COUNT, TILE_MAP_Y_COUNT) == 1)
                 {
-                    box.collisionLevel = 2;
+                    box.type = WALL;
                 }
                 else
                 {
-                    box.collisionLevel = 1;
+                    box.type = GROUND;
                 }
                 boxes[index++] = box;
             }
         }
     }
 
-    DrawRectangle(offscreenBuffer, 0.f, 0.f, 320, 180, 1.f, 1.f, 1.f);
-    // NOTE: Y goes up, X goes to the right
-    for (int row = 0; row < TILE_MAP_Y_COUNT; row++)
+    // Physics
+    Entity *player = GetPlayer(gameState);
+    Entity *swap = &gameState->entities[gameState->swapIndex];
+
+    // Swap Position
+    if (player1->swap.keyDown && player1->swap.halfTransitionCount >= 1)
     {
-        for (int col = 0; col < TILE_MAP_X_COUNT; col++)
-        {
-            float gray = 1.f;
-            float minX = lowerLeftX + (float)col * tileMapSideInPixels;
-            float minY = lowerLeftY - (float)row * tileMapSideInPixels;
-            float maxX = minX + tileMapSideInPixels;
-            float maxY = minY - tileMapSideInPixels;
-            if (CheckTileIsSolid(level->tileMap, col, row, TILE_MAP_X_COUNT, TILE_MAP_Y_COUNT))
-            {
-                DrawBitmap(offscreenBuffer, &gameState->bmpTest, minX, maxY);
-            }
-            else
-            {
-                DrawRectangle(offscreenBuffer, minX, maxY, maxX, minY, gray, gray, gray);
-            }
-        }
+        v2 temp = player->pos;
+        player->pos = swap->pos;
+        swap->pos = temp;
     }
 
-    gameState->dx = 0;
-    gameState->dx += player1->right.keyDown ? 1.f : 0.f;
-    gameState->dx += player1->left.keyDown ? -1.f : 0.f;
-    float multiplier = 3;
+    // Swap Soul
+    if (player1->soul.keyDown && player1->soul.halfTransitionCount >= 1)
+    {
+        Entity temp = *player;
+        *player = *swap;
+        *swap = temp;
+
+        swap->airborne = true;
+    }
+
+    v2 *dPlayerXY = &player->velocity;
+    v2 *ddPlayerXY = &player->acceleration;
+
+    dPlayerXY->x = 0;
+    dPlayerXY->x += player1->right.keyDown ? 1.f : 0.f;
+    dPlayerXY->x += player1->left.keyDown ? -1.f : 0.f;
+    float multiplier = 5;
     if (player1->shift.keyDown)
     {
         multiplier = 7;
+        // gameState->ddPlayerXY +=
     }
-    gameState->dx *= multiplier;
+    dPlayerXY->x *= multiplier;
 
-    // JUMP!
-    // TODO: finite state machine for movement: OnGround, AirBorn, etc.
-    // TODO IMPORTANT: bounding box for collision xD
-    if (player1->jump.keyDown && !gameState->isJumping)
+    if (player1->jump.keyDown && !player->airborne)
     {
-        gameState->dy += 20.f;
-        gameState->isJumping = true;
+        dPlayerXY->y += 20.f;
+        player->airborne = true;
     }
-    if (gameState->isJumping)
+
+    if (player->airborne)
     {
-        gameState->dy -= GRAVITY * input->dT;
+        *ddPlayerXY = v2{0, -GRAVITY};
     }
 
-    float expectedPlayerX = gameState->playerX + gameState->dx * input->dT;
-    float expectedPlayerY = gameState->playerY + gameState->dy * input->dT;
-    // float expectedPlayerX = gameState->playerX + metersToPixels * dx * input->dT;
-    // float expectedPlayerY = gameState->playerY + metersToPixels * gameState->dy * input->dT;
+    else
+    {
+        *ddPlayerXY = v2{0, 0};
+    }
+    v2 playerDelta = 0.5f * input->dT * input->dT * *ddPlayerXY + *dPlayerXY * input->dT;
+    *dPlayerXY += *ddPlayerXY * input->dT;
 
-    // TODO: actually somehow check if the player lands, this will mess up when collide with wall
-    // midair
-    /* NOTE: this is probably how I want basic physics to work initially
+    // v2 expectedPlayerPos = gameState->player.pos + gameState->dPlayerXY * input->dT;
+
+    // TODO: actually somehow check if the player lands, this will
+    // mess up when collide with wall midair
+    /* NOTE: this is probably how I want basic physics to work
+    initially
         1. Some notion of being airborne. Gravity applies here.
-        2. Some notion of being on the ground/on a surface. Gravity doesn't apply.
-        3. need to figure out how to differentiate collide with something in the air vs. landing
+        2. Some notion of being on the ground/on a surface. Gravity
+    doesn't apply.
+        3. need to figure out how to differentiate collide with
+    something in the air vs. landing
 
     SOLUTION: some tiles are ground tiles, some tiles are air
      */
-    CollisionBox playerBox;
-    playerBox.x = expectedPlayerX - gameState->playerWidth / 2;
-    playerBox.y = expectedPlayerY;
-    playerBox.width = gameState->playerWidth;
-    playerBox.height = gameState->playerHeight;
-    bool collided = false;
-    for (int i = 0; i < ArrayLength(boxes); i++)
+
+    // Collision Detetion
+    // TODO: handle the case where you're sweeping with two moving AABBs
+    // TODO: represent everything from the center?
+    // TODO: weird bug where I fell into the floor after swapping??? lmfao? 
+    //        I think it's because I switched positions right as I'm about to touch floor, 
+    //        or maybe when my position was just past the floor
+    //        this can be fixed by treating the ground as a solid instead of a line
     {
-        if (CheckCollision(playerBox, boxes[i]))
+        CollisionBox playerBox;
+        playerBox.x = player->pos.x - player->size.x / 2;
+        playerBox.y = player->pos.y;
+        playerBox.size = player->size;
+
+        CollisionBox swapBox;
+        swapBox.x = swap->pos.x - swap->size.x / 2;
+        swapBox.y = swap->pos.y;
+        swapBox.size = swap->size;
+
+        Polygon p1;
+        p1.points[0] = playerBox.pos;
+        p1.points[1] = playerBox.pos + v2{playerBox.width, 0};
+        p1.points[2] = playerBox.pos + v2{playerBox.width, playerBox.height};
+        p1.points[3] = playerBox.pos + v2{0, playerBox.height};
+        p1.numPoints = 4;
+
+        Polygon p2;
+        p2.points[0] = swapBox.pos;
+        p2.points[1] = swapBox.pos + v2{swapBox.width, 0};
+        p2.points[2] = swapBox.pos + v2{swapBox.width, swapBox.height};
+        p2.points[3] = swapBox.pos + v2{0, swapBox.height};
+        p2.numPoints = 4;
+
+        if (GJKMainLoop(&p1, &p2))
         {
-            collided = true;
-            gameState->dy = 0;
-            if (boxes[i].collisionLevel == 2)
+            player->r = 0.f;
+            player->g = 0.f;
+            player->b = 0.f;
+        }
+        else
+        {
+            player->r = 1.f;
+            player->g = 0.f;
+            player->b = 1.f;
+        }
+
+        float tRemaining = 1.f;
+        int iterationCount = 3;
+
+        for (int iteration = 0; tRemaining > 0.f && iteration < iterationCount; iteration++)
+        {
+            v2 normal = {};
+            float tResult = 1.f;
+            // TODO: should not be checking every box every frame twice
+            bool hit = false;
+            for (int i = 0; i < ArrayLength(boxes); i++)
             {
-                gameState->isJumping = false;
+                // NOTE ALGORITHM:
+                // 1. Find minkowski sum of two AABBs
+                // 2. Find relative positive of player with respect to the currently checked box.
+                // 3. Four cases:
+                //      a. If the player is moving left, check that the horizontal length between the
+                //      player and the right side of the box is less playerDelta.x. If so, check to see
+                //      if the player's y coordinate is within the box. If so, there is a collision. b,
+                //      c, d. Similar for the other sides of the box.
+                // 4. For the smallest time to collision, simply just place the player at that location.
+                // May want to revise this.
+
+                // Ray vs Minkowski Sum AABB
+
+                CollisionResult result =
+                    TestMovingEntityCollision(&playerBox, &boxes[i], playerDelta, &tResult);
+                if (result.hit)
+                {
+                    normal = result.normal;
+                    if (result.normal.x == 0 && result.normal.y == 1)
+                    {
+
+                        player->airborne = false;
+                    }
+                }
             }
-            break;
+
+            player->pos += playerDelta * tResult;
+            *dPlayerXY -= normal * Dot(*dPlayerXY, normal);
+            playerDelta = playerDelta - normal * Dot(playerDelta, normal);
+            tRemaining -= tResult;
         }
     }
-    if (!collided)
+
+    // Draw
     {
-        gameState->playerX = expectedPlayerX;
-        gameState->playerY = expectedPlayerY;
+        DrawRectangle(offscreenBuffer, 0.f, 0.f, 320, 180, 1.f, 1.f, 1.f);
+        for (int row = 0; row < TILE_MAP_Y_COUNT; row++)
+        {
+            for (int col = 0; col < TILE_MAP_X_COUNT; col++)
+            {
+                float gray = 1.f;
+                float minX = lowerLeftX + (float)col * tileMapSideInPixels;
+                float minY = lowerLeftY - (float)row * tileMapSideInPixels;
+                float maxX = minX + tileMapSideInPixels;
+                float maxY = minY - tileMapSideInPixels;
+                if (CheckTileIsSolid(level->tileMap, col, row, TILE_MAP_X_COUNT, TILE_MAP_Y_COUNT))
+                {
+                    DrawBitmap(offscreenBuffer, &gameState->bmpTest, minX, maxY);
+                }
+                else
+                {
+                    DrawRectangle(offscreenBuffer, minX, maxY, maxX, minY, gray, gray, gray);
+                }
+            }
+        }
+
+        DrawData data;
+        data.lowerLeftX = lowerLeftX;
+        data.lowerLeftY = lowerLeftY;
+        data.metersToPixels = metersToPixels;
+
+        DrawMovable(offscreenBuffer, data, swap);
+        DrawMovable(offscreenBuffer, data, player);
+
+        // GameOutputSound(soundBuffer, gameState->toneHz);
     }
-
-    // NOTE: player's origin is bottom middle of sprite
-    // TODO: decide on player origin location
-    // TODO: bounding box for collisions
-
-    float playerMinX = lowerLeftX + gameState->playerX * metersToPixels - gameState->playerWidth / 2 * metersToPixels;
-    float playerMinY = lowerLeftY - gameState->playerY * metersToPixels;
-    float playerMaxX = playerMinX + gameState->playerWidth * metersToPixels;
-    float playerMaxY = playerMinY - gameState->playerHeight * metersToPixels;
-    DrawRectangle(offscreenBuffer, playerMinX, playerMaxY, playerMaxX, playerMinY, 1.f, 0.f, 1.f);
-
-    // GameOutputSound(soundBuffer, gameState->toneHz);
 }

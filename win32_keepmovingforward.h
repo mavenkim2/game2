@@ -1,6 +1,6 @@
 #ifndef WIN32_GAME_H
 
-#include "keepmovingforward.h"
+#include "keepmovingforward_platform.h"
 #include "keepmovingforward_types.h"
 #include <windows.h>
 #include <xaudio2.h>
