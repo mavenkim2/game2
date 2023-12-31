@@ -1,9 +1,14 @@
 #include "keepmovingforward.h"
+#include "keepmovingforward_entity.cpp"
+#include "keepmovingforward_entity.h"
+#include "keepmovingforward_level.h"
 #include "keepmovingforward_math.h"
-#include "keepmovingforward_tiles.cpp"
+#include "keepmovingforward_platform.h"
 #include "keepmovingforward_types.h"
 
 const float GRAVITY = 98.f;
+// TODO: simulate actual drag??? 
+const float MAX_Y_SPEED = 50.f;
 
 #if 0
 void GameOutputSound(GameSoundOutput *soundBuffer, int toneHz)
@@ -28,7 +33,7 @@ void GameOutputSound(GameSoundOutput *soundBuffer, int toneHz)
     }
 }
 
-void RenderGradient(GameOffscreenBuffer *buffer, int xOffset, int yOffset)
+void RenderGradient(Gamebuffer *buffer, int xOffset, int yOffset)
 {
     uint8 *row = (uint8 *)buffer->memory;
     for (int y = 0; y < buffer->height; y++)
@@ -50,14 +55,13 @@ void RenderGradient(GameOffscreenBuffer *buffer, int xOffset, int yOffset)
 }
 #endif
 
-void DrawRectangle(GameOffscreenBuffer *buffer, const float floatMinX, const float floatMinY,
-                   const float floatMaxX, const float floatMaxY, const float r, const float g,
+void DrawRectangle(GameOffscreenBuffer *buffer, const v2 min, const v2 max, const float r, const float g,
                    const float b)
 {
-    int minX = RoundFloatToInt32(floatMinX);
-    int minY = RoundFloatToInt32(floatMinY);
-    int maxX = RoundFloatToInt32(floatMaxX);
-    int maxY = RoundFloatToInt32(floatMaxY);
+    int minX = RoundFloatToInt32(min.x);
+    int minY = RoundFloatToInt32(min.y);
+    int maxX = RoundFloatToInt32(max.x);
+    int maxY = RoundFloatToInt32(max.y);
 
     if (minX < 0)
     {
@@ -95,29 +99,17 @@ void DrawRectangle(GameOffscreenBuffer *buffer, const float floatMinX, const flo
 
 struct DrawData
 {
-    int lowerLeftX;
-    int lowerLeftY;
+    float screenCenterX;
+    float screenCenterY;
     float metersToPixels;
 };
 
-// TODO: x and y located at bottom center, maybe change to center center?
-void DrawMovable(GameOffscreenBuffer *buffer, DrawData data, const Entity *entity)
+void DrawBitmap(GameOffscreenBuffer *buffer, DebugBmpResult *bmp, const v2 min)
 {
-    float playerMinX =
-        data.lowerLeftX + entity->pos.x * data.metersToPixels - entity->size.x / 2 * data.metersToPixels;
-    float playerMinY = data.lowerLeftY - entity->pos.y * data.metersToPixels;
-    float playerMaxX = playerMinX + entity->size.x * data.metersToPixels;
-    float playerMaxY = playerMinY - entity->size.y * data.metersToPixels;
-    DrawRectangle(buffer, playerMinX, playerMaxY, playerMaxX, playerMinY, entity->r, entity->g,
-                  entity->b);
-}
-
-void DrawBitmap(GameOffscreenBuffer *buffer, DebugBmpResult *bmp, const float floatX, const float floatY)
-{
-    int minX = RoundFloatToInt32(floatX);
-    int minY = RoundFloatToInt32(floatY);
-    int maxX = RoundFloatToInt32(floatX + bmp->width);
-    int maxY = RoundFloatToInt32(floatY + bmp->height);
+    int minX = RoundFloatToInt32(min.x);
+    int minY = RoundFloatToInt32(min.y);
+    int maxX = minX + bmp->width;
+    int maxY = minY + bmp->height;
 
     if (minX < 0)
     {
@@ -169,41 +161,6 @@ internal DebugBmpResult DebugLoadBMP(DebugPlatformReadFileFunctionType *Platform
     return result;
 }
 
-enum CollisionType
-{
-    GROUND,
-    WALL,
-    GROUNDWALL,
-    TERMINATOR,
-};
-
-// TODO: struct to represent rect?
-struct CollisionBox
-{
-    union
-    {
-        struct
-        {
-            v2 pos;
-            v2 size;
-        };
-        struct
-        {
-            float x;
-            float y;
-            float width;
-            float height;
-        };
-    };
-    CollisionType type;
-};
-
-struct CollisionResponse
-{
-    bool collided;
-    v2 normal;
-};
-
 internal void InitializeArena(MemoryArena *arena, void *base, size_t size)
 {
     arena->size = size;
@@ -221,21 +178,68 @@ internal void *PushArena(MemoryArena *arena, size_t size)
     return result;
 }
 
+inline Entity *GetEntity(Level *level, int handle)
+{
+    Assert(handle < MAX_ENTITIES);
+
+    Entity *entity = level->entities + handle;
+    return entity;
+}
+
 inline Entity *GetPlayer(GameState *gameState)
 {
-    Entity *player = &gameState->entities[gameState->playerIndex];
+    Entity *player = &gameState->player;
     return player;
 }
 
-// TODO: IDs, remove entity
-inline int CreateEntity(GameState *gameState)
+inline Entity *CreateEntity(GameState *gameState, Level *level)
 {
-    int entityIndex = gameState->entityCount++;
-    Entity *entity = &gameState->entities[entityIndex];
+    Entity *entity = 0;
+    for (int i = 1; i < MAX_ENTITIES; i++)
+    {
+        if (!HasFlag(level->entities + i, Entity_Valid))
+        {
+            entity = level->entities + i;
+            break;
+        }
+    }
     // TODO: no 0 initialization?
-    *entity = {};
+    // *entity = {};
+    entity->id = gameState->entity_id_gen++;
 
-    return entityIndex;
+    return entity;
+}
+
+inline Entity *CreateWall(GameState *gameState, Level *level)
+{
+    Entity *wall = CreateEntity(gameState, level);
+
+    AddFlag(2, wall, Entity_Valid, Entity_Collidable);
+    return wall;
+}
+
+// NOTE: this assumes that the entity arg is in the level arg
+inline void RemoveEntity(Level *level, Entity *entity) { RemoveFlag(entity, Entity_Valid); }
+
+internal void GenerateLevel(GameState *gameState, uint32 tileWidth, uint32 tileHeight)
+{
+    Level *level = gameState->level;
+    level->levelWidth = tileWidth;
+    level->levelHeight = tileHeight;
+
+    for (uint32 y = 0; y < tileHeight; y++)
+    {
+        for (uint32 x = 0; x < tileWidth; x++)
+        {
+            if (x == 0 || y == 0 || x == tileWidth - 1)
+            {
+                Entity *entity = CreateWall(gameState, gameState->level);
+
+                entity->pos = v2{(float)x, (float)y};
+                entity->size = v2{TILE_METER_SIZE, TILE_METER_SIZE};
+            }
+        }
+    }
 }
 
 struct Polygon
@@ -252,6 +256,8 @@ struct Simplex
     v2 vertexA;
     v2 vertexB;
     v2 vertexC;
+
+    v2 vertexD;
 
     int count;
 };
@@ -276,21 +282,17 @@ static int GetSupport(const Polygon *polygon, const v2 d)
 internal bool lineCase(Simplex *simplex, v2 *d);
 internal bool triangleCase(Simplex *simplex, v2 *d);
 // NOTE: implement this once you use something other than boxes for collision, not before
-static bool GJKMainLoop(Polygon *p1, Polygon *p2)
-{
 
-    // * d = ??
-    // * S = Support( ? ), Support(polygon1, d) - Support(polygon2, -d)
-    // * Points += S
-    // * d = -S (points to origin)
-    // * while
-    // *      S = GetSupport(d)
-    // *      if (S * d) < 0 (point is opposite direction of d, meaning you can't cross origin)
-    // *          game over
-    // *      Points += S
-    // *      if HandleSimplex(Points, d)
-    //              collision detected
-    // *
+struct GJKResult
+{
+    bool hit;
+    Simplex simplex;
+};
+
+static GJKResult GJKMainLoop(Polygon *p1, Polygon *p2)
+{
+    GJKResult result = {};
+
     v2 d = Normalize(p2->points[0] - p1->points[0]);
     Simplex simplex = {};
 
@@ -302,38 +304,40 @@ static bool GJKMainLoop(Polygon *p1, Polygon *p2)
     {
         if (Dot(d, d) == 0)
         {
-            return false;
+            return result;
         }
 
-        simplex.vertexC = simplex.vertexB; 
+        simplex.vertexC = simplex.vertexB;
         simplex.vertexB = simplex.vertexA;
 
         v2 a = p2->points[GetSupport(p2, d)] - p1->points[GetSupport(p1, -d)];
         // Didn't cross origin
         if (Dot(a, d) < 0)
         {
-            return false;
+            return result;
         }
         simplex.vertexA = a;
         simplex.count += 1;
 
-        bool result = false;
+        bool hit = false;
         switch (simplex.count)
         {
         case 1:
             break;
         case 2:
-            result = lineCase(&simplex, &d);
+            hit = lineCase(&simplex, &d);
             break;
         case 3:
-            result = triangleCase(&simplex, &d);
+            hit = triangleCase(&simplex, &d);
             break;
         default:
             Assert(false);
         }
-        if (result)
+        if (hit)
         {
-            return true;
+            result.hit = true;
+            result.simplex = simplex;
+            return result;
         }
     }
 }
@@ -407,17 +411,11 @@ internal bool TestWallCollision(float wallLocation, float playerRelWall, float p
     return hit;
 }
 
-struct CollisionResult
-{
-    v2 normal;
-    bool hit;
-};
-
-internal CollisionResult TestMovingEntityCollision(const CollisionBox *dynamic,
-                                                   const CollisionBox *fixed, v2 delta, float *tResult)
+internal v2 TestMovingEntityCollision(const Rect2 *dynamic, const Rect2 *fixed, v2 delta, float *tResult)
 
 {
-    CollisionResult result = {};
+    v2 normal = {};
+    float tMin = *tResult;
 
     float diameterWidth = dynamic->width + fixed->width;
     float diameterHeight = dynamic->height + fixed->height;
@@ -426,58 +424,84 @@ internal CollisionResult TestMovingEntityCollision(const CollisionBox *dynamic,
     v2 maxCorner = 0.5f * v2{diameterWidth, diameterHeight};
 
     // subtract centers of boxes
-    v2 relative = (dynamic->pos + v2{dynamic->width / 2.f, dynamic->height / 2.f}) -
-                  (fixed->pos + v2{fixed->width / 2.f, fixed->height / 2.f});
+    v2 relative = {(dynamic->pos + 0.5 * dynamic->size) - (fixed->pos + 0.5 * fixed->size)};
 
-    v2 normal = {};
-    if (delta.x != 0)
+    if (delta.y > 0)
     {
-        if (delta.x > 0)
+        if (TestWallCollision(minCorner.y, relative.y, relative.x, delta.y, tResult, minCorner.x,
+                              maxCorner.x))
         {
-            if (TestWallCollision(minCorner.x, relative.x, relative.y, delta.x, tResult, minCorner.y,
-                                  maxCorner.y))
-            {
-                normal = v2{-1, 0};
-            }
-        }
-        if (delta.x < 0)
-        {
-            if (TestWallCollision(maxCorner.x, relative.x, relative.y, delta.x, tResult, minCorner.y,
-                                  maxCorner.y))
-            {
 
-                normal = v2{1, 0};
-            }
+            normal = v2{0, -1};
         }
     }
-    if (delta.y != 0 && fixed->type != WALL)
+
+    if (delta.y < 0)
     {
-        if (delta.y > 0)
+        if (TestWallCollision(maxCorner.y, relative.y, relative.x, delta.y, tResult, minCorner.x,
+                              maxCorner.x))
         {
-            if (TestWallCollision(minCorner.y, relative.y, relative.x, delta.y, tResult, minCorner.x,
-                                  maxCorner.x))
-            {
 
-                normal = v2{0, -1};
-            }
-        }
-
-        if (delta.y < 0)
-        {
-            if (TestWallCollision(maxCorner.y, relative.y, relative.x, delta.y, tResult, minCorner.x,
-                                  maxCorner.x))
-            {
-
-                normal = v2{0, 1};
-            }
+            normal = v2{0, 1};
         }
     }
-    if (normal.x != 0 || normal.y != 0)
+
+    if (delta.x > 0)
     {
-        result.hit = true;
+        if (TestWallCollision(minCorner.x, relative.x, relative.y, delta.x, tResult, minCorner.y,
+                              maxCorner.y))
+        {
+            normal = v2{-1, 0};
+        }
     }
-    result.normal = normal;
-    return result;
+    if (delta.x < 0)
+    {
+        if (TestWallCollision(maxCorner.x, relative.x, relative.y, delta.x, tResult, minCorner.y,
+                              maxCorner.y))
+        {
+            normal = v2{1, 0};
+        }
+    }
+
+    return normal;
+}
+
+// TODO: return (0, 0) instead of bifurcating code path?
+internal bool ScaleMousePosition(v2 mousePos, v2 resolutionScale, uint32 bufferWidth,
+                                 uint32 bufferHeight, v2 *mouseTilePos)
+{
+    if (mousePos.x >= 0 && mousePos.y >= 0 && mousePos.x < resolutionScale.x &&
+        mousePos.y < resolutionScale.y)
+    {
+        *mouseTilePos = mousePos;
+        mouseTilePos->y = resolutionScale.y - mouseTilePos->y;
+
+        resolutionScale.x /= bufferWidth;
+        resolutionScale.y /= bufferHeight;
+        mouseTilePos->x /= resolutionScale.x;
+        mouseTilePos->y /= resolutionScale.y;
+
+        // *mouseTilePos /= (float)TILE_PIXEL_SIZE;
+
+        return true;
+    }
+    return false;
+}
+
+internal void InitializePlayer(GameState *gameState)
+{
+    Entity *player = &gameState->player;
+    // *player = {};
+
+    player->pos.x = 6.f;
+    player->pos.y = 6.f;
+    player->size.x = TILE_METER_SIZE;
+    player->size.y = 2 * TILE_METER_SIZE;
+    player->r = 1.f;
+    player->g = 0.f;
+    player->b = 1.f;
+
+    AddFlag(3, player, Entity_Valid, Entity_Collidable, Entity_Airborne, Entity_Swappable);
 }
 
 extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
@@ -485,59 +509,45 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     // Initialization
     GameState *gameState = (GameState *)memory->PersistentStorageMemory;
 
-    int tileMapSideInPixels = 8;
-    float tileMapSideInMeters = 1.f;
-    float metersToPixels = tileMapSideInPixels / tileMapSideInMeters;
-    int lowerLeftX = 0;
-    int lowerLeftY = offscreenBuffer->height + tileMapSideInPixels / 2;
+    float screenCenterX = buffer->width * .5f;
+    float screenCenterY = buffer->height * .5f;
 
     if (!memory->isInitialized)
     {
         gameState->bmpTest = DebugLoadBMP(memory->DebugPlatformReadFile, "test/tile.bmp");
-
-        CreateEntity(gameState);
-
-        // player init
-
-        int playerIndex = gameState->entityCount;
-        Entity *player = GetPlayer(gameState);
-        player->airborne = true;
-        player->pos.x = 4.f;
-        player->pos.y = 4.f;
-        player->size.x = tileMapSideInMeters;
-        player->size.y = 2 * tileMapSideInMeters;
-        player->r = 1.f;
-        player->g = 0.f;
-        player->b = 1.f;
-
-        gameState->swapIndex = CreateEntity(gameState);
-        Entity *swap = &gameState->entities[gameState->swapIndex];
-        *swap = {};
-        swap->pos.x = 8.f;
-        swap->pos.y = 8.f;
-        swap->size.x = tileMapSideInMeters;
-        swap->size.y = tileMapSideInMeters;
-        swap->r = 0.f;
-        swap->g = 1.f;
-        swap->b = 1.f;
-
         InitializeArena(&gameState->worldArena,
                         (uint8 *)memory->PersistentStorageMemory + sizeof(GameState),
                         memory->PersistentStorageSize - sizeof(GameState));
-
         gameState->level = PushStruct(&gameState->worldArena, Level);
-        Level *level = gameState->level;
-        level->tileMap = PushArray(&gameState->worldArena, uint32, TILE_MAP_X_COUNT * TILE_MAP_Y_COUNT);
-        GenerateLevel(level->tileMap, TILE_MAP_X_COUNT, TILE_MAP_Y_COUNT);
+
+        Entity *nilEntity = CreateEntity(gameState, gameState->level);
+        // nilEntity = &NIL_ENTITY;
+
+        GenerateLevel(gameState, TILE_MAP_X_COUNT, TILE_MAP_Y_COUNT * 2);
+
+        InitializePlayer(gameState);
+
+        Entity *swap = CreateEntity(gameState, gameState->level);
+        *swap = {};
+        swap->pos.x = 8.f;
+        swap->pos.y = 8.f;
+        swap->size.x = TILE_METER_SIZE;
+        swap->size.y = TILE_METER_SIZE;
+        swap->r = 0.f;
+        swap->g = 1.f;
+        swap->b = 1.f;
+        AddFlag(3, swap, Entity_Valid, Entity_Collidable, Entity_Swappable);
 
         memory->isInitialized = true;
+
+        gameState->camera.pos = v2{20.f, 11.5f};
     }
     Level *level = gameState->level;
-    GameControllerInput *player1 = &(input->controllers[0]);
+    GameInput *playerController = input;
 
     // Collision
 
-    CollisionBox boxes[TILE_MAP_Y_COUNT * TILE_MAP_X_COUNT] = {};
+    /* CollisionBox boxes[TILE_MAP_Y_COUNT * TILE_MAP_X_COUNT] = {};
     int index = 0;
     for (int y = 0; y < TILE_MAP_Y_COUNT; y++)
     {
@@ -546,10 +556,10 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             if (CheckTileIsSolid(level->tileMap, x, y, TILE_MAP_X_COUNT, TILE_MAP_Y_COUNT))
             {
                 CollisionBox box;
-                box.x = x * tileMapSideInMeters;
-                box.y = y * tileMapSideInMeters;
-                box.width = tileMapSideInMeters;
-                box.height = tileMapSideInMeters;
+                box.x = x * TILE_METER_SIZE;
+                box.y = y * TILE_METER_SIZE;
+                box.width = TILE_METER_SIZE;
+                box.height = TILE_METER_SIZE;
                 if (GetTileValue(level->tileMap, x, y, TILE_MAP_X_COUNT, TILE_MAP_Y_COUNT) == 1)
                 {
                     box.type = WALL;
@@ -561,53 +571,70 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
                 boxes[index++] = box;
             }
         }
-    }
+    } */
 
     // Physics
     Entity *player = GetPlayer(gameState);
-    Entity *swap = &gameState->entities[gameState->swapIndex];
+    Entity *swap = {};
+
+    // TODO: swap w/ shortest distance
+    for (int i = 0; i < MAX_ENTITIES; i++)
+    {
+        if (HasFlag(level->entities + i, Entity_Swappable))
+        {
+            swap = level->entities + i;
+            break;
+        }
+    }
 
     // Swap Position
-    if (player1->swap.keyDown && player1->swap.halfTransitionCount >= 1)
+    if (playerController->swap.keyDown && playerController->swap.halfTransitionCount >= 1)
     {
-        v2 temp = player->pos;
-        player->pos = swap->pos;
-        swap->pos = temp;
+        if (swap && IsValid(swap))
+        {
+            v2 temp = player->pos;
+            player->pos = swap->pos;
+            swap->pos = temp;
+        }
     }
 
     // Swap Soul
-    if (player1->soul.keyDown && player1->soul.halfTransitionCount >= 1)
+    if (playerController->soul.keyDown && playerController->soul.halfTransitionCount >= 1)
     {
-        Entity temp = *player;
-        *player = *swap;
-        *swap = temp;
+        uint64 swapFlags = swap->flags;
+        uint64 playerFlags = player->flags;
 
-        swap->airborne = true;
+        Entity *temp = player;
+        *player = *swap;
+        player->flags |= playerFlags;
+        *swap = *temp;
+        swap->flags = swapFlags;
     }
 
     v2 *dPlayerXY = &player->velocity;
     v2 *ddPlayerXY = &player->acceleration;
 
     dPlayerXY->x = 0;
-    dPlayerXY->x += player1->right.keyDown ? 1.f : 0.f;
-    dPlayerXY->x += player1->left.keyDown ? -1.f : 0.f;
+    dPlayerXY->x += playerController->right.keyDown ? 1.f : 0.f;
+    dPlayerXY->x += playerController->left.keyDown ? -1.f : 0.f;
     float multiplier = 5;
-    if (player1->shift.keyDown)
+    if (playerController->shift.keyDown)
     {
         multiplier = 7;
         // gameState->ddPlayerXY +=
     }
     dPlayerXY->x *= multiplier;
 
-    if (player1->jump.keyDown && !player->airborne)
+    if (playerController->jump.keyDown && !HasFlag(player, Entity_Airborne))
     {
         dPlayerXY->y += 20.f;
-        player->airborne = true;
+        AddFlag(1, player, Entity_Airborne);
     }
 
-    if (player->airborne)
+    if (HasFlag(player, Entity_Airborne))
     {
         *ddPlayerXY = v2{0, -GRAVITY};
+        dPlayerXY->y = Min(Max(dPlayerXY->y, -MAX_Y_SPEED), MAX_Y_SPEED);
     }
 
     else
@@ -635,18 +662,19 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     // Collision Detetion
     // TODO: handle the case where you're sweeping with two moving AABBs
     // TODO: represent everything from the center?
-    // TODO: weird bug where I fell into the floor after swapping??? lmfao? 
-    //        I think it's because I switched positions right as I'm about to touch floor, 
+    // TODO: weird bug where I fell into the floor after swapping??? lmfao?
+    //        I think it's because I switched positions right as I'm about to touch floor,
     //        or maybe when my position was just past the floor
     //        this can be fixed by treating the ground as a solid instead of a line
     {
-        CollisionBox playerBox;
-        playerBox.x = player->pos.x - player->size.x / 2;
+        Rect2 playerBox;
+        playerBox.x = player->pos.x;
         playerBox.y = player->pos.y;
         playerBox.size = player->size;
-
-        CollisionBox swapBox;
-        swapBox.x = swap->pos.x - swap->size.x / 2;
+#if 0
+#else
+        Rect2 swapBox;
+        swapBox.x = swap->pos.x + swap->size.x / 2;
         swapBox.y = swap->pos.y;
         swapBox.size = swap->size;
 
@@ -664,7 +692,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         p2.points[3] = swapBox.pos + v2{0, swapBox.height};
         p2.numPoints = 4;
 
-        if (GJKMainLoop(&p1, &p2))
+        if (GJKMainLoop(&p1, &p2).hit)
         {
             player->r = 0.f;
             player->g = 0.f;
@@ -676,81 +704,165 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             player->g = 0.f;
             player->b = 1.f;
         }
+#endif
 
-        float tRemaining = 1.f;
-        int iterationCount = 3;
+        const int iterationCount = 3;
 
-        for (int iteration = 0; tRemaining > 0.f && iteration < iterationCount; iteration++)
+        for (int iteration = 0; iteration < iterationCount; iteration++)
         {
             v2 normal = {};
             float tResult = 1.f;
-            // TODO: should not be checking every box every frame twice
-            bool hit = false;
-            for (int i = 0; i < ArrayLength(boxes); i++)
+            v2 desiredPos = player->pos + playerDelta;
+            for (Entity *entity = 0; IncrementEntity(level, &entity);)
             {
                 // NOTE ALGORITHM:
                 // 1. Find minkowski sum of two AABBs
                 // 2. Find relative positive of player with respect to the currently checked box.
                 // 3. Four cases:
                 //      a. If the player is moving left, check that the horizontal length between the
-                //      player and the right side of the box is less playerDelta.x. If so, check to see
-                //      if the player's y coordinate is within the box. If so, there is a collision. b,
-                //      c, d. Similar for the other sides of the box.
-                // 4. For the smallest time to collision, simply just place the player at that location.
-                // May want to revise this.
+                //      player and the right side of the box is less playerDelta.x. If so, check to
+                //      see if the player's y coordinate is within the box. If so, there is a
+                //      collision. b, c, d. Similar for the other sides of the box.
+                // 4. For the smallest time to collision, simply just place the player at that
+                // location. May want to revise this.
 
                 // Ray vs Minkowski Sum AABB
-
-                CollisionResult result =
-                    TestMovingEntityCollision(&playerBox, &boxes[i], playerDelta, &tResult);
-                if (result.hit)
+                if (HasFlag(entity, Entity_Collidable))
                 {
-                    normal = result.normal;
-                    if (result.normal.x == 0 && result.normal.y == 1)
+                    Rect2 collisionBox = CreateRectFromBottomLeft(entity->pos, entity->size);
+                    v2 newNormal =
+                        TestMovingEntityCollision(&playerBox, &collisionBox, playerDelta, &tResult);
+                    if (newNormal.x != 0 || newNormal.y != 0)
                     {
-
-                        player->airborne = false;
+                        normal = newNormal;
+                    }
+                    if (normal.x == 0 && normal.y == 1)
+                    {
+                        RemoveFlag(player, Entity_Airborne);
                     }
                 }
             }
 
             player->pos += playerDelta * tResult;
             *dPlayerXY -= normal * Dot(*dPlayerXY, normal);
-            playerDelta = playerDelta - normal * Dot(playerDelta, normal);
-            tRemaining -= tResult;
+            playerDelta = desiredPos - player->pos;
+            playerDelta -= normal * Dot(playerDelta, normal);
         }
     }
 
-    // Draw
+// Move camera
+#if 1
+    if (player->pos.y - gameState->camera.pos.y > TILE_MAP_Y_COUNT * TILE_METER_SIZE / 2.f)
     {
-        DrawRectangle(offscreenBuffer, 0.f, 0.f, 320, 180, 1.f, 1.f, 1.f);
-        for (int row = 0; row < TILE_MAP_Y_COUNT; row++)
+        gameState->camera.pos.y += TILE_MAP_Y_COUNT * TILE_METER_SIZE;
+    }
+    if (player->pos.y - gameState->camera.pos.y < -TILE_MAP_Y_COUNT * TILE_METER_SIZE / 2.f)
+    {
+        gameState->camera.pos.y -= TILE_MAP_Y_COUNT * TILE_METER_SIZE;
+    }
+    if (player->pos.x - gameState->camera.pos.x > TILE_MAP_X_COUNT * TILE_METER_SIZE / 2.f)
+    {
+        gameState->camera.pos.x += TILE_MAP_X_COUNT * TILE_METER_SIZE;
+    }
+    if (player->pos.x - gameState->camera.pos.x < -TILE_MAP_X_COUNT * TILE_METER_SIZE / 2.f)
+    {
+        gameState->camera.pos.x -= TILE_MAP_X_COUNT * TILE_METER_SIZE;
+    }
+// Smooth scrolling
+#else
+    gameState->camera.pos = player->pos;
+#endif
+
+// Debug / Level Editor
+#if INTERNAL
+    v2 resolutionScale = memory->DebugPlatformGetResolution(memory->handle);
+    v2 mouseTilePos;
+    if (input->leftClick.keyDown)
+    {
+        if (ScaleMousePosition(input->mousePos, resolutionScale, buffer->width, buffer->height,
+                               &mouseTilePos))
         {
-            for (int col = 0; col < TILE_MAP_X_COUNT; col++)
+            mouseTilePos /= METERS_TO_PIXELS;
+            mouseTilePos.x = floorf(mouseTilePos.x + gameState->camera.pos.x -
+                                    (TILE_METER_SIZE * TILE_MAP_X_COUNT / 2.f));
+            mouseTilePos.y = floorf(mouseTilePos.y + gameState->camera.pos.y -
+                                    (TILE_METER_SIZE * TILE_MAP_Y_COUNT / 2.f));
+            bool result = true;
+            for (Entity *entity = 0; IncrementEntity(level, &entity);)
             {
-                float gray = 1.f;
-                float minX = lowerLeftX + (float)col * tileMapSideInPixels;
-                float minY = lowerLeftY - (float)row * tileMapSideInPixels;
-                float maxX = minX + tileMapSideInPixels;
-                float maxY = minY - tileMapSideInPixels;
-                if (CheckTileIsSolid(level->tileMap, col, row, TILE_MAP_X_COUNT, TILE_MAP_Y_COUNT))
+                if (entity->pos == mouseTilePos)
                 {
-                    DrawBitmap(offscreenBuffer, &gameState->bmpTest, minX, maxY);
+                    result = false;
+                    break;
                 }
-                else
+            }
+            if (result)
+            {
+                Entity *entity = CreateWall(gameState, gameState->level);
+
+                entity->pos = mouseTilePos;
+                entity->size = v2{TILE_METER_SIZE, TILE_METER_SIZE};
+            }
+        }
+    }
+    if (input->rightClick.keyDown)
+    {
+        if (ScaleMousePosition(input->mousePos, resolutionScale, buffer->width, buffer->height,
+                               &mouseTilePos))
+        {
+            mouseTilePos /= METERS_TO_PIXELS;
+            mouseTilePos.x = floorf(mouseTilePos.x + gameState->camera.pos.x -
+                                    (TILE_METER_SIZE * TILE_MAP_X_COUNT / 2.f));
+            mouseTilePos.y = floorf(mouseTilePos.y + gameState->camera.pos.y -
+                                    (TILE_METER_SIZE * TILE_MAP_Y_COUNT / 2.f));
+            for (Entity *entity = 0; IncrementEntity(level, &entity);)
+            {
+                if (entity->pos == mouseTilePos)
                 {
-                    DrawRectangle(offscreenBuffer, minX, maxY, maxX, minY, gray, gray, gray);
+                    RemoveEntity(level, entity);
+                    break;
                 }
             }
         }
+    }
+    // TODO: level contains width, height, then list of entities with their location (x, y),
+    // TODO: separate camera from tilemap
 
-        DrawData data;
-        data.lowerLeftX = lowerLeftX;
-        data.lowerLeftY = lowerLeftY;
-        data.metersToPixels = metersToPixels;
+#endif
 
-        DrawMovable(offscreenBuffer, data, swap);
-        DrawMovable(offscreenBuffer, data, player);
+    // Draw
+    {
+        // TODO: I hate this, I'm learning OPENGL
+        DrawRectangle(buffer, v2{0, 0}, v2{320, 180}, 1.f, 1.f, 1.f);
+        Camera *camera = &gameState->camera;
+
+        // v2 cameraPos = v2{currentRoom->startX + currentRoom->width / 2.f,
+        //                   currentRoom->startY + currentRoom->height / 2.f};
+        for (Entity *entity = 0; IncrementEntity(level, &entity);)
+        {
+            v2 relative = entity->pos - camera->pos;
+            v2 min;
+            min.x = screenCenterX + relative.x * METERS_TO_PIXELS;
+            min.y = screenCenterY - (relative.y + entity->size.y) * METERS_TO_PIXELS;
+            DrawBitmap(buffer, &gameState->bmpTest, min);
+            // DrawRectangle(buffer, min, min + entity->size * METERS_TO_PIXELS, 0.f, 1.f,
+            //               1.f);
+        }
+
+        v2 playerTopLeft = {screenCenterX + (player->pos.x - camera->pos.x) * METERS_TO_PIXELS,
+                            screenCenterY -
+                                (player->pos.y + player->size.y - camera->pos.y) * METERS_TO_PIXELS};
+        DrawRectangle(buffer, playerTopLeft, playerTopLeft + player->size * METERS_TO_PIXELS, 1.f, 1.f,
+                      0.f);
+
+        if (IsValid(swap))
+        {
+            v2 swapTopLeft = {screenCenterX + (swap->pos.x - camera->pos.x) * METERS_TO_PIXELS,
+                              screenCenterY -
+                                  (swap->pos.y + swap->size.y - camera->pos.y) * METERS_TO_PIXELS};
+            DrawRectangle(buffer, swapTopLeft, swapTopLeft + swap->size * METERS_TO_PIXELS, 1.f, 1.f,
+                          0.f);
+        }
 
         // GameOutputSound(soundBuffer, gameState->toneHz);
     }

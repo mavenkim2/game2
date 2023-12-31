@@ -1,12 +1,16 @@
 #ifndef KEEPMOVINGFORWARD_PLATFORM_H
 #define KEEPMOVINGFORWARD_PLATFORM_H
 
+#include "keepmovingforward_math.h"
 #include "keepmovingforward_types.h"
 #if INTERNAL
 struct DebugReadFileOutput
 {
     uint32 fileSize;
     void *contents;
+};
+struct DebugPlatformHandle {
+    void* handle;
 };
 
 #define DEBUG_PLATFORM_FREE_FILE(name) void name(void *fileMemory)
@@ -18,6 +22,9 @@ typedef DEBUG_PLATFORM_READ_FILE(DebugPlatformReadFileFunctionType);
 #define DEBUG_PLATFORM_WRITE_FILE(name)                                                                 \
     bool name(const char *fileName, uint32 fileSize, void *fileMemory)
 typedef DEBUG_PLATFORM_WRITE_FILE(DebugPlatformWriteFileFunctionType);
+
+#define DEBUG_PLATFORM_GET_RESOLUTION(name) v2 name(DebugPlatformHandle handle) 
+typedef DEBUG_PLATFORM_GET_RESOLUTION(DebugPlatformGetResolutionFunctionType);
 #endif
 
 struct GameMemory
@@ -34,6 +41,8 @@ struct GameMemory
     DebugPlatformFreeFileFunctionType *DebugPlatformFreeFile;
     DebugPlatformReadFileFunctionType *DebugPlatformReadFile;
     DebugPlatformWriteFileFunctionType *DebugPlatformWriteFile;
+    DebugPlatformGetResolutionFunctionType *DebugPlatformGetResolution;
+    DebugPlatformHandle handle;
 #endif
 };
 
@@ -54,11 +63,11 @@ struct GameButtonState
     bool keyDown;
 };
 
-struct GameControllerInput
+struct GameInput
 {
     union
     {
-        GameButtonState buttons[8];
+        GameButtonState buttons[10];
         struct
         {
             GameButtonState up;
@@ -69,15 +78,14 @@ struct GameControllerInput
             GameButtonState shift;
             GameButtonState swap;
             GameButtonState soul;
+            GameButtonState leftClick;
+            GameButtonState rightClick;
         };
     };
+    v2 mousePos; 
+    float dT;
 };
 
-struct GameInput
-{
-    float dT;
-    GameControllerInput controllers[4];
-};
 
 struct GameSoundOutput
 {
@@ -114,7 +122,7 @@ inline void AddStrings(char *destination, const char *source)
 };
 
 #define GAME_UPDATE_AND_RENDER(name)                                                                         \
-    void name(GameMemory *memory, GameOffscreenBuffer *offscreenBuffer, GameSoundOutput *soundBuffer,        \
+    void name(GameMemory *memory, GameOffscreenBuffer *buffer, GameSoundOutput *soundBuffer,        \
               GameInput *input)
 
 typedef GAME_UPDATE_AND_RENDER(GameUpdateAndRenderFunctionType);

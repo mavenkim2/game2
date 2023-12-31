@@ -1,10 +1,9 @@
 #ifndef KEEPMOVINGFORWARD_H
+#include "keepmovingforward_entity.h"
+#include "keepmovingforward_level.h"
+#include "keepmovingforward_math.h"
 #include "keepmovingforward_platform.h"
 #include "keepmovingforward_types.h"
-#include "keepmovingforward_math.h"
-
-// NOTE: offset from start of struct
-
 
 struct DebugBmpResult
 {
@@ -48,40 +47,20 @@ struct MemoryArena
     size_t used;
 };
 
-struct Level
+struct Camera
 {
-    uint32 *tileMap;
-};
-
-struct Entity
-{
-    // Physics
-    Vector2 pos;
-    Vector2 size;
-
-    Vector2 velocity;
-    Vector2 acceleration;
-
-    bool airborne;
-    bool swappable;
-
-    // Render
-    float r;
-    float g;
-    float b;
+    v2 pos;
 };
 
 struct GameState
 {
-    Entity entities[256];
-    int entityCount;
-    
-    int playerIndex;
-    int swapIndex;
-    // TODO: should probably be in entity
+    uint64 entity_id_gen; 
+    Entity player;
 
     MemoryArena worldArena;
     Level *level;
+
+    Camera camera;
 
     DebugBmpResult bmpTest;
 };

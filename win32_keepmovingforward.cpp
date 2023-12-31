@@ -1,8 +1,8 @@
 #include "keepmovingforward_platform.h"
 
-#include <math.h>
-#include <stdio.h>
 #include <windows.h>
+#include <stdio.h>
+#include <gl/gl.h>
 
 #include "win32_keepmovingforward.h"
 
@@ -28,6 +28,12 @@ internal Win32WindowDimension Win32GetWindowDimension(HWND window)
 //*******************************************
 
 #if INTERNAL
+DEBUG_PLATFORM_GET_RESOLUTION(DebugPlatformGetResolution)
+{
+    Win32WindowDimension dimension = Win32GetWindowDimension((HWND)handle.handle);
+    return v2{(float)dimension.width, (float)dimension.height};
+}
+
 DEBUG_PLATFORM_FREE_FILE(DebugPlatformFreeFile)
 {
     if (fileMemory)
@@ -259,6 +265,37 @@ internal void Win32Playback(Win32State *state, GameInput *input)
 //*******************************************
 // RENDER START
 //*******************************************
+internal void Win32InitOpenGl(HWND window)
+{
+    HDC dc = GetDC(window);
+
+    PIXELFORMATDESCRIPTOR desiredPixelFormat = {};
+    desiredPixelFormat.nSize = sizeof(desiredPixelFormat);
+    desiredPixelFormat.nVersion = 1;
+    desiredPixelFormat.dwFlags = PFD_SUPPORT_OPENGL | PFD_DRAW_TO_WINDOW | PFD_DOUBLEBUFFER;
+    desiredPixelFormat.iPixelType = PFD_TYPE_RGBA;
+    desiredPixelFormat.cColorBits = 32;
+    desiredPixelFormat.cAlphaBits = 8;
+    desiredPixelFormat.iLayerType = PFD_MAIN_PLANE;
+
+    int suggestedPixelFormatIndex = ChoosePixelFormat(dc, &desiredPixelFormat);
+    PIXELFORMATDESCRIPTOR suggestedPixelFormat;
+    DescribePixelFormat(dc, suggestedPixelFormatIndex, sizeof(suggestedPixelFormat),
+                        &suggestedPixelFormat);
+    SetPixelFormat(dc, suggestedPixelFormatIndex, &suggestedPixelFormat);
+
+    HGLRC rc = wglCreateContext(dc);
+    if (wglMakeCurrent(dc, rc))
+    {
+
+    }
+    else
+    {
+        Unreachable;
+    }
+    ReleaseDC(window, dc);
+}
+
 internal void Win32ResizeDIBSection(Win32OffscreenBuffer *buffer, int width, int height)
 {
     if (buffer->memory)
@@ -286,8 +323,15 @@ internal void Win32ResizeDIBSection(Win32OffscreenBuffer *buffer, int width, int
 internal void Win32DisplayBufferInWindow(Win32OffscreenBuffer *buffer, HDC deviceContext,
                                          int clientWidth, int clientHeight)
 {
+#if 1 
     StretchDIBits(deviceContext, 0, 0, clientWidth, clientHeight, 0, 0, buffer->width, buffer->height,
-                  buffer->memory, &(buffer->info), DIB_RGB_COLORS, SRCCOPY);
+            buffer->memory, &(buffer->info), DIB_RGB_COLORS, SRCCOPY);
+#else
+    glViewport(0, 0, clientWidth, clientHeight);
+    glClearColor(1.f, 1.f, 0.f, 1.f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    SwapBuffers(deviceContext);
+#endif
 }
 
 /*******************************************
@@ -396,6 +440,7 @@ internal void PlayBanger(IXAudio2SourceVoice *sourceVoice)
     CloseHandle(fileHandle);
 }
 
+#if 0
 internal void PlaySineWave(IXAudio2SourceVoice *sourceVoice, int32 samplesPerSecond, int32 bufferSize)
 {
     WAVEFORMATEX waveFormat = {};
@@ -417,7 +462,7 @@ internal void PlaySineWave(IXAudio2SourceVoice *sourceVoice, int32 samplesPerSec
     int16 *location = (int16 *)audioData;
     for (int i = 0; i < samplesPerSecond; i++)
     {
-        float sineOutput = sinf(2.f * PI * i / wavePeriod);
+        // float sineOutput = sinf(2.f * PI * i / wavePeriod);
         int16 sampleOutput = (int16)(sineOutput * toneVolume);
         *location++ = sampleOutput;
         *location++ = sampleOutput;
@@ -430,6 +475,7 @@ internal void PlaySineWave(IXAudio2SourceVoice *sourceVoice, int32 samplesPerSec
     Assert(SUCCEEDED(sourceVoice->SubmitSourceBuffer(&buffer)));
     Assert(SUCCEEDED(sourceVoice->Start(0)));
 }
+#endif
 
 internal void Win32InitializeXAudio2(int samplesPerSecond)
 {
@@ -521,13 +567,27 @@ internal void Win32ProcessKeyboardMessages(GameButtonState *buttonState, bool is
     }
 }
 
-internal void Win32ProcessPendingMessages(Win32State *state, GameControllerInput *keyboardController)
+internal void Win32ProcessPendingMessages(Win32State *state, GameInput *keyboardController)
 {
     MSG message;
     while (PeekMessageW(&message, 0, 0, 0, PM_REMOVE))
     {
         switch (message.message)
         {
+        case WM_LBUTTONUP:
+        case WM_LBUTTONDOWN:
+        {
+            bool isDown = (message.wParam & 1) == 1;
+            Win32ProcessKeyboardMessages(&keyboardController->leftClick, isDown);
+            break;
+        }
+        case WM_RBUTTONUP:
+        case WM_RBUTTONDOWN:
+        {
+            bool isDown = (message.wParam & (1 << 1)) != 0;
+            Win32ProcessKeyboardMessages(&keyboardController->rightClick, isDown);
+            break;
+        }
         case WM_KEYUP:
         case WM_KEYDOWN:
         case WM_SYSKEYUP:
@@ -560,17 +620,14 @@ internal void Win32ProcessPendingMessages(Win32State *state, GameControllerInput
             }
             if (keyCode == VK_SHIFT)
             {
-
                 Win32ProcessKeyboardMessages(&keyboardController->shift, isDown);
             }
             if (keyCode == 'C')
             {
-
                 Win32ProcessKeyboardMessages(&keyboardController->swap, isDown);
             }
             if (keyCode == 'X')
             {
-
                 Win32ProcessKeyboardMessages(&keyboardController->soul, isDown);
             }
 
@@ -578,7 +635,8 @@ internal void Win32ProcessPendingMessages(Win32State *state, GameControllerInput
             {
                 RUNNING = false;
             }
-            if (isDown && wasDown != isDown && keyCode == VK_RETURN && altWasDown) {
+            if (isDown && wasDown != isDown && keyCode == VK_RETURN && altWasDown)
+            {
                 ToggleFullscreen(message.hwnd);
             }
             if (keyCode == 'L')
@@ -680,7 +738,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     Win32ResizeDIBSection(&GLOBAL_BACK_BUFFER, 320, 180);
 
     WNDCLASSW windowClass = {};
-    windowClass.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
+    windowClass.style = CS_HREDRAW | CS_VREDRAW;
     windowClass.lpfnWndProc = WindowsCallback;
     windowClass.hInstance = hInstance;
     windowClass.lpszClassName = L"Keep Moving Forward";
@@ -697,7 +755,6 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     {
         return 1;
     }
-    HDC deviceContext = GetDC(windowHandle);
 
     // NOTE: this works, lowered framerate for testing
     // int gameUpdateHz = GetDeviceCaps(deviceContext, VREFRESH);
@@ -719,6 +776,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     // 2 frames of audio data
     int bufferSize = (int)(2 * samplesPerSecond * bytesPerSample / (float)gameUpdateHz);
     Win32InitializeXAudio2(samplesPerSecond);
+    Win32InitOpenGl(windowHandle);
 
 #if INTERNAL
     LPVOID sampleBaseAddress = (LPVOID)terabytes(4);
@@ -755,11 +813,18 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     gameMemory.DebugPlatformFreeFile = DebugPlatformFreeFile;
     gameMemory.DebugPlatformReadFile = DebugPlatformReadFile;
     gameMemory.DebugPlatformWriteFile = DebugPlatformWriteFile;
+    gameMemory.DebugPlatformGetResolution = DebugPlatformGetResolution;
+
+    DebugPlatformHandle handle;
+    handle.handle = windowHandle;
+    gameMemory.handle = handle;
 #endif
 
-    GameInput input[2] = {};
-    GameInput *oldInput = &input[0];
-    GameInput *newInput = &input[1];
+    // GameInput input[2] = {};
+    // GameInput *oldInput = &input[0];
+    // GameInput *newInput = &input[1];
+    GameInput oldInput = {};
+    GameInput newInput = {};
 
     Win32State win32State = {};
     win32State.memory = gameMemory.PersistentStorageMemory;
@@ -813,18 +878,20 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
             win32GameCode = Win32LoadGameCode(sourceDLLFilename, tempDLLFilename, lockFilename);
         }
 
-        oldInput->dT = expectedSecondsPerFrame;
-        GameControllerInput *oldKeyboardController = &(oldInput->controllers[0]);
-        GameControllerInput *newKeyboardController = &(newInput->controllers[0]);
-        *newKeyboardController = {};
-        for (int buttonIndex = 0; buttonIndex < ArrayLength(newKeyboardController->buttons);
-             buttonIndex++)
+        newInput = {};
+        newInput.dT = expectedSecondsPerFrame;
+        for (int buttonIndex = 0; buttonIndex < ArrayLength(newInput.buttons); buttonIndex++)
         {
-            newKeyboardController->buttons[buttonIndex].keyDown =
-                oldKeyboardController->buttons[buttonIndex].keyDown;
+            newInput.buttons[buttonIndex].keyDown = oldInput.buttons[buttonIndex].keyDown;
         }
 
-        Win32ProcessPendingMessages(&win32State, newKeyboardController);
+        // Mouse
+        POINT pos;
+        GetCursorPos(&pos);
+        ScreenToClient(windowHandle, &pos);
+        newInput.mousePos = v2{(float)pos.x, (float)pos.y};
+
+        Win32ProcessPendingMessages(&win32State, &newInput);
 
         GameOffscreenBuffer backBuffer = {};
         backBuffer.memory = GLOBAL_BACK_BUFFER.memory;
@@ -842,15 +909,15 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
 
         if (win32State.currentRecordingIndex)
         {
-            Win32Record(&win32State, newInput);
+            Win32Record(&win32State, &newInput);
         }
         if (win32State.currentPlaybackIndex)
         {
-            Win32Playback(&win32State, newInput);
+            Win32Playback(&win32State, &newInput);
         }
         if (win32GameCode.GameUpdateAndRender)
         {
-            win32GameCode.GameUpdateAndRender(&gameMemory, &backBuffer, &soundOutput, newInput);
+            win32GameCode.GameUpdateAndRender(&gameMemory, &backBuffer, &soundOutput, &newInput);
         }
         // Sleep until next frame
         {
@@ -885,12 +952,14 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
         lastPerformanceCount = endPerformanceCount;
 
         Win32WindowDimension dimension = Win32GetWindowDimension(windowHandle);
+        HDC deviceContext = GetDC(windowHandle);
         Win32DisplayBufferInWindow(&GLOBAL_BACK_BUFFER, deviceContext, dimension.width,
                                    dimension.height);
+        ReleaseDC(windowHandle, deviceContext);
 
-        GameInput *Temp = oldInput;
+        // GameInput *Temp = oldInput;
         oldInput = newInput;
-        newInput = Temp;
+        // newInput = Temp;
 
 #if 1
         uint64 endCycleCount = __rdtsc();

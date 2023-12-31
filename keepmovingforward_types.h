@@ -36,5 +36,7 @@ typedef uint64_t uint64;
 #define Assert(expression) (void)0
 #endif
 
+#define Unreachable Assert(false)
+
 #define KEEPMOVINGFORWARD_TYPES_H
 #endif

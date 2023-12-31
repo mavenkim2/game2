@@ -45,6 +45,23 @@ union Vector2
 
 typedef Vector2 v2;
 
+union Rect2
+{
+    struct
+    {
+        v2 pos;
+        v2 size;
+    };
+    struct
+    {
+        float x;
+        float y;
+        float width;
+        float height;
+    };
+};
+
+
 inline Vector2 operator+(Vector2 a, Vector2 b)
 {
     Vector2 result;
@@ -99,6 +116,19 @@ inline Vector2 operator*=(Vector2 &a, float b)
     a = a * b;
     return a;
 }
+
+inline Vector2 operator/(Vector2 a, float b)
+{
+    Vector2 result = a * (1.f/b);
+    return result;
+}
+
+inline Vector2 operator/=(Vector2 &a, float b)
+{
+    a = a * (1.f / b);
+    return a;
+}
+
 inline bool operator==(Vector2 &a, Vector2 b)
 {
     bool result = a.x == b.x && a.y == b.y ? true : false;
@@ -121,17 +151,6 @@ inline float Cross(Vector2 a, Vector2 b)
     return result;
 }
 
-inline uint32 RoundFloatToUint32(float value)
-{
-    uint32 result = (uint32)(value + 0.5f);
-    return result;
-}
-inline uint32 RoundFloatToInt32(float value)
-{
-    int32 result = (int32)(value + 0.5f);
-    return result;
-}
-
 inline float SquareRoot(float a)
 {
     float result = sqrtf(a);
@@ -150,6 +169,39 @@ inline v2 Normalize(Vector2 a)
     v2 result = a * (1.f / length);
     return result;
 }
+
+inline Rect2 CreateRectFromCenter(v2 pos, v2 dim) {
+    Rect2 result; 
+    result.pos = pos - (dim / 2.f);
+    result.size = dim;
+    return result;
+}
+
+inline Rect2 CreateRectFromBottomLeft(v2 pos, v2 dim) {
+    Rect2 result; 
+    result.pos = pos; 
+    result.size = dim; 
+    return result;
+}
+
+inline uint32 RoundFloatToUint32(float value)
+{
+    uint32 result = (uint32)(value + 0.5f);
+    return result;
+}
+inline uint32 RoundFloatToInt32(float value)
+{
+    int32 result = (int32)(value + 0.5f);
+    return result;
+}
+
+inline uint32 FloorFloatToUint32(float value)
+{
+    uint32 result = (uint32)(floorf(value));
+    return result;
+}
+
+
 
 #define KEEPMOVINGFORWARD_MATH_H
 #endif

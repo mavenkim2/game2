@@ -1,7 +1,7 @@
 @echo off
 
 set DefaultCompilerFlags= -MTd -nologo -GR- -EHa- -Od -Oi -WX -W4 -wd4505 -wd4189 -wd4201 -wd4100 -D UNOPTIMIZED=1 -D INTERNAL=1 -D WIN32=1 -FC -Zi 
-set DefaultLinkerFlags= -incremental:no -opt:ref user32.lib gdi32.lib ole32.lib winmm.lib
+set DefaultLinkerFlags= -incremental:no -opt:ref user32.lib gdi32.lib ole32.lib winmm.lib opengl32.lib
 
 IF NOT EXIST ..\..\build mkdir ..\..\build
 pushd ..\..\build
