@@ -3,49 +3,43 @@
 #include "keepmovingforward_level.h"
 #include "keepmovingforward_math.h"
 #include "keepmovingforward_platform.h"
-#include "keepmovingforward_types.h"
+#include "keepmovingforward_memory.h"
+#include "keepmovingforward_common.h"
 
 struct DebugBmpResult
 {
-    uint32 *pixels;
-    int32 width;
-    int32 height;
+    u32 *pixels;
+    i32 width;
+    i32 height;
 };
 
 #pragma pack(push, 1)
 struct BmpHeader
 {
     // File Header
-    uint16 fileType;
-    uint32 fileSize;
-    uint16 reserved1;
-    uint16 reserved2;
-    uint32 offset;
+    u16 fileType;
+    u32 fileSize;
+    u16 reserved1;
+    u16 reserved2;
+    u32 offset;
     // BMP Info Header
-    uint32 structSize;
-    int32 width;
-    int32 height;
-    uint16 planes;
-    uint16 bitCount;
-    uint32 compression;
-    uint32 imageSize;
-    int32 xPixelsPerMeter;
-    int32 yPixelsPerMeter;
-    uint32 colororUsed;
-    uint32 importantColors;
+    u32 structSize;
+    i32 width;
+    i32 height;
+    u16 planes;
+    u16 bitCount;
+    u32 compression;
+    u32 imageSize;
+    i32 xPixelsPerMeter;
+    i32 yPixelsPerMeter;
+    u32 colororUsed;
+    u32 importantColors;
     // Masks (why does this exist? who knows)
-    uint32 redMask;
-    uint32 greenMask;
-    uint32 blueMask;
+    u32 redMask;
+    u32 greenMask;
+    u32 blueMask;
 };
 #pragma pack(pop)
-
-struct MemoryArena
-{
-    void *base;
-    size_t size;
-    size_t used;
-};
 
 struct Camera
 {
@@ -54,10 +48,10 @@ struct Camera
 
 struct GameState
 {
-    uint64 entity_id_gen; 
+    u64 entity_id_gen; 
     Entity player;
 
-    MemoryArena worldArena;
+    Arena* worldArena;
     Level *level;
 
     Camera camera;

@@ -4,12 +4,11 @@
 // NOTE: For now, 320 x 180 pixels displayed on the screen, 40 x 22.5 tiles
 // Each tile is 8x8 pixels
 // IMPORTANT: 1 is ground, 2 is wall
-#include "keepmovingforward_math.h"
-#include "keepmovingforward_types.h"
 #include "keepmovingforward_entity.h"
+#include "keepmovingforward_math.h"
 
-#define TILE_MAP_X_COUNT 40
-#define TILE_MAP_Y_COUNT 23
+#define TILE_MAP_X_COUNT 80
+#define TILE_MAP_Y_COUNT 46
 #define MAX_ENTITIES 4096
 
 const int TILE_PIXEL_SIZE = 8;
@@ -20,8 +19,8 @@ struct Entity;
 
 struct Level
 {
-    uint32 levelWidth;
-    uint32 levelHeight;
+    u32 levelWidth;
+    u32 levelHeight;
 
     Entity entities[MAX_ENTITIES];
     // int entityCount;

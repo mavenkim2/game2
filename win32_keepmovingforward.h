@@ -1,12 +1,13 @@
 #ifndef WIN32_GAME_H
 
-#include "keepmovingforward_platform.h"
-#include "keepmovingforward_types.h"
 #include <windows.h>
+
+#include "keepmovingforward_platform.h"
+#include "keepmovingforward_string.h"
+#include <gl/GL.h>
 #include <xaudio2.h>
 
-#define XAUDIO2_CREATE(name)                                                                       \
-    HRESULT name(IXAudio2 **ppXAudio2, UINT32 flags, XAUDIO2_PROCESSOR xAudio2Processor)
+#define XAUDIO2_CREATE(name) HRESULT name(IXAudio2 **ppXAudio2, UINT32 flags, XAUDIO2_PROCESSOR xAudio2Processor)
 typedef XAUDIO2_CREATE(XAudio2CreateFunctionType);
 
 struct Win32OffscreenBuffer
@@ -28,14 +29,15 @@ struct Win32WindowDimension
 struct Win32ReplayState
 {
     HANDLE fileHandle;
-    char filename[MAX_PATH];
+    String8 filename;
 
-    void* fileMemory;
-    uint64 totalSize;
+    void *fileMemory;
+    u64 totalSize;
 };
 
 struct Win32State
 {
+    Arena* arena;
     HANDLE recordingHandle;
     int currentRecordingIndex;
 
@@ -43,10 +45,9 @@ struct Win32State
     int currentPlaybackIndex;
 
     Win32ReplayState replayStates[4];
-    void* memory;
+    void *memory;
 
-    char executableFullPath[MAX_PATH];
-    char executableDirectory[MAX_PATH];
+    String8 binaryDirectory;
 };
 
 // NOTE: if invalid, GameUpdateAndRender = 0
@@ -56,6 +57,8 @@ struct Win32GameCode
     FILETIME lastWriteTime;
     GameUpdateAndRenderFunctionType *GameUpdateAndRender;
 };
+
+inline LARGE_INTEGER Win32GetWallClock();
 
 #define WIN32_GAME_H
 #endif

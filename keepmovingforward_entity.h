@@ -4,8 +4,8 @@
 
 struct LevelPosition
 {
-    uint32 tileX;
-    uint32 tileY;
+    u32 tileX;
+    u32 tileY;
 
     v2 offset;
 };
@@ -21,7 +21,7 @@ enum EntityFlag {
 
 struct Entity
 {
-    uint64 id; 
+    u64 id; 
 
     // Physics
     Vector2 pos;
@@ -30,7 +30,7 @@ struct Entity
     Vector2 velocity;
     Vector2 acceleration;
 
-    uint64 flags; 
+    u64 flags; 
 
     // Render
     float r;

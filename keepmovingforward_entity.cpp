@@ -1,17 +1,15 @@
 #include "keepmovingforward_entity.h"
 #include "keepmovingforward_level.h"
-#include "keepmovingforward_types.h"
 #include <stdarg.h>
 
-#pragma section("keepmovingforward", read)
-// TODO: make this read only
-#if _MSC_VER
-#define readonly __declspec(allocate("keepmovingforward"))
-global readonly Entity NIL_ENTITY = {};
+#if COMPILER_MSVC
+#pragma section(".roglob", read)
+#define readonly __declspec(allocate(".roglob"))
 #else
-#define readonly const
-global Entity NIL_ENTITY = {};
+#define readonly
 #endif
+
+global readonly Entity NIL_ENTITY = {};
 
 // TODO: remove num param
 internal void AddFlag(int num, Entity *entity, ...)
@@ -20,22 +18,22 @@ internal void AddFlag(int num, Entity *entity, ...)
     va_start(args, entity);
     for (int i = 0; i < num; i++)
     {
-        entity->flags |= (uint64)1 << va_arg(args, EntityFlag);
+        entity->flags |= (u64)1 << va_arg(args, EntityFlag);
     }
     va_end(args);
 }
 
-internal void RemoveFlag(Entity *entity, EntityFlag flag) { entity->flags &= ~((uint64)1 << flag); }
+internal void RemoveFlag(Entity *entity, EntityFlag flag) { entity->flags &= ~((u64)1 << flag); }
 
 internal bool HasFlag(Entity *entity, EntityFlag flag)
 {
-    bool result = entity->flags & ((uint64)1 << flag);
+    bool result = entity->flags & ((u64)1 << flag);
     return result;
 }
 
 internal bool IsValid(Entity *entity)
 {
-    bool result = entity->flags & (uint64)1 << Entity_Valid;
+    bool result = entity->flags & (u64)1 << Entity_Valid;
     return result;
 }
 

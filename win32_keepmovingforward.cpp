@@ -1,14 +1,13 @@
-#include "keepmovingforward_platform.h"
-
-#include <windows.h>
-#include <stdio.h>
-#include <gl/gl.h>
-
 #include "win32_keepmovingforward.h"
+#include "keepmovingforward_platform.h"
+#include <windows.h>
+
+#include "keepmovingforward_string.cpp"
+#include "win32_keepmovingforward_opengl.cpp"
 
 global bool RUNNING = true;
 
-global int64 GLOBAL_PERFORMANCE_COUNT_FREQUENCY;
+global i64 GLOBAL_PERFORMANCE_COUNT_FREQUENCY;
 global Win32OffscreenBuffer GLOBAL_BACK_BUFFER;
 global IXAudio2SourceVoice *SOURCE_VOICES[3];
 global WINDOWPLACEMENT GLOBAL_WINDOW_POSITION = {sizeof(GLOBAL_WINDOW_POSITION)};
@@ -44,16 +43,15 @@ DEBUG_PLATFORM_FREE_FILE(DebugPlatformFreeFile)
 DEBUG_PLATFORM_READ_FILE(DebugPlatformReadFile)
 {
     DebugReadFileOutput readFileOutput = {};
-    HANDLE fileHandle = CreateFileA(fileName, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING,
-                                    FILE_ATTRIBUTE_NORMAL, NULL);
+    HANDLE fileHandle =
+        CreateFileA(fileName, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
     if (fileHandle != INVALID_HANDLE_VALUE)
     {
         LARGE_INTEGER fileSizeLargeInteger;
         if (GetFileSizeEx(fileHandle, &fileSizeLargeInteger))
         {
-            uint32 fileSize = (uint32)fileSizeLargeInteger.QuadPart;
-            readFileOutput.contents =
-                VirtualAlloc(NULL, fileSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+            u32 fileSize = (u32)fileSizeLargeInteger.QuadPart;
+            readFileOutput.contents = VirtualAlloc(NULL, fileSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
             if (readFileOutput.contents)
             {
                 DWORD bytesToRead;
@@ -85,8 +83,7 @@ DEBUG_PLATFORM_READ_FILE(DebugPlatformReadFile)
 DEBUG_PLATFORM_WRITE_FILE(DebugPlatformWriteFile)
 {
     bool result = false;
-    HANDLE fileHandle =
-        CreateFileA(fileName, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    HANDLE fileHandle = CreateFileA(fileName, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (fileHandle != INVALID_HANDLE_VALUE)
     {
         DWORD bytesToWrite;
@@ -106,53 +103,48 @@ DEBUG_PLATFORM_WRITE_FILE(DebugPlatformWriteFile)
 }
 #endif
 
-internal void Win32GetEXEFilepath(Win32State *win32State)
+internal String8 Win32GetBinaryDirectory(Win32State *win32State)
 {
-    GetModuleFileNameA(NULL, win32State->executableFullPath, sizeof(win32State->executableFullPath));
+    DWORD size = kilobytes(4);
+    u8 *fullPath = PushArray(win32State->arena, u8, size);
+    DWORD length = GetModuleFileNameA(0, (char *)fullPath, size);
 
-    DWORD executableDirectoryLength = 0;
-    DWORD count = 0;
-    for (char *scan = win32State->executableFullPath; *scan; scan++)
-    {
-        if (*scan == '\\')
-        {
-            executableDirectoryLength = count + 1;
-        }
-        count++;
-    }
-    CopyString(win32State->executableDirectory, win32State->executableFullPath);
-    win32State->executableDirectory[executableDirectoryLength] = 0;
+    String8 binaryDirectory;
+    binaryDirectory.str = fullPath;
+    binaryDirectory.size = length;
+
+    // TODO: chop past last slash
+    binaryDirectory = Str8PathChopLastSlash(binaryDirectory);
+    return binaryDirectory;
 }
 
-internal void Win32GetEXEDirectoryFilepath(Win32State *win32State, char *destination,
-                                           const char *filename)
+internal String8 Win32GetFilePathInBinaryDirectory(Win32State *win32State, String8 filename)
 {
-    CopyString(destination, win32State->executableDirectory);
-    AddStrings(destination, filename);
+    String8 result = PushStr8F(win32State->arena, (char *)"%S/%S", win32State->binaryDirectory, filename);
+    return result;
 }
 
-internal FILETIME Win32LastWriteTime(const char *filename)
+internal FILETIME Win32LastWriteTime(String8 filename)
 {
     FILETIME fileTime = {};
     WIN32_FILE_ATTRIBUTE_DATA data;
-    if (GetFileAttributesExA(filename, GetFileExInfoStandard, &data))
+    if (GetFileAttributesExA((char *)(filename.str), GetFileExInfoStandard, &data))
     {
         fileTime = data.ftLastWriteTime;
     }
     return fileTime;
 }
 
-internal Win32GameCode Win32LoadGameCode(const char *sourceDLLFilename, const char *tempDLLFilename,
-                                         const char *lockFilename)
+internal Win32GameCode Win32LoadGameCode(String8 sourceDLLFilename, String8 tempDLLFilename, String8 lockFilename)
 {
     Win32GameCode win32GameCode = {};
 
     WIN32_FILE_ATTRIBUTE_DATA ignored;
-    if (!GetFileAttributesExA(lockFilename, GetFileExInfoStandard, &ignored))
+    if (!GetFileAttributesExA((char *)(lockFilename.str), GetFileExInfoStandard, &ignored))
     {
-        CopyFileA(sourceDLLFilename, tempDLLFilename, false);
+        CopyFileA((char *)(sourceDLLFilename.str), (char *)(tempDLLFilename.str), false);
 
-        HMODULE gameCodeDLL = LoadLibraryA(tempDLLFilename);
+        HMODULE gameCodeDLL = LoadLibraryA((char *)(tempDLLFilename.str));
         win32GameCode.lastWriteTime = Win32LastWriteTime(sourceDLLFilename);
         if (gameCodeDLL)
         {
@@ -174,23 +166,19 @@ internal void Win32UnloadGameCode(Win32GameCode *win32GameCode)
     win32GameCode->gameCodeDLL = 0;
 }
 
-inline Win32ReplayState *Win32GetReplayState(Win32State *state, int index)
-{
-    return &state->replayStates[index];
-}
+inline Win32ReplayState *Win32GetReplayState(Win32State *state, int index) { return &state->replayStates[index]; }
 // begin writing
 internal void Win32BeginRecording(Win32State *state, int recordingIndex)
 {
     state->currentRecordingIndex = recordingIndex;
     Win32ReplayState *replayState = Win32GetReplayState(state, recordingIndex);
 
-    char file[MAX_PATH];
-    wsprintfA(file, "keepmovingforward_%d_input.kmf", recordingIndex);
-    char filename[MAX_PATH];
-    Win32GetEXEDirectoryFilepath(state, filename, file);
+    TempArena temp = ScratchBegin(state->arena);
+    String8 filename =
+        PushStr8F(temp.arena, (char *)"%Skeepmovingforward_%d_input.kmf", state->binaryDirectory, recordingIndex);
 
     state->recordingHandle =
-        CreateFileA(filename, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+        CreateFileA((char *)filename.str, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (state->recordingHandle != INVALID_HANDLE_VALUE)
     {
         CopyMemory(replayState->fileMemory, state->memory, replayState->totalSize);
@@ -199,6 +187,7 @@ internal void Win32BeginRecording(Win32State *state, int recordingIndex)
     {
         OutputDebugStringA("Recording file could not be created.");
     }
+    ScratchEnd(temp);
 }
 
 // stop writing
@@ -220,12 +209,11 @@ internal void Win32BeginPlayback(Win32State *state, int playbackIndex)
     state->currentPlaybackIndex = playbackIndex;
     Win32ReplayState *replayState = Win32GetReplayState(state, playbackIndex);
 
-    char file[MAX_PATH];
-    wsprintfA(file, "keepmovingforward_%d_input.kmf", playbackIndex);
-    char filename[MAX_PATH];
-    Win32GetEXEDirectoryFilepath(state, filename, file);
+    TempArena temp = ScratchBegin(state->arena);
+    String8 filename =
+        PushStr8F(temp.arena, (char *)"%Skeepmovingforward_%d_input.kmf", state->binaryDirectory, playbackIndex);
 
-    state->playbackHandle = CreateFileA(filename, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_ALWAYS,
+    state->playbackHandle = CreateFileA((char *)filename.str, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_ALWAYS,
                                         FILE_ATTRIBUTE_NORMAL, NULL);
     if (state->playbackHandle != INVALID_HANDLE_VALUE)
     {
@@ -235,6 +223,8 @@ internal void Win32BeginPlayback(Win32State *state, int playbackIndex)
     {
         OutputDebugStringA("Could not open file to playback input.");
     }
+
+    ScratchEnd(temp);
 }
 
 // stop reading
@@ -265,36 +255,6 @@ internal void Win32Playback(Win32State *state, GameInput *input)
 //*******************************************
 // RENDER START
 //*******************************************
-internal void Win32InitOpenGl(HWND window)
-{
-    HDC dc = GetDC(window);
-
-    PIXELFORMATDESCRIPTOR desiredPixelFormat = {};
-    desiredPixelFormat.nSize = sizeof(desiredPixelFormat);
-    desiredPixelFormat.nVersion = 1;
-    desiredPixelFormat.dwFlags = PFD_SUPPORT_OPENGL | PFD_DRAW_TO_WINDOW | PFD_DOUBLEBUFFER;
-    desiredPixelFormat.iPixelType = PFD_TYPE_RGBA;
-    desiredPixelFormat.cColorBits = 32;
-    desiredPixelFormat.cAlphaBits = 8;
-    desiredPixelFormat.iLayerType = PFD_MAIN_PLANE;
-
-    int suggestedPixelFormatIndex = ChoosePixelFormat(dc, &desiredPixelFormat);
-    PIXELFORMATDESCRIPTOR suggestedPixelFormat;
-    DescribePixelFormat(dc, suggestedPixelFormatIndex, sizeof(suggestedPixelFormat),
-                        &suggestedPixelFormat);
-    SetPixelFormat(dc, suggestedPixelFormatIndex, &suggestedPixelFormat);
-
-    HGLRC rc = wglCreateContext(dc);
-    if (wglMakeCurrent(dc, rc))
-    {
-
-    }
-    else
-    {
-        Unreachable;
-    }
-    ReleaseDC(window, dc);
-}
 
 internal void Win32ResizeDIBSection(Win32OffscreenBuffer *buffer, int width, int height)
 {
@@ -320,17 +280,14 @@ internal void Win32ResizeDIBSection(Win32OffscreenBuffer *buffer, int width, int
     buffer->memory = VirtualAlloc(0, BitmapMemorySize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 }
 
-internal void Win32DisplayBufferInWindow(Win32OffscreenBuffer *buffer, HDC deviceContext,
-                                         int clientWidth, int clientHeight)
+internal void Win32DisplayBufferInWindow(Win32OffscreenBuffer *buffer, HDC deviceContext, int clientWidth,
+                                         int clientHeight)
 {
-#if 1 
+#if 0 
     StretchDIBits(deviceContext, 0, 0, clientWidth, clientHeight, 0, 0, buffer->width, buffer->height,
             buffer->memory, &(buffer->info), DIB_RGB_COLORS, SRCCOPY);
 #else
-    glViewport(0, 0, clientWidth, clientHeight);
-    glClearColor(1.f, 1.f, 0.f, 1.f);
-    glClear(GL_COLOR_BUFFER_BIT);
-    SwapBuffers(deviceContext);
+    Draw(buffer, deviceContext, clientWidth, clientHeight, Win32GetWallClock().QuadPart);
 #endif
 }
 
@@ -412,8 +369,8 @@ HRESULT ReadChunkData(HANDLE hFile, void *buffer, DWORD bufferSize, DWORD buffer
 internal void PlayBanger(IXAudio2SourceVoice *sourceVoice)
 {
     // Create file to play
-    HANDLE fileHandle = CreateFileA("banger.wav", GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING,
-                                    FILE_ATTRIBUTE_NORMAL, NULL);
+    HANDLE fileHandle =
+        CreateFileA("banger.wav", GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
     Assert(fileHandle != INVALID_HANDLE_VALUE);
     Assert(INVALID_SET_FILE_POINTER != SetFilePointer(fileHandle, 0, 0, FILE_BEGIN));
 
@@ -456,14 +413,14 @@ internal void PlaySineWave(IXAudio2SourceVoice *sourceVoice, int32 samplesPerSec
 
     XAUDIO2_BUFFER buffer = {};
     int toneHz = 256;
-    int16 toneVolume = 3000;
+    i16 toneVolume = 3000;
     float wavePeriod = (float)samplesPerSecond / toneHz;
 
-    int16 *location = (int16 *)audioData;
+    i16 *location = (i16 *)audioData;
     for (int i = 0; i < samplesPerSecond; i++)
     {
         // float sineOutput = sinf(2.f * PI * i / wavePeriod);
-        int16 sampleOutput = (int16)(sineOutput * toneVolume);
+        i16 sampleOutput = (i16)(sineOutput * toneVolume);
         *location++ = sampleOutput;
         *location++ = sampleOutput;
     }
@@ -532,9 +489,8 @@ void ToggleFullscreen(HWND Window)
             GetMonitorInfo(MonitorFromWindow(Window, MONITOR_DEFAULTTOPRIMARY), &mi))
         {
             SetWindowLong(Window, GWL_STYLE, style & ~WS_OVERLAPPEDWINDOW);
-            SetWindowPos(Window, HWND_TOP, mi.rcMonitor.left, mi.rcMonitor.top,
-                         mi.rcMonitor.right - mi.rcMonitor.left, mi.rcMonitor.bottom - mi.rcMonitor.top,
-                         SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+            SetWindowPos(Window, HWND_TOP, mi.rcMonitor.left, mi.rcMonitor.top, mi.rcMonitor.right - mi.rcMonitor.left,
+                         mi.rcMonitor.bottom - mi.rcMonitor.top, SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
         }
     }
     else
@@ -593,7 +549,7 @@ internal void Win32ProcessPendingMessages(Win32State *state, GameInput *keyboard
         case WM_SYSKEYUP:
         case WM_SYSKEYDOWN:
         {
-            uint32 keyCode = (uint32)message.wParam;
+            u32 keyCode = (u32)message.wParam;
             bool wasDown = (message.lParam & (1 << 30)) != 0;
             bool isDown = (message.lParam & (1 << 31)) == 0;
             bool altWasDown = (message.lParam & (1 << 29)) != 0;
@@ -711,8 +667,7 @@ LRESULT WindowsCallback(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
         PAINTSTRUCT paint;
         HDC deviceContext = BeginPaint(window, &paint);
         Win32WindowDimension dimension = Win32GetWindowDimension(window);
-        Win32DisplayBufferInWindow(&GLOBAL_BACK_BUFFER, deviceContext, dimension.width,
-                                   dimension.height);
+        Win32DisplayBufferInWindow(&GLOBAL_BACK_BUFFER, deviceContext, dimension.width, dimension.height);
         EndPaint(window, &paint);
         break;
     }
@@ -735,7 +690,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     UINT desiredSchedulerMs = 1;
     bool sleepIsGranular = (timeBeginPeriod(desiredSchedulerMs) == TIMERR_NOERROR);
 
-    Win32ResizeDIBSection(&GLOBAL_BACK_BUFFER, 320, 180);
+    Win32ResizeDIBSection(&GLOBAL_BACK_BUFFER, RESX, RESY);
 
     WNDCLASSW windowClass = {};
     windowClass.style = CS_HREDRAW | CS_VREDRAW;
@@ -748,9 +703,9 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     {
         return 1;
     }
-    HWND windowHandle = CreateWindowExW(0, windowClass.lpszClassName, L"keep moving forward",
-                                        WS_OVERLAPPEDWINDOW | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT,
-                                        CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, hInstance, 0);
+    HWND windowHandle =
+        CreateWindowExW(0, windowClass.lpszClassName, L"keep moving forward", WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                        CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, hInstance, 0);
     if (!windowHandle)
     {
         return 1;
@@ -772,7 +727,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
 
     // for 1 sec buffer, samplesPerSecond = samplesPerBuffer
     int samplesPerSecond = 48000;
-    int bytesPerSample = sizeof(int16) * 2;
+    int bytesPerSample = sizeof(i16) * 2;
     // 2 frames of audio data
     int bufferSize = (int)(2 * samplesPerSecond * bytesPerSample / (float)gameUpdateHz);
     Win32InitializeXAudio2(samplesPerSecond);
@@ -785,8 +740,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
 #endif
 
     // 3 sound buffers
-    int16 *samples =
-        (int16 *)VirtualAlloc(sampleBaseAddress, bufferSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    i16 *samples = (i16 *)VirtualAlloc(sampleBaseAddress, bufferSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 
 #if INTERNAL
     LPVOID baseAddress = (LPVOID)terabytes(2);
@@ -797,17 +751,20 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     GameMemory gameMemory = {};
     gameMemory.PersistentStorageSize = megabytes(64);
     gameMemory.TransientStorageSize = gigabytes(1);
-    uint64 totalStorageSize = gameMemory.PersistentStorageSize + gameMemory.TransientStorageSize;
+    u64 totalStorageSize = gameMemory.PersistentStorageSize + gameMemory.TransientStorageSize;
     gameMemory.PersistentStorageMemory =
         VirtualAlloc(baseAddress, totalStorageSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-    gameMemory.TransientStorageMemory =
-        (uint8 *)gameMemory.PersistentStorageMemory + gameMemory.PersistentStorageSize;
+    gameMemory.TransientStorageMemory = (u8 *)gameMemory.PersistentStorageMemory + gameMemory.PersistentStorageSize;
 
     if (!samples || !gameMemory.PersistentStorageMemory || !gameMemory.TransientStorageMemory)
     {
         OutputDebugStringA("Memory allocation failed.");
         return 1;
     }
+
+    // TODO: this is shit, figure this out.
+    void *win32Memory = VirtualAlloc(0, kilobytes(64), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    Arena *win32Arena = ArenaAlloc(win32Memory, kilobytes(64));
 
 #if INTERNAL
     gameMemory.DebugPlatformFreeFile = DebugPlatformFreeFile;
@@ -827,15 +784,14 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     GameInput newInput = {};
 
     Win32State win32State = {};
+    win32State.arena = win32Arena;
     win32State.memory = gameMemory.PersistentStorageMemory;
-    Win32GetEXEFilepath(&win32State);
+    win32State.binaryDirectory = Win32GetBinaryDirectory(&win32State);
 
-    char sourceDLLFilename[MAX_PATH] = {};
-    char tempDLLFilename[MAX_PATH] = {};
-    char lockFilename[MAX_PATH] = {};
-    Win32GetEXEDirectoryFilepath(&win32State, sourceDLLFilename, "keepmovingforward.dll");
-    Win32GetEXEDirectoryFilepath(&win32State, tempDLLFilename, "keepmovingforward_temp.dll");
-    Win32GetEXEDirectoryFilepath(&win32State, lockFilename, "lock.tmp");
+    // TODO: FIX
+    String8 sourceDLLFilename = Win32GetFilePathInBinaryDirectory(&win32State, Str8Lit("keepmovingforward.dll"));
+    String8 tempDLLFilename = Win32GetFilePathInBinaryDirectory(&win32State, Str8Lit("keepmovingforward_temp.dll"));
+    String8 lockFilename = Win32GetFilePathInBinaryDirectory(&win32State, Str8Lit("lock.tmp"));
 
     Win32GameCode win32GameCode = Win32LoadGameCode(sourceDLLFilename, tempDLLFilename, lockFilename);
 
@@ -844,11 +800,13 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     {
         Win32ReplayState *replayState = Win32GetReplayState(&win32State, i);
 
-        char file[MAX_PATH];
-        wsprintfA(file, "keepmovingforward_%d_state.kmf", i);
-        Win32GetEXEDirectoryFilepath(&win32State, replayState->filename, file);
-        replayState->fileHandle = CreateFileA(replayState->filename, GENERIC_READ | GENERIC_WRITE, 0,
-                                              NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+        TempArena temp = ScratchBegin(win32State.arena);
+        replayState->filename =
+            //help me god
+            PushStr8F(temp.arena, (char *)"%S/keepmovingforward_%d_state.kmf", win32State.binaryDirectory, i);
+
+        replayState->fileHandle = CreateFileA((char *)replayState->filename.str, GENERIC_READ | GENERIC_WRITE, 0, NULL,
+                                              OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
         if (replayState->fileHandle != INVALID_HANDLE_VALUE)
         {
             LARGE_INTEGER fileSize;
@@ -857,14 +815,14 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
             // unused elsewhere?
             HANDLE fileMappingHandle = CreateFileMappingA(replayState->fileHandle, NULL, PAGE_READWRITE,
                                                           fileSize.HighPart, fileSize.LowPart, NULL);
-            replayState->fileMemory =
-                MapViewOfFile(fileMappingHandle, FILE_MAP_ALL_ACCESS, 0, 0, totalStorageSize);
+            replayState->fileMemory = MapViewOfFile(fileMappingHandle, FILE_MAP_ALL_ACCESS, 0, 0, totalStorageSize);
             replayState->totalSize = totalStorageSize;
         }
+        ScratchEnd(temp);
     }
 
     LARGE_INTEGER lastPerformanceCount = Win32GetWallClock();
-    uint64 lastCycleCount = __rdtsc();
+    u64 lastCycleCount = __rdtsc();
 
     int currentSample = 0;
     int currentSound = 0;
@@ -936,8 +894,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
                 // if any sleep leftover
                 while (secondsElapsedForFrame < expectedSecondsPerFrame)
                 {
-                    secondsElapsedForFrame =
-                        Win32GetSecondsElapsed(lastPerformanceCount, Win32GetWallClock());
+                    secondsElapsedForFrame = Win32GetSecondsElapsed(lastPerformanceCount, Win32GetWallClock());
                 }
             }
             else
@@ -953,8 +910,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
 
         Win32WindowDimension dimension = Win32GetWindowDimension(windowHandle);
         HDC deviceContext = GetDC(windowHandle);
-        Win32DisplayBufferInWindow(&GLOBAL_BACK_BUFFER, deviceContext, dimension.width,
-                                   dimension.height);
+        Win32DisplayBufferInWindow(&GLOBAL_BACK_BUFFER, deviceContext, dimension.width, dimension.height);
         ReleaseDC(windowHandle, deviceContext);
 
         // GameInput *Temp = oldInput;
@@ -962,14 +918,14 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
         // newInput = Temp;
 
 #if 1
-        uint64 endCycleCount = __rdtsc();
+        u64 endCycleCount = __rdtsc();
 
         double framesPerSecond = 1 / (double)(msPerFrame / 1000.f);
         double megaCyclesPerFrame = (double)(endCycleCount - lastCycleCount) / (1000.f * 1000.f);
 
         char printBuffer[256];
-        _snprintf_s(printBuffer, sizeof(printBuffer), "%fms/F, %fFPS, %fmc/F\n", msPerFrame,
-                    framesPerSecond, megaCyclesPerFrame);
+        stbsp_snprintf(printBuffer, sizeof(printBuffer), "%fms/F, %fFPS, %fmc/F\n", msPerFrame, framesPerSecond,
+                       megaCyclesPerFrame);
         OutputDebugStringA(printBuffer);
 
         lastCycleCount = endCycleCount;

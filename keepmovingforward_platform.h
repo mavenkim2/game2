@@ -2,11 +2,12 @@
 #define KEEPMOVINGFORWARD_PLATFORM_H
 
 #include "keepmovingforward_math.h"
-#include "keepmovingforward_types.h"
+#include "keepmovingforward_memory.h"
+
 #if INTERNAL
 struct DebugReadFileOutput
 {
-    uint32 fileSize;
+    u32 fileSize;
     void *contents;
 };
 struct DebugPlatformHandle {
@@ -20,7 +21,7 @@ typedef DEBUG_PLATFORM_FREE_FILE(DebugPlatformFreeFileFunctionType);
 typedef DEBUG_PLATFORM_READ_FILE(DebugPlatformReadFileFunctionType);
 
 #define DEBUG_PLATFORM_WRITE_FILE(name)                                                                 \
-    bool name(const char *fileName, uint32 fileSize, void *fileMemory)
+    bool name(const char *fileName, u32 fileSize, void *fileMemory)
 typedef DEBUG_PLATFORM_WRITE_FILE(DebugPlatformWriteFileFunctionType);
 
 #define DEBUG_PLATFORM_GET_RESOLUTION(name) v2 name(DebugPlatformHandle handle) 
@@ -31,10 +32,10 @@ struct GameMemory
 {
     bool isInitialized;
 
-    uint64 PersistentStorageSize;
+    u64 PersistentStorageSize;
     void *PersistentStorageMemory;
 
-    uint64 TransientStorageSize;
+    u64 TransientStorageSize;
     void *TransientStorageMemory;
 
 #if INTERNAL
@@ -89,12 +90,12 @@ struct GameInput
 
 struct GameSoundOutput
 {
-    int16 *samples;
+    i16 *samples;
     int samplesPerSecond;
     int sampleCount;
 };
 
-inline void CopyString(char *destination, const char *source)
+inline void CopyString_(char *destination, const char *source)
 {
     char *scanDest = destination;
     const char *scanSource = source;
@@ -106,7 +107,7 @@ inline void CopyString(char *destination, const char *source)
 
 // NOTE: assume destination can hold source
 // overwrrites \0 from destination, adds source to dest
-inline void AddStrings(char *destination, const char *source)
+inline void AddStrings_(char *destination, const char *source)
 {
     char *scanDest = destination;
     while (*scanDest)

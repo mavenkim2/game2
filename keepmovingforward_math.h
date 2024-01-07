@@ -1,5 +1,5 @@
 #ifndef KEEPMOVINGFORWARD_MATH_H
-#include "keepmovingforward_types.h"
+#include "keepmovingforward_common.h"
 #include <math.h>
 
 // TODO: use intrinsics
@@ -184,23 +184,39 @@ inline Rect2 CreateRectFromBottomLeft(v2 pos, v2 dim) {
     return result;
 }
 
-inline uint32 RoundFloatToUint32(float value)
-{
-    uint32 result = (uint32)(value + 0.5f);
-    return result;
+inline bool IsInRectangle(Rect2 a, v2 pos) {
+    bool result = pos.x >= a.pos.x && pos.x <= a.pos.x + a.size.x && pos.y >= a.pos.y && pos.y <= a.pos.y + a.size.y; 
+    return result; 
 }
-inline uint32 RoundFloatToInt32(float value)
+
+inline bool Rect2Overlap(const Rect2 rect1, const Rect2 rect2)
 {
-    int32 result = (int32)(value + 0.5f);
+    bool result = (rect1.x <= rect2.x + rect2.width && rect2.x <= rect1.x + rect1.width &&
+                   rect1.y <= rect2.y + rect2.height && rect2.y <= rect1.y + rect1.height);
     return result;
 }
 
-inline uint32 FloorFloatToUint32(float value)
-{
-    uint32 result = (uint32)(floorf(value));
+inline v2 GetRectCenter(Rect2 a) {
+    v2 result = a.pos + 0.5 * a.size;
     return result;
 }
 
+inline u32 RoundFloatToUint32(float value)
+{
+    u32 result = (u32)roundf(value);
+    return result;
+}
+inline u32 RoundFloatToInt32(float value)
+{
+    i32 result = (i32)roundf(value);
+    return result;
+}
+
+inline u32 FloorFloatToUint32(float value)
+{
+    u32 result = (u32)(floorf(value));
+    return result;
+}
 
 
 #define KEEPMOVINGFORWARD_MATH_H

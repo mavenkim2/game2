@@ -1,13 +1,10 @@
 #include "keepmovingforward.h"
 #include "keepmovingforward_entity.cpp"
-#include "keepmovingforward_entity.h"
-#include "keepmovingforward_level.h"
 #include "keepmovingforward_math.h"
-#include "keepmovingforward_platform.h"
-#include "keepmovingforward_types.h"
+#include "keepmovingforward_memory.cpp"
 
-const float GRAVITY = 98.f;
-// TODO: simulate actual drag??? 
+const float GRAVITY = 49.f;
+// TODO: simulate actual drag???
 const float MAX_Y_SPEED = 50.f;
 
 #if 0
@@ -35,18 +32,18 @@ void GameOutputSound(GameSoundOutput *soundBuffer, int toneHz)
 
 void RenderGradient(Gamebuffer *buffer, int xOffset, int yOffset)
 {
-    uint8 *row = (uint8 *)buffer->memory;
+    u8 *row = (u8 *)buffer->memory;
     for (int y = 0; y < buffer->height; y++)
     {
-        uint32 *pixel = (uint32 *)row;
+        u32 *pixel = (u32 *)row;
         for (int x = 0; x < buffer->width; x++)
         {
             // BB GG RR XX, because Windows!
             // Blue is first
             // Memory: BB GG RR XX
             // Register: XX RR GG BB
-            uint8 blue = (uint8)(x + xOffset);
-            uint8 green = (uint8)(y + yOffset);
+            u8 blue = (u8)(x + xOffset);
+            u8 green = (u8)(y + yOffset);
             *pixel = blue | green << 8;
             pixel++;
         }
@@ -55,8 +52,7 @@ void RenderGradient(Gamebuffer *buffer, int xOffset, int yOffset)
 }
 #endif
 
-void DrawRectangle(GameOffscreenBuffer *buffer, const v2 min, const v2 max, const float r, const float g,
-                   const float b)
+void DrawRectangle(GameOffscreenBuffer *buffer, const v2 min, const v2 max, const float r, const float g, const float b)
 {
     int minX = RoundFloatToInt32(min.x);
     int minY = RoundFloatToInt32(min.y);
@@ -79,16 +75,16 @@ void DrawRectangle(GameOffscreenBuffer *buffer, const v2 min, const v2 max, cons
     {
         maxY = buffer->height;
     }
-    uint32 red = RoundFloatToUint32(r * 255.f);
-    uint32 blue = RoundFloatToUint32(b * 255.f);
-    uint32 green = RoundFloatToUint32(g * 255.f);
+    u32 red = RoundFloatToUint32(r * 255.f);
+    u32 blue = RoundFloatToUint32(b * 255.f);
+    u32 green = RoundFloatToUint32(g * 255.f);
 
-    uint32 color = blue | green << 8 | red << 16;
+    u32 color = blue | green << 8 | red << 16;
 
-    uint8 *row = (uint8 *)buffer->memory + minY * buffer->pitch + minX * buffer->bytesPerPixel;
+    u8 *row = (u8 *)buffer->memory + minY * buffer->pitch + minX * buffer->bytesPerPixel;
     for (int y = minY; y < maxY; y++)
     {
-        uint32 *pixel = (uint32 *)row;
+        u32 *pixel = (u32 *)row;
         for (int x = minX; x < maxX; x++)
         {
             *pixel++ = color;
@@ -111,12 +107,17 @@ void DrawBitmap(GameOffscreenBuffer *buffer, DebugBmpResult *bmp, const v2 min)
     int maxX = minX + bmp->width;
     int maxY = minY + bmp->height;
 
+    int alignX = 0;
+    int alignY = 0;
+
     if (minX < 0)
     {
+        alignX = -minX;
         minX = 0;
     }
     if (minY < 0)
     {
+        alignY = -minY;
         minY = 0;
     }
     if (maxX > buffer->width)
@@ -129,52 +130,35 @@ void DrawBitmap(GameOffscreenBuffer *buffer, DebugBmpResult *bmp, const v2 min)
     }
 
     // NOTE: assuming first row in pixels is bottom of screen
-    uint32 *sourceRow = (uint32 *)bmp->pixels + bmp->width * (bmp->height - 1);
-    uint8 *destRow = ((uint8 *)buffer->memory + minY * buffer->pitch + minX * buffer->bytesPerPixel);
+    // u32 *sourceRow = (u32 *)bmp->pixels + bmp->width * (bmp->height - 1);
+    u32 *sourceRow = (u32 *)bmp->pixels + alignY * bmp->width + alignX;
+    u8 *destRow = ((u8 *)buffer->memory + minY * buffer->pitch + minX * buffer->bytesPerPixel);
     for (int y = minY; y < maxY; y++)
     {
-        uint32 *source = sourceRow;
-        uint32 *dest = (uint32 *)destRow;
+        u32 *source = sourceRow;
+        u32 *dest = (u32 *)destRow;
         for (int x = minX; x < maxX; x++)
         {
             *dest++ = *source++;
         }
-        sourceRow -= bmp->width;
+        sourceRow += bmp->width;
         destRow += buffer->pitch;
     }
 }
 
-internal DebugBmpResult DebugLoadBMP(DebugPlatformReadFileFunctionType *PlatformReadFile,
-                                     const char *filename)
+internal DebugBmpResult DebugLoadBMP(DebugPlatformReadFileFunctionType *PlatformReadFile, const char *filename)
 {
     DebugBmpResult result = {};
     DebugReadFileOutput output = PlatformReadFile(filename);
     if (output.fileSize != 0)
     {
         BmpHeader *header = (BmpHeader *)output.contents;
-        uint32 *pixels = (uint32 *)((uint8 *)output.contents + header->offset);
+        u32 *pixels = (u32 *)((u8 *)output.contents + header->offset);
         result.pixels = pixels;
 
         result.width = header->width;
         result.height = header->height;
     }
-    return result;
-}
-
-internal void InitializeArena(MemoryArena *arena, void *base, size_t size)
-{
-    arena->size = size;
-    arena->base = base;
-    arena->used = 0;
-}
-
-#define PushArray(arena, type, count) (type *)PushArena(arena, sizeof(type) * (count))
-#define PushStruct(arena, type) (type *)PushArray(arena, type, 1)
-internal void *PushArena(MemoryArena *arena, size_t size)
-{
-    Assert(arena->used + size <= arena->size);
-    void *result = (uint8 *)arena->base + arena->used;
-    arena->used += size;
     return result;
 }
 
@@ -221,15 +205,15 @@ inline Entity *CreateWall(GameState *gameState, Level *level)
 // NOTE: this assumes that the entity arg is in the level arg
 inline void RemoveEntity(Level *level, Entity *entity) { RemoveFlag(entity, Entity_Valid); }
 
-internal void GenerateLevel(GameState *gameState, uint32 tileWidth, uint32 tileHeight)
+internal void GenerateLevel(GameState *gameState, u32 tileWidth, u32 tileHeight)
 {
     Level *level = gameState->level;
     level->levelWidth = tileWidth;
     level->levelHeight = tileHeight;
 
-    for (uint32 y = 0; y < tileHeight; y++)
+    for (u32 y = 0; y < tileHeight; y++)
     {
-        for (uint32 x = 0; x < tileWidth; x++)
+        for (u32 x = 0; x < tileWidth; x++)
         {
             if (x == 0 || y == 0 || x == tileWidth - 1)
             {
@@ -393,8 +377,8 @@ internal bool triangleCase(Simplex *simplex, v2 *d)
     return true;
 }
 
-internal bool TestWallCollision(float wallLocation, float playerRelWall, float playerRelWallParallel,
-                                float playerDelta, float *tMin, float wallStart, float wallEnd)
+internal bool TestWallCollision(float wallLocation, float playerRelWall, float playerRelWallParallel, float playerDelta,
+                                float *tMin, float wallStart, float wallEnd)
 {
     bool hit = false;
     float epsilon = 0.00001f;
@@ -411,10 +395,91 @@ internal bool TestWallCollision(float wallLocation, float playerRelWall, float p
     return hit;
 }
 
-internal v2 TestMovingEntityCollision(const Rect2 *dynamic, const Rect2 *fixed, v2 delta, float *tResult)
+// TODO: need to handle case with two moving objects? we'll see
+internal bool BroadPhaseCollision(const Rect2 dynamic, const Rect2 fixed, v2 delta)
+{
+    Rect2 broadPhase = {};
+    if (delta.x > 0)
+    {
+        broadPhase.x = dynamic.x;
+        broadPhase.width = dynamic.width + delta.x;
+    }
+    else
+    {
+        broadPhase.x = dynamic.x + delta.x;
+        broadPhase.width = dynamic.width - delta.x;
+    }
+    if (delta.y > 0)
+    {
+        broadPhase.y = dynamic.y;
+        broadPhase.height = dynamic.height + delta.y;
+    }
+    else
+    {
+        broadPhase.y = dynamic.y + delta.y;
+        broadPhase.height = dynamic.height - delta.y;
+    }
+    return Rect2Overlap(broadPhase, fixed);
+}
 
+struct Manifold
+{
+    v2 normal;
+    float penetration;
+};
+internal Manifold NarrowPhaseAABBCollision(const Rect2 a, const Rect2 b)
+{
+    Manifold manifold = {};
+    v2 relative = GetRectCenter(a) - GetRectCenter(b);
+    float aHalfExtent = a.width / 2;
+    float bHalfExtent = b.width / 2;
+    float xOverlap = aHalfExtent + bHalfExtent - Abs(relative.x);
+
+    if (xOverlap > 0)
+    {
+        aHalfExtent = a.height / 2;
+        bHalfExtent = b.height / 2;
+        float yOverlap = aHalfExtent + bHalfExtent - Abs(relative.y);
+        if (yOverlap > 0)
+        {
+            if (xOverlap < yOverlap)
+            {
+                if (relative.x < 0)
+                {
+                    manifold.normal = {-1, 0};
+                }
+                else
+                {
+                    manifold.normal = {1, 0};
+                }
+                manifold.penetration = xOverlap;
+            }
+            else
+            {
+                if (relative.y < 0)
+                {
+                    manifold.normal = {0, -1};
+                }
+                else
+                {
+                    manifold.normal = {0, 1};
+                }
+                manifold.penetration = yOverlap;
+            }
+        }
+    }
+    return manifold;
+}
+
+internal v2 TestMovingEntityCollision(const Rect2 *dynamic, const Rect2 *fixed, v2 delta, float *tResult)
 {
     v2 normal = {};
+
+    if (!BroadPhaseCollision(*dynamic, *fixed, delta))
+    {
+        return normal;
+    }
+
     float tMin = *tResult;
 
     float diameterWidth = dynamic->width + fixed->width;
@@ -428,8 +493,7 @@ internal v2 TestMovingEntityCollision(const Rect2 *dynamic, const Rect2 *fixed, 
 
     if (delta.y > 0)
     {
-        if (TestWallCollision(minCorner.y, relative.y, relative.x, delta.y, tResult, minCorner.x,
-                              maxCorner.x))
+        if (TestWallCollision(minCorner.y, relative.y, relative.x, delta.y, tResult, minCorner.x, maxCorner.x))
         {
 
             normal = v2{0, -1};
@@ -438,8 +502,7 @@ internal v2 TestMovingEntityCollision(const Rect2 *dynamic, const Rect2 *fixed, 
 
     if (delta.y < 0)
     {
-        if (TestWallCollision(maxCorner.y, relative.y, relative.x, delta.y, tResult, minCorner.x,
-                              maxCorner.x))
+        if (TestWallCollision(maxCorner.y, relative.y, relative.x, delta.y, tResult, minCorner.x, maxCorner.x))
         {
 
             normal = v2{0, 1};
@@ -448,16 +511,14 @@ internal v2 TestMovingEntityCollision(const Rect2 *dynamic, const Rect2 *fixed, 
 
     if (delta.x > 0)
     {
-        if (TestWallCollision(minCorner.x, relative.x, relative.y, delta.x, tResult, minCorner.y,
-                              maxCorner.y))
+        if (TestWallCollision(minCorner.x, relative.x, relative.y, delta.x, tResult, minCorner.y, maxCorner.y))
         {
             normal = v2{-1, 0};
         }
     }
     if (delta.x < 0)
     {
-        if (TestWallCollision(maxCorner.x, relative.x, relative.y, delta.x, tResult, minCorner.y,
-                              maxCorner.y))
+        if (TestWallCollision(maxCorner.x, relative.x, relative.y, delta.x, tResult, minCorner.y, maxCorner.y))
         {
             normal = v2{1, 0};
         }
@@ -467,11 +528,9 @@ internal v2 TestMovingEntityCollision(const Rect2 *dynamic, const Rect2 *fixed, 
 }
 
 // TODO: return (0, 0) instead of bifurcating code path?
-internal bool ScaleMousePosition(v2 mousePos, v2 resolutionScale, uint32 bufferWidth,
-                                 uint32 bufferHeight, v2 *mouseTilePos)
+internal bool ScaleMousePosition(v2 mousePos, v2 resolutionScale, u32 bufferWidth, u32 bufferHeight, v2 *mouseTilePos)
 {
-    if (mousePos.x >= 0 && mousePos.y >= 0 && mousePos.x < resolutionScale.x &&
-        mousePos.y < resolutionScale.y)
+    if (mousePos.x >= 0 && mousePos.y >= 0 && mousePos.x < resolutionScale.x && mousePos.y < resolutionScale.y)
     {
         *mouseTilePos = mousePos;
         mouseTilePos->y = resolutionScale.y - mouseTilePos->y;
@@ -491,7 +550,6 @@ internal bool ScaleMousePosition(v2 mousePos, v2 resolutionScale, uint32 bufferW
 internal void InitializePlayer(GameState *gameState)
 {
     Entity *player = &gameState->player;
-    // *player = {};
 
     player->pos.x = 6.f;
     player->pos.y = 6.f;
@@ -515,13 +573,12 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     if (!memory->isInitialized)
     {
         gameState->bmpTest = DebugLoadBMP(memory->DebugPlatformReadFile, "test/tile.bmp");
-        InitializeArena(&gameState->worldArena,
-                        (uint8 *)memory->PersistentStorageMemory + sizeof(GameState),
-                        memory->PersistentStorageSize - sizeof(GameState));
-        gameState->level = PushStruct(&gameState->worldArena, Level);
+        gameState->worldArena = ArenaAlloc((void *)((u8 *)(memory->PersistentStorageMemory) + sizeof(GameState)),
+                                           memory->PersistentStorageSize - sizeof(GameState));
+
+        gameState->level = PushStruct(gameState->worldArena, Level);
 
         Entity *nilEntity = CreateEntity(gameState, gameState->level);
-        // nilEntity = &NIL_ENTITY;
 
         GenerateLevel(gameState, TILE_MAP_X_COUNT, TILE_MAP_Y_COUNT * 2);
 
@@ -540,7 +597,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
         memory->isInitialized = true;
 
-        gameState->camera.pos = v2{20.f, 11.5f};
+        gameState->camera.pos = v2{TILE_MAP_X_COUNT / 2.f, TILE_MAP_Y_COUNT / 2.f};
     }
     Level *level = gameState->level;
     GameInput *playerController = input;
@@ -592,22 +649,18 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     {
         if (swap && IsValid(swap))
         {
-            v2 temp = player->pos;
-            player->pos = swap->pos;
-            swap->pos = temp;
+            Swap(v2, player->pos, swap->pos);
         }
     }
 
     // Swap Soul
     if (playerController->soul.keyDown && playerController->soul.halfTransitionCount >= 1)
     {
-        uint64 swapFlags = swap->flags;
-        uint64 playerFlags = player->flags;
+        u64 swapFlags = swap->flags;
+        u64 playerFlags = player->flags;
 
-        Entity *temp = player;
-        *player = *swap;
+        Swap(Entity, *player, *swap);
         player->flags |= playerFlags;
-        *swap = *temp;
         swap->flags = swapFlags;
     }
 
@@ -625,22 +678,22 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     }
     dPlayerXY->x *= multiplier;
 
+    *ddPlayerXY = v2{0, -GRAVITY};
     if (playerController->jump.keyDown && !HasFlag(player, Entity_Airborne))
     {
-        dPlayerXY->y += 20.f;
+        dPlayerXY->y += 50.f;
         AddFlag(1, player, Entity_Airborne);
     }
 
-    if (HasFlag(player, Entity_Airborne))
-    {
-        *ddPlayerXY = v2{0, -GRAVITY};
-        dPlayerXY->y = Min(Max(dPlayerXY->y, -MAX_Y_SPEED), MAX_Y_SPEED);
-    }
-
-    else
-    {
-        *ddPlayerXY = v2{0, 0};
-    }
+    // if (HasFlag(player, Entity_Airborne))
+    // {
+    dPlayerXY->y = Min(Max(dPlayerXY->y, -MAX_Y_SPEED), MAX_Y_SPEED);
+    // }
+    //
+    // else
+    // {
+    //     *ddPlayerXY = v2{0, 0};
+    // }
     v2 playerDelta = 0.5f * input->dT * input->dT * *ddPlayerXY + *dPlayerXY * input->dT;
     *dPlayerXY += *ddPlayerXY * input->dT;
 
@@ -667,14 +720,10 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     //        or maybe when my position was just past the floor
     //        this can be fixed by treating the ground as a solid instead of a line
     {
-        Rect2 playerBox;
-        playerBox.x = player->pos.x;
-        playerBox.y = player->pos.y;
-        playerBox.size = player->size;
-#if 0
+#if 1
 #else
         Rect2 swapBox;
-        swapBox.x = swap->pos.x + swap->size.x / 2;
+        swapBox.x = swap->pos.x;
         swapBox.y = swap->pos.y;
         swapBox.size = swap->size;
 
@@ -706,6 +755,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         }
 #endif
 
+#if 0
         const int iterationCount = 3;
 
         for (int iteration = 0; iteration < iterationCount; iteration++)
@@ -730,12 +780,11 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
                 if (HasFlag(entity, Entity_Collidable))
                 {
                     Rect2 collisionBox = CreateRectFromBottomLeft(entity->pos, entity->size);
-                    v2 newNormal =
-                        TestMovingEntityCollision(&playerBox, &collisionBox, playerDelta, &tResult);
-                    if (newNormal.x != 0 || newNormal.y != 0)
-                    {
-                        normal = newNormal;
-                    }
+                    // v2 newNormal = TestMovingEntityCollision(&playerBox, &collisionBox, playerDelta, &tResult);
+                    // if (newNormal.x != 0 || newNormal.y != 0)
+                    // {
+                    //     normal = newNormal;
+                    // }
                     if (normal.x == 0 && normal.y == 1)
                     {
                         RemoveFlag(player, Entity_Airborne);
@@ -747,6 +796,38 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             *dPlayerXY -= normal * Dot(*dPlayerXY, normal);
             playerDelta = desiredPos - player->pos;
             playerDelta -= normal * Dot(playerDelta, normal);
+        }
+#endif
+
+        Rect2 playerBox;
+        *dPlayerXY += *ddPlayerXY * input->dT;
+        playerDelta = *dPlayerXY * input->dT;
+        player->pos += playerDelta;
+        playerBox.pos = player->pos;
+        playerBox.size = player->size;
+
+        for (Entity *entity = 0; IncrementEntity(level, &entity);)
+        {
+            if (HasFlag(entity, Entity_Collidable))
+            {
+                Rect2 collisionBox = CreateRectFromBottomLeft(entity->pos, entity->size);
+                // if (BroadPhaseCollision(playerBox, collisionBox, playerDelta))
+                // {
+                Manifold manifold = NarrowPhaseAABBCollision(playerBox, collisionBox);
+                float velocityAlongNormal = Dot(manifold.normal, *dPlayerXY);
+                if (velocityAlongNormal > 0)
+                {
+                    continue;
+                }
+                *dPlayerXY -= manifold.normal * velocityAlongNormal;
+                player->pos += manifold.normal * manifold.penetration;
+                playerBox.pos = player->pos;
+                if (manifold.normal.x == 0 && manifold.normal.y == 1)
+                {
+                    RemoveFlag(player, Entity_Airborne);
+                }
+                // }
+            }
         }
     }
 
@@ -779,14 +860,13 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     v2 mouseTilePos;
     if (input->leftClick.keyDown)
     {
-        if (ScaleMousePosition(input->mousePos, resolutionScale, buffer->width, buffer->height,
-                               &mouseTilePos))
+        if (ScaleMousePosition(input->mousePos, resolutionScale, buffer->width, buffer->height, &mouseTilePos))
         {
             mouseTilePos /= METERS_TO_PIXELS;
-            mouseTilePos.x = floorf(mouseTilePos.x + gameState->camera.pos.x -
-                                    (TILE_METER_SIZE * TILE_MAP_X_COUNT / 2.f));
-            mouseTilePos.y = floorf(mouseTilePos.y + gameState->camera.pos.y -
-                                    (TILE_METER_SIZE * TILE_MAP_Y_COUNT / 2.f));
+            mouseTilePos.x =
+                floorf(mouseTilePos.x + gameState->camera.pos.x - (TILE_METER_SIZE * TILE_MAP_X_COUNT / 2.f));
+            mouseTilePos.y =
+                floorf(mouseTilePos.y + gameState->camera.pos.y - (TILE_METER_SIZE * TILE_MAP_Y_COUNT / 2.f));
             bool result = true;
             for (Entity *entity = 0; IncrementEntity(level, &entity);)
             {
@@ -807,14 +887,13 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     }
     if (input->rightClick.keyDown)
     {
-        if (ScaleMousePosition(input->mousePos, resolutionScale, buffer->width, buffer->height,
-                               &mouseTilePos))
+        if (ScaleMousePosition(input->mousePos, resolutionScale, buffer->width, buffer->height, &mouseTilePos))
         {
             mouseTilePos /= METERS_TO_PIXELS;
-            mouseTilePos.x = floorf(mouseTilePos.x + gameState->camera.pos.x -
-                                    (TILE_METER_SIZE * TILE_MAP_X_COUNT / 2.f));
-            mouseTilePos.y = floorf(mouseTilePos.y + gameState->camera.pos.y -
-                                    (TILE_METER_SIZE * TILE_MAP_Y_COUNT / 2.f));
+            mouseTilePos.x =
+                floorf(mouseTilePos.x + gameState->camera.pos.x - (TILE_METER_SIZE * TILE_MAP_X_COUNT / 2.f));
+            mouseTilePos.y =
+                floorf(mouseTilePos.y + gameState->camera.pos.y - (TILE_METER_SIZE * TILE_MAP_Y_COUNT / 2.f));
             for (Entity *entity = 0; IncrementEntity(level, &entity);)
             {
                 if (entity->pos == mouseTilePos)
@@ -825,15 +904,13 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             }
         }
     }
-    // TODO: level contains width, height, then list of entities with their location (x, y),
-    // TODO: separate camera from tilemap
 
 #endif
 
     // Draw
     {
         // TODO: I hate this, I'm learning OPENGL
-        DrawRectangle(buffer, v2{0, 0}, v2{320, 180}, 1.f, 1.f, 1.f);
+        DrawRectangle(buffer, v2{0, 0}, v2{RESX, RESY}, 1.f, 1.f, 1.f);
         Camera *camera = &gameState->camera;
 
         // v2 cameraPos = v2{currentRoom->startX + currentRoom->width / 2.f,
@@ -843,25 +920,23 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             v2 relative = entity->pos - camera->pos;
             v2 min;
             min.x = screenCenterX + relative.x * METERS_TO_PIXELS;
-            min.y = screenCenterY - (relative.y + entity->size.y) * METERS_TO_PIXELS;
+            // min.y = screenCenterY - (relative.y + entity->size.y) * METERS_TO_PIXELS;
+            min.y = screenCenterY + relative.y * METERS_TO_PIXELS;
             DrawBitmap(buffer, &gameState->bmpTest, min);
-            // DrawRectangle(buffer, min, min + entity->size * METERS_TO_PIXELS, 0.f, 1.f,
-            //               1.f);
         }
 
-        v2 playerTopLeft = {screenCenterX + (player->pos.x - camera->pos.x) * METERS_TO_PIXELS,
-                            screenCenterY -
-                                (player->pos.y + player->size.y - camera->pos.y) * METERS_TO_PIXELS};
-        DrawRectangle(buffer, playerTopLeft, playerTopLeft + player->size * METERS_TO_PIXELS, 1.f, 1.f,
-                      0.f);
+        // v2 playerTopLeft = {screenCenterX + (player->pos.x - camera->pos.x) * METERS_TO_PIXELS,
+        //                     screenCenterY + (player->pos.y + player->size.y - camera->pos.y) * METERS_TO_PIXELS};
+        v2 playerTopLeft = v2{screenCenterX, screenCenterY} + (player->pos - camera->pos) * METERS_TO_PIXELS;
+        DrawRectangle(buffer, playerTopLeft, playerTopLeft + player->size * METERS_TO_PIXELS, player->r, player->g,
+                      player->b);
 
         if (IsValid(swap))
         {
-            v2 swapTopLeft = {screenCenterX + (swap->pos.x - camera->pos.x) * METERS_TO_PIXELS,
-                              screenCenterY -
-                                  (swap->pos.y + swap->size.y - camera->pos.y) * METERS_TO_PIXELS};
-            DrawRectangle(buffer, swapTopLeft, swapTopLeft + swap->size * METERS_TO_PIXELS, 1.f, 1.f,
-                          0.f);
+            v2 swapTopLeft = v2{screenCenterX, screenCenterY} + (swap->pos - camera->pos) * METERS_TO_PIXELS;
+            // v2 swapTopLeft = {screenCenterX + (swap->pos.x - camera->pos.x) * METERS_TO_PIXELS,
+            //                   screenCenterY + (swap->pos.y + swap->size.y - camera->pos.y) * METERS_TO_PIXELS};
+            DrawRectangle(buffer, swapTopLeft, swapTopLeft + swap->size * METERS_TO_PIXELS, swap->r, swap->g, swap->b);
         }
 
         // GameOutputSound(soundBuffer, gameState->toneHz);
