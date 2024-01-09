@@ -24,7 +24,7 @@ typedef DEBUG_PLATFORM_READ_FILE(DebugPlatformReadFileFunctionType);
     bool name(const char *fileName, u32 fileSize, void *fileMemory)
 typedef DEBUG_PLATFORM_WRITE_FILE(DebugPlatformWriteFileFunctionType);
 
-#define DEBUG_PLATFORM_GET_RESOLUTION(name) v2 name(DebugPlatformHandle handle) 
+#define DEBUG_PLATFORM_GET_RESOLUTION(name) V2 name(DebugPlatformHandle handle) 
 typedef DEBUG_PLATFORM_GET_RESOLUTION(DebugPlatformGetResolutionFunctionType);
 #endif
 
@@ -83,7 +83,7 @@ struct GameInput
             GameButtonState rightClick;
         };
     };
-    v2 mousePos; 
+    V2 mousePos; 
     float dT;
 };
 

@@ -1,8 +1,9 @@
-#include "win32_keepmovingforward.h"
 #include "win32_keepmovingforward_opengl.h"
+#include "win32_keepmovingforward.h"
 
 global GLuint TEXTURE_HANDLE;
 global OpenGL OPENGL;
+global Mat4 TRANSFORM;
 
 internal void Win32InitOpenGl(HWND window)
 {
@@ -48,6 +49,7 @@ internal void Win32InitOpenGl(HWND window)
         Win32GetOpenGLFunction(glUniform4f);
         Win32GetOpenGLFunction(glUniform1f);
         Win32GetOpenGLFunction(glActiveTexture);
+        Win32GetOpenGLFunction(glUniformMatrix4fv);
         Setup();
     }
     else
@@ -61,37 +63,45 @@ internal void Setup()
 {
     OpenGL *openGL = &OPENGL;
 
-    float vertices[] = {
-        -1.f, -1.f, 0.f,    0.f, 0.f, 
-        1.f, -1.f, 0.f,     1.f, 0.f,  
-        1.f, 1.f, 0.f,      1.f, 1.f, 
-        -1.f, 1.f, 0.f,     0.f, 1.f
-    };
+    f32 vertices[] = {-1.f, -1.f, 0.f, 0.f, 0.f, 1.f,  -1.f, 0.f, 1.f, 0.f,
+                      1.f,  1.f,  0.f, 1.f, 1.f, -1.f, 1.f,  0.f, 0.f, 1.f};
 
     u32 indices[] = {
-        0, 1, 2, 
-        0, 2, 3, 
+        0, 1, 2, 0, 2, 3,
     };
-    // SHADERS
-    const char *vertexShaderCode = "#version 330 core\n"
-                                   "layout (location=0) in vec3 pos;\n"
-                                   "layout (location=1) in vec2 aTexCoord;\n"
-                                   "out vec2 texCoord;\n"
-                                   "void main()\n"
-                                   "{\n"
-                                   "   gl_Position = vec4(pos.x, pos.y, pos.z, 1.0);\n"
-                                   "   texCoord = aTexCoord;\n"
-                                   "}\0";
 
-    const char *fragmentShaderCode = "#version 330 core\n"
-                                     "out vec4 FragColor;\n"
-                                     // "uniform vec4 color;\n"
-                                     "in vec2 texCoord;\n"
-                                     "uniform sampler2D ourTexture;\n"
-                                     "void main()\n"
-                                     "{\n"
-                                     "  FragColor = texture(ourTexture, texCoord);\n"
-                                     "}\0";
+    Mat4 model = Rotate4(V3{1, 0, 0}, Radians(-55.f));
+    Mat4 view = Translate4(V3{0, 0, -3.f});
+    Mat4 perspective = Perspective4(Radians(45.f), 16.f / 9.f, .1f, 100.f);
+    // Mat4 perspective = Orthographic4(0.f, RESX, 0.f, RESY, .1f, 100.f);
+
+    TRANSFORM = perspective * view * model;
+
+    // SHADERS
+    const char *vertexShaderCode = R"(
+                                    #version 330 core
+                                    layout (location=0) in vec3 pos;
+                                    layout (location=1) in vec2 aTexCoord;
+                                    out vec2 texCoord;
+
+                                    uniform mat4 transform; 
+
+                                    void main()
+                                    { 
+                                        gl_Position = transform * vec4(pos, 1.0);
+                                        texCoord = aTexCoord;
+                                    })";
+
+    const char *fragmentShaderCode = R"(
+                                    #version 330 core
+                                    out vec4 FragColor;
+                                    // "uniform vec4 color;
+                                    in vec2 texCoord;
+                                    uniform sampler2D ourTexture;
+                                    void main()
+                                    {
+                                        FragColor = texture(ourTexture, texCoord);
+                                    })";
     GLuint vertexShader = 0;
     vertexShader = openGL->glCreateShader(GL_VERTEX_SHADER);
     openGL->glShaderSource(vertexShader, 1, &vertexShaderCode, 0);
@@ -127,7 +137,7 @@ internal void Setup()
 
     GLuint vbo;
     GLuint vao;
-    GLuint ebo; 
+    GLuint ebo;
     // INIT
     openGL->glGenVertexArrays(1, &vao);
     openGL->glBindVertexArray(vao);
@@ -138,7 +148,7 @@ internal void Setup()
     openGL->glBindBuffer(GL_ARRAY_BUFFER, vbo);
     openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_DYNAMIC_DRAW);
 
-    openGL->glGenBuffers(1, &ebo); 
+    openGL->glGenBuffers(1, &ebo);
     openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
     openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_DYNAMIC_DRAW);
 
@@ -146,18 +156,18 @@ internal void Setup()
     openGL->vao = vao;
 }
 
-// TODO: loading the texture every frame is probably bad 
+// TODO: loading the texture every frame is probably bad
 internal void Draw(Win32OffscreenBuffer *buffer, HDC deviceContext, int clientWidth, int clientHeight, u64 clock)
 {
     OpenGL *openGL = &OPENGL;
     glViewport(0, 0, clientWidth, clientHeight);
-    
+
     glGenTextures(1, &TEXTURE_HANDLE);
     openGL->glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, TEXTURE_HANDLE);
 
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, buffer->width, buffer->height, 0, GL_BGRA_EXT, GL_UNSIGNED_BYTE,
-            buffer->memory);
+                 buffer->memory);
     glTexEnvi(GL_TEXTURE_2D, GL_TEXTURE_ENV_MODE, GL_MODULATE);
 
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
@@ -165,16 +175,19 @@ internal void Draw(Win32OffscreenBuffer *buffer, HDC deviceContext, int clientWi
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
 
-    openGL->glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(float) * 5, (void *)0);
+    openGL->glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(f32) * 5, (void *)0);
     openGL->glEnableVertexAttribArray(0);
 
-    openGL->glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 5, (void *)(3 * sizeof(float)));
+    openGL->glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(f32) * 5, (void *)(3 * sizeof(f32)));
     openGL->glEnableVertexAttribArray(1);
 
     // glEnable(GL_TEXTURE_2D);
 
     glClearColor(0.f, 1.f, 0.f, 1.f);
     glClear(GL_COLOR_BUFFER_BIT);
+
+    GLint transformLocation = openGL->glGetUniformLocation(openGL->shaderProgram, "transform");
+    openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, &TRANSFORM.elements[0][0]);
 
     openGL->glUseProgram(openGL->shaderProgram);
     openGL->glBindVertexArray(openGL->vao);

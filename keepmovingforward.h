@@ -43,7 +43,7 @@ struct BmpHeader
 
 struct Camera
 {
-    v2 pos;
+    V2 pos;
 };
 
 struct GameState

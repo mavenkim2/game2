@@ -34,6 +34,9 @@ typedef uint16_t u16;
 typedef uint32_t u32;
 typedef uint64_t u64;
 
+typedef float f32; 
+typedef double f64;
+
 #define ArrayLength(array) sizeof(array) / sizeof((array)[0])
 #define kilobytes(value) ((value)*1024LL)
 #define megabytes(value) (kilobytes(value) * 1024LL)

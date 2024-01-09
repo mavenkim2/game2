@@ -7,7 +7,7 @@ struct LevelPosition
     u32 tileX;
     u32 tileY;
 
-    v2 offset;
+    V2 offset;
 };
 
 enum EntityFlag {

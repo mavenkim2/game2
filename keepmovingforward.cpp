@@ -52,12 +52,12 @@ void RenderGradient(Gamebuffer *buffer, int xOffset, int yOffset)
 }
 #endif
 
-void DrawRectangle(GameOffscreenBuffer *buffer, const v2 min, const v2 max, const float r, const float g, const float b)
+void DrawRectangle(GameOffscreenBuffer *buffer, const V2 min, const V2 max, const float r, const float g, const float b)
 {
-    int minX = RoundFloatToInt32(min.x);
-    int minY = RoundFloatToInt32(min.y);
-    int maxX = RoundFloatToInt32(max.x);
-    int maxY = RoundFloatToInt32(max.y);
+    int minX = RoundF32ToI32(min.x);
+    int minY = RoundF32ToI32(min.y);
+    int maxX = RoundF32ToI32(max.x);
+    int maxY = RoundF32ToI32(max.y);
 
     if (minX < 0)
     {
@@ -75,9 +75,9 @@ void DrawRectangle(GameOffscreenBuffer *buffer, const v2 min, const v2 max, cons
     {
         maxY = buffer->height;
     }
-    u32 red = RoundFloatToUint32(r * 255.f);
-    u32 blue = RoundFloatToUint32(b * 255.f);
-    u32 green = RoundFloatToUint32(g * 255.f);
+    u32 red = RoundF32ToU32(r * 255.f);
+    u32 blue = RoundF32ToU32(b * 255.f);
+    u32 green = RoundF32ToU32(g * 255.f);
 
     u32 color = blue | green << 8 | red << 16;
 
@@ -93,17 +93,10 @@ void DrawRectangle(GameOffscreenBuffer *buffer, const v2 min, const v2 max, cons
     }
 }
 
-struct DrawData
+void DrawBitmap(GameOffscreenBuffer *buffer, DebugBmpResult *bmp, const V2 min)
 {
-    float screenCenterX;
-    float screenCenterY;
-    float metersToPixels;
-};
-
-void DrawBitmap(GameOffscreenBuffer *buffer, DebugBmpResult *bmp, const v2 min)
-{
-    int minX = RoundFloatToInt32(min.x);
-    int minY = RoundFloatToInt32(min.y);
+    int minX = RoundF32ToI32(min.x);
+    int minY = RoundF32ToI32(min.y);
     int maxX = minX + bmp->width;
     int maxY = minY + bmp->height;
 
@@ -219,8 +212,8 @@ internal void GenerateLevel(GameState *gameState, u32 tileWidth, u32 tileHeight)
             {
                 Entity *entity = CreateWall(gameState, gameState->level);
 
-                entity->pos = v2{(float)x, (float)y};
-                entity->size = v2{TILE_METER_SIZE, TILE_METER_SIZE};
+                entity->pos = V2{(float)x, (float)y};
+                entity->size = V2{TILE_METER_SIZE, TILE_METER_SIZE};
             }
         }
     }
@@ -228,26 +221,26 @@ internal void GenerateLevel(GameState *gameState, u32 tileWidth, u32 tileHeight)
 
 struct Polygon
 {
-    // v2 *points;
+    // V2 *points;
     // TODO: actually support all polygons
-    v2 points[4];
+    V2 points[4];
     int numPoints;
 };
 
 // TODO: probably needs to store more info to actually get the distance/closest point
 struct Simplex
 {
-    v2 vertexA;
-    v2 vertexB;
-    v2 vertexC;
+    V2 vertexA;
+    V2 vertexB;
+    V2 vertexC;
 
-    v2 vertexD;
+    V2 vertexD;
 
     int count;
 };
 
 // TODO: define different support function for different shapes (e.g circle)
-static int GetSupport(const Polygon *polygon, const v2 d)
+static int GetSupport(const Polygon *polygon, const V2 d)
 {
     int index = 0;
     float bestValue = Dot(polygon->points[0], d);
@@ -263,8 +256,8 @@ static int GetSupport(const Polygon *polygon, const v2 d)
     return index;
 }
 
-internal bool lineCase(Simplex *simplex, v2 *d);
-internal bool triangleCase(Simplex *simplex, v2 *d);
+internal bool lineCase(Simplex *simplex, V2 *d);
+internal bool triangleCase(Simplex *simplex, V2 *d);
 // NOTE: implement this once you use something other than boxes for collision, not before
 
 struct GJKResult
@@ -277,7 +270,7 @@ static GJKResult GJKMainLoop(Polygon *p1, Polygon *p2)
 {
     GJKResult result = {};
 
-    v2 d = Normalize(p2->points[0] - p1->points[0]);
+    V2 d = Normalize(p2->points[0] - p1->points[0]);
     Simplex simplex = {};
 
     simplex.vertexA = p2->points[GetSupport(p2, d)] - p1->points[GetSupport(p1, -d)];
@@ -294,7 +287,7 @@ static GJKResult GJKMainLoop(Polygon *p1, Polygon *p2)
         simplex.vertexC = simplex.vertexB;
         simplex.vertexB = simplex.vertexA;
 
-        v2 a = p2->points[GetSupport(p2, d)] - p1->points[GetSupport(p1, -d)];
+        V2 a = p2->points[GetSupport(p2, d)] - p1->points[GetSupport(p1, -d)];
         // Didn't cross origin
         if (Dot(a, d) < 0)
         {
@@ -326,16 +319,16 @@ static GJKResult GJKMainLoop(Polygon *p1, Polygon *p2)
     }
 }
 
-internal bool lineCase(Simplex *simplex, v2 *d)
+internal bool lineCase(Simplex *simplex, V2 *d)
 {
-    v2 a = simplex->vertexA;
-    v2 b = simplex->vertexB;
+    V2 a = simplex->vertexA;
+    V2 b = simplex->vertexB;
     // Don't need to check voronoi regions, since A is the most recently added point,
     // it is past origin with respect to B.
-    v2 ab = b - a;
-    v2 ao = -a;
+    V2 ab = b - a;
+    V2 ao = -a;
 
-    v2 abperp = Cross(Cross(ab, ao), ab);
+    V2 abperp = Cross(Cross(ab, ao), ab);
     // case where it's on line
     if (Dot(abperp, ao) == 0)
     {
@@ -346,18 +339,18 @@ internal bool lineCase(Simplex *simplex, v2 *d)
     return false;
 }
 
-internal bool triangleCase(Simplex *simplex, v2 *d)
+internal bool triangleCase(Simplex *simplex, V2 *d)
 {
-    v2 a = simplex->vertexA;
-    v2 b = simplex->vertexB;
-    v2 c = simplex->vertexC;
+    V2 a = simplex->vertexA;
+    V2 b = simplex->vertexB;
+    V2 c = simplex->vertexC;
 
-    v2 ab = b - a;
-    v2 ac = c - a;
-    v2 ao = -a;
+    V2 ab = b - a;
+    V2 ac = c - a;
+    V2 ao = -a;
 
-    v2 abperp = Cross(Cross(ac, ab), ab);
-    v2 acperp = Cross(Cross(ab, ac), ac);
+    V2 abperp = Cross(Cross(ac, ab), ab);
+    V2 acperp = Cross(Cross(ab, ac), ac);
 
     if (Dot(abperp, ao) > 0)
     {
@@ -396,7 +389,7 @@ internal bool TestWallCollision(float wallLocation, float playerRelWall, float p
 }
 
 // TODO: need to handle case with two moving objects? we'll see
-internal bool BroadPhaseCollision(const Rect2 dynamic, const Rect2 fixed, v2 delta)
+internal bool BroadPhaseCollision(const Rect2 dynamic, const Rect2 fixed, V2 delta)
 {
     Rect2 broadPhase = {};
     if (delta.x > 0)
@@ -424,13 +417,13 @@ internal bool BroadPhaseCollision(const Rect2 dynamic, const Rect2 fixed, v2 del
 
 struct Manifold
 {
-    v2 normal;
+    V2 normal;
     float penetration;
 };
 internal Manifold NarrowPhaseAABBCollision(const Rect2 a, const Rect2 b)
 {
     Manifold manifold = {};
-    v2 relative = GetRectCenter(a) - GetRectCenter(b);
+    V2 relative = GetRectCenter(a) - GetRectCenter(b);
     float aHalfExtent = a.width / 2;
     float bHalfExtent = b.width / 2;
     float xOverlap = aHalfExtent + bHalfExtent - Abs(relative.x);
@@ -471,9 +464,9 @@ internal Manifold NarrowPhaseAABBCollision(const Rect2 a, const Rect2 b)
     return manifold;
 }
 
-internal v2 TestMovingEntityCollision(const Rect2 *dynamic, const Rect2 *fixed, v2 delta, float *tResult)
+internal V2 TestMovingEntityCollision(const Rect2 *dynamic, const Rect2 *fixed, V2 delta, float *tResult)
 {
-    v2 normal = {};
+    V2 normal = {};
 
     if (!BroadPhaseCollision(*dynamic, *fixed, delta))
     {
@@ -485,18 +478,18 @@ internal v2 TestMovingEntityCollision(const Rect2 *dynamic, const Rect2 *fixed, 
     float diameterWidth = dynamic->width + fixed->width;
     float diameterHeight = dynamic->height + fixed->height;
 
-    v2 minCorner = -0.5f * v2{diameterWidth, diameterHeight};
-    v2 maxCorner = 0.5f * v2{diameterWidth, diameterHeight};
+    V2 minCorner = -0.5f * V2{diameterWidth, diameterHeight};
+    V2 maxCorner = 0.5f * V2{diameterWidth, diameterHeight};
 
     // subtract centers of boxes
-    v2 relative = {(dynamic->pos + 0.5 * dynamic->size) - (fixed->pos + 0.5 * fixed->size)};
+    V2 relative = {(dynamic->pos + 0.5 * dynamic->size) - (fixed->pos + 0.5 * fixed->size)};
 
     if (delta.y > 0)
     {
         if (TestWallCollision(minCorner.y, relative.y, relative.x, delta.y, tResult, minCorner.x, maxCorner.x))
         {
 
-            normal = v2{0, -1};
+            normal = V2{0, -1};
         }
     }
 
@@ -505,7 +498,7 @@ internal v2 TestMovingEntityCollision(const Rect2 *dynamic, const Rect2 *fixed, 
         if (TestWallCollision(maxCorner.y, relative.y, relative.x, delta.y, tResult, minCorner.x, maxCorner.x))
         {
 
-            normal = v2{0, 1};
+            normal = V2{0, 1};
         }
     }
 
@@ -513,14 +506,14 @@ internal v2 TestMovingEntityCollision(const Rect2 *dynamic, const Rect2 *fixed, 
     {
         if (TestWallCollision(minCorner.x, relative.x, relative.y, delta.x, tResult, minCorner.y, maxCorner.y))
         {
-            normal = v2{-1, 0};
+            normal = V2{-1, 0};
         }
     }
     if (delta.x < 0)
     {
         if (TestWallCollision(maxCorner.x, relative.x, relative.y, delta.x, tResult, minCorner.y, maxCorner.y))
         {
-            normal = v2{1, 0};
+            normal = V2{1, 0};
         }
     }
 
@@ -528,7 +521,7 @@ internal v2 TestMovingEntityCollision(const Rect2 *dynamic, const Rect2 *fixed, 
 }
 
 // TODO: return (0, 0) instead of bifurcating code path?
-internal bool ScaleMousePosition(v2 mousePos, v2 resolutionScale, u32 bufferWidth, u32 bufferHeight, v2 *mouseTilePos)
+internal bool ScaleMousePosition(V2 mousePos, V2 resolutionScale, u32 bufferWidth, u32 bufferHeight, V2 *mouseTilePos)
 {
     if (mousePos.x >= 0 && mousePos.y >= 0 && mousePos.x < resolutionScale.x && mousePos.y < resolutionScale.y)
     {
@@ -597,38 +590,10 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
         memory->isInitialized = true;
 
-        gameState->camera.pos = v2{TILE_MAP_X_COUNT / 2.f, TILE_MAP_Y_COUNT / 2.f};
+        gameState->camera.pos = V2{TILE_MAP_X_COUNT / 2.f, TILE_MAP_Y_COUNT / 2.f};
     }
     Level *level = gameState->level;
     GameInput *playerController = input;
-
-    // Collision
-
-    /* CollisionBox boxes[TILE_MAP_Y_COUNT * TILE_MAP_X_COUNT] = {};
-    int index = 0;
-    for (int y = 0; y < TILE_MAP_Y_COUNT; y++)
-    {
-        for (int x = 0; x < TILE_MAP_X_COUNT; x++)
-        {
-            if (CheckTileIsSolid(level->tileMap, x, y, TILE_MAP_X_COUNT, TILE_MAP_Y_COUNT))
-            {
-                CollisionBox box;
-                box.x = x * TILE_METER_SIZE;
-                box.y = y * TILE_METER_SIZE;
-                box.width = TILE_METER_SIZE;
-                box.height = TILE_METER_SIZE;
-                if (GetTileValue(level->tileMap, x, y, TILE_MAP_X_COUNT, TILE_MAP_Y_COUNT) == 1)
-                {
-                    box.type = WALL;
-                }
-                else
-                {
-                    box.type = GROUND;
-                }
-                boxes[index++] = box;
-            }
-        }
-    } */
 
     // Physics
     Entity *player = GetPlayer(gameState);
@@ -649,7 +614,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     {
         if (swap && IsValid(swap))
         {
-            Swap(v2, player->pos, swap->pos);
+            Swap(V2, player->pos, swap->pos);
         }
     }
 
@@ -664,8 +629,8 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         swap->flags = swapFlags;
     }
 
-    v2 *dPlayerXY = &player->velocity;
-    v2 *ddPlayerXY = &player->acceleration;
+    V2 *dPlayerXY = &player->velocity;
+    V2 *ddPlayerXY = &player->acceleration;
 
     dPlayerXY->x = 0;
     dPlayerXY->x += playerController->right.keyDown ? 1.f : 0.f;
@@ -678,26 +643,15 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     }
     dPlayerXY->x *= multiplier;
 
-    *ddPlayerXY = v2{0, -GRAVITY};
+    *ddPlayerXY = V2{0, -GRAVITY};
     if (playerController->jump.keyDown && !HasFlag(player, Entity_Airborne))
     {
         dPlayerXY->y += 50.f;
         AddFlag(1, player, Entity_Airborne);
     }
 
-    // if (HasFlag(player, Entity_Airborne))
-    // {
-    dPlayerXY->y = Min(Max(dPlayerXY->y, -MAX_Y_SPEED), MAX_Y_SPEED);
-    // }
-    //
-    // else
-    // {
-    //     *ddPlayerXY = v2{0, 0};
-    // }
-    v2 playerDelta = 0.5f * input->dT * input->dT * *ddPlayerXY + *dPlayerXY * input->dT;
-    *dPlayerXY += *ddPlayerXY * input->dT;
-
-    // v2 expectedPlayerPos = gameState->player.pos + gameState->dPlayerXY * input->dT;
+    // *dPlayerXY += *ddPlayerXY * input->dT;
+    // V2 playerDelta = 0.5f * input->dT * input->dT * *ddPlayerXY + *dPlayerXY * input->dT;
 
     // TODO: actually somehow check if the player lands, this will
     // mess up when collide with wall midair
@@ -729,16 +683,16 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
         Polygon p1;
         p1.points[0] = playerBox.pos;
-        p1.points[1] = playerBox.pos + v2{playerBox.width, 0};
-        p1.points[2] = playerBox.pos + v2{playerBox.width, playerBox.height};
-        p1.points[3] = playerBox.pos + v2{0, playerBox.height};
+        p1.points[1] = playerBox.pos + V2{playerBox.width, 0};
+        p1.points[2] = playerBox.pos + V2{playerBox.width, playerBox.height};
+        p1.points[3] = playerBox.pos + V2{0, playerBox.height};
         p1.numPoints = 4;
 
         Polygon p2;
         p2.points[0] = swapBox.pos;
-        p2.points[1] = swapBox.pos + v2{swapBox.width, 0};
-        p2.points[2] = swapBox.pos + v2{swapBox.width, swapBox.height};
-        p2.points[3] = swapBox.pos + v2{0, swapBox.height};
+        p2.points[1] = swapBox.pos + V2{swapBox.width, 0};
+        p2.points[2] = swapBox.pos + V2{swapBox.width, swapBox.height};
+        p2.points[3] = swapBox.pos + V2{0, swapBox.height};
         p2.numPoints = 4;
 
         if (GJKMainLoop(&p1, &p2).hit)
@@ -760,9 +714,9 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
         for (int iteration = 0; iteration < iterationCount; iteration++)
         {
-            v2 normal = {};
+            V2 normal = {};
             float tResult = 1.f;
-            v2 desiredPos = player->pos + playerDelta;
+            V2 desiredPos = player->pos + playerDelta;
             for (Entity *entity = 0; IncrementEntity(level, &entity);)
             {
                 // NOTE ALGORITHM:
@@ -780,7 +734,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
                 if (HasFlag(entity, Entity_Collidable))
                 {
                     Rect2 collisionBox = CreateRectFromBottomLeft(entity->pos, entity->size);
-                    // v2 newNormal = TestMovingEntityCollision(&playerBox, &collisionBox, playerDelta, &tResult);
+                    // V2 newNormal = TestMovingEntityCollision(&playerBox, &collisionBox, playerDelta, &tResult);
                     // if (newNormal.x != 0 || newNormal.y != 0)
                     // {
                     //     normal = newNormal;
@@ -801,7 +755,9 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
         Rect2 playerBox;
         *dPlayerXY += *ddPlayerXY * input->dT;
-        playerDelta = *dPlayerXY * input->dT;
+        dPlayerXY->y = Min(Max(dPlayerXY->y, -MAX_Y_SPEED), MAX_Y_SPEED);
+
+        V2 playerDelta = *dPlayerXY * input->dT;
         player->pos += playerDelta;
         playerBox.pos = player->pos;
         playerBox.size = player->size;
@@ -826,7 +782,6 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
                 {
                     RemoveFlag(player, Entity_Airborne);
                 }
-                // }
             }
         }
     }
@@ -856,8 +811,8 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
 // Debug / Level Editor
 #if INTERNAL
-    v2 resolutionScale = memory->DebugPlatformGetResolution(memory->handle);
-    v2 mouseTilePos;
+    V2 resolutionScale = memory->DebugPlatformGetResolution(memory->handle);
+    V2 mouseTilePos;
     if (input->leftClick.keyDown)
     {
         if (ScaleMousePosition(input->mousePos, resolutionScale, buffer->width, buffer->height, &mouseTilePos))
@@ -881,7 +836,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
                 Entity *entity = CreateWall(gameState, gameState->level);
 
                 entity->pos = mouseTilePos;
-                entity->size = v2{TILE_METER_SIZE, TILE_METER_SIZE};
+                entity->size = V2{TILE_METER_SIZE, TILE_METER_SIZE};
             }
         }
     }
@@ -910,32 +865,25 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     // Draw
     {
         // TODO: I hate this, I'm learning OPENGL
-        DrawRectangle(buffer, v2{0, 0}, v2{RESX, RESY}, 1.f, 1.f, 1.f);
+        DrawRectangle(buffer, V2{0, 0}, V2{RESX, RESY}, 1.f, 1.f, 1.f);
         Camera *camera = &gameState->camera;
 
-        // v2 cameraPos = v2{currentRoom->startX + currentRoom->width / 2.f,
-        //                   currentRoom->startY + currentRoom->height / 2.f};
         for (Entity *entity = 0; IncrementEntity(level, &entity);)
         {
-            v2 relative = entity->pos - camera->pos;
-            v2 min;
+            V2 relative = entity->pos - camera->pos;
+            V2 min;
             min.x = screenCenterX + relative.x * METERS_TO_PIXELS;
-            // min.y = screenCenterY - (relative.y + entity->size.y) * METERS_TO_PIXELS;
             min.y = screenCenterY + relative.y * METERS_TO_PIXELS;
             DrawBitmap(buffer, &gameState->bmpTest, min);
         }
 
-        // v2 playerTopLeft = {screenCenterX + (player->pos.x - camera->pos.x) * METERS_TO_PIXELS,
-        //                     screenCenterY + (player->pos.y + player->size.y - camera->pos.y) * METERS_TO_PIXELS};
-        v2 playerTopLeft = v2{screenCenterX, screenCenterY} + (player->pos - camera->pos) * METERS_TO_PIXELS;
+        V2 playerTopLeft = V2{screenCenterX, screenCenterY} + (player->pos - camera->pos) * METERS_TO_PIXELS;
         DrawRectangle(buffer, playerTopLeft, playerTopLeft + player->size * METERS_TO_PIXELS, player->r, player->g,
                       player->b);
 
         if (IsValid(swap))
         {
-            v2 swapTopLeft = v2{screenCenterX, screenCenterY} + (swap->pos - camera->pos) * METERS_TO_PIXELS;
-            // v2 swapTopLeft = {screenCenterX + (swap->pos.x - camera->pos.x) * METERS_TO_PIXELS,
-            //                   screenCenterY + (swap->pos.y + swap->size.y - camera->pos.y) * METERS_TO_PIXELS};
+            V2 swapTopLeft = V2{screenCenterX, screenCenterY} + (swap->pos - camera->pos) * METERS_TO_PIXELS;
             DrawRectangle(buffer, swapTopLeft, swapTopLeft + swap->size * METERS_TO_PIXELS, swap->r, swap->g, swap->b);
         }
 

@@ -235,6 +235,7 @@ struct OpenGL
     OpenGLFunction(glUniform4f);
     OpenGLFunction(glUniform1f);
     OpenGLFunction(glActiveTexture);
+    OpenGLFunction(glUniformMatrix4fv);
 };
 
 internal void Setup();

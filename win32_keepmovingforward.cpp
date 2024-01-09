@@ -30,7 +30,7 @@ internal Win32WindowDimension Win32GetWindowDimension(HWND window)
 DEBUG_PLATFORM_GET_RESOLUTION(DebugPlatformGetResolution)
 {
     Win32WindowDimension dimension = Win32GetWindowDimension((HWND)handle.handle);
-    return v2{(float)dimension.width, (float)dimension.height};
+    return V2{(f32)dimension.width, (f32)dimension.height};
 }
 
 DEBUG_PLATFORM_FREE_FILE(DebugPlatformFreeFile)
@@ -414,12 +414,12 @@ internal void PlaySineWave(IXAudio2SourceVoice *sourceVoice, int32 samplesPerSec
     XAUDIO2_BUFFER buffer = {};
     int toneHz = 256;
     i16 toneVolume = 3000;
-    float wavePeriod = (float)samplesPerSecond / toneHz;
+    f32 wavePeriod = (f32)samplesPerSecond / toneHz;
 
     i16 *location = (i16 *)audioData;
     for (int i = 0; i < samplesPerSecond; i++)
     {
-        // float sineOutput = sinf(2.f * PI * i / wavePeriod);
+        // f32 sineOutput = sinf(2.f * PI * i / wavePeriod);
         i16 sampleOutput = (i16)(sineOutput * toneVolume);
         *location++ = sampleOutput;
         *location++ = sampleOutput;
@@ -509,9 +509,9 @@ inline LARGE_INTEGER Win32GetWallClock()
     return result;
 }
 
-inline float Win32GetSecondsElapsed(LARGE_INTEGER start, LARGE_INTEGER end)
+inline f32 Win32GetSecondsElapsed(LARGE_INTEGER start, LARGE_INTEGER end)
 {
-    return ((float)(end.QuadPart - start.QuadPart) / (float)GLOBAL_PERFORMANCE_COUNT_FREQUENCY);
+    return ((f32)(end.QuadPart - start.QuadPart) / (f32)GLOBAL_PERFORMANCE_COUNT_FREQUENCY);
 }
 
 internal void Win32ProcessKeyboardMessages(GameButtonState *buttonState, bool isDown)
@@ -718,7 +718,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     //     gameUpdateHz = 60;
     // }
     int gameUpdateHz = 144;
-    float expectedSecondsPerFrame = 1.f / (float)gameUpdateHz;
+    f32 expectedSecondsPerFrame = 1.f / (f32)gameUpdateHz;
 
     // NOTE: janky audio setup:
     // 3 source voices, submit sine wave infinitely repeating to one
@@ -729,7 +729,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     int samplesPerSecond = 48000;
     int bytesPerSample = sizeof(i16) * 2;
     // 2 frames of audio data
-    int bufferSize = (int)(2 * samplesPerSecond * bytesPerSample / (float)gameUpdateHz);
+    int bufferSize = (int)(2 * samplesPerSecond * bytesPerSample / (f32)gameUpdateHz);
     Win32InitializeXAudio2(samplesPerSecond);
     Win32InitOpenGl(windowHandle);
 
@@ -847,7 +847,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
         POINT pos;
         GetCursorPos(&pos);
         ScreenToClient(windowHandle, &pos);
-        newInput.mousePos = v2{(float)pos.x, (float)pos.y};
+        newInput.mousePos = V2{(f32)pos.x, (f32)pos.y};
 
         Win32ProcessPendingMessages(&win32State, &newInput);
 
@@ -880,7 +880,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
         // Sleep until next frame
         {
             LARGE_INTEGER workCounter = Win32GetWallClock();
-            float secondsElapsedForFrame = Win32GetSecondsElapsed(lastPerformanceCount, workCounter);
+            f32 secondsElapsedForFrame = Win32GetSecondsElapsed(lastPerformanceCount, workCounter);
             if (secondsElapsedForFrame < expectedSecondsPerFrame)
             {
                 if (sleepIsGranular)
@@ -905,7 +905,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
 
         // NOTE: Get time before flip, doesn't actually sync with monitor YET
         LARGE_INTEGER endPerformanceCount = Win32GetWallClock();
-        float msPerFrame = 1000.f * Win32GetSecondsElapsed(lastPerformanceCount, endPerformanceCount);
+        f32 msPerFrame = 1000.f * Win32GetSecondsElapsed(lastPerformanceCount, endPerformanceCount);
         lastPerformanceCount = endPerformanceCount;
 
         Win32WindowDimension dimension = Win32GetWindowDimension(windowHandle);
