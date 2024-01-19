@@ -1,13 +1,12 @@
-#include "win32_keepmovingforward.h"
-#include "keepmovingforward_platform.h"
 #include <windows.h>
 
 #include "keepmovingforward_string.cpp"
-#include "win32_keepmovingforward_opengl.cpp"
 
-global bool RUNNING = true;
+#include "keepmovingforward_platform.h"
+#include "render/win32_keepmovingforward_opengl.cpp"
+#include "win32_keepmovingforward.h"
+global b32 RUNNING = true;
 
-global i64 GLOBAL_PERFORMANCE_COUNT_FREQUENCY;
 global Win32OffscreenBuffer GLOBAL_BACK_BUFFER;
 global IXAudio2SourceVoice *SOURCE_VOICES[3];
 global WINDOWPLACEMENT GLOBAL_WINDOW_POSITION = {sizeof(GLOBAL_WINDOW_POSITION)};
@@ -82,7 +81,7 @@ DEBUG_PLATFORM_READ_FILE(DebugPlatformReadFile)
 
 DEBUG_PLATFORM_WRITE_FILE(DebugPlatformWriteFile)
 {
-    bool result = false;
+    b32 result = false;
     HANDLE fileHandle = CreateFileA(fileName, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (fileHandle != INVALID_HANDLE_VALUE)
     {
@@ -166,7 +165,10 @@ internal void Win32UnloadGameCode(Win32GameCode *win32GameCode)
     win32GameCode->gameCodeDLL = 0;
 }
 
-inline Win32ReplayState *Win32GetReplayState(Win32State *state, int index) { return &state->replayStates[index]; }
+inline Win32ReplayState *Win32GetReplayState(Win32State *state, int index)
+{
+    return &state->replayStates[index];
+}
 // begin writing
 internal void Win32BeginRecording(Win32State *state, int recordingIndex)
 {
@@ -256,7 +258,7 @@ internal void Win32Playback(Win32State *state, GameInput *input)
 // RENDER START
 //*******************************************
 
-internal void Win32ResizeDIBSection(Win32OffscreenBuffer *buffer, int width, int height)
+/* internal void Win32ResizeDIBSection(Win32OffscreenBuffer *buffer, int width, int height)
 {
     if (buffer->memory)
     {
@@ -278,7 +280,7 @@ internal void Win32ResizeDIBSection(Win32OffscreenBuffer *buffer, int width, int
     // NOTE: Aligned on 4 Byte boundaries to prevent performance cost
     int BitmapMemorySize = bytesPerPixel * width * height;
     buffer->memory = VirtualAlloc(0, BitmapMemorySize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-}
+} */
 
 internal void Win32DisplayBufferInWindow(Win32OffscreenBuffer *buffer, HDC deviceContext, int clientWidth,
                                          int clientHeight)
@@ -287,7 +289,7 @@ internal void Win32DisplayBufferInWindow(Win32OffscreenBuffer *buffer, HDC devic
     StretchDIBits(deviceContext, 0, 0, clientWidth, clientHeight, 0, 0, buffer->width, buffer->height,
             buffer->memory, &(buffer->info), DIB_RGB_COLORS, SRCCOPY);
 #else
-    Draw(buffer, deviceContext, clientWidth, clientHeight, Win32GetWallClock().QuadPart);
+    // OpenGLRenderDraw(buffer, deviceContext, clientWidth, clientHeight);
 #endif
 }
 
@@ -514,7 +516,13 @@ inline f32 Win32GetSecondsElapsed(LARGE_INTEGER start, LARGE_INTEGER end)
     return ((f32)(end.QuadPart - start.QuadPart) / (f32)GLOBAL_PERFORMANCE_COUNT_FREQUENCY);
 }
 
-internal void Win32ProcessKeyboardMessages(GameButtonState *buttonState, bool isDown)
+// TODO: make this platform nonspecific
+f32 Win32GetTimeElapsed()
+{
+    return ((f32)(Win32GetWallClock().QuadPart - START_TIME.QuadPart) / (f32)GLOBAL_PERFORMANCE_COUNT_FREQUENCY);
+}
+
+internal void Win32ProcessKeyboardMessages(GameButtonState *buttonState, b32 isDown)
 {
     if (buttonState->keyDown != isDown)
     {
@@ -533,14 +541,14 @@ internal void Win32ProcessPendingMessages(Win32State *state, GameInput *keyboard
         case WM_LBUTTONUP:
         case WM_LBUTTONDOWN:
         {
-            bool isDown = (message.wParam & 1) == 1;
+            b32 isDown = (message.wParam & 1) == 1;
             Win32ProcessKeyboardMessages(&keyboardController->leftClick, isDown);
             break;
         }
         case WM_RBUTTONUP:
         case WM_RBUTTONDOWN:
         {
-            bool isDown = (message.wParam & (1 << 1)) != 0;
+            b32 isDown = (message.wParam & (1 << 1)) != 0;
             Win32ProcessKeyboardMessages(&keyboardController->rightClick, isDown);
             break;
         }
@@ -550,9 +558,9 @@ internal void Win32ProcessPendingMessages(Win32State *state, GameInput *keyboard
         case WM_SYSKEYDOWN:
         {
             u32 keyCode = (u32)message.wParam;
-            bool wasDown = (message.lParam & (1 << 30)) != 0;
-            bool isDown = (message.lParam & (1 << 31)) == 0;
-            bool altWasDown = (message.lParam & (1 << 29)) != 0;
+            b32 wasDown = (message.lParam & (1 << 30)) != 0;
+            b32 isDown = (message.lParam & (1 << 31)) == 0;
+            b32 altWasDown = (message.lParam & (1 << 29)) != 0;
 
             if (keyCode == 'W')
             {
@@ -688,9 +696,9 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     // NOTE: Makes sleep have 1ms granularity, because OS scheduler may sleep longer/shorter than
     // input value
     UINT desiredSchedulerMs = 1;
-    bool sleepIsGranular = (timeBeginPeriod(desiredSchedulerMs) == TIMERR_NOERROR);
+    b32 sleepIsGranular = (timeBeginPeriod(desiredSchedulerMs) == TIMERR_NOERROR);
 
-    Win32ResizeDIBSection(&GLOBAL_BACK_BUFFER, RESX, RESY);
+    // Win32ResizeDIBSection(&GLOBAL_BACK_BUFFER, RESX, RESY);
 
     WNDCLASSW windowClass = {};
     windowClass.style = CS_HREDRAW | CS_VREDRAW;
@@ -731,7 +739,11 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     // 2 frames of audio data
     int bufferSize = (int)(2 * samplesPerSecond * bytesPerSample / (f32)gameUpdateHz);
     Win32InitializeXAudio2(samplesPerSecond);
-    Win32InitOpenGl(windowHandle);
+    OpenGL openGL = Win32InitOpenGL(windowHandle);
+    openGL.group.vertexArray = (RenderVertex *)VirtualAlloc(0, openGL.group.maxVertexCount * sizeof(RenderVertex),
+                                                             MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    openGL.group.indexArray =
+        (u16 *)VirtualAlloc(0, openGL.group.maxIndexCount * sizeof(u16), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 
 #if INTERNAL
     LPVOID sampleBaseAddress = (LPVOID)terabytes(4);
@@ -802,7 +814,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
 
         TempArena temp = ScratchBegin(win32State.arena);
         replayState->filename =
-            //help me god
+            // help me god
             PushStr8F(temp.arena, (char *)"%S/keepmovingforward_%d_state.kmf", win32State.binaryDirectory, i);
 
         replayState->fileHandle = CreateFileA((char *)replayState->filename.str, GENERIC_READ | GENERIC_WRITE, 0, NULL,
@@ -821,6 +833,8 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
         ScratchEnd(temp);
     }
 
+    START_TIME = Win32GetWallClock();
+
     LARGE_INTEGER lastPerformanceCount = Win32GetWallClock();
     u64 lastCycleCount = __rdtsc();
 
@@ -836,12 +850,16 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
             win32GameCode = Win32LoadGameCode(sourceDLLFilename, tempDLLFilename, lockFilename);
         }
 
+        Win32WindowDimension dimension = Win32GetWindowDimension(windowHandle);
+        OpenGLBeginFrame(&openGL, dimension.width, dimension.height);
+
         newInput = {};
         newInput.dT = expectedSecondsPerFrame;
         for (int buttonIndex = 0; buttonIndex < ArrayLength(newInput.buttons); buttonIndex++)
         {
             newInput.buttons[buttonIndex].keyDown = oldInput.buttons[buttonIndex].keyDown;
         }
+        newInput.lastMousePos = oldInput.mousePos;
 
         // Mouse
         POINT pos;
@@ -875,7 +893,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
         }
         if (win32GameCode.GameUpdateAndRender)
         {
-            win32GameCode.GameUpdateAndRender(&gameMemory, &backBuffer, &soundOutput, &newInput);
+            win32GameCode.GameUpdateAndRender(&gameMemory, &openGL, &soundOutput, &newInput);
         }
         // Sleep until next frame
         {
@@ -908,14 +926,12 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
         f32 msPerFrame = 1000.f * Win32GetSecondsElapsed(lastPerformanceCount, endPerformanceCount);
         lastPerformanceCount = endPerformanceCount;
 
-        Win32WindowDimension dimension = Win32GetWindowDimension(windowHandle);
+        dimension = Win32GetWindowDimension(windowHandle);
         HDC deviceContext = GetDC(windowHandle);
-        Win32DisplayBufferInWindow(&GLOBAL_BACK_BUFFER, deviceContext, dimension.width, dimension.height);
+        OpenGLEndFrame(&openGL, deviceContext, dimension.width, dimension.height);
         ReleaseDC(windowHandle, deviceContext);
 
-        // GameInput *Temp = oldInput;
         oldInput = newInput;
-        // newInput = Temp;
 
 #if 1
         u64 endCycleCount = __rdtsc();

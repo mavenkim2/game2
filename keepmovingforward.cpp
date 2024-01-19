@@ -1,23 +1,23 @@
 #include "keepmovingforward.h"
-#include "keepmovingforward_entity.cpp"
 #include "keepmovingforward_math.h"
+#include "render/keepmovingforward_renderer.cpp"
+
+#include "keepmovingforward_entity.cpp"
 #include "keepmovingforward_memory.cpp"
 
-const float GRAVITY = 49.f;
-// TODO: simulate actual drag???
-const float MAX_Y_SPEED = 50.f;
+const f32 GRAVITY = 49.f;
 
 #if 0
 void GameOutputSound(GameSoundOutput *soundBuffer, int toneHz)
 {
-    static float tSine = 0;
+    static f32 tSine = 0;
     int16 toneVolume = 3000;
-    float wavePeriod = (float)soundBuffer->samplesPerSecond / toneHz;
+    f32 wavePeriod = (f32)soundBuffer->samplesPerSecond / toneHz;
 
     int16 *sampleOutput = soundBuffer->samples;
     for (int i = 0; i < soundBuffer->sampleCount; i++)
     {
-        float sineValue = sinf(tSine);
+        f32 sineValue = sinf(tSine);
         int16 sampleValue = (int16)(sineValue * toneVolume);
         *sampleOutput++ = sampleValue;
         *sampleOutput++ = sampleValue;
@@ -52,7 +52,7 @@ void RenderGradient(Gamebuffer *buffer, int xOffset, int yOffset)
 }
 #endif
 
-void DrawRectangle(GameOffscreenBuffer *buffer, const V2 min, const V2 max, const float r, const float g, const float b)
+void DrawRectangle(GameOffscreenBuffer *buffer, const V2 min, const V2 max, const f32 r, const f32 g, const f32 b)
 {
     int minX = RoundF32ToI32(min.x);
     int minY = RoundF32ToI32(min.y);
@@ -191,34 +191,47 @@ inline Entity *CreateWall(GameState *gameState, Level *level)
 {
     Entity *wall = CreateEntity(gameState, level);
 
-    AddFlag(2, wall, Entity_Valid, Entity_Collidable);
+    AddFlag(wall, Entity_Valid | Entity_Collidable);
     return wall;
 }
 
 // NOTE: this assumes that the entity arg is in the level arg
-inline void RemoveEntity(Level *level, Entity *entity) { RemoveFlag(entity, Entity_Valid); }
+inline void RemoveEntity(Level *level, Entity *entity)
+{
+    RemoveFlag(entity, Entity_Valid);
+}
 
-internal void GenerateLevel(GameState *gameState, u32 tileWidth, u32 tileHeight)
+internal void GenerateLevel(GameState *gameState, i32 tileWidth, i32 tileHeight)
 {
     Level *level = gameState->level;
     level->levelWidth = tileWidth;
     level->levelHeight = tileHeight;
 
-    for (u32 y = 0; y < tileHeight; y++)
+    for (i32 y = -tileHeight / 2; y < tileHeight / 2; y++)
     {
-        for (u32 x = 0; x < tileWidth; x++)
+        for (i32 x = -tileWidth / 2; x < tileWidth / 2; x++)
         {
-            if (x == 0 || y == 0 || x == tileWidth - 1)
-            {
-                Entity *entity = CreateWall(gameState, gameState->level);
+            Entity *entity = CreateWall(gameState, gameState->level);
 
-                entity->pos = V2{(float)x, (float)y};
-                entity->size = V2{TILE_METER_SIZE, TILE_METER_SIZE};
+            entity->pos = V3{(f32)x, (f32)y, 0.f};
+            entity->size = V3{0.5f, 0.5f, 0.5f};
+            if ((x + tileWidth / 2) % 3 == 0)
+            {
+                entity->color = V4{1.f, 0.f, 0.f, 1.f};
+            }
+            else if ((x + tileWidth / 2) % 3 == 1)
+            {
+                entity->color = V4{0.f, 1.f, 0.f, 1.f};
+            }
+            else
+            {
+                entity->color = V4{1.f, 0.f, 1.f, 1.f};
             }
         }
     }
 }
 
+/* GJK
 struct Polygon
 {
     // V2 *points;
@@ -243,10 +256,10 @@ struct Simplex
 static int GetSupport(const Polygon *polygon, const V2 d)
 {
     int index = 0;
-    float bestValue = Dot(polygon->points[0], d);
+    f32 bestValue = Dot(polygon->points[0], d);
     for (int i = 1; i < polygon->numPoints; i++)
     {
-        float tempValue = Dot(polygon->points[i], d);
+        f32 tempValue = Dot(polygon->points[i], d);
         if (tempValue > bestValue)
         {
             index = i;
@@ -256,13 +269,13 @@ static int GetSupport(const Polygon *polygon, const V2 d)
     return index;
 }
 
-internal bool lineCase(Simplex *simplex, V2 *d);
-internal bool triangleCase(Simplex *simplex, V2 *d);
+internal b32 lineCase(Simplex *simplex, V2 *d);
+internal b32 triangleCase(Simplex *simplex, V2 *d);
 // NOTE: implement this once you use something other than boxes for collision, not before
 
 struct GJKResult
 {
-    bool hit;
+    b32 hit;
     Simplex simplex;
 };
 
@@ -296,7 +309,7 @@ static GJKResult GJKMainLoop(Polygon *p1, Polygon *p2)
         simplex.vertexA = a;
         simplex.count += 1;
 
-        bool hit = false;
+        b32 hit = false;
         switch (simplex.count)
         {
         case 1:
@@ -319,7 +332,7 @@ static GJKResult GJKMainLoop(Polygon *p1, Polygon *p2)
     }
 }
 
-internal bool lineCase(Simplex *simplex, V2 *d)
+internal b32 lineCase(Simplex *simplex, V2 *d)
 {
     V2 a = simplex->vertexA;
     V2 b = simplex->vertexB;
@@ -339,7 +352,7 @@ internal bool lineCase(Simplex *simplex, V2 *d)
     return false;
 }
 
-internal bool triangleCase(Simplex *simplex, V2 *d)
+internal b32 triangleCase(Simplex *simplex, V2 *d)
 {
     V2 a = simplex->vertexA;
     V2 b = simplex->vertexB;
@@ -369,16 +382,18 @@ internal bool triangleCase(Simplex *simplex, V2 *d)
     }
     return true;
 }
+*/
 
-internal bool TestWallCollision(float wallLocation, float playerRelWall, float playerRelWallParallel, float playerDelta,
-                                float *tMin, float wallStart, float wallEnd)
+#if 0
+internal b32 TestWallCollision(f32 wallLocation, f32 playerRelWall, f32 playerRelWallParallel, f32 playerDelta,
+                               f32 *tMin, f32 wallStart, f32 wallEnd)
 {
-    bool hit = false;
-    float epsilon = 0.00001f;
-    float t = (wallLocation - playerRelWall) / playerDelta;
+    b32 hit = false;
+    f32 epsilon = 0.00001f;
+    f32 t = (wallLocation - playerRelWall) / playerDelta;
     if (t >= 0 && t < *tMin)
     {
-        float y = playerRelWallParallel + t * playerDelta;
+        f32 y = playerRelWallParallel + t * playerDelta;
         if (y >= wallStart && y <= wallEnd)
         {
             hit = true;
@@ -389,7 +404,7 @@ internal bool TestWallCollision(float wallLocation, float playerRelWall, float p
 }
 
 // TODO: need to handle case with two moving objects? we'll see
-internal bool BroadPhaseCollision(const Rect2 dynamic, const Rect2 fixed, V2 delta)
+internal b32 BroadPhaseCollision(const Rect2 dynamic, const Rect2 fixed, V2 delta)
 {
     Rect2 broadPhase = {};
     if (delta.x > 0)
@@ -414,57 +429,85 @@ internal bool BroadPhaseCollision(const Rect2 dynamic, const Rect2 fixed, V2 del
     }
     return Rect2Overlap(broadPhase, fixed);
 }
+#endif
 
 struct Manifold
 {
-    V2 normal;
-    float penetration;
+    V3 normal;
+    f32 penetration;
 };
-internal Manifold NarrowPhaseAABBCollision(const Rect2 a, const Rect2 b)
+
+internal Manifold NarrowPhaseAABBCollision(const Rect3 a, const Rect3 b)
 {
     Manifold manifold = {};
-    V2 relative = GetRectCenter(a) - GetRectCenter(b);
-    float aHalfExtent = a.width / 2;
-    float bHalfExtent = b.width / 2;
-    float xOverlap = aHalfExtent + bHalfExtent - Abs(relative.x);
+    V3 relative = Center(a) - Center(b);
+    f32 aHalfExtent = a.xSize / 2;
+    f32 bHalfExtent = b.xSize / 2;
+    f32 xOverlap = aHalfExtent + bHalfExtent - Abs(relative.x);
 
-    if (xOverlap > 0)
+    if (xOverlap <= 0)
     {
-        aHalfExtent = a.height / 2;
-        bHalfExtent = b.height / 2;
-        float yOverlap = aHalfExtent + bHalfExtent - Abs(relative.y);
-        if (yOverlap > 0)
-        {
-            if (xOverlap < yOverlap)
-            {
-                if (relative.x < 0)
-                {
-                    manifold.normal = {-1, 0};
-                }
-                else
-                {
-                    manifold.normal = {1, 0};
-                }
-                manifold.penetration = xOverlap;
-            }
-            else
-            {
-                if (relative.y < 0)
-                {
-                    manifold.normal = {0, -1};
-                }
-                else
-                {
-                    manifold.normal = {0, 1};
-                }
-                manifold.penetration = yOverlap;
-            }
-        }
+        return manifold;
     }
+
+    aHalfExtent = a.ySize / 2;
+    bHalfExtent = b.ySize / 2;
+    f32 yOverlap = aHalfExtent + bHalfExtent - Abs(relative.y);
+    if (yOverlap <= 0)
+    {
+        return manifold;
+    }
+
+    aHalfExtent = a.zSize / 2;
+    bHalfExtent = b.zSize / 2;
+    f32 zOverlap = aHalfExtent + bHalfExtent - Abs(relative.z);
+    if (zOverlap <= 0)
+    {
+        return manifold;
+    }
+
+    if (xOverlap < yOverlap && xOverlap < zOverlap)
+    {
+        if (relative.x < 0)
+        {
+            manifold.normal = {-1, 0, 0};
+        }
+        else
+        {
+            manifold.normal = {1, 0, 0};
+        }
+        manifold.penetration = xOverlap;
+    }
+    else if (yOverlap < zOverlap)
+    {
+        if (relative.y < 0)
+        {
+            manifold.normal = {0, -1, 0};
+        }
+        else
+        {
+            manifold.normal = {0, 1, 0};
+        }
+        manifold.penetration = yOverlap;
+    }
+    else
+    {
+        if (relative.z < 0)
+        {
+            manifold.normal = {0, 0, -1};
+        }
+        else
+        {
+            manifold.normal = {0, 0, 1};
+        }
+        manifold.penetration = zOverlap;
+    }
+
     return manifold;
 }
 
-internal V2 TestMovingEntityCollision(const Rect2 *dynamic, const Rect2 *fixed, V2 delta, float *tResult)
+#if 0
+internal V2 TestMovingEntityCollision(const Rect2 *dynamic, const Rect2 *fixed, V2 delta, f32 *tResult)
 {
     V2 normal = {};
 
@@ -473,10 +516,10 @@ internal V2 TestMovingEntityCollision(const Rect2 *dynamic, const Rect2 *fixed, 
         return normal;
     }
 
-    float tMin = *tResult;
+    f32 tMin = *tResult;
 
-    float diameterWidth = dynamic->width + fixed->width;
-    float diameterHeight = dynamic->height + fixed->height;
+    f32 diameterWidth = dynamic->width + fixed->width;
+    f32 diameterHeight = dynamic->height + fixed->height;
 
     V2 minCorner = -0.5f * V2{diameterWidth, diameterHeight};
     V2 maxCorner = 0.5f * V2{diameterWidth, diameterHeight};
@@ -519,9 +562,10 @@ internal V2 TestMovingEntityCollision(const Rect2 *dynamic, const Rect2 *fixed, 
 
     return normal;
 }
+#endif
 
 // TODO: return (0, 0) instead of bifurcating code path?
-internal bool ScaleMousePosition(V2 mousePos, V2 resolutionScale, u32 bufferWidth, u32 bufferHeight, V2 *mouseTilePos)
+internal b32 ScaleMousePosition(V2 mousePos, V2 resolutionScale, u32 bufferWidth, u32 bufferHeight, V2 *mouseTilePos)
 {
     if (mousePos.x >= 0 && mousePos.y >= 0 && mousePos.x < resolutionScale.x && mousePos.y < resolutionScale.y)
     {
@@ -533,7 +577,7 @@ internal bool ScaleMousePosition(V2 mousePos, V2 resolutionScale, u32 bufferWidt
         mouseTilePos->x /= resolutionScale.x;
         mouseTilePos->y /= resolutionScale.y;
 
-        // *mouseTilePos /= (float)TILE_PIXEL_SIZE;
+        // *mouseTilePos /= (f32)TILE_PIXEL_SIZE;
 
         return true;
     }
@@ -548,11 +592,12 @@ internal void InitializePlayer(GameState *gameState)
     player->pos.y = 6.f;
     player->size.x = TILE_METER_SIZE;
     player->size.y = 2 * TILE_METER_SIZE;
-    player->r = 1.f;
-    player->g = 0.f;
-    player->b = 1.f;
+    player->color.r = 1.f;
+    player->color.g = 0.f;
+    player->color.b = 1.f;
+    player->color.a = 1.f;
 
-    AddFlag(3, player, Entity_Valid, Entity_Collidable, Entity_Airborne, Entity_Swappable);
+    AddFlag(player, Entity_Valid | Entity_Collidable | Entity_Airborne | Entity_Swappable);
 }
 
 extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
@@ -560,8 +605,8 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     // Initialization
     GameState *gameState = (GameState *)memory->PersistentStorageMemory;
 
-    float screenCenterX = buffer->width * .5f;
-    float screenCenterY = buffer->height * .5f;
+    f32 screenCenterX = openGL->width * .5f;
+    f32 screenCenterY = openGL->height * .5f;
 
     if (!memory->isInitialized)
     {
@@ -573,7 +618,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
         Entity *nilEntity = CreateEntity(gameState, gameState->level);
 
-        GenerateLevel(gameState, TILE_MAP_X_COUNT, TILE_MAP_Y_COUNT * 2);
+        GenerateLevel(gameState, 40, 24); // TILE_MAP_X_COUNT, TILE_MAP_Y_COUNT);
 
         InitializePlayer(gameState);
 
@@ -583,19 +628,23 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         swap->pos.y = 8.f;
         swap->size.x = TILE_METER_SIZE;
         swap->size.y = TILE_METER_SIZE;
-        swap->r = 0.f;
-        swap->g = 1.f;
-        swap->b = 1.f;
-        AddFlag(3, swap, Entity_Valid, Entity_Collidable, Entity_Swappable);
+        swap->color.r = 0.f;
+        swap->color.g = 1.f;
+        swap->color.b = 1.f;
+        swap->color.a = 1.f;
+        AddFlag(swap, Entity_Valid | Entity_Collidable | Entity_Swappable);
 
+        openGL->camera.position = {0, 0, 5};
+        openGL->camera.yaw = -PI / 2;
         memory->isInitialized = true;
 
-        gameState->camera.pos = V2{TILE_MAP_X_COUNT / 2.f, TILE_MAP_Y_COUNT / 2.f};
+        // gameState->camera.pos = V2{TILE_MAP_X_COUNT / 2.f, TILE_MAP_Y_COUNT / 2.f};
     }
     Level *level = gameState->level;
     GameInput *playerController = input;
 
     // Physics
+
     Entity *player = GetPlayer(gameState);
     Entity *swap = {};
 
@@ -614,7 +663,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     {
         if (swap && IsValid(swap))
         {
-            Swap(V2, player->pos, swap->pos);
+            Swap(V3, player->pos, swap->pos);
         }
     }
 
@@ -629,181 +678,81 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         swap->flags = swapFlags;
     }
 
-    V2 *dPlayerXY = &player->velocity;
-    V2 *ddPlayerXY = &player->acceleration;
+    V3 *velocity = &player->velocity;
+    V3 *acceleration = &player->acceleration;
 
-    dPlayerXY->x = 0;
-    dPlayerXY->x += playerController->right.keyDown ? 1.f : 0.f;
-    dPlayerXY->x += playerController->left.keyDown ? -1.f : 0.f;
-    float multiplier = 5;
+    acceleration->x = 0;
+    acceleration->x += playerController->right.keyDown ? 1.f : 0.f;
+    acceleration->x += playerController->left.keyDown ? -1.f : 0.f;
+    acceleration->y += playerController->up.keyDown ? 1.f : 0.f;
+    acceleration->y += playerController->down.keyDown ? -1.f : 0.f;
+
+    Normalize(velocity->xy);
+
+    f32 multiplier = 5;
     if (playerController->shift.keyDown)
     {
         multiplier = 7;
-        // gameState->ddPlayerXY +=
     }
-    dPlayerXY->x *= multiplier;
+    velocity->xy *= multiplier;
 
-    *ddPlayerXY = V2{0, -GRAVITY};
+    acceleration->z = -GRAVITY;
     if (playerController->jump.keyDown && !HasFlag(player, Entity_Airborne))
     {
-        dPlayerXY->y += 50.f;
-        AddFlag(1, player, Entity_Airborne);
+        velocity->z += 50.f;
+        AddFlag(player, Entity_Airborne);
     }
 
-    // *dPlayerXY += *ddPlayerXY * input->dT;
-    // V2 playerDelta = 0.5f * input->dT * input->dT * *ddPlayerXY + *dPlayerXY * input->dT;
+    Rect3 playerBox;
+    // TODO: pull out friction
+    velocity->xy += acceleration->xy * input->dT - 30.f * velocity->xy * input->dT;
+    // TODO: pull out air drag
+    velocity->z += acceleration->z * input->dT - 10.f * velocity->z * input->dT;
 
-    // TODO: actually somehow check if the player lands, this will
-    // mess up when collide with wall midair
-    /* NOTE: this is probably how I want basic physics to work
-    initially
-        1. Some notion of being airborne. Gravity applies here.
-        2. Some notion of being on the ground/on a surface. Gravity
-    doesn't apply.
-        3. need to figure out how to differentiate collide with
-    something in the air vs. landing
+    V3 playerDelta = *velocity * input->dT;
+    player->pos += playerDelta;
+    playerBox.pos = player->pos;
+    playerBox.size = player->size;
 
-    SOLUTION: some tiles are ground tiles, some tiles are air
-     */
-
-    // Collision Detetion
-    // TODO: handle the case where you're sweeping with two moving AABBs
-    // TODO: represent everything from the center?
-    // TODO: weird bug where I fell into the floor after swapping??? lmfao?
-    //        I think it's because I switched positions right as I'm about to touch floor,
-    //        or maybe when my position was just past the floor
-    //        this can be fixed by treating the ground as a solid instead of a line
+    for (Entity *entity = 0; IncrementEntity(level, &entity);)
     {
-#if 1
-#else
-        Rect2 swapBox;
-        swapBox.x = swap->pos.x;
-        swapBox.y = swap->pos.y;
-        swapBox.size = swap->size;
-
-        Polygon p1;
-        p1.points[0] = playerBox.pos;
-        p1.points[1] = playerBox.pos + V2{playerBox.width, 0};
-        p1.points[2] = playerBox.pos + V2{playerBox.width, playerBox.height};
-        p1.points[3] = playerBox.pos + V2{0, playerBox.height};
-        p1.numPoints = 4;
-
-        Polygon p2;
-        p2.points[0] = swapBox.pos;
-        p2.points[1] = swapBox.pos + V2{swapBox.width, 0};
-        p2.points[2] = swapBox.pos + V2{swapBox.width, swapBox.height};
-        p2.points[3] = swapBox.pos + V2{0, swapBox.height};
-        p2.numPoints = 4;
-
-        if (GJKMainLoop(&p1, &p2).hit)
+        if (HasFlag(entity, Entity_Collidable))
         {
-            player->r = 0.f;
-            player->g = 0.f;
-            player->b = 0.f;
-        }
-        else
-        {
-            player->r = 1.f;
-            player->g = 0.f;
-            player->b = 1.f;
-        }
-#endif
-
-#if 0
-        const int iterationCount = 3;
-
-        for (int iteration = 0; iteration < iterationCount; iteration++)
-        {
-            V2 normal = {};
-            float tResult = 1.f;
-            V2 desiredPos = player->pos + playerDelta;
-            for (Entity *entity = 0; IncrementEntity(level, &entity);)
+            Rect3 collisionBox = Rect3BottomLeft(entity->pos, entity->size);
+            Manifold manifold = NarrowPhaseAABBCollision(playerBox, collisionBox);
+            f32 velocityAlongNormal = Dot(manifold.normal, *velocity);
+            if (velocityAlongNormal > 0)
             {
-                // NOTE ALGORITHM:
-                // 1. Find minkowski sum of two AABBs
-                // 2. Find relative positive of player with respect to the currently checked box.
-                // 3. Four cases:
-                //      a. If the player is moving left, check that the horizontal length between the
-                //      player and the right side of the box is less playerDelta.x. If so, check to
-                //      see if the player's y coordinate is within the box. If so, there is a
-                //      collision. b, c, d. Similar for the other sides of the box.
-                // 4. For the smallest time to collision, simply just place the player at that
-                // location. May want to revise this.
-
-                // Ray vs Minkowski Sum AABB
-                if (HasFlag(entity, Entity_Collidable))
-                {
-                    Rect2 collisionBox = CreateRectFromBottomLeft(entity->pos, entity->size);
-                    // V2 newNormal = TestMovingEntityCollision(&playerBox, &collisionBox, playerDelta, &tResult);
-                    // if (newNormal.x != 0 || newNormal.y != 0)
-                    // {
-                    //     normal = newNormal;
-                    // }
-                    if (normal.x == 0 && normal.y == 1)
-                    {
-                        RemoveFlag(player, Entity_Airborne);
-                    }
-                }
+                continue;
             }
-
-            player->pos += playerDelta * tResult;
-            *dPlayerXY -= normal * Dot(*dPlayerXY, normal);
-            playerDelta = desiredPos - player->pos;
-            playerDelta -= normal * Dot(playerDelta, normal);
-        }
-#endif
-
-        Rect2 playerBox;
-        *dPlayerXY += *ddPlayerXY * input->dT;
-        dPlayerXY->y = Min(Max(dPlayerXY->y, -MAX_Y_SPEED), MAX_Y_SPEED);
-
-        V2 playerDelta = *dPlayerXY * input->dT;
-        player->pos += playerDelta;
-        playerBox.pos = player->pos;
-        playerBox.size = player->size;
-
-        for (Entity *entity = 0; IncrementEntity(level, &entity);)
-        {
-            if (HasFlag(entity, Entity_Collidable))
+            *velocity -= manifold.normal * velocityAlongNormal;
+            player->pos += manifold.normal * manifold.penetration;
+            playerBox.pos = player->pos;
+            if (manifold.normal.x == 0 && manifold.normal.y == 1)
             {
-                Rect2 collisionBox = CreateRectFromBottomLeft(entity->pos, entity->size);
-                // if (BroadPhaseCollision(playerBox, collisionBox, playerDelta))
-                // {
-                Manifold manifold = NarrowPhaseAABBCollision(playerBox, collisionBox);
-                float velocityAlongNormal = Dot(manifold.normal, *dPlayerXY);
-                if (velocityAlongNormal > 0)
-                {
-                    continue;
-                }
-                *dPlayerXY -= manifold.normal * velocityAlongNormal;
-                player->pos += manifold.normal * manifold.penetration;
-                playerBox.pos = player->pos;
-                if (manifold.normal.x == 0 && manifold.normal.y == 1)
-                {
-                    RemoveFlag(player, Entity_Airborne);
-                }
+                RemoveFlag(player, Entity_Airborne);
             }
         }
     }
 
 // Move camera
 #if 1
-    if (player->pos.y - gameState->camera.pos.y > TILE_MAP_Y_COUNT * TILE_METER_SIZE / 2.f)
-    {
-        gameState->camera.pos.y += TILE_MAP_Y_COUNT * TILE_METER_SIZE;
-    }
-    if (player->pos.y - gameState->camera.pos.y < -TILE_MAP_Y_COUNT * TILE_METER_SIZE / 2.f)
-    {
-        gameState->camera.pos.y -= TILE_MAP_Y_COUNT * TILE_METER_SIZE;
-    }
-    if (player->pos.x - gameState->camera.pos.x > TILE_MAP_X_COUNT * TILE_METER_SIZE / 2.f)
-    {
-        gameState->camera.pos.x += TILE_MAP_X_COUNT * TILE_METER_SIZE;
-    }
-    if (player->pos.x - gameState->camera.pos.x < -TILE_MAP_X_COUNT * TILE_METER_SIZE / 2.f)
-    {
-        gameState->camera.pos.x -= TILE_MAP_X_COUNT * TILE_METER_SIZE;
-    }
+    // if (player->pos.y - gameState->camera.pos.y > TILE_MAP_Y_COUNT * TILE_METER_SIZE / 2.f)
+    // {
+    //     gameState->camera.pos.y += TILE_MAP_Y_COUNT * TILE_METER_SIZE;
+    // }
+    // if (player->pos.y - gameState->camera.pos.y < -TILE_MAP_Y_COUNT * TILE_METER_SIZE / 2.f)
+    // {
+    //     gameState->camera.pos.y -= TILE_MAP_Y_COUNT * TILE_METER_SIZE;
+    // }
+    // if (player->pos.x - gameState->camera.pos.x > TILE_MAP_X_COUNT * TILE_METER_SIZE / 2.f)
+    // {
+    //     gameState->camera.pos.x += TILE_MAP_X_COUNT * TILE_METER_SIZE;
+    // }
+    // if (player->pos.x - gameState->camera.pos.x < -TILE_MAP_X_COUNT * TILE_METER_SIZE / 2.f)
+    // {
+    //     gameState->camera.pos.x -= TILE_MAP_X_COUNT * TILE_METER_SIZE;
+    // }
 // Smooth scrolling
 #else
     gameState->camera.pos = player->pos;
@@ -811,6 +760,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
 // Debug / Level Editor
 #if INTERNAL
+#else
     V2 resolutionScale = memory->DebugPlatformGetResolution(memory->handle);
     V2 mouseTilePos;
     if (input->leftClick.keyDown)
@@ -822,7 +772,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
                 floorf(mouseTilePos.x + gameState->camera.pos.x - (TILE_METER_SIZE * TILE_MAP_X_COUNT / 2.f));
             mouseTilePos.y =
                 floorf(mouseTilePos.y + gameState->camera.pos.y - (TILE_METER_SIZE * TILE_MAP_Y_COUNT / 2.f));
-            bool result = true;
+            b32 result = true;
             for (Entity *entity = 0; IncrementEntity(level, &entity);)
             {
                 if (entity->pos == mouseTilePos)
@@ -862,31 +812,87 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
 #endif
 
-    // Draw
+    // Render
     {
-        // TODO: I hate this, I'm learning OPENGL
-        DrawRectangle(buffer, V2{0, 0}, V2{RESX, RESY}, 1.f, 1.f, 1.f);
-        Camera *camera = &gameState->camera;
-
         for (Entity *entity = 0; IncrementEntity(level, &entity);)
         {
-            V2 relative = entity->pos - camera->pos;
-            V2 min;
-            min.x = screenCenterX + relative.x * METERS_TO_PIXELS;
-            min.y = screenCenterY + relative.y * METERS_TO_PIXELS;
-            DrawBitmap(buffer, &gameState->bmpTest, min);
+            PushCube(&openGL->group, entity->pos, entity->size, entity->color);
         }
 
-        V2 playerTopLeft = V2{screenCenterX, screenCenterY} + (player->pos - camera->pos) * METERS_TO_PIXELS;
-        DrawRectangle(buffer, playerTopLeft, playerTopLeft + player->size * METERS_TO_PIXELS, player->r, player->g,
-                      player->b);
+        V2 mouseP = input->mousePos;
 
-        if (IsValid(swap))
+        V2 dMouseP = mouseP - input->lastMousePos;
+
+        Camera *camera = &openGL->camera;
+        f32 speed = 3.f;
+        if (input->shift.keyDown)
         {
-            V2 swapTopLeft = V2{screenCenterX, screenCenterY} + (swap->pos - camera->pos) * METERS_TO_PIXELS;
-            DrawRectangle(buffer, swapTopLeft, swapTopLeft + swap->size * METERS_TO_PIXELS, swap->r, swap->g, swap->b);
+            speed = 10.f;
         }
 
-        // GameOutputSound(soundBuffer, gameState->toneHz);
+        Mat4 rotation = MakeMat4(1.f);
+        if (input->rightClick.keyDown)
+        {
+            f32 rotationSpeed = 0.0005f * PI;
+
+            camera->pitch -= rotationSpeed * dMouseP.y;
+            f32 epsilon = 0.01f;
+            if (camera->pitch > PI / 2 - epsilon)
+            {
+                camera->pitch = PI / 2 - epsilon;
+            }
+            else if (camera->pitch < -PI / 2 + epsilon)
+            {
+                camera->pitch = -PI / 2 + epsilon;
+            }
+            camera->yaw -= rotationSpeed * dMouseP.x;
+            if (camera->yaw > 2 * PI)
+            {
+                camera->yaw -= 2 * PI;
+            }
+            if (camera->yaw < -2 * PI)
+            {
+                camera->yaw += 2 * PI;
+            }
+
+            if (input->up.keyDown)
+            {
+                camera->position += camera->forward * speed * input->dT;
+            }
+            if (input->down.keyDown)
+            {
+                camera->position += camera->forward * -speed * input->dT;
+            }
+            if (input->left.keyDown)
+            {
+                camera->position += camera->right * -speed * input->dT;
+            }
+            if (input->right.keyDown)
+            {
+                camera->position += camera->right * speed * input->dT;
+            }
+        }
+
+        V3 worldUp = {0, 0, 1};
+
+        V3 cameraPosition = camera->position;
+        // camera->forward.x = Cos(camera->yaw);
+        // camera->forward.y = Sin(camera->yaw) + Sin(camera->pitch);
+        // camera->forward.z = Cos(camera->pitch) +
+        camera->forward.x = Cos(camera->yaw) * Cos(camera->pitch);
+        camera->forward.y = Sin(camera->yaw) * Cos(camera->pitch);
+        camera->forward.z = Sin(camera->pitch);
+        camera->forward = Normalize(camera->forward);
+        // also re-calculate the Right and Up vector
+        camera->right = Normalize(Cross(camera->forward, worldUp));
+        V3 up = Normalize(Cross(camera->right, camera->forward));
+
+        Mat4 projection = Perspective4(Radians(45.f), 16.f / 9.f, .1f, 1000.f);
+        Mat4 cameraMatrix = CameraTransform(camera->right, up, -camera->forward, camera->position);
+
+        Mat4 transform = projection * cameraMatrix;
+
+        openGL->transform = transform;
     }
+    // GameOutputSound(soundBuffer, gameState->toneHz);
 }

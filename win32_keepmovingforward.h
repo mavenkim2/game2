@@ -2,10 +2,13 @@
 
 #include <windows.h>
 
-#include "keepmovingforward_platform.h"
 #include "keepmovingforward_string.h"
+#include "keepmovingforward_platform.h"
 #include <gl/GL.h>
 #include <xaudio2.h>
+
+global LARGE_INTEGER START_TIME;
+global i64 GLOBAL_PERFORMANCE_COUNT_FREQUENCY;
 
 #define XAUDIO2_CREATE(name) HRESULT name(IXAudio2 **ppXAudio2, UINT32 flags, XAUDIO2_PROCESSOR xAudio2Processor)
 typedef XAUDIO2_CREATE(XAudio2CreateFunctionType);
@@ -37,7 +40,7 @@ struct Win32ReplayState
 
 struct Win32State
 {
-    Arena* arena;
+    Arena *arena;
     HANDLE recordingHandle;
     int currentRecordingIndex;
 
@@ -59,6 +62,7 @@ struct Win32GameCode
 };
 
 inline LARGE_INTEGER Win32GetWallClock();
+f32 Win32GetTimeElapsed();
 
 #define WIN32_GAME_H
 #endif

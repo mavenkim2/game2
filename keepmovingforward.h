@@ -41,11 +41,6 @@ struct BmpHeader
 };
 #pragma pack(pop)
 
-struct Camera
-{
-    V2 pos;
-};
-
 struct GameState
 {
     u64 entity_id_gen; 

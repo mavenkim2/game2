@@ -1,7 +1,9 @@
 #ifndef WIN32_KEEPMOVINGFORWARD_OPENGL_H
 #define WIN32_KEEPMOVINGFORWARD_OPENGL_H
 
-#include "keepmovingforward_common.h"
+#include "../keepmovingforward_common.h"
+#include "../keepmovingforward_camera.h"
+#include "keepmovingforward_renderer.h"
 #include <windows.h>
 
 #include <gl/GL.h>
@@ -206,11 +208,19 @@ typedef void WINAPI type_glDrawElementsBaseVertex(GLenum mode, GLsizei count, GL
 typedef void WINAPI type_glUniform4f(GLint location, GLfloat v0, GLfloat v1, GLfloat v2, GLfloat v3);
 
 #define Win32GetOpenGLFunction(name) openGL->name = (type_##name *)wglGetProcAddress(#name)
+
 #define OpenGLFunction(name) type_##name *name
 
 struct OpenGL
 {
+    Camera camera;
+    Mat4 transform;
+    i32 width; 
+    i32 height;
+
     GLuint vao;
+    GLuint vertexBufferId;
+    GLuint indexBufferId;
     GLuint shaderProgram;
 
     OpenGLFunction(glGenBuffers);
@@ -236,8 +246,7 @@ struct OpenGL
     OpenGLFunction(glUniform1f);
     OpenGLFunction(glActiveTexture);
     OpenGLFunction(glUniformMatrix4fv);
+
+    RenderGroup group;
 };
-
-internal void Setup();
-
 #endif

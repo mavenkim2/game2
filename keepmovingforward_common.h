@@ -37,6 +37,9 @@ typedef uint64_t u64;
 typedef float f32; 
 typedef double f64;
 
+typedef i32 b32;
+typedef i64 b64;
+
 #define ArrayLength(array) sizeof(array) / sizeof((array)[0])
 #define kilobytes(value) ((value)*1024LL)
 #define megabytes(value) (kilobytes(value) * 1024LL)
@@ -56,8 +59,11 @@ typedef double f64;
 #define Unreachable Assert(!"Unreachable")
 #define Swap(type, a, b) do { type _swapper_ = a; a = b; b = _swapper_; } while(0)
 
-#define RESX 640
-#define RESY 360
+// NOTE: does it matter that this is a u64 instead of uintptr_t?
+#define Offset(type, member) (u64)&(((RenderVertex *)0)->member)
+
+// #define RESX 640
+// #define RESY 360
 
 #define KEEPMOVINGFORWARD_COMMON_H
 #endif

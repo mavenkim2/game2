@@ -11,12 +11,10 @@ struct LevelPosition
 };
 
 enum EntityFlag {
-    Entity_Valid = 0, 
-    Entity_Swappable = 1, 
-    Entity_Collidable = 2, 
-    Entity_Airborne = 3, 
-
-    Entity_Max, 
+    Entity_Valid = (1 << 0), 
+    Entity_Swappable = (1 << 1), 
+    Entity_Collidable = (1 << 2), 
+    Entity_Airborne = (1 << 3), 
 };
 
 struct Entity
@@ -24,18 +22,16 @@ struct Entity
     u64 id; 
 
     // Physics
-    Vector2 pos;
-    Vector2 size;
+    Vector3 pos;
+    Vector3 size;
 
-    Vector2 velocity;
-    Vector2 acceleration;
+    Vector3 velocity;
+    Vector3 acceleration;
 
     u64 flags; 
 
     // Render
-    float r;
-    float g;
-    float b;
+    V4 color;
 };
 
 #define KEEPMOVINGFORWARD_H

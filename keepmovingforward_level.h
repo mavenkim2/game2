@@ -7,13 +7,13 @@
 #include "keepmovingforward_entity.h"
 #include "keepmovingforward_math.h"
 
-#define TILE_MAP_X_COUNT 80
-#define TILE_MAP_Y_COUNT 46
+// #define TILE_MAP_X_COUNT 40
+// #define TILE_MAP_Y_COUNT 23
 #define MAX_ENTITIES 4096
 
 const int TILE_PIXEL_SIZE = 8;
-const float TILE_METER_SIZE = 1.f;
-const float METERS_TO_PIXELS = TILE_PIXEL_SIZE / TILE_METER_SIZE;
+const f32 TILE_METER_SIZE = 1.f;
+const f32 METERS_TO_PIXELS = TILE_PIXEL_SIZE / TILE_METER_SIZE;
 
 struct Entity;
 

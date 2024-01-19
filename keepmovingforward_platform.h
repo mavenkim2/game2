@@ -3,6 +3,7 @@
 
 #include "keepmovingforward_math.h"
 #include "keepmovingforward_memory.h"
+#include "render/win32_keepmovingforward_opengl.h"
 
 #if INTERNAL
 struct DebugReadFileOutput
@@ -21,7 +22,7 @@ typedef DEBUG_PLATFORM_FREE_FILE(DebugPlatformFreeFileFunctionType);
 typedef DEBUG_PLATFORM_READ_FILE(DebugPlatformReadFileFunctionType);
 
 #define DEBUG_PLATFORM_WRITE_FILE(name)                                                                 \
-    bool name(const char *fileName, u32 fileSize, void *fileMemory)
+    b32 name(const char *fileName, u32 fileSize, void *fileMemory)
 typedef DEBUG_PLATFORM_WRITE_FILE(DebugPlatformWriteFileFunctionType);
 
 #define DEBUG_PLATFORM_GET_RESOLUTION(name) V2 name(DebugPlatformHandle handle) 
@@ -30,7 +31,7 @@ typedef DEBUG_PLATFORM_GET_RESOLUTION(DebugPlatformGetResolutionFunctionType);
 
 struct GameMemory
 {
-    bool isInitialized;
+    b32 isInitialized;
 
     u64 PersistentStorageSize;
     void *PersistentStorageMemory;
@@ -61,7 +62,7 @@ struct GameOffscreenBuffer
 struct GameButtonState
 {
     int halfTransitionCount;
-    bool keyDown;
+    b32 keyDown;
 };
 
 struct GameInput
@@ -83,6 +84,7 @@ struct GameInput
             GameButtonState rightClick;
         };
     };
+    V2 lastMousePos;
     V2 mousePos; 
     float dT;
 };
@@ -123,7 +125,7 @@ inline void AddStrings_(char *destination, const char *source)
 };
 
 #define GAME_UPDATE_AND_RENDER(name)                                                                         \
-    void name(GameMemory *memory, GameOffscreenBuffer *buffer, GameSoundOutput *soundBuffer,        \
+    void name(GameMemory *memory, OpenGL* openGL, GameSoundOutput *soundBuffer,        \
               GameInput *input)
 
 typedef GAME_UPDATE_AND_RENDER(GameUpdateAndRenderFunctionType);
