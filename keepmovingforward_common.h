@@ -4,7 +4,7 @@
 #if _MSC_VER
 #define COMPILER_MSVC 1
 #if defined(_WIN32)
-#define OS_WINDOWS 1
+#define WINDOWS 1
 #endif
 #endif
 

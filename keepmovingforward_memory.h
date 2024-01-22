@@ -1,7 +1,6 @@
 #ifndef KEEPMOVINGFORWARD_MEMORY_H
 #define KEEPMOVINGFORWARD_MEMORY_H
 
-#include "keepmovingforward_common.h"
 struct Arena {
     u64 pos; 
     u64 commitPos;
@@ -16,7 +15,7 @@ struct TempArena {
 };
 
 internal Arena* ArenaAlloc(void *base, u64 size);
-internal void *ArenaPush(Arena *arena, u64 size);
+internal void* ArenaPush(Arena *arena, u64 size);
 internal void ArenaPopTo(Arena *arena, u64 pos);
 
 internal TempArena TempBegin(Arena* arena);

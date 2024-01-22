@@ -1,24 +1,41 @@
 #include <windows.h>
+#include <gl/GL.h>
+#include <xaudio2.h>
 
-#include "keepmovingforward_string.cpp"
-
+#include "keepmovingforward_common.h"
+#include "keepmovingforward_math.h"
+#include "keepmovingforward_camera.h"
+#include "render/keepmovingforward_renderer.h"
+#include "render/win32_keepmovingforward_opengl.h"
 #include "keepmovingforward_platform.h"
-#include "render/win32_keepmovingforward_opengl.cpp"
+
+#include "keepmovingforward_memory.h"
+#include "keepmovingforward_string.h"
 #include "win32_keepmovingforward.h"
+
+#include "keepmovingforward_memory.cpp"
+#include "keepmovingforward_string.cpp"
+#include "render/win32_keepmovingforward_opengl.cpp"
+
 global b32 RUNNING = true;
 
 global Win32OffscreenBuffer GLOBAL_BACK_BUFFER;
 global IXAudio2SourceVoice *SOURCE_VOICES[3];
 global WINDOWPLACEMENT GLOBAL_WINDOW_POSITION = {sizeof(GLOBAL_WINDOW_POSITION)};
+global b32 GLOBAL_SHOW_CURSOR;
 
-internal Win32WindowDimension Win32GetWindowDimension(HWND window)
+internal V2 Win32GetWindowDimension(HWND window)
 {
-    Win32WindowDimension result;
+    V2 result;
     RECT clientRect;
     GetClientRect(window, &clientRect);
-    result.width = clientRect.right - clientRect.left;
-    result.height = clientRect.bottom - clientRect.top;
+    result.x = (f32)(clientRect.right - clientRect.left);
+    result.y = (f32)(clientRect.bottom - clientRect.top);
     return result;
+}
+
+void PlatformToggleCursor(b32 value) {
+    GLOBAL_SHOW_CURSOR = value;
 }
 
 //*******************************************
@@ -28,8 +45,8 @@ internal Win32WindowDimension Win32GetWindowDimension(HWND window)
 #if INTERNAL
 DEBUG_PLATFORM_GET_RESOLUTION(DebugPlatformGetResolution)
 {
-    Win32WindowDimension dimension = Win32GetWindowDimension((HWND)handle.handle);
-    return V2{(f32)dimension.width, (f32)dimension.height};
+    V2 dimension = Win32GetWindowDimension((HWND)handle.handle);
+    return dimension;
 }
 
 DEBUG_PLATFORM_FREE_FILE(DebugPlatformFreeFile)
@@ -334,15 +351,15 @@ HRESULT FindChunk(HANDLE hFile, DWORD fourcc, DWORD &dwChunkSize, DWORD &dwChunk
 
         switch (dwChunkType)
         {
-        case 'FFIR':
-            dwRIFFDataSize = dwChunkDataSize;
-            dwChunkDataSize = 4;
-            Assert(ReadFile(hFile, &dwFileType, sizeof(DWORD), &dwRead, 0));
-            Assert(dwFileType == 'EVAW');
-            break;
+            case 'FFIR':
+                dwRIFFDataSize = dwChunkDataSize;
+                dwChunkDataSize = 4;
+                Assert(ReadFile(hFile, &dwFileType, sizeof(DWORD), &dwRead, 0));
+                Assert(dwFileType == 'EVAW');
+                break;
 
-        default:
-            Assert(INVALID_SET_FILE_POINTER != SetFilePointer(hFile, dwChunkDataSize, 0, FILE_CURRENT));
+            default:
+                Assert(INVALID_SET_FILE_POINTER != SetFilePointer(hFile, dwChunkDataSize, 0, FILE_CURRENT));
         }
 
         dwOffset += sizeof(DWORD) * 2;
@@ -538,102 +555,102 @@ internal void Win32ProcessPendingMessages(Win32State *state, GameInput *keyboard
     {
         switch (message.message)
         {
-        case WM_LBUTTONUP:
-        case WM_LBUTTONDOWN:
-        {
-            b32 isDown = (message.wParam & 1) == 1;
-            Win32ProcessKeyboardMessages(&keyboardController->leftClick, isDown);
-            break;
-        }
-        case WM_RBUTTONUP:
-        case WM_RBUTTONDOWN:
-        {
-            b32 isDown = (message.wParam & (1 << 1)) != 0;
-            Win32ProcessKeyboardMessages(&keyboardController->rightClick, isDown);
-            break;
-        }
-        case WM_KEYUP:
-        case WM_KEYDOWN:
-        case WM_SYSKEYUP:
-        case WM_SYSKEYDOWN:
-        {
-            u32 keyCode = (u32)message.wParam;
-            b32 wasDown = (message.lParam & (1 << 30)) != 0;
-            b32 isDown = (message.lParam & (1 << 31)) == 0;
-            b32 altWasDown = (message.lParam & (1 << 29)) != 0;
+            case WM_LBUTTONUP:
+            case WM_LBUTTONDOWN:
+            {
+                b32 isDown = message.wParam & 1;
+                Win32ProcessKeyboardMessages(&keyboardController->leftClick, isDown);
+                break;
+            }
+            case WM_RBUTTONUP:
+            case WM_RBUTTONDOWN:
+            {
+                b32 isDown = message.wParam & (1 << 1);
+                Win32ProcessKeyboardMessages(&keyboardController->rightClick, isDown);
+                break;
+            }
+            case WM_KEYUP:
+            case WM_KEYDOWN:
+            case WM_SYSKEYUP:
+            case WM_SYSKEYDOWN:
+            {
+                u32 keyCode = (u32)message.wParam;
+                b32 wasDown = (message.lParam & (1 << 30)) != 0;
+                b32 isDown = (message.lParam & (1 << 31)) == 0;
+                b32 altWasDown = (message.lParam & (1 << 29)) != 0;
 
-            if (keyCode == 'W')
-            {
-                Win32ProcessKeyboardMessages(&keyboardController->up, isDown);
-            }
-            if (keyCode == 'A')
-            {
-                Win32ProcessKeyboardMessages(&keyboardController->left, isDown);
-            }
-            if (keyCode == 'S')
-            {
-                Win32ProcessKeyboardMessages(&keyboardController->down, isDown);
-            }
-            if (keyCode == 'D')
-            {
-                Win32ProcessKeyboardMessages(&keyboardController->right, isDown);
-            }
-            if (keyCode == VK_SPACE)
-            {
-                Win32ProcessKeyboardMessages(&keyboardController->jump, isDown);
-            }
-            if (keyCode == VK_SHIFT)
-            {
-                Win32ProcessKeyboardMessages(&keyboardController->shift, isDown);
-            }
-            if (keyCode == 'C')
-            {
-                Win32ProcessKeyboardMessages(&keyboardController->swap, isDown);
-            }
-            if (keyCode == 'X')
-            {
-                Win32ProcessKeyboardMessages(&keyboardController->soul, isDown);
-            }
-
-            if (keyCode == VK_F4 && altWasDown)
-            {
-                RUNNING = false;
-            }
-            if (isDown && wasDown != isDown && keyCode == VK_RETURN && altWasDown)
-            {
-                ToggleFullscreen(message.hwnd);
-            }
-            if (keyCode == 'L')
-            {
-                if (isDown && isDown != wasDown)
+                if (keyCode == 'W')
                 {
-                    if (state->currentPlaybackIndex)
+                    Win32ProcessKeyboardMessages(&keyboardController->up, isDown);
+                }
+                if (keyCode == 'A')
+                {
+                    Win32ProcessKeyboardMessages(&keyboardController->left, isDown);
+                }
+                if (keyCode == 'S')
+                {
+                    Win32ProcessKeyboardMessages(&keyboardController->down, isDown);
+                }
+                if (keyCode == 'D')
+                {
+                    Win32ProcessKeyboardMessages(&keyboardController->right, isDown);
+                }
+                if (keyCode == VK_SPACE)
+                {
+                    Win32ProcessKeyboardMessages(&keyboardController->jump, isDown);
+                }
+                if (keyCode == VK_SHIFT)
+                {
+                    Win32ProcessKeyboardMessages(&keyboardController->shift, isDown);
+                }
+                if (keyCode == 'C')
+                {
+                    Win32ProcessKeyboardMessages(&keyboardController->swap, isDown);
+                }
+                if (keyCode == 'X')
+                {
+                    Win32ProcessKeyboardMessages(&keyboardController->soul, isDown);
+                }
+
+                if (keyCode == VK_F4 && altWasDown)
+                {
+                    RUNNING = false;
+                }
+                if (isDown && wasDown != isDown && keyCode == VK_RETURN && altWasDown)
+                {
+                    ToggleFullscreen(message.hwnd);
+                }
+                if (keyCode == 'L')
+                {
+                    if (isDown && isDown != wasDown)
                     {
-                        Win32EndPlayback(state);
-                    }
-                    else if (!state->currentRecordingIndex)
-                    {
-                        Win32BeginRecording(state, 1);
-                    }
-                    else if (state->currentRecordingIndex && !state->currentPlaybackIndex)
-                    {
-                        Win32EndRecording(state);
-                        Win32BeginPlayback(state, 1);
+                        if (state->currentPlaybackIndex)
+                        {
+                            Win32EndPlayback(state);
+                        }
+                        else if (!state->currentRecordingIndex)
+                        {
+                            Win32BeginRecording(state, 1);
+                        }
+                        else if (state->currentRecordingIndex && !state->currentPlaybackIndex)
+                        {
+                            Win32EndRecording(state);
+                            Win32BeginPlayback(state, 1);
+                        }
                     }
                 }
+                break;
             }
-            break;
-        }
-        case WM_QUIT:
-        {
-            RUNNING = false;
-            break;
-        }
-        default:
-        {
-            TranslateMessage(&message);
-            DispatchMessageW(&message);
-        }
+            case WM_QUIT:
+            {
+                RUNNING = false;
+                break;
+            }
+            default:
+            {
+                TranslateMessage(&message);
+                DispatchMessageW(&message);
+            }
         }
     }
 }
@@ -643,46 +660,40 @@ LRESULT WindowsCallback(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
     LRESULT result = 0;
     switch (message)
     {
-    case WM_SIZE:
-    {
-        break;
-    }
-    case WM_SETCURSOR:
-    {
-#if INTERNAL
-        result = DefWindowProcW(window, message, wParam, lParam);
-#else
-        SetCursor(0);
-#endif
-        break;
-    }
-    case WM_ACTIVATEAPP:
-    {
-        break;
-    }
-    case WM_DESTROY:
-    {
-        RUNNING = false;
-        break;
-    }
-    case WM_CLOSE:
-    {
-        RUNNING = false;
-        break;
-    }
-    case WM_PAINT:
-    {
-        PAINTSTRUCT paint;
-        HDC deviceContext = BeginPaint(window, &paint);
-        Win32WindowDimension dimension = Win32GetWindowDimension(window);
-        Win32DisplayBufferInWindow(&GLOBAL_BACK_BUFFER, deviceContext, dimension.width, dimension.height);
-        EndPaint(window, &paint);
-        break;
-    }
-    default:
-    {
-        result = DefWindowProcW(window, message, wParam, lParam);
-    }
+        case WM_SIZE:
+        {
+            break;
+        }
+        case WM_SETCURSOR:
+        {
+            if (GLOBAL_SHOW_CURSOR)
+            {
+                result = DefWindowProcW(window, message, wParam, lParam);
+            }
+            else
+            {
+                SetCursor(0);
+            }
+            break;
+        }
+        case WM_ACTIVATEAPP:
+        {
+            break;
+        }
+        case WM_DESTROY:
+        {
+            RUNNING = false;
+            break;
+        }
+        case WM_CLOSE:
+        {
+            RUNNING = false;
+            break;
+        }
+        default:
+        {
+            result = DefWindowProcW(window, message, wParam, lParam);
+        }
     }
     return result;
 }
@@ -741,7 +752,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     Win32InitializeXAudio2(samplesPerSecond);
     OpenGL openGL = Win32InitOpenGL(windowHandle);
     openGL.group.vertexArray = (RenderVertex *)VirtualAlloc(0, openGL.group.maxVertexCount * sizeof(RenderVertex),
-                                                             MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+                                                            MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     openGL.group.indexArray =
         (u16 *)VirtualAlloc(0, openGL.group.maxIndexCount * sizeof(u16), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 
@@ -778,6 +789,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     void *win32Memory = VirtualAlloc(0, kilobytes(64), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     Arena *win32Arena = ArenaAlloc(win32Memory, kilobytes(64));
 
+    gameMemory.PlatformToggleCursor = PlatformToggleCursor;
 #if INTERNAL
     gameMemory.DebugPlatformFreeFile = DebugPlatformFreeFile;
     gameMemory.DebugPlatformReadFile = DebugPlatformReadFile;
@@ -850,8 +862,8 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
             win32GameCode = Win32LoadGameCode(sourceDLLFilename, tempDLLFilename, lockFilename);
         }
 
-        Win32WindowDimension dimension = Win32GetWindowDimension(windowHandle);
-        OpenGLBeginFrame(&openGL, dimension.width, dimension.height);
+        V2 dimension = Win32GetWindowDimension(windowHandle);
+        OpenGLBeginFrame(&openGL, (i32)dimension.x, (i32)dimension.y);
 
         newInput = {};
         newInput.dT = expectedSecondsPerFrame;
@@ -862,10 +874,24 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
         newInput.lastMousePos = oldInput.mousePos;
 
         // Mouse
+        // TODO: Raw input to get delta easier?
+        RECT windowRect;
+        GetWindowRect(windowHandle, &windowRect);
+        V2 center = {(windowRect.right + windowRect.left) / 2.f, (windowRect.bottom + windowRect.top) / 2.f};
+
         POINT pos;
         GetCursorPos(&pos);
         ScreenToClient(windowHandle, &pos);
+        POINT centerPos = {(LONG)center.x, (LONG)center.y};
+        ScreenToClient(windowHandle, &centerPos);
+
         newInput.mousePos = V2{(f32)pos.x, (f32)pos.y};
+        newInput.deltaMouse = newInput.mousePos - V2{(f32)centerPos.x, (f32)centerPos.y};
+
+        if (!GLOBAL_SHOW_CURSOR)
+        {
+            SetCursorPos((i32)center.x, (i32)center.y);
+        }
 
         Win32ProcessPendingMessages(&win32State, &newInput);
 
@@ -926,9 +952,8 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
         f32 msPerFrame = 1000.f * Win32GetSecondsElapsed(lastPerformanceCount, endPerformanceCount);
         lastPerformanceCount = endPerformanceCount;
 
-        dimension = Win32GetWindowDimension(windowHandle);
         HDC deviceContext = GetDC(windowHandle);
-        OpenGLEndFrame(&openGL, deviceContext, dimension.width, dimension.height);
+        OpenGLEndFrame(&openGL, deviceContext, (i32)(dimension.x), (i32)(dimension.y));
         ReleaseDC(windowHandle, deviceContext);
 
         oldInput = newInput;

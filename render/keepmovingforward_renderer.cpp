@@ -1,6 +1,3 @@
-#include "../keepmovingforward_common.h"
-#include "../keepmovingforward_math.h"
-#include "keepmovingforward_renderer.h"
 // TODO: THOUGHTS: I'm assuming that you just pass the local vertices here, and then somehow
 // create a transformation matrix for each object based on its position or something?
 // but like how do I do the transformation matrix part in a way that isn't braindead?
@@ -9,7 +6,7 @@
 
 /* internal RenderGroup BeginRenderGroup(OpenGL* openGL) {
     RenderGroup* group = &openGL->group;
-    // TODO: if the number is any higher, then u16 index cannot represent 
+    // TODO: if the number is any higher, then u16 index cannot represent
     u32 maxQuadCountPerFrame = 1 << 14;
     group.maxVertexCount = maxQuadCountPerFrame * 4;
     group.maxIndexCount = maxQuadCountPerFrame * 6;
@@ -36,24 +33,25 @@ internal void PushCube(RenderGroup *group, V3 pos, V3 radius, V4 color)
     V3 p6 = {maxX, maxY, maxZ};
     V3 p7 = {minX, maxY, maxZ};
 
+    // TODO: if things aren't axis aligned, this gets tricky, or have to compute normal in PushQuad
     // -X
-    PushQuad(group, p3, p0, p4, p7, color);
+    PushQuad(group, p3, p0, p4, p7, V3{-1, 0, 0}, color);
     // +X
-    PushQuad(group, p2, p1, p5, p6, color);
+    PushQuad(group, p2, p1, p5, p6, V3{1, 0, 0}, color);
     // -Y
-    PushQuad(group, p0, p1, p5, p4, color);
+    PushQuad(group, p0, p1, p5, p4, V3{0, -1, 0}, color);
     // +Y
-    PushQuad(group, p3, p2, p6, p7, color);
+    PushQuad(group, p3, p2, p6, p7, V3{0, 1, 0}, color);
     // -Z
-    PushQuad(group, p0, p1, p2, p3, color);
+    PushQuad(group, p0, p1, p2, p3, V3{0, 0, -1}, color);
     // +Z
-    PushQuad(group, p4, p5, p6, p7, color);
+    PushQuad(group, p4, p5, p6, p7, V3{0, 0, 1}, color);
 }
 
-internal void PushQuad(RenderGroup *group, V3 p0, V3 p1, V3 p2, V3 p3, V4 color)
+internal void PushQuad(RenderGroup *group, V3 p0, V3 p1, V3 p2, V3 p3, V3 n, V4 color)
 {
-    // NOTE: per quad there is 4 new vertices, 6 indices, but the 6 indices are 
-    // 4 different numbers. 
+    // NOTE: per quad there is 4 new vertices, 6 indices, but the 6 indices are
+    // 4 different numbers.
     u32 vertexIndex = group->vertexCount;
     u32 indexIndex = group->indexCount;
     group->vertexCount += 4;
@@ -66,17 +64,20 @@ internal void PushQuad(RenderGroup *group, V3 p0, V3 p1, V3 p2, V3 p3, V4 color)
 
     vertex[0].p = MakeV4(p0, 1.f);
     vertex[0].color = color.rgb;
+    vertex[0].n = n;
 
     vertex[1].p = MakeV4(p1, 1.f);
     vertex[1].color = color.rgb;
+    vertex[1].n = n;
 
     vertex[2].p = MakeV4(p2, 1.f);
     vertex[2].color = color.rgb;
+    vertex[2].n = n;
 
     vertex[3].p = MakeV4(p3, 1.f);
     vertex[3].color = color.rgb;
+    vertex[3].n = n;
 
-    
     // TODO: this will blow out the vertex count fast
     u16 baseIndex = (u16)vertexIndex;
     Assert((u32)baseIndex == vertexIndex);

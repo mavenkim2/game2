@@ -1,12 +1,11 @@
 #ifndef WIN32_KEEPMOVINGFORWARD_OPENGL_H
 #define WIN32_KEEPMOVINGFORWARD_OPENGL_H
 
-#include "../keepmovingforward_common.h"
-#include "../keepmovingforward_camera.h"
-#include "keepmovingforward_renderer.h"
-#include <windows.h>
-
-#include <gl/GL.h>
+// #include "../keepmovingforward_common.h"
+// #include "../keepmovingforward_camera.h"
+// #include "keepmovingforward_renderer.h"
+// #include <windows.h>
+// #include <gl/GL.h>
 
 #define GL_NUM_EXTENSIONS 0x821D
 
@@ -246,6 +245,7 @@ struct OpenGL
     OpenGLFunction(glUniform1f);
     OpenGLFunction(glActiveTexture);
     OpenGLFunction(glUniformMatrix4fv);
+    OpenGLFunction(glUniform3fv);
 
     RenderGroup group;
 };

@@ -1,5 +1,4 @@
 #ifndef KEEPMOVINGFORWARD_MATH_H
-#include "keepmovingforward_common.h"
 #include <math.h>
 
 inline f32 Max(f32 a, f32 b)
@@ -71,7 +70,7 @@ inline u32 FloorF32ToU32(f32 value)
 #define Radians(angle) ((PI * angle) / (180))
 #define Degrees(angle) ((180 * angle) / (PI))
 
-union Vector2
+union V2
 {
     struct
     {
@@ -79,9 +78,8 @@ union Vector2
     };
     f32 e[2];
 };
-typedef Vector2 V2;
 
-union Vector3
+union V3
 {
     struct
     {
@@ -103,9 +101,8 @@ union Vector3
     };
     f32 e[3];
 };
-typedef Vector3 V3;
 
-union Vector4
+union V4
 {
     struct
     {
@@ -138,14 +135,12 @@ union Vector4
     };
     f32 e[4];
 };
-typedef Vector4 V4;
 
-union Mat3x3
+union Mat3
 {
     f32 elements[3][3];
     V3 columns[3];
 };
-typedef Mat3x3 Mat3;
 
 // NOTE: Matrix[COLUMN][ROW]
 union Mat4
@@ -191,91 +186,91 @@ union Rect3
  * VECTOR2
  */
 
-inline Vector2 operator+(Vector2 a, Vector2 b)
+inline V2 operator+(V2 a, V2 b)
 {
-    Vector2 result;
+    V2 result;
     result.x = a.x + b.x;
     result.y = a.y + b.y;
     return result;
 }
 
-inline Vector2 &operator+=(Vector2 &a, Vector2 b)
+inline V2 &operator+=(V2 &a, V2 b)
 {
     a = a + b;
     return a;
 }
 
-inline Vector2 operator-(Vector2 a, Vector2 b)
+inline V2 operator-(V2 a, V2 b)
 {
-    Vector2 result;
+    V2 result;
     result.x = a.x - b.x;
     result.y = a.y - b.y;
     return result;
 }
 
-inline Vector2 operator-(Vector2 a)
+inline V2 operator-(V2 a)
 {
-    Vector2 result;
+    V2 result;
     result.x = -a.x;
     result.y = -a.y;
     return result;
 }
 
-inline Vector2 &operator-=(Vector2 &a, Vector2 b)
+inline V2 &operator-=(V2 &a, V2 b)
 {
     a = a - b;
     return a;
 }
-inline Vector2 operator*(Vector2 a, f32 b)
+inline V2 operator*(V2 a, f32 b)
 {
-    Vector2 result;
+    V2 result;
     result.x = a.x * b;
     result.y = a.y * b;
     return result;
 }
 
-inline Vector2 operator*(f32 b, Vector2 a)
+inline V2 operator*(f32 b, V2 a)
 {
-    Vector2 result = a * b;
+    V2 result = a * b;
     return result;
 }
 
-inline Vector2 operator*=(Vector2 &a, f32 b)
+inline V2 operator*=(V2 &a, f32 b)
 {
     a = a * b;
     return a;
 }
 
-inline Vector2 operator/(Vector2 a, f32 b)
+inline V2 operator/(V2 a, f32 b)
 {
-    Vector2 result = a * (1.f / b);
+    V2 result = a * (1.f / b);
     return result;
 }
 
-inline Vector2 operator/=(Vector2 &a, f32 b)
+inline V2 operator/=(V2 &a, f32 b)
 {
     a = a * (1.f / b);
     return a;
 }
 
-inline b32 operator==(Vector2 &a, Vector2 b)
+inline b32 operator==(V2 &a, V2 b)
 {
     b32 result = a.x == b.x && a.y == b.y ? true : false;
     return result;
 }
 
-inline f32 Dot(Vector2 a, Vector2 b)
+inline f32 Dot(V2 a, V2 b)
 {
     f32 result = a.x * b.x + a.y * b.y;
     return result;
 }
-inline V2 Cross(f32 a, Vector2 b)
+inline V2 Cross(f32 a, V2 b)
 {
     V2 result = V2{-a * b.y + a * b.x};
     return result;
 }
 
-inline f32 Cross(Vector2 a, Vector2 b)
+inline f32 Cross(V2 a, V2 b)
 {
     f32 result = a.x * b.y - a.y * b.x;
     return result;
@@ -287,13 +282,13 @@ inline f32 SquareRoot(f32 a)
     return result;
 }
 
-inline f32 Length(Vector2 a)
+inline f32 Length(V2 a)
 {
     f32 result = SquareRoot(Dot(a, a));
     return result;
 }
 
-inline V2 Normalize(Vector2 a)
+inline V2 Normalize(V2 a)
 {
     f32 length = Length(a);
     V2 result = a * (1.f / length);
@@ -301,93 +296,100 @@ inline V2 Normalize(Vector2 a)
 }
 
 /*
- * VECTOR3
+ * VECTOR 3
  */
 
-inline Vector3 operator+(Vector3 a, Vector3 b)
+inline V3 MakeV3(V2 xy, float z)
 {
-    Vector3 result;
+    V3 result;
+    result.xy = xy;
+    result.z = z;
+    return result;
+}
+inline V3 operator+(V3 a, V3 b)
+{
+    V3 result;
     result.x = a.x + b.x;
     result.y = a.y + b.y;
     result.z = a.z + b.z;
     return result;
 }
 
-inline Vector3 &operator+=(Vector3 &a, Vector3 b)
+inline V3 &operator+=(V3 &a, V3 b)
 {
     a = a + b;
     return a;
 }
 
-inline Vector3 operator-(Vector3 a, Vector3 b)
+inline V3 operator-(V3 a, V3 b)
 {
-    Vector3 result;
+    V3 result;
     result.x = a.x - b.x;
     result.y = a.y - b.y;
     result.z = a.z - b.z;
     return result;
 }
 
-inline Vector3 operator-(Vector3 a)
+inline V3 operator-(V3 a)
 {
-    Vector3 result;
+    V3 result;
     result.x = -a.x;
     result.y = -a.y;
     result.z = -a.z;
     return result;
 }
 
-inline Vector3 &operator-=(Vector3 &a, Vector3 b)
+inline V3 &operator-=(V3 &a, V3 b)
 {
     a = a - b;
     return a;
 }
-inline Vector3 operator*(Vector3 a, f32 b)
+inline V3 operator*(V3 a, f32 b)
 {
-    Vector3 result;
+    V3 result;
     result.x = a.x * b;
     result.y = a.y * b;
     result.z = a.z * b;
     return result;
 }
 
-inline Vector3 operator*(f32 b, Vector3 a)
+inline V3 operator*(f32 b, V3 a)
 {
-    Vector3 result = a * b;
+    V3 result = a * b;
     return result;
 }
 
-inline Vector3 operator*=(Vector3 &a, f32 b)
+inline V3 operator*=(V3 &a, f32 b)
 {
     a = a * b;
     return a;
 }
 
-inline Vector3 operator/(Vector3 a, f32 b)
+inline V3 operator/(V3 a, f32 b)
 {
-    Vector3 result = a * (1.f / b);
+    V3 result = a * (1.f / b);
     return result;
 }
 
-inline Vector3 operator/=(Vector3 &a, f32 b)
+inline V3 operator/=(V3 &a, f32 b)
 {
     a = a * (1.f / b);
     return a;
 }
 
-inline b32 operator==(Vector3 &a, Vector3 b)
+inline b32 operator==(V3 &a, V3 b)
 {
     b32 result = a.x == b.x && a.y == b.y && a.z == b.z ? true : false;
     return result;
 }
 
-inline f32 Dot(Vector3 a, Vector3 b)
+inline f32 Dot(V3 a, V3 b)
 {
     f32 result = a.x * b.x + a.y * b.y + a.z * b.z;
     return result;
 }
 
-inline V3 Cross(Vector3 a, Vector3 b)
+inline V3 Cross(V3 a, V3 b)
 {
     V3 result;
     result.x = a.y * b.z - a.z * b.y;
@@ -396,13 +398,13 @@ inline V3 Cross(Vector3 a, Vector3 b)
     return result;
 }
 
-inline f32 Length(Vector3 a)
+inline f32 Length(V3 a)
 {
     f32 result = SquareRoot(Dot(a, a));
     return result;
 }
 
-inline V3 Normalize(Vector3 a)
+inline V3 Normalize(V3 a)
 {
     f32 length = Length(a);
     V3 result = a * (1.f / length);
@@ -441,7 +443,7 @@ inline V4 Hadamard(V4 a, V4 b) {
  * MATRIX 3X3
  */
 
-inline Mat3 operator*(Mat3x3 a, Mat3x3 b)
+inline Mat3 operator*(Mat3 a, Mat3 b)
 {
     Mat3 result;
     for (int j = 0; j < 3; j += 1)
@@ -698,6 +700,13 @@ inline Rect3 Rect3BottomLeft(V3 pos, V3 size)
     Rect3 result;
     result.pos = pos;
     result.size = size;
+    return result;
+}
+
+inline Rect3 Rect3Center(V3 pos, V3 size) {
+    Rect3 result;
+    result.pos = pos - size/2;
+    result.size = size/2;
     return result;
 }
 

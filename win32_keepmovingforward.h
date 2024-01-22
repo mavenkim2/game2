@@ -1,12 +1,5 @@
 #ifndef WIN32_GAME_H
 
-#include <windows.h>
-
-#include "keepmovingforward_string.h"
-#include "keepmovingforward_platform.h"
-#include <gl/GL.h>
-#include <xaudio2.h>
-
 global LARGE_INTEGER START_TIME;
 global i64 GLOBAL_PERFORMANCE_COUNT_FREQUENCY;
 

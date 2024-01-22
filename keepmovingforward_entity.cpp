@@ -1,7 +1,3 @@
-#include "keepmovingforward_entity.h"
-#include "keepmovingforward_level.h"
-#include <stdarg.h>
-
 #if COMPILER_MSVC
 #pragma section(".roglob", read)
 #define readonly __declspec(allocate(".roglob"))

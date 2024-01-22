@@ -1,6 +1,3 @@
-#include "win32_keepmovingforward_opengl.h"
-#include "keepmovingforward_renderer.h"
-
 internal void OpenGLInit(OpenGL *openGL)
 {
     u32 maxQuadCountPerFrame = 1 << 14;
@@ -15,25 +12,66 @@ internal void OpenGLInit(OpenGL *openGL)
 
     const char *vertexShaderCode = R"(
                                     #version 330 core
+                                    #define f32 float
+                                    #define V3 vec3
+                                    #define V4 vec4
+
                                     layout (location=0) in vec4 pos;
                                     layout (location=1) in vec3 colorIn;
+                                    layout (location=2) in vec3 n;
+
+                                    out V3 color;
+                                    out V3 worldPosition;
+                                    out V3 worldN;
 
                                     uniform mat4 transform; 
-                                    out vec3 color;
 
                                     void main()
                                     { 
                                         gl_Position = transform * pos;
                                         color = colorIn;
+                                        worldPosition = pos.xyz;
+                                        worldN = n;
                                     })";
 
     const char *fragmentShaderCode = R"(
                                     #version 330 core
-                                    out vec4 FragColor;
-                                    in vec3 color;
+                                    #define f32 float
+                                    #define V3 vec3
+                                    #define V4 vec4
+
+                                    in V3 color;
+                                    in V3 worldPosition;
+                                    in V3 worldN;
+
+                                    out V4 FragColor;
+
+                                    uniform V3 cameraPosition;
+
                                     void main()
                                     {
-                                        FragColor = vec4(color, 1.f);
+                                        V3 lightPosition = vec3(-20, 10, 5);
+                                        f32 lightCoefficient = 50.f;
+                                        V3 toLight = normalize(lightPosition - worldPosition);
+                                        f32 lightDistance = distance(lightPosition, worldPosition);
+                                        f32 lightStrength = lightCoefficient / (lightDistance * lightDistance); 
+
+                                        //AMBIENT
+                                        f32 ambient= 0.1f;
+                                        //DIFFUSE
+                                        f32 diffuseCoefficient = 0.1f;
+                                        f32 diffuseCosAngle = max(dot(worldN, lightPosition), 0.f);
+                                        f32 diffuse = diffuseCoefficient * diffuseCosAngle * lightStrength;
+                                        //SPECULAR
+                                        f32 specularCoefficient = 2.f;
+                                        V3 toViewPosition = normalize(cameraPosition - worldPosition);
+                                        // V3 reflectVector = -toLight + 2 * dot(worldN, toLight) * worldN;
+                                        V3 reflectVector = -toViewPosition + 2 * dot(worldN, toViewPosition) * worldN;
+                                        f32 specularStrength = pow(max(dot(reflectVector, toLight), 0.f), 64);
+                                        // f32 specularStrength = pow(max(dot(reflectVector, toViewPosition), 0.f), 64);
+                                        f32 specular = specularCoefficient * specularStrength * lightStrength;
+
+                                        FragColor = (ambient + diffuse + specular) * V4(color, 1.f);
                                     })";
     GLuint vertexShader = 0;
     vertexShader = openGL->glCreateShader(GL_VERTEX_SHADER);
@@ -121,6 +159,7 @@ internal OpenGL Win32InitOpenGL(HWND window)
         Win32GetOpenGLFunction(glUniform1f);
         Win32GetOpenGLFunction(glActiveTexture);
         Win32GetOpenGLFunction(glUniformMatrix4fv);
+        Win32GetOpenGLFunction(glUniform3fv);
     }
     else
     {
@@ -178,11 +217,17 @@ internal void OpenGLEndFrame(OpenGL *openGL, HDC deviceContext, int clientWidth,
     openGL->glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(RenderVertex), (void *)Offset(RenderVertex, color));
     openGL->glEnableVertexAttribArray(1);
 
+    openGL->glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(RenderVertex), (void *)Offset(RenderVertex, n));
+    openGL->glEnableVertexAttribArray(2);
+
     GLint transformLocation = openGL->glGetUniformLocation(openGL->shaderProgram, "transform");
-    openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, &openGL->transform.elements[0][0]);
+    openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, openGL->transform.elements[0]);
+
+    GLint cameraPosition = openGL->glGetUniformLocation(openGL->shaderProgram, "cameraPosition");
+    openGL->glUniform3fv(cameraPosition, 1, openGL->camera.position.e);
 
     openGL->glUseProgram(openGL->shaderProgram);
-    glDrawElements(GL_TRIANGLES, 6*openGL->group.quadCount, GL_UNSIGNED_SHORT, 0);
+    glDrawElements(GL_TRIANGLES, 6 * openGL->group.quadCount, GL_UNSIGNED_SHORT, 0);
 
     SwapBuffers(deviceContext);
 }

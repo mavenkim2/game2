@@ -1,10 +1,22 @@
 #ifndef KEEPMOVINGFORWARD_H
-#include "keepmovingforward_entity.h"
-#include "keepmovingforward_level.h"
+#include "keepmovingforward_common.h"
 #include "keepmovingforward_math.h"
+#include "keepmovingforward_camera.h"
+#include "render/keepmovingforward_renderer.h"
+
+// TODO IMPORTANT GET RID OF THE WIN32 AND GL STUFF FROM HERE
+// also platform should definitely not need to depend on OPENGL function
+#if WINDOWS
+#include <windows.h>
+#include <gl/GL.h>
+#include "render/win32_keepmovingforward_opengl.h"
+#endif
+
 #include "keepmovingforward_platform.h"
 #include "keepmovingforward_memory.h"
-#include "keepmovingforward_common.h"
+#include "keepmovingforward_string.h"
+#include "keepmovingforward_entity.h"
+#include "keepmovingforward_level.h"
 
 struct DebugBmpResult
 {
@@ -41,6 +53,11 @@ struct BmpHeader
 };
 #pragma pack(pop)
 
+enum CameraMode {
+    CameraMode_Debug,
+    CameraMode_Player,
+};
+
 struct GameState
 {
     u64 entity_id_gen; 
@@ -52,6 +69,8 @@ struct GameState
     Camera camera;
 
     DebugBmpResult bmpTest;
+
+    CameraMode cameraMode;
 };
 
 #define KEEPMOVINGFORWARD_H

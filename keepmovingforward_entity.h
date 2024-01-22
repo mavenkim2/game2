@@ -1,7 +1,4 @@
 #ifndef KEEPMOVINGFORWARD_H
-#include "keepmovingforward_math.h"
-
-
 struct LevelPosition
 {
     u32 tileX;
@@ -22,11 +19,11 @@ struct Entity
     u64 id; 
 
     // Physics
-    Vector3 pos;
-    Vector3 size;
+    V3 pos;
+    V3 size;
 
-    Vector3 velocity;
-    Vector3 acceleration;
+    V3 velocity;
+    V3 acceleration;
 
     u64 flags; 
 

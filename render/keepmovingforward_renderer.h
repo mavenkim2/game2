@@ -1,9 +1,7 @@
 #ifndef KEEPMOVINGFORWARD_RENDERER_H
-#include "../keepmovingforward_common.h"
-#include "../keepmovingforward_math.h"
-
 struct RenderVertex {
     V4 p;
+    V3 n;
     V3 color;
 };
 
@@ -20,7 +18,7 @@ struct RenderGroup {
 };
 
 // internal RenderGroup BeginRenderGroup(OpenGL* openGL);
-internal void PushQuad(RenderGroup* group, V3 p0, V3 p1, V3 p2, V3 p3, V4 color);
+internal void PushQuad(RenderGroup* group, V3 p0, V3 p1, V3 p2, V3 p3, V3 n, V4 color);
 internal void PushCube(RenderGroup* group, V3 pos, V3 size, V4 color);
 
 #define KEEPMOVINGFORWARD_RENDERER_H

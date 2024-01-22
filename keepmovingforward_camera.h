@@ -1,7 +1,4 @@
 #ifndef KEEPMOVINGFORWARD_CAMERA_H
-#include "keepmovingforward_common.h"
-#include "keepmovingforward_math.h"
-
 struct Camera {
     f32 pitch;
     f32 yaw;

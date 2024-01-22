@@ -1,6 +1,3 @@
-#include "keepmovingforward_string.h"
-#include "keepmovingforward_memory.cpp"
-
 #include <string.h>
 
 internal String8 Str8(u8 *str, u64 size)

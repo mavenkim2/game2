@@ -1,9 +1,10 @@
 #include "keepmovingforward.h"
-#include "keepmovingforward_math.h"
-#include "render/keepmovingforward_renderer.cpp"
 
-#include "keepmovingforward_entity.cpp"
 #include "keepmovingforward_memory.cpp"
+#include "keepmovingforward_string.cpp"
+#include "render/keepmovingforward_renderer.cpp"
+#include "keepmovingforward_camera.cpp"
+#include "keepmovingforward_entity.cpp"
 
 const f32 GRAVITY = 49.f;
 
@@ -153,6 +154,28 @@ internal DebugBmpResult DebugLoadBMP(DebugPlatformReadFileFunctionType *Platform
         result.height = header->height;
     }
     return result;
+}
+
+internal void DebugLoadModel(DebugPlatformReadFileFunctionType *PlatformReadFile, const char *filename)
+{
+    DebugReadFileOutput output = PlatformReadFile(filename);
+    Assert(output.fileSize != 0);
+
+    u8 *start = (u8*)output.contents;
+    u8 *iter = (u8*)output.contents;
+
+    while (iter < start + output.fileSize)
+    {
+        while (*iter != '\n')
+        {
+            u8 *begin = iter;
+            while (*iter != ' ')
+            {
+                iter++;
+            }
+            String8 string = Str8(begin, iter-begin);
+        }
+    }
 }
 
 inline Entity *GetEntity(Level *level, int handle)
@@ -590,11 +613,15 @@ internal void InitializePlayer(GameState *gameState)
 
     player->pos.x = 6.f;
     player->pos.y = 6.f;
+    player->pos.z = 5.f;
+
     player->size.x = TILE_METER_SIZE;
-    player->size.y = 2 * TILE_METER_SIZE;
-    player->color.r = 1.f;
+    player->size.y = TILE_METER_SIZE;
+    player->size.z = TILE_METER_SIZE * 2;
+
+    player->color.r = 0.5f;
     player->color.g = 0.f;
-    player->color.b = 1.f;
+    player->color.b = 0.5f;
     player->color.a = 1.f;
 
     AddFlag(player, Entity_Valid | Entity_Collidable | Entity_Airborne | Entity_Swappable);
@@ -615,6 +642,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
                                            memory->PersistentStorageSize - sizeof(GameState));
 
         gameState->level = PushStruct(gameState->worldArena, Level);
+        gameState->cameraMode = CameraMode_Player;
 
         Entity *nilEntity = CreateEntity(gameState, gameState->level);
 
@@ -634,8 +662,10 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         swap->color.a = 1.f;
         AddFlag(swap, Entity_Valid | Entity_Collidable | Entity_Swappable);
 
-        openGL->camera.position = {0, 0, 5};
-        openGL->camera.yaw = -PI / 2;
+        openGL->camera.position = gameState->player.pos - V3{0, 10, 0};
+        // openGL->camera.position = {0, 0, 5};
+        openGL->camera.pitch = -PI / 4;
+        openGL->camera.yaw = PI / 2;
         memory->isInitialized = true;
 
         // gameState->camera.pos = V2{TILE_MAP_X_COUNT / 2.f, TILE_MAP_Y_COUNT / 2.f};
@@ -648,8 +678,135 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     Entity *player = GetPlayer(gameState);
     Entity *swap = {};
 
+    V3 *acceleration = &player->acceleration;
+    *acceleration = {};
+
+    if (playerController->swap.keyDown && playerController->swap.halfTransitionCount > 0)
+    {
+        if (gameState->cameraMode == CameraMode_Player)
+        {
+            gameState->cameraMode = CameraMode_Debug;
+            memory->PlatformToggleCursor(true);
+        }
+        else
+        {
+            gameState->cameraMode = CameraMode_Player;
+            memory->PlatformToggleCursor(false);
+        }
+    }
+    // TODO: separate out movement code from input
+    switch (gameState->cameraMode)
+    {
+        case CameraMode_Player:
+        {
+            // TODO: hide mouse, move camera about player
+            V2 dMouseP = input->deltaMouse;
+
+            Camera *camera = &openGL->camera;
+            f32 cameraOffset = 10.f;
+            f32 speed = 3.f;
+            if (input->shift.keyDown)
+            {
+                speed = 10.f;
+            }
+            f32 rotationSpeed = 0.0005f * PI;
+            RotateCamera(camera, dMouseP, rotationSpeed);
+
+            Mat4 rotation = MakeMat4(1.f);
+
+            V3 worldUp = {0, 0, 1};
+
+            camera->forward.x = Cos(camera->yaw) * Cos(camera->pitch);
+            camera->forward.y = Sin(camera->yaw) * Cos(camera->pitch);
+            camera->forward.z = Sin(camera->pitch);
+            camera->forward = Normalize(camera->forward);
+            // camera->right = Normalize(Cross(camera->forward, worldUp));
+            camera->position = player->pos - cameraOffset * camera->forward;
+            Mat4 cameraMatrix = LookAt4(camera->position, player->pos, worldUp);
+
+            V3 forward = {Cos(camera->yaw), Sin(camera->yaw), 0};
+            forward = Normalize(forward);
+            V3 right = {Sin(camera->yaw), -Cos(camera->yaw), 0};
+            right = Normalize(right);
+
+            if (playerController->right.keyDown)
+            {
+                *acceleration = right;
+            }
+            if (playerController->left.keyDown)
+            {
+                *acceleration = -right;
+            }
+            if (playerController->up.keyDown)
+            {
+                *acceleration = forward;
+            }
+            if (playerController->down.keyDown)
+            {
+                *acceleration = -forward;
+            }
+            Mat4 projection = Perspective4(Radians(45.f), 16.f / 9.f, .1f, 1000.f);
+
+            Mat4 transform = projection * cameraMatrix;
+
+            openGL->transform = transform;
+            break;
+        }
+        case CameraMode_Debug:
+        {
+            V2 dMouseP = input->mousePos - input->lastMousePos;
+
+            Camera *camera = &openGL->camera;
+            f32 speed = 3.f;
+            if (input->shift.keyDown)
+            {
+                speed = 10.f;
+            }
+
+            Mat4 rotation = MakeMat4(1.f);
+            if (input->rightClick.keyDown)
+            {
+                f32 rotationSpeed = 0.0005f * PI;
+                RotateCamera(camera, dMouseP, rotationSpeed);
+
+                if (input->up.keyDown)
+                {
+                    camera->position += camera->forward * speed * input->dT;
+                }
+                if (input->down.keyDown)
+                {
+                    camera->position += camera->forward * -speed * input->dT;
+                }
+                if (input->left.keyDown)
+                {
+                    camera->position += camera->right * -speed * input->dT;
+                }
+                if (input->right.keyDown)
+                {
+                    camera->position += camera->right * speed * input->dT;
+                }
+            }
+
+            V3 worldUp = {0, 0, 1};
+
+            camera->forward.x = Cos(camera->yaw) * Cos(camera->pitch);
+            camera->forward.y = Sin(camera->yaw) * Cos(camera->pitch);
+            camera->forward.z = Sin(camera->pitch);
+            camera->forward = Normalize(camera->forward);
+            camera->right = Normalize(Cross(camera->forward, worldUp));
+            V3 up = Normalize(Cross(camera->right, camera->forward));
+
+            Mat4 projection = Perspective4(Radians(45.f), 16.f / 9.f, .1f, 1000.f);
+            Mat4 cameraMatrix = CameraTransform(camera->right, up, -camera->forward, camera->position);
+
+            Mat4 transform = projection * cameraMatrix;
+
+            openGL->transform = transform;
+            break;
+        }
+    }
     // TODO: swap w/ shortest distance
-    for (int i = 0; i < MAX_ENTITIES; i++)
+    /* for (int i = 0; i < MAX_ENTITIES; i++)
     {
         if (HasFlag(level->entities + i, Entity_Swappable))
         {
@@ -676,44 +833,38 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         Swap(Entity, *player, *swap);
         player->flags |= playerFlags;
         swap->flags = swapFlags;
-    }
+    } */
 
     V3 *velocity = &player->velocity;
-    V3 *acceleration = &player->acceleration;
 
-    acceleration->x = 0;
-    acceleration->x += playerController->right.keyDown ? 1.f : 0.f;
-    acceleration->x += playerController->left.keyDown ? -1.f : 0.f;
-    acceleration->y += playerController->up.keyDown ? 1.f : 0.f;
-    acceleration->y += playerController->down.keyDown ? -1.f : 0.f;
+    Normalize(acceleration->xy);
 
-    Normalize(velocity->xy);
-
-    f32 multiplier = 5;
+    f32 multiplier = 50;
     if (playerController->shift.keyDown)
     {
-        multiplier = 7;
+        multiplier = 100;
     }
-    velocity->xy *= multiplier;
+    acceleration->xy *= multiplier;
 
     acceleration->z = -GRAVITY;
     if (playerController->jump.keyDown && !HasFlag(player, Entity_Airborne))
     {
-        velocity->z += 50.f;
+        velocity->z += 25.f;
         AddFlag(player, Entity_Airborne);
     }
 
     Rect3 playerBox;
     // TODO: pull out friction
-    velocity->xy += acceleration->xy * input->dT - 30.f * velocity->xy * input->dT;
-    // TODO: pull out air drag
-    velocity->z += acceleration->z * input->dT - 10.f * velocity->z * input->dT;
+    *acceleration += MakeV3(-800.f * velocity->xy * input->dT, -10.f * velocity->z * input->dT);
+    *velocity += *acceleration * input->dT;
 
     V3 playerDelta = *velocity * input->dT;
     player->pos += playerDelta;
     playerBox.pos = player->pos;
     playerBox.size = player->size;
 
+    // TODO: fix position of boxes (center vs bottom left vs bottom center)
+    // TODO: capsule collision for player? GJK?
     for (Entity *entity = 0; IncrementEntity(level, &entity);)
     {
         if (HasFlag(entity, Entity_Collidable))
@@ -728,7 +879,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             *velocity -= manifold.normal * velocityAlongNormal;
             player->pos += manifold.normal * manifold.penetration;
             playerBox.pos = player->pos;
-            if (manifold.normal.x == 0 && manifold.normal.y == 1)
+            if (manifold.normal.x == 0 && manifold.normal.y == 0 && manifold.normal.z == 1)
             {
                 RemoveFlag(player, Entity_Airborne);
             }
@@ -818,81 +969,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         {
             PushCube(&openGL->group, entity->pos, entity->size, entity->color);
         }
-
-        V2 mouseP = input->mousePos;
-
-        V2 dMouseP = mouseP - input->lastMousePos;
-
-        Camera *camera = &openGL->camera;
-        f32 speed = 3.f;
-        if (input->shift.keyDown)
-        {
-            speed = 10.f;
-        }
-
-        Mat4 rotation = MakeMat4(1.f);
-        if (input->rightClick.keyDown)
-        {
-            f32 rotationSpeed = 0.0005f * PI;
-
-            camera->pitch -= rotationSpeed * dMouseP.y;
-            f32 epsilon = 0.01f;
-            if (camera->pitch > PI / 2 - epsilon)
-            {
-                camera->pitch = PI / 2 - epsilon;
-            }
-            else if (camera->pitch < -PI / 2 + epsilon)
-            {
-                camera->pitch = -PI / 2 + epsilon;
-            }
-            camera->yaw -= rotationSpeed * dMouseP.x;
-            if (camera->yaw > 2 * PI)
-            {
-                camera->yaw -= 2 * PI;
-            }
-            if (camera->yaw < -2 * PI)
-            {
-                camera->yaw += 2 * PI;
-            }
-
-            if (input->up.keyDown)
-            {
-                camera->position += camera->forward * speed * input->dT;
-            }
-            if (input->down.keyDown)
-            {
-                camera->position += camera->forward * -speed * input->dT;
-            }
-            if (input->left.keyDown)
-            {
-                camera->position += camera->right * -speed * input->dT;
-            }
-            if (input->right.keyDown)
-            {
-                camera->position += camera->right * speed * input->dT;
-            }
-        }
-
-        V3 worldUp = {0, 0, 1};
-
-        V3 cameraPosition = camera->position;
-        // camera->forward.x = Cos(camera->yaw);
-        // camera->forward.y = Sin(camera->yaw) + Sin(camera->pitch);
-        // camera->forward.z = Cos(camera->pitch) +
-        camera->forward.x = Cos(camera->yaw) * Cos(camera->pitch);
-        camera->forward.y = Sin(camera->yaw) * Cos(camera->pitch);
-        camera->forward.z = Sin(camera->pitch);
-        camera->forward = Normalize(camera->forward);
-        // also re-calculate the Right and Up vector
-        camera->right = Normalize(Cross(camera->forward, worldUp));
-        V3 up = Normalize(Cross(camera->right, camera->forward));
-
-        Mat4 projection = Perspective4(Radians(45.f), 16.f / 9.f, .1f, 1000.f);
-        Mat4 cameraMatrix = CameraTransform(camera->right, up, -camera->forward, camera->position);
-
-        Mat4 transform = projection * cameraMatrix;
-
-        openGL->transform = transform;
+        PushCube(&openGL->group, player->pos, player->size, player->color);
     }
     // GameOutputSound(soundBuffer, gameState->toneHz);
 }
