@@ -7,10 +7,16 @@ internal Arena* ArenaAlloc(void *base, u64 size) {
     return arena;
 }
 
-internal void *ArenaPush(Arena *arena, u64 size) {
+internal void *ArenaPushNoZero(Arena *arena, u64 size) {
     Assert(arena->pos + size <= arena->size);
     void* result = (void*)((u8*)(arena) + arena->pos);
     arena->pos += size;
+    return result;
+}
+
+internal void *ArenaPush(Arena *arena, u64 size) {
+    void* result = ArenaPushNoZero(arena, size);
+    MemoryZero(result, size);
     return result;
 }
 

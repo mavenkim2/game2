@@ -1,24 +1,66 @@
-internal void OpenGLInit(OpenGL *openGL)
+global char *globalHeaderCode = R"(
+                                #version 330 core
+                                #define f32 float
+                                #define V2 vec2
+                                #define V3 vec3
+                                #define V4 vec4
+                                #define Mat4 mat4
+                                )";
+// TODO: hotload shaders?
+internal OpenGLShader OpenGLCreateProgram(OpenGL *openGL, char *defines, char *vertexCode, char *fragmentCode)
 {
-    u32 maxQuadCountPerFrame = 1 << 14;
-    openGL->group.maxVertexCount = maxQuadCountPerFrame * 4;
-    openGL->group.maxIndexCount = maxQuadCountPerFrame * 6;
+    GLuint vertexShaderId = openGL->glCreateShader(GL_VERTEX_SHADER);
+    GLchar *vertexShaderCode[] = {
+        defines,
+        vertexCode,
+    };
+    openGL->glShaderSource(vertexShaderId, ArrayLength(vertexShaderCode), vertexShaderCode, 0);
+    openGL->glCompileShader(vertexShaderId);
 
-    // TODO: probably shouldn't be hardcoded
-    //  openGL->camera.forward = {0, 0, -1};
-    //  openGL->camera.right = {1, 0, 0};
-    openGL->camera.position = {0, 0, 5};
-    openGL->camera.yaw = -PI / 2;
+    GLuint fragmentShaderId = openGL->glCreateShader(GL_FRAGMENT_SHADER);
+    GLchar *fragmentShaderCode[] = {
+        defines,
+        fragmentCode,
+    };
+    openGL->glShaderSource(fragmentShaderId, ArrayLength(fragmentShaderCode), fragmentShaderCode, 0);
+    openGL->glCompileShader(fragmentShaderId);
 
-    const char *vertexShaderCode = R"(
-                                    #version 330 core
-                                    #define f32 float
-                                    #define V3 vec3
-                                    #define V4 vec4
+    GLuint shaderProgramId = openGL->glCreateProgram();
+    openGL->glAttachShader(shaderProgramId, vertexShaderId);
+    openGL->glAttachShader(shaderProgramId, fragmentShaderId);
+    openGL->glLinkProgram(shaderProgramId);
 
-                                    layout (location=0) in vec4 pos;
-                                    layout (location=1) in vec3 colorIn;
-                                    layout (location=2) in vec3 n;
+    openGL->glValidateProgram(shaderProgramId);
+    GLint success = false;
+    openGL->glGetProgramiv(shaderProgramId, GL_LINK_STATUS, &success);
+    if (!success)
+    {
+        char vertexShaderErrors[4096];
+        char fragmentShaderErrors[4096];
+        char programErrors[4096];
+        openGL->glGetShaderInfoLog(vertexShaderId, 4096, 0, vertexShaderErrors);
+        openGL->glGetShaderInfoLog(fragmentShaderId, 4096, 0, fragmentShaderErrors);
+        openGL->glGetProgramInfoLog(shaderProgramId, 4096, 0, programErrors);
+
+        Assert(!"Shader failed");
+    }
+
+    openGL->glDeleteShader(vertexShaderId);
+    openGL->glDeleteShader(fragmentShaderId);
+
+    OpenGLShader result;
+    result.id = shaderProgramId;
+    result.positionId = openGL->glGetAttribLocation(shaderProgramId, "pos");
+    result.normalId = openGL->glGetAttribLocation(shaderProgramId, "n");
+    return result;
+}
+
+internal void CompileCubeProgram(OpenGL *openGL)
+{
+    char *vertexCode = R"(
+                                    in V4 pos;
+                                    in V3 colorIn;
+                                    in V3 n;
 
                                     out V3 color;
                                     out V3 worldPosition;
@@ -34,12 +76,7 @@ internal void OpenGLInit(OpenGL *openGL)
                                         worldN = n;
                                     })";
 
-    const char *fragmentShaderCode = R"(
-                                    #version 330 core
-                                    #define f32 float
-                                    #define V3 vec3
-                                    #define V4 vec4
-
+    char *fragmentCode = R"(
                                     in V3 color;
                                     in V3 worldPosition;
                                     in V3 worldN;
@@ -73,44 +110,66 @@ internal void OpenGLInit(OpenGL *openGL)
 
                                         FragColor = (ambient + diffuse + specular) * V4(color, 1.f);
                                     })";
-    GLuint vertexShader = 0;
-    vertexShader = openGL->glCreateShader(GL_VERTEX_SHADER);
-    openGL->glShaderSource(vertexShader, 1, &vertexShaderCode, 0);
-    openGL->glCompileShader(vertexShader);
 
-    GLuint fragmentShader = 0;
-    fragmentShader = openGL->glCreateShader(GL_FRAGMENT_SHADER);
-    openGL->glShaderSource(fragmentShader, 1, &fragmentShaderCode, 0);
-    openGL->glCompileShader(fragmentShader);
+    CubeShader *cubeShader = &openGL->cubeShader;
+    cubeShader->base = OpenGLCreateProgram(openGL, globalHeaderCode, vertexCode, fragmentCode);
+    cubeShader->colorId = openGL->glGetAttribLocation(cubeShader->base.id, "colorIn");
+}
 
-    GLuint shaderProgram = openGL->glCreateProgram();
-    openGL->glAttachShader(shaderProgram, vertexShader);
-    openGL->glAttachShader(shaderProgram, fragmentShader);
-    openGL->glLinkProgram(shaderProgram);
+internal void CompileModelProgram(OpenGL *openGL)
+{
+    char *vertexCode = R"(
+                                    in V3 pos;
+                                    in V3 n;
+                                    in V2 uv;
 
-    GLint success = false;
-    openGL->glGetProgramiv(shaderProgram, GL_LINK_STATUS, &success);
-    if (!success)
-    {
-        char vertexShaderErrors[4096];
-        char fragmentShaderErrors[4096];
-        char programErrors[4096];
-        openGL->glGetShaderInfoLog(vertexShader, 4096, 0, vertexShaderErrors);
-        openGL->glGetShaderInfoLog(fragmentShader, 4096, 0, fragmentShaderErrors);
-        openGL->glGetProgramInfoLog(shaderProgram, 4096, 0, programErrors);
+                                    out V4 outPos;
+                                    out V3 outN;
+                                    out V2 outUv;
 
-        Assert(!"Shader failed");
-    }
+                                    uniform mat4 transform; 
 
-    openGL->glDeleteShader(vertexShader);
-    openGL->glDeleteShader(fragmentShader);
-    openGL->shaderProgram = shaderProgram;
+                                    void main()
+                                    { 
+                                        gl_Position = transform * V4(pos, 1.0);
+                                        outPos = V4(pos, 1.0f);
+                                        outN = n;
+                                        outUv = uv;
+                                    })";
+
+    char *fragmentCode = R"(
+                                    in V4 outPos;
+                                    in V3 outN;
+                                    in V2 outUv;
+
+                                    out V4 FragColor;
+
+                                    void main()
+                                    {
+                                        V3 result = outN + V3(outUv, 1.f);
+                                        FragColor = V4(result, 1.f);
+                                    })";
+
+    ModelShader *modelShader = &openGL->modelShader;
+    modelShader->base = OpenGLCreateProgram(openGL, globalHeaderCode, vertexCode, fragmentCode);
+    modelShader->uvId = openGL->glGetAttribLocation(modelShader->base.id, "uv");
+}
+
+internal void OpenGLInit(OpenGL *openGL)
+{
+    u32 maxQuadCountPerFrame = 1 << 14;
+    openGL->group.maxVertexCount = maxQuadCountPerFrame * 4;
+    openGL->group.maxIndexCount = maxQuadCountPerFrame * 6;
 
     openGL->glGenVertexArrays(1, &openGL->vao);
     openGL->glBindVertexArray(openGL->vao);
 
     openGL->glGenBuffers(1, &openGL->vertexBufferId);
     openGL->glGenBuffers(1, &openGL->indexBufferId);
+    openGL->glGenBuffers(1, &openGL->modelVertexBufferId);
+
+    CompileCubeProgram(openGL);
+    CompileModelProgram(openGL);
 }
 
 internal OpenGL Win32InitOpenGL(HWND window)
@@ -152,6 +211,7 @@ internal OpenGL Win32InitOpenGL(HWND window)
         Win32GetOpenGLFunction(glDeleteShader);
         Win32GetOpenGLFunction(glVertexAttribPointer);
         Win32GetOpenGLFunction(glEnableVertexAttribArray);
+        Win32GetOpenGLFunction(glDisableVertexAttribArray);
         Win32GetOpenGLFunction(glGenVertexArrays);
         Win32GetOpenGLFunction(glBindVertexArray);
         Win32GetOpenGLFunction(glGetUniformLocation);
@@ -160,6 +220,8 @@ internal OpenGL Win32InitOpenGL(HWND window)
         Win32GetOpenGLFunction(glActiveTexture);
         Win32GetOpenGLFunction(glUniformMatrix4fv);
         Win32GetOpenGLFunction(glUniform3fv);
+        Win32GetOpenGLFunction(glGetAttribLocation);
+        Win32GetOpenGLFunction(glValidateProgram);
     }
     else
     {
@@ -202,6 +264,7 @@ internal void OpenGLEndFrame(OpenGL *openGL, HDC deviceContext, int clientWidth,
     // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
     // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
 
+    openGL->glUseProgram(openGL->cubeShader.base.id);
     openGL->glBindVertexArray(openGL->vao);
     openGL->glBindBuffer(GL_ARRAY_BUFFER, openGL->vertexBufferId);
     openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(RenderVertex) * openGL->group.vertexCount, openGL->group.vertexArray,
@@ -211,23 +274,67 @@ internal void OpenGLEndFrame(OpenGL *openGL, HDC deviceContext, int clientWidth,
     openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(u16) * openGL->group.indexCount, openGL->group.indexArray,
                          GL_STREAM_DRAW);
 
-    openGL->glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, sizeof(RenderVertex), (void *)Offset(RenderVertex, p));
-    openGL->glEnableVertexAttribArray(0);
+    GLuint positionId = openGL->cubeShader.base.positionId;
+    GLuint colorId = openGL->cubeShader.colorId;
+    GLuint normalId = openGL->cubeShader.base.normalId;
+    openGL->glEnableVertexAttribArray(positionId);
+    openGL->glVertexAttribPointer(positionId, 4, GL_FLOAT, GL_FALSE, sizeof(RenderVertex),
+                                  (void *)Offset(RenderVertex, p));
 
-    openGL->glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(RenderVertex), (void *)Offset(RenderVertex, color));
-    openGL->glEnableVertexAttribArray(1);
+    openGL->glEnableVertexAttribArray(colorId);
+    openGL->glVertexAttribPointer(colorId, 3, GL_FLOAT, GL_FALSE, sizeof(RenderVertex),
+                                  (void *)Offset(RenderVertex, color));
 
-    openGL->glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(RenderVertex), (void *)Offset(RenderVertex, n));
-    openGL->glEnableVertexAttribArray(2);
+    openGL->glEnableVertexAttribArray(normalId);
+    openGL->glVertexAttribPointer(normalId, 3, GL_FLOAT, GL_FALSE, sizeof(RenderVertex),
+                                  (void *)Offset(RenderVertex, n));
 
-    GLint transformLocation = openGL->glGetUniformLocation(openGL->shaderProgram, "transform");
+    GLint transformLocation = openGL->glGetUniformLocation(openGL->cubeShader.base.id, "transform");
     openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, openGL->transform.elements[0]);
 
-    GLint cameraPosition = openGL->glGetUniformLocation(openGL->shaderProgram, "cameraPosition");
+    GLint cameraPosition = openGL->glGetUniformLocation(openGL->cubeShader.base.id, "cameraPosition");
     openGL->glUniform3fv(cameraPosition, 1, openGL->camera.position.e);
 
-    openGL->glUseProgram(openGL->shaderProgram);
     glDrawElements(GL_TRIANGLES, 6 * openGL->group.quadCount, GL_UNSIGNED_SHORT, 0);
+    
+    openGL->glUseProgram(0);
+    openGL->glDisableVertexAttribArray(positionId);
+    openGL->glDisableVertexAttribArray(colorId);
+    openGL->glDisableVertexAttribArray(normalId);
+
+    openGL->glUseProgram(openGL->modelShader.base.id);
+    openGL->glBindBuffer(GL_ARRAY_BUFFER, openGL->modelVertexBufferId);
+    openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(ModelVertex) * openGL->group.model.vertexCount,
+                         openGL->group.model.vertices, GL_STREAM_DRAW);
+
+    positionId = openGL->modelShader.base.positionId;
+    normalId = openGL->modelShader.base.normalId;
+    GLuint uvId = openGL->modelShader.uvId;
+
+    openGL->glEnableVertexAttribArray(positionId);
+    openGL->glVertexAttribPointer(positionId, 3, GL_FLOAT, GL_FALSE, sizeof(ModelVertex),
+                                  (void *)Offset(ModelVertex, position));
+
+    openGL->glEnableVertexAttribArray(normalId);
+    openGL->glVertexAttribPointer(normalId, 3, GL_FLOAT, GL_FALSE, sizeof(ModelVertex),
+                                  (void *)Offset(ModelVertex, normal));
+
+    openGL->glEnableVertexAttribArray(uvId);
+    openGL->glVertexAttribPointer(uvId, 2, GL_FLOAT, GL_FALSE, sizeof(ModelVertex), (void *)Offset(ModelVertex, uv));
+
+    Mat4 translate = Translate4(V3{0, 0, 5});
+    Mat4 scale = Scale4(V3{2, 2, 2});
+    Mat4 rotate = Rotate4(V3{1, 0, 0}, PI/2);
+    Mat4 newTransform = openGL->transform * translate * rotate * scale;
+    transformLocation = openGL->glGetUniformLocation(openGL->modelShader.base.id, "transform");
+    openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, newTransform.elements[0]);
+    openGL->glUseProgram(openGL->modelShader.base.id);
+    glDrawArrays(GL_TRIANGLES, 0, openGL->group.model.vertexCount);
+
+    openGL->glUseProgram(0);
+    openGL->glDisableVertexAttribArray(positionId);
+    openGL->glDisableVertexAttribArray(normalId);
+    openGL->glDisableVertexAttribArray(uvId);
 
     SwapBuffers(deviceContext);
 }

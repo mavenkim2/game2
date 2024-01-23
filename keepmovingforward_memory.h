@@ -15,12 +15,15 @@ struct TempArena {
 };
 
 internal Arena* ArenaAlloc(void *base, u64 size);
-internal void* ArenaPush(Arena *arena, u64 size);
+internal void *ArenaPushNoZero(Arena *arena, u64 size);
+internal void *ArenaPush(Arena *arena, u64 size);
 internal void ArenaPopTo(Arena *arena, u64 pos);
 
 internal TempArena TempBegin(Arena* arena);
 internal void TempEnd(TempArena temp);
 
+#define PushArrayNoZero(arena, type, count) (type *)ArenaPushNoZero(arena, sizeof(type) * (count))
+#define PushStructNoZero(arena, type) (type *)PushArrayNoZero(arena, type, 1)
 #define PushArray(arena, type, count) (type *)ArenaPush(arena, sizeof(type) * (count))
 #define PushStruct(arena, type) (type *)PushArray(arena, type, 1)
 

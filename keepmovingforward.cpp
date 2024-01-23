@@ -2,9 +2,10 @@
 
 #include "keepmovingforward_memory.cpp"
 #include "keepmovingforward_string.cpp"
-#include "render/keepmovingforward_renderer.cpp"
 #include "keepmovingforward_camera.cpp"
+#include "render/keepmovingforward_renderer.cpp"
 #include "keepmovingforward_entity.cpp"
+#include "keepmovingforward_asset.cpp"
 
 const f32 GRAVITY = 49.f;
 
@@ -154,28 +155,6 @@ internal DebugBmpResult DebugLoadBMP(DebugPlatformReadFileFunctionType *Platform
         result.height = header->height;
     }
     return result;
-}
-
-internal void DebugLoadModel(DebugPlatformReadFileFunctionType *PlatformReadFile, const char *filename)
-{
-    DebugReadFileOutput output = PlatformReadFile(filename);
-    Assert(output.fileSize != 0);
-
-    u8 *start = (u8*)output.contents;
-    u8 *iter = (u8*)output.contents;
-
-    while (iter < start + output.fileSize)
-    {
-        while (*iter != '\n')
-        {
-            u8 *begin = iter;
-            while (*iter != ' ')
-            {
-                iter++;
-            }
-            String8 string = Str8(begin, iter-begin);
-        }
-    }
 }
 
 inline Entity *GetEntity(Level *level, int handle)
@@ -637,9 +616,11 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
     if (!memory->isInitialized)
     {
-        gameState->bmpTest = DebugLoadBMP(memory->DebugPlatformReadFile, "test/tile.bmp");
+        // gameState->bmpTest = DebugLoadBMP(memory->DebugPlatformReadFile, "test/tile.bmp");
         gameState->worldArena = ArenaAlloc((void *)((u8 *)(memory->PersistentStorageMemory) + sizeof(GameState)),
                                            memory->PersistentStorageSize - sizeof(GameState));
+        // TODO IMPORTANT: draw to screen
+        openGL->group.model = DebugLoadModel(gameState->worldArena, memory->DebugPlatformReadFile, "diablo3_pose.obj");
 
         gameState->level = PushStruct(gameState->worldArena, Level);
         gameState->cameraMode = CameraMode_Player;
@@ -797,7 +778,8 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             V3 up = Normalize(Cross(camera->right, camera->forward));
 
             Mat4 projection = Perspective4(Radians(45.f), 16.f / 9.f, .1f, 1000.f);
-            Mat4 cameraMatrix = CameraTransform(camera->right, up, -camera->forward, camera->position);
+            Mat4 cameraMatrix = LookAt4(camera->position, camera->position + camera->forward, worldUp);
+                //CameraTransform(camera->right, up, -camera->forward, camera->position);
 
             Mat4 transform = projection * cameraMatrix;
 
@@ -970,6 +952,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             PushCube(&openGL->group, entity->pos, entity->size, entity->color);
         }
         PushCube(&openGL->group, player->pos, player->size, player->color);
+        // PushModel();
     }
     // GameOutputSound(soundBuffer, gameState->toneHz);
 }

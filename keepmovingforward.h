@@ -2,6 +2,7 @@
 #include "keepmovingforward_common.h"
 #include "keepmovingforward_math.h"
 #include "keepmovingforward_camera.h"
+#include "keepmovingforward_asset.h"
 #include "render/keepmovingforward_renderer.h"
 
 // TODO IMPORTANT GET RID OF THE WIN32 AND GL STUFF FROM HERE

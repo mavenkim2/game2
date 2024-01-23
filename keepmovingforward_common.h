@@ -60,8 +60,11 @@ typedef i64 b64;
 #define Swap(type, a, b) do { type _swapper_ = a; a = b; b = _swapper_; } while(0)
 
 // NOTE: does it matter that this is a u64 instead of uintptr_t?
-#define Offset(type, member) (u64)&(((RenderVertex *)0)->member)
+#define Offset(type, member) (u64)&(((type *)0)->member)
 
+#define MemoryCopy memcpy
+#define MemorySet memset
+#define MemoryZero(ptr, size) MemorySet((ptr), 0, (size))
 // #define RESX 640
 // #define RESY 360
 

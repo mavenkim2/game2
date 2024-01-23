@@ -210,6 +210,25 @@ typedef void WINAPI type_glUniform4f(GLint location, GLfloat v0, GLfloat v1, GLf
 
 #define OpenGLFunction(name) type_##name *name
 
+struct OpenGLShader
+{
+    GLuint id;
+    GLuint positionId;
+    GLuint normalId;
+};
+
+struct CubeShader 
+{
+    OpenGLShader base;
+    GLuint colorId;
+};
+
+struct ModelShader
+{
+    OpenGLShader base;
+    GLuint uvId;
+};
+
 struct OpenGL
 {
     Camera camera;
@@ -220,7 +239,11 @@ struct OpenGL
     GLuint vao;
     GLuint vertexBufferId;
     GLuint indexBufferId;
-    GLuint shaderProgram;
+
+    GLuint modelVertexBufferId;
+
+    CubeShader cubeShader;
+    ModelShader modelShader;
 
     OpenGLFunction(glGenBuffers);
     OpenGLFunction(glBindBuffer);
@@ -238,6 +261,7 @@ struct OpenGL
     OpenGLFunction(glDeleteShader);
     OpenGLFunction(glVertexAttribPointer);
     OpenGLFunction(glEnableVertexAttribArray);
+    OpenGLFunction(glDisableVertexAttribArray);
     OpenGLFunction(glGenVertexArrays);
     OpenGLFunction(glBindVertexArray);
     OpenGLFunction(glGetUniformLocation);
@@ -246,6 +270,8 @@ struct OpenGL
     OpenGLFunction(glActiveTexture);
     OpenGLFunction(glUniformMatrix4fv);
     OpenGLFunction(glUniform3fv);
+    OpenGLFunction(glGetAttribLocation);
+    OpenGLFunction(glValidateProgram);
 
     RenderGroup group;
 };

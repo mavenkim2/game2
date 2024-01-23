@@ -5,6 +5,7 @@
 #include "keepmovingforward_common.h"
 #include "keepmovingforward_math.h"
 #include "keepmovingforward_camera.h"
+#include "keepmovingforward_asset.h"
 #include "render/keepmovingforward_renderer.h"
 #include "render/win32_keepmovingforward_opengl.h"
 #include "keepmovingforward_platform.h"

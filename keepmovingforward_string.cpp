@@ -8,6 +8,11 @@ internal String8 Str8(u8 *str, u64 size)
     return result;
 }
 
+internal b32 CharIsDigit(u8 c)
+{
+    return (c >= '0' && c <= '9');
+}
+
 internal u64 CalculateCStringLength(char *cstr)
 {
     u64 length = 0;
@@ -69,6 +74,23 @@ internal String8 PushStr8FV(Arena *arena, char *fmt, va_list args)
     result.str = PushArray(arena, u8, neededBytes);
     result.size = neededBytes - 1;
     stbsp_vsnprintf((char *)result.str, (int)neededBytes, fmt, args2);
+    return result;
+}
+
+internal b32 operator==(String8 a, String8 b)
+{
+    b32 result = false;
+    if (a.size == b.size)
+    {
+        for (int i = 0; i < a.size; i++)
+        {
+            result = (a.str[i] == b.str[i]);
+            if (!result)
+            {
+                break;
+            }
+        }
+    }
     return result;
 }
 

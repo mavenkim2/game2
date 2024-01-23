@@ -50,6 +50,16 @@ inline f32 Tan(f32 a)
     return result;
 }
 
+inline i32 Pow(i32 a, i32 b)
+{
+    i32 result = 1;
+    for (int i = 0; i < b; i++)
+    {
+        result *= a;
+    }
+    return result;
+}
+
 inline u32 RoundF32ToU32(f32 value)
 {
     u32 result = (u32)roundf(value);
@@ -76,7 +86,24 @@ union V2
     {
         f32 x, y;
     };
+    struct
+    {
+        f32 u, v;
+    };
     f32 e[2];
+};
+
+union V2I32
+{
+    struct
+    {
+        i32 x, y;
+    };
+    struct
+    {
+        i32 u, v;
+    };
+    i32 e[2];
 };
 
 union V3
@@ -100,6 +127,29 @@ union V3
         V2 yz;
     };
     f32 e[3];
+};
+
+union V3I32
+{
+    struct
+    {
+        i32 x, y, z;
+    };
+    struct
+    {
+        i32 r, g, b;
+    };
+    struct
+    {
+        V2I32 xy;
+        i32 _z;
+    };
+    struct
+    {
+        i32 _x;
+        V2I32 yz;
+    };
+    i32 e[3];
 };
 
 union V4
@@ -411,7 +461,8 @@ inline V3 Normalize(V3 a)
     return result;
 }
 
-inline V3 Hadamard(V3 a, V3 b) {
+inline V3 Hadamard(V3 a, V3 b)
+{
     V3 result;
     result.x = a.x * b.x;
     result.y = a.y * b.y;
@@ -430,7 +481,8 @@ inline V4 MakeV4(V3 xyz, float w)
     return result;
 }
 
-inline V4 Hadamard(V4 a, V4 b) {
+inline V4 Hadamard(V4 a, V4 b)
+{
     V4 result;
     result.x = a.x * b.x;
     result.y = a.y * b.y;
@@ -620,24 +672,22 @@ inline Mat4 LookAt4(V3 eye, V3 center, V3 up)
 
 inline Mat4 Mat4Rows3x3(V3 x, V3 y, V3 z)
 {
-    Mat4 result = 
-    {{
-        {x.x, y.x, z.x, 0}, 
-        {x.y, y.y, z.y, 0}, 
-        {x.z, y.z, z.z, 0}, 
-        {  0,   0,   0, 1},
+    Mat4 result = {{
+        {x.x, y.x, z.x, 0},
+        {x.y, y.y, z.y, 0},
+        {x.z, y.z, z.z, 0},
+        {0, 0, 0, 1},
     }};
     return result;
 }
 
 inline Mat4 Mat4Cols3x3(V3 x, V3 y, V3 z)
 {
-    Mat4 result = 
-    {{
-        {x.x, x.y, x.z, 0}, 
-        {y.x, y.y, y.z, 0}, 
-        {z.x, z.y, z.z, 0}, 
-        {  0,   0,   0, 1},
+    Mat4 result = {{
+        {x.x, x.y, x.z, 0},
+        {y.x, y.y, y.z, 0},
+        {z.x, z.y, z.z, 0},
+        {0, 0, 0, 1},
     }};
 
     return result;
@@ -703,10 +753,11 @@ inline Rect3 Rect3BottomLeft(V3 pos, V3 size)
     return result;
 }
 
-inline Rect3 Rect3Center(V3 pos, V3 size) {
+inline Rect3 Rect3Center(V3 pos, V3 size)
+{
     Rect3 result;
-    result.pos = pos - size/2;
-    result.size = size/2;
+    result.pos = pos - size / 2;
+    result.size = size / 2;
     return result;
 }
 

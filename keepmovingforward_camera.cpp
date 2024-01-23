@@ -1,4 +1,4 @@
-void RotateCamera(Camera *camera, V2 dMouse, f32 rotationSpeed)
+internal void RotateCamera(Camera *camera, V2 dMouse, f32 rotationSpeed)
 {
     camera->pitch -= rotationSpeed * dMouse.y;
     f32 epsilon = 0.01f;

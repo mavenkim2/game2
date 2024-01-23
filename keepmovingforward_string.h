@@ -11,6 +11,7 @@ struct String8
 #include "third_party/stb_sprintf.h"
 
 internal String8 Str8(u8 *str, u64 size);
+internal b32 CharIsDigit(u8 c);
 internal u64 CalculateCStringLength(char *cstr);
 internal String8 Str8PathChopLastSlash(String8 string);
 internal String8 Str8PathChopPastLastSlash(String8 string);
@@ -20,6 +21,6 @@ internal String8 PushStr8F(Arena *arena, char *fmt, ...);
 internal String8 PushStr8FV(Arena *arena, char *fmt, va_list args);
 
 #define Str8Lit(s) Str8((u8 *)(s), sizeof(s) - 1)
-#define Str8C(cstring) Str8((u8 *)(cstring), CalculateStringLength(cstring))
+#define Str8C(cstring) Str8((u8 *)(cstring), CalculateCStringLength(cstring))
 
 #endif

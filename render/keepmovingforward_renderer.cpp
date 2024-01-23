@@ -90,3 +90,7 @@ internal void PushQuad(RenderGroup *group, V3 p0, V3 p1, V3 p2, V3 p3, V3 n, V4 
 
     group->quadCount += 1;
 }
+
+// internal void PushModel(Model model) {
+//         
+// }
