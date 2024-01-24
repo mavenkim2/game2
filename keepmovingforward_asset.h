@@ -1,4 +1,4 @@
-struct OBJIter
+struct Iter
 {
     u8 *cursor;
     u8 *end;

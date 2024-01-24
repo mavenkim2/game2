@@ -1,11 +1,14 @@
+// #define STB_IMAGE_IMPLEMENTATION
+// #define STBI_ONLY_TGA
+// #include "third_party/stb_image.h"
 // TODO: <= or < ?
-inline b32 IsEndOfFile(OBJIter* iter)
+inline b32 IsEndOfFile(Iter *iter)
 {
     b32 result = iter->cursor == iter->end;
     return result;
 }
 
-inline u32 GetType(OBJIter iter)
+inline u32 GetType(Iter iter)
 {
     String8 type = Str8(iter.cursor, 2);
     u32 objType = OBJ_Invalid;
@@ -29,7 +32,7 @@ inline u32 GetType(OBJIter iter)
 }
 
 // TODO: is float imprecision solvable?
-inline f32 ReadFloat(OBJIter *iter)
+inline f32 ReadFloat(Iter *iter)
 {
     f32 value = 0;
     i32 exponent = 0;
@@ -75,13 +78,14 @@ inline f32 ReadFloat(OBJIter *iter)
         value *= 0.1f;
         exponent++;
     }
-    if (valueSign) {
+    if (valueSign)
+    {
         value = -value;
     }
     return value;
 }
 
-inline V3I32 ParseFaceVertex(OBJIter *iter)
+inline V3I32 ParseFaceVertex(Iter *iter)
 {
     V3I32 result;
     for (int i = 0; i < 3; i++)
@@ -99,7 +103,7 @@ inline V3I32 ParseFaceVertex(OBJIter *iter)
     return result;
 }
 
-inline void SkipToNextLine(OBJIter *iter)
+inline void SkipToNextLine(Iter *iter)
 {
     while (!IsEndOfFile(iter) && *iter->cursor != '\n')
     {
@@ -108,7 +112,7 @@ inline void SkipToNextLine(OBJIter *iter)
     iter->cursor++;
 }
 
-inline void GetNextWord(OBJIter *iter)
+inline void GetNextWord(Iter *iter)
 {
     while (*iter->cursor != ' ' && *iter->cursor != '\t')
     {
@@ -127,7 +131,7 @@ internal Model DebugLoadModel(Arena *arena, DebugPlatformReadFileFunctionType *P
     DebugReadFileOutput output = PlatformReadFile(filename);
     Assert(output.fileSize != 0);
 
-    OBJIter iter;
+    Iter iter;
     iter.cursor = (u8 *)output.contents;
     iter.end = iter.cursor + output.fileSize;
 
@@ -205,4 +209,141 @@ internal Model DebugLoadModel(Arena *arena, DebugPlatformReadFileFunctionType *P
     model.vertices = vertices;
     model.vertexCount = count;
     return model;
+}
+
+#pragma pack(push, 1)
+struct TGAHeader
+{
+    u8 idLength;
+    u8 colorMapType;
+    u8 imageType;
+    u16 colorMapOrigin;
+    u16 colorMapLength;
+    u8 colorMapEntrySize;
+    u16 xOrigin;
+    u16 yOrigin;
+    u16 width;
+    u16 height;
+    u8 bitsPerPixel;
+    u8 imageDescriptor;
+};
+#pragma pack(pop)
+
+inline u8 GetByte(Iter *iter)
+{
+    u8 result = 0;
+    if (iter->cursor < iter->end)
+    {
+        result = *iter->cursor++;
+    }
+    return result;
+}
+
+struct TGAResult
+{
+    u8 *contents;
+    u32 width;
+    u32 height;
+};
+internal TGAResult DebugLoadTGA(Arena *arena, DebugPlatformReadFileFunctionType *PlatformReadFile, const char *filename)
+{
+    // int width, height, nChannels;
+    // u8* data = (u8*)stbi_load(filename, &width, &height, &nChannels, 0);
+    // TGAResult result;
+    // result.width = (u32)width;
+    // result.height = (u32)height;
+    // result.contents = data;
+    // return result;
+    TGAResult result;
+    DebugReadFileOutput output = PlatformReadFile(filename);
+    Assert(output.fileSize != 0);
+    TGAHeader *header = (TGAHeader *)output.contents;
+    b32 isRle = 0;
+    u32 width = (u32)header->width;
+    u32 height = (u32)header->height;
+    result.width = width;
+    result.height = height;
+    Assert(header->imageType != 1 && header->imageType != 9);
+    // Image type = 9, 10, or 11 is RLE
+    if (header->imageType > 8)
+    {
+        isRle = 1;
+    }
+    Iter inputIter;
+    inputIter.cursor = (u8 *)output.contents + sizeof(TGAHeader) + header->idLength;
+    inputIter.end = inputIter.cursor + output.fileSize;
+
+    i32 tgaInverted = header->imageDescriptor;
+    tgaInverted = 1 - ((tgaInverted >> 5) & 1);
+    i32 rleCount = 0;
+    b32 repeating = 0;
+    b32 readNextPixel = 0;
+    i32 bytesPerPixel = header->bitsPerPixel >> 3;
+
+    result.contents = PushArrayNoZero(arena, u8, width * height * bytesPerPixel);
+    u8 rawData[4] = {};
+
+    for (u32 i = 0; i < width * height; i++)
+    {
+        // Read RLE byte:
+        // If the high-order bit is set to 1, it's a run-length packet type
+        // The next 7 bits represent the count + 1. A 0 pixel count means that 1 pixel
+        // is encoded by the packet.
+        if (isRle)
+        {
+            if (rleCount == 0)
+            {
+                i32 rleCmd = GetByte(&inputIter);
+                rleCount = 1 + (rleCmd & 0x7F);
+                repeating = rleCmd >> 7;
+                readNextPixel = 1;
+            }
+            else if (!repeating)
+            {
+                readNextPixel = 1;
+            }
+        }
+        else
+        {
+            readNextPixel = 1;
+        }
+        if (readNextPixel)
+        {
+            for (i32 b = 0; b < bytesPerPixel; b++)
+            {
+                rawData[b] = GetByte(&inputIter);
+            }
+            readNextPixel = 0;
+        }
+        for (i32 j = 0; j < bytesPerPixel; j++)
+        {
+            result.contents[i * bytesPerPixel + j] = rawData[j];
+        }
+        rleCount--;
+    }
+    if (tgaInverted)
+    {
+        for (u32 j = 0; j * 2 < height; j++)
+        {
+            i32 index1 = j * width * bytesPerPixel;
+            i32 index2 = (height - 1 - j) * width * bytesPerPixel;
+            for (i32 i = width * bytesPerPixel; i > 0; --i)
+            {
+                Swap(u8, result.contents[index1], result.contents[index2]);
+                ++index1;
+                ++index2;
+            }
+        }
+    }
+
+    // Converts from BGR to RGB
+    if (bytesPerPixel >= 3) {
+        u8* pixel = result.contents;
+        for (u32 i = 0; i < width * height; i++) 
+        {
+            Swap(u8, pixel[0], pixel[2]);
+            pixel += bytesPerPixel;
+        }
+    }
+    return result;
 }

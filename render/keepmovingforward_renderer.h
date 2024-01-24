@@ -5,6 +5,12 @@ struct RenderVertex {
     V3 color;
 };
 
+struct Texture {
+    u8* contents;
+    u32 width;
+    u32 height;
+};
+
 struct RenderGroup {
     u32 quadCount;
 
@@ -17,12 +23,14 @@ struct RenderGroup {
     u16* indexArray;
 
     Model model;
+    Texture texture;
 };
+
 
 // internal RenderGroup BeginRenderGroup(OpenGL* openGL);
 internal void PushQuad(RenderGroup* group, V3 p0, V3 p1, V3 p2, V3 p3, V3 n, V4 color);
 internal void PushCube(RenderGroup* group, V3 pos, V3 size, V4 color);
-// internal void PushModel(Model model);
+internal void PushTexture(RenderGroup *group, Texture texture);
 
 #define KEEPMOVINGFORWARD_RENDERER_H
 #endif

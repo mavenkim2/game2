@@ -144,10 +144,11 @@ internal void CompileModelProgram(OpenGL *openGL)
 
                                     out V4 FragColor;
 
+                                    uniform sampler2D diffuseTexture;
+
                                     void main()
                                     {
-                                        V3 result = outN + V3(outUv, 1.f);
-                                        FragColor = V4(result, 1.f);
+                                        FragColor = V4(texture(diffuseTexture, outUv).rgb, 1.f);
                                     })";
 
     ModelShader *modelShader = &openGL->modelShader;
@@ -249,20 +250,9 @@ internal void OpenGLEndFrame(OpenGL *openGL, HDC deviceContext, int clientWidth,
     glViewport(0, 0, clientWidth, clientHeight);
 
     glEnable(GL_DEPTH_TEST);
+    glEnable(GL_TEXTURE_2D);
     glClearColor(0.5f, 0.5f, 0.5f, 1.f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    // glGenTextures(1, &TEXTURE_HANDLE);
-    // openGL->glActiveTexture(GL_TEXTURE0);
-    // glBindTexture(GL_TEXTURE_2D, TEXTURE_HANDLE);
-    //
-    // glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, buffer->width, buffer->height, 0, GL_BGRA_EXT, GL_UNSIGNED_BYTE,
-    //              buffer->memory);
-    // glTexEnvi(GL_TEXTURE_2D, GL_TEXTURE_ENV_MODE, GL_MODULATE);
-    //
-    // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
-    // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
 
     openGL->glUseProgram(openGL->cubeShader.base.id);
     openGL->glBindVertexArray(openGL->vao);
@@ -296,13 +286,27 @@ internal void OpenGLEndFrame(OpenGL *openGL, HDC deviceContext, int clientWidth,
     openGL->glUniform3fv(cameraPosition, 1, openGL->camera.position.e);
 
     glDrawElements(GL_TRIANGLES, 6 * openGL->group.quadCount, GL_UNSIGNED_SHORT, 0);
-    
+
     openGL->glUseProgram(0);
     openGL->glDisableVertexAttribArray(positionId);
     openGL->glDisableVertexAttribArray(colorId);
     openGL->glDisableVertexAttribArray(normalId);
 
     openGL->glUseProgram(openGL->modelShader.base.id);
+    // TODO: doing this every frame tanks the frame rate, unsurprisingly
+    glGenTextures(1, &openGL->textureId);
+    openGL->glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, openGL->textureId);
+
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, openGL->group.texture.width, openGL->group.texture.width, 0, GL_RGB,
+                 GL_UNSIGNED_BYTE, openGL->group.texture.contents);
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+    glTexEnvi(GL_TEXTURE_2D, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+
     openGL->glBindBuffer(GL_ARRAY_BUFFER, openGL->modelVertexBufferId);
     openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(ModelVertex) * openGL->group.model.vertexCount,
                          openGL->group.model.vertices, GL_STREAM_DRAW);
@@ -332,6 +336,7 @@ internal void OpenGLEndFrame(OpenGL *openGL, HDC deviceContext, int clientWidth,
     glDrawArrays(GL_TRIANGLES, 0, openGL->group.model.vertexCount);
 
     openGL->glUseProgram(0);
+    glBindTexture(GL_TEXTURE_2D, 0);
     openGL->glDisableVertexAttribArray(positionId);
     openGL->glDisableVertexAttribArray(normalId);
     openGL->glDisableVertexAttribArray(uvId);

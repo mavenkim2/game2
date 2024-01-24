@@ -619,8 +619,13 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         // gameState->bmpTest = DebugLoadBMP(memory->DebugPlatformReadFile, "test/tile.bmp");
         gameState->worldArena = ArenaAlloc((void *)((u8 *)(memory->PersistentStorageMemory) + sizeof(GameState)),
                                            memory->PersistentStorageSize - sizeof(GameState));
-        // TODO IMPORTANT: draw to screen
         openGL->group.model = DebugLoadModel(gameState->worldArena, memory->DebugPlatformReadFile, "diablo3_pose.obj");
+        TGAResult result = DebugLoadTGA(gameState->worldArena, memory->DebugPlatformReadFile, "diablo3_pose_diffuse.tga");
+        Texture texture;
+        texture.contents = result.contents;
+        texture.width = result.width;
+        texture.height = result.height;
+        PushTexture(&openGL->group, texture);
 
         gameState->level = PushStruct(gameState->worldArena, Level);
         gameState->cameraMode = CameraMode_Player;

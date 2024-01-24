@@ -135,6 +135,7 @@
 #define GL_RG32I 0x823B
 #define GL_RG32UI 0x823C
 #define GL_R11F_G11F_B10F 0x8C3A
+#define GL_BGR 0x80E0
 
 #define GL_MULTISAMPLE 0x809D
 #define GL_SAMPLE_ALPHA_TO_COVERAGE 0x809E
@@ -217,7 +218,7 @@ struct OpenGLShader
     GLuint normalId;
 };
 
-struct CubeShader 
+struct CubeShader
 {
     OpenGLShader base;
     GLuint colorId;
@@ -233,17 +234,19 @@ struct OpenGL
 {
     Camera camera;
     Mat4 transform;
-    i32 width; 
+    i32 width;
     i32 height;
 
     GLuint vao;
+
     GLuint vertexBufferId;
     GLuint indexBufferId;
+    CubeShader cubeShader;
 
     GLuint modelVertexBufferId;
-
-    CubeShader cubeShader;
     ModelShader modelShader;
+
+    GLuint textureId;
 
     OpenGLFunction(glGenBuffers);
     OpenGLFunction(glBindBuffer);
