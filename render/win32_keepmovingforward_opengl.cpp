@@ -168,6 +168,7 @@ internal void OpenGLInit(OpenGL *openGL)
     openGL->glGenBuffers(1, &openGL->vertexBufferId);
     openGL->glGenBuffers(1, &openGL->indexBufferId);
     openGL->glGenBuffers(1, &openGL->modelVertexBufferId);
+    openGL->glGenBuffers(1, &openGL->modelIndexBufferId);
 
     CompileCubeProgram(openGL);
     CompileModelProgram(openGL);
@@ -310,6 +311,9 @@ internal void OpenGLEndFrame(OpenGL *openGL, HDC deviceContext, int clientWidth,
     openGL->glBindBuffer(GL_ARRAY_BUFFER, openGL->modelVertexBufferId);
     openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(ModelVertex) * openGL->group.model.vertexCount,
                          openGL->group.model.vertices, GL_STREAM_DRAW);
+    openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, openGL->modelIndexBufferId);
+    openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(u16) * openGL->group.model.indexCount,
+                         openGL->group.model.indices, GL_STREAM_DRAW);
 
     positionId = openGL->modelShader.base.positionId;
     normalId = openGL->modelShader.base.normalId;
@@ -328,12 +332,12 @@ internal void OpenGLEndFrame(OpenGL *openGL, HDC deviceContext, int clientWidth,
 
     Mat4 translate = Translate4(V3{0, 0, 5});
     Mat4 scale = Scale4(V3{2, 2, 2});
-    Mat4 rotate = Rotate4(V3{1, 0, 0}, PI/2);
+    Mat4 rotate = Rotate4(V3{1, 0, 0}, PI / 2);
     Mat4 newTransform = openGL->transform * translate * rotate * scale;
     transformLocation = openGL->glGetUniformLocation(openGL->modelShader.base.id, "transform");
     openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, newTransform.elements[0]);
     openGL->glUseProgram(openGL->modelShader.base.id);
-    glDrawArrays(GL_TRIANGLES, 0, openGL->group.model.vertexCount);
+    glDrawElements(GL_TRIANGLES, openGL->group.model.indexCount, GL_UNSIGNED_SHORT, 0);
 
     openGL->glUseProgram(0);
     glBindTexture(GL_TEXTURE_2D, 0);

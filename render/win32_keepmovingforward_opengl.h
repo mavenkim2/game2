@@ -244,8 +244,8 @@ struct OpenGL
     CubeShader cubeShader;
 
     GLuint modelVertexBufferId;
+    GLuint modelIndexBufferId;
     ModelShader modelShader;
-
     GLuint textureId;
 
     OpenGLFunction(glGenBuffers);

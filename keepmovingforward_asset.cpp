@@ -2,6 +2,7 @@
 // #define STBI_ONLY_TGA
 // #include "third_party/stb_image.h"
 // TODO: <= or < ?
+#include <cstdint>
 inline b32 IsEndOfFile(Iter *iter)
 {
     b32 result = iter->cursor == iter->end;
@@ -124,6 +125,24 @@ inline void GetNextWord(Iter *iter)
     }
 }
 
+struct FaceVertex
+{
+    V3I32 indices;
+    u16 index;
+
+    FaceVertex *nextInHash;
+};
+
+internal u32 VertexHash(V3I32 indices)
+{
+    u32 result = 5381;
+    for (i32 i = 0; i < 3; i++)
+    {
+        result = ((result << 5) + result) + indices.e[i];
+    }
+    return result;
+}
+
 // TODO: # vertices is hardcoded, handle groups?
 // Add indices
 internal Model DebugLoadModel(Arena *arena, DebugPlatformReadFileFunctionType *PlatformReadFile, const char *filename)
@@ -135,16 +154,27 @@ internal Model DebugLoadModel(Arena *arena, DebugPlatformReadFileFunctionType *P
     iter.cursor = (u8 *)output.contents;
     iter.end = iter.cursor + output.fileSize;
 
-    ModelVertex *vertices = PushArrayNoZero(arena, ModelVertex, 16000);
-    u32 count = 0;
+    const i32 MAX_MODEL_VERTEX_COUNT = 8000;
+    const i32 MAX_MODEL_INDEX_COUNT = 16000;
+    const i32 MAX_POSITION_VERTEX_COUNT = 3000;
+    const i32 MAX_NORMAL_VERTEX_COUNT = 3500;
+    const i32 MAX_UV_VERTEX_COUNT = 3000;
+
+    ModelVertex *modelVertices = PushArrayNoZero(arena, ModelVertex, MAX_MODEL_VERTEX_COUNT);
+    u32 vertexCount = 0;
+
+    u16 *modelIndices = PushArrayNoZero(arena, u16, MAX_MODEL_INDEX_COUNT);
+    u32 indexCount = 0;
     TempArena tempArena = ScratchBegin(arena);
 
-    V3 *positionVertices = PushArrayNoZero(tempArena.arena, V3, 3000);
+    V3 *positionVertices = PushArrayNoZero(tempArena.arena, V3, MAX_POSITION_VERTEX_COUNT);
     u32 positionCount = 0;
-    V3 *normalVertices = PushArrayNoZero(tempArena.arena, V3, 3500);
+    V3 *normalVertices = PushArrayNoZero(tempArena.arena, V3, MAX_NORMAL_VERTEX_COUNT);
     u32 normalCount = 0;
-    V2 *uvVertices = PushArrayNoZero(tempArena.arena, V2, 3000);
+    V2 *uvVertices = PushArrayNoZero(tempArena.arena, V2, MAX_UV_VERTEX_COUNT);
     u32 uvCount = 0;
+
+    FaceVertex vertexHash[MAX_MODEL_INDEX_COUNT/2] = {};
 
     while (!IsEndOfFile(&iter))
     {
@@ -189,11 +219,51 @@ internal Model DebugLoadModel(Arena *arena, DebugPlatformReadFileFunctionType *P
                 {
                     // POSITION, TEXTURE, NORMAL
                     V3I32 indices = ParseFaceVertex(&iter);
-                    ModelVertex vertex;
-                    vertex.position = positionVertices[indices.x - 1];
-                    vertex.uv = uvVertices[indices.y - 1];
-                    vertex.normal = normalVertices[indices.z - 1];
-                    vertices[count++] = vertex;
+                    u32 hash = VertexHash(indices) % ArrayLength(vertexHash);
+                    FaceVertex *vertex = &vertexHash[hash];
+                    // NOTE: this only works because hash table is zero initiallized. Since
+                    // the obj file never uses 0 indices for position/normal/uv, this is fine.
+                    // if this does end up being a problem, easiest fix would be to check for NIL 
+                    // (everything is zero), and if it is, add new vertex. Then, for the case where 
+                    // there is a non nil element in the hash, but the next in hash is 0, 
+                    // you can just push nil and go to the next one.
+                    do
+                    {
+                        // If already in hash table, then reuse the vertex
+                        if (vertex->indices == indices) {
+                            modelIndices[indexCount++] = vertex->index;
+                            break;
+                        }
+                        // If not in hash table, create new vertex
+                        if (!vertex->nextInHash) {
+                            vertex->nextInHash = PushStructNoZero(tempArena.arena, FaceVertex);
+                            vertex = vertex->nextInHash; 
+                            vertex->indices = indices;
+                            vertex->index = (u16)vertexCount;
+                            vertex->nextInHash = 0;
+                            modelIndices[indexCount++] = vertex->index;
+
+                            ModelVertex newModelVertex;
+                            newModelVertex.position = positionVertices[indices.x - 1];
+                            newModelVertex.uv = uvVertices[indices.y - 1];
+                            newModelVertex.normal = normalVertices[indices.z - 1];
+                            modelVertices[vertexCount++] = newModelVertex;
+                        }
+                        vertex = vertex->nextInHash;
+
+                        Assert(vertexCount != UINT16_MAX);
+                        Assert(indexCount != UINT16_MAX);
+
+                    } while (vertex);
+
+                    // ModelVertex vertex;
+                    // vertex.position = positionVertices[indices.x - 1];
+                    // vertex.uv = uvVertices[indices.y - 1];
+                    // vertex.normal = normalVertices[indices.z - 1];
+                    // modelVertices[vertexCount++] = vertex;
+                    // if combination of indices exists in hash table, use the vertex
+                    // otherwise create vertex and add to hash table
+                    // at the end free the entire hash table
                 }
                 break;
             }
@@ -206,8 +276,10 @@ internal Model DebugLoadModel(Arena *arena, DebugPlatformReadFileFunctionType *P
     }
     ScratchEnd(tempArena);
     Model model;
-    model.vertices = vertices;
-    model.vertexCount = count;
+    model.vertices = modelVertices;
+    model.vertexCount = vertexCount;
+    model.indices = modelIndices;
+    model.indexCount = indexCount;
     return model;
 }
 
@@ -321,25 +393,26 @@ internal TGAResult DebugLoadTGA(Arena *arena, DebugPlatformReadFileFunctionType 
         }
         rleCount--;
     }
-    if (tgaInverted)
-    {
-        for (u32 j = 0; j * 2 < height; j++)
-        {
-            i32 index1 = j * width * bytesPerPixel;
-            i32 index2 = (height - 1 - j) * width * bytesPerPixel;
-            for (i32 i = width * bytesPerPixel; i > 0; --i)
-            {
-                Swap(u8, result.contents[index1], result.contents[index2]);
-                ++index1;
-                ++index2;
-            }
-        }
-    }
+    // if (tgaInverted)
+    // {
+    //     for (u32 j = 0; j * 2 < height; j++)
+    //     {
+    //         i32 index1 = j * width * bytesPerPixel;
+    //         i32 index2 = (height - 1 - j) * width * bytesPerPixel;
+    //         for (i32 i = width * bytesPerPixel; i > 0; --i)
+    //         {
+    //             Swap(u8, result.contents[index1], result.contents[index2]);
+    //             ++index1;
+    //             ++index2;
+    //         }
+    //     }
+    // }
 
     // Converts from BGR to RGB
-    if (bytesPerPixel >= 3) {
-        u8* pixel = result.contents;
-        for (u32 i = 0; i < width * height; i++) 
+    if (bytesPerPixel >= 3)
+    {
+        u8 *pixel = result.contents;
+        for (u32 i = 0; i < width * height; i++)
         {
             Swap(u8, pixel[0], pixel[2]);
             pixel += bytesPerPixel;

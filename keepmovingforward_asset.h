@@ -24,4 +24,7 @@ struct Model
 {
     ModelVertex *vertices;
     u32 vertexCount;
+
+    u16 *indices;
+    u32 indexCount;
 };

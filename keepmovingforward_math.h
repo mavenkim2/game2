@@ -470,6 +470,12 @@ inline V3 Hadamard(V3 a, V3 b)
     return result;
 }
 
+inline b32 operator==(V3I32 &a, V3I32 b)
+{
+    b32 result = a.x == b.x && a.y == b.y && a.z == b.z ? true : false;
+    return result;
+}
+
 /*
  * VECTOR 4
  */
