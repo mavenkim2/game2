@@ -3,9 +3,9 @@
 #include "keepmovingforward_memory.cpp"
 #include "keepmovingforward_string.cpp"
 #include "keepmovingforward_camera.cpp"
-#include "render/keepmovingforward_renderer.cpp"
 #include "keepmovingforward_entity.cpp"
 #include "keepmovingforward_asset.cpp"
+#include "render/keepmovingforward_renderer.cpp"
 
 const f32 GRAVITY = 49.f;
 

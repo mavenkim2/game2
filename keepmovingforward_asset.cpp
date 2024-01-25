@@ -1,8 +1,7 @@
-// #define STB_IMAGE_IMPLEMENTATION
-// #define STBI_ONLY_TGA
-// #include "third_party/stb_image.h"
+#define STB_IMAGE_IMPLEMENTATION
+#define STBI_ONLY_TGA
+#include "third_party/stb_image.h"
 // TODO: <= or < ?
-#include <cstdint>
 inline b32 IsEndOfFile(Iter *iter)
 {
     b32 result = iter->cursor == iter->end;
@@ -124,15 +123,6 @@ inline void GetNextWord(Iter *iter)
         iter->cursor++;
     }
 }
-
-struct FaceVertex
-{
-    V3I32 indices;
-    u16 index;
-
-    FaceVertex *nextInHash;
-};
-
 internal u32 VertexHash(V3I32 indices)
 {
     u32 result = 5381;
@@ -154,19 +144,19 @@ internal Model DebugLoadModel(Arena *arena, DebugPlatformReadFileFunctionType *P
     iter.cursor = (u8 *)output.contents;
     iter.end = iter.cursor + output.fileSize;
 
-    const i32 MAX_MODEL_VERTEX_COUNT = 8000;
+    const i32 MAX_MODEL_VERTEX_COUNT = 4000;
     const i32 MAX_MODEL_INDEX_COUNT = 16000;
     const i32 MAX_POSITION_VERTEX_COUNT = 3000;
     const i32 MAX_NORMAL_VERTEX_COUNT = 3500;
-    const i32 MAX_UV_VERTEX_COUNT = 3000;
+    const i32 MAX_UV_VERTEX_COUNT = 3300;
 
     ModelVertex *modelVertices = PushArrayNoZero(arena, ModelVertex, MAX_MODEL_VERTEX_COUNT);
     u32 vertexCount = 0;
 
     u16 *modelIndices = PushArrayNoZero(arena, u16, MAX_MODEL_INDEX_COUNT);
     u32 indexCount = 0;
-    TempArena tempArena = ScratchBegin(arena);
 
+    TempArena tempArena = ScratchBegin(arena);
     V3 *positionVertices = PushArrayNoZero(tempArena.arena, V3, MAX_POSITION_VERTEX_COUNT);
     u32 positionCount = 0;
     V3 *normalVertices = PushArrayNoZero(tempArena.arena, V3, MAX_NORMAL_VERTEX_COUNT);
@@ -174,7 +164,10 @@ internal Model DebugLoadModel(Arena *arena, DebugPlatformReadFileFunctionType *P
     V2 *uvVertices = PushArrayNoZero(tempArena.arena, V2, MAX_UV_VERTEX_COUNT);
     u32 uvCount = 0;
 
-    FaceVertex vertexHash[MAX_MODEL_INDEX_COUNT/2] = {};
+    u32 length = MAX_MODEL_INDEX_COUNT / 2 - 7;
+    FaceVertex* vertexHash = PushArray(tempArena.arena, FaceVertex, length);
+    // FaceVertex vertexHash[MAX_MODEL_INDEX_COUNT / 2-7] = {};
+    // std::unordered_map<V3I32, u32> vertexHash;
 
     while (!IsEndOfFile(&iter))
     {
@@ -189,6 +182,7 @@ internal Model DebugLoadModel(Arena *arena, DebugPlatformReadFileFunctionType *P
                 pos.y = ReadFloat(&iter);
                 pos.z = ReadFloat(&iter);
                 positionVertices[positionCount++] = pos;
+                Assert(positionCount < MAX_POSITION_VERTEX_COUNT);
                 break;
             }
             case OBJ_Normal:
@@ -199,6 +193,7 @@ internal Model DebugLoadModel(Arena *arena, DebugPlatformReadFileFunctionType *P
                 normal.y = ReadFloat(&iter);
                 normal.z = ReadFloat(&iter);
                 normalVertices[normalCount++] = normal;
+                Assert(normalCount < MAX_NORMAL_VERTEX_COUNT);
                 break;
             }
             case OBJ_Texture:
@@ -209,6 +204,7 @@ internal Model DebugLoadModel(Arena *arena, DebugPlatformReadFileFunctionType *P
                 uv.y = ReadFloat(&iter);
                 SkipToNextLine(&iter);
                 uvVertices[uvCount++] = uv;
+                Assert(uvCount < MAX_UV_VERTEX_COUNT);
                 break;
             }
             case OBJ_Face:
@@ -219,51 +215,42 @@ internal Model DebugLoadModel(Arena *arena, DebugPlatformReadFileFunctionType *P
                 {
                     // POSITION, TEXTURE, NORMAL
                     V3I32 indices = ParseFaceVertex(&iter);
-                    u32 hash = VertexHash(indices) % ArrayLength(vertexHash);
-                    FaceVertex *vertex = &vertexHash[hash];
-                    // NOTE: this only works because hash table is zero initiallized. Since
-                    // the obj file never uses 0 indices for position/normal/uv, this is fine.
-                    // if this does end up being a problem, easiest fix would be to check for NIL 
-                    // (everything is zero), and if it is, add new vertex. Then, for the case where 
-                    // there is a non nil element in the hash, but the next in hash is 0, 
-                    // you can just push nil and go to the next one.
+                    u32 hash = VertexHash(indices) % length;
+                    Assert(hash < length);
+                    FaceVertex *vertex = vertexHash + hash;
                     do
                     {
                         // If already in hash table, then reuse the vertex
-                        if (vertex->indices == indices) {
+                        if (vertex->indices == indices)
+                        {
                             modelIndices[indexCount++] = vertex->index;
                             break;
                         }
-                        // If not in hash table, create new vertex
-                        if (!vertex->nextInHash) {
-                            vertex->nextInHash = PushStructNoZero(tempArena.arena, FaceVertex);
-                            vertex = vertex->nextInHash; 
+                        if (vertex->indices != V3I32{0, 0, 0} && vertex->nextInHash == 0) {
+                            vertex->nextInHash = PushStruct(tempArena.arena, FaceVertex);
+                            vertex = vertex->nextInHash;
+                        }
+                        if (vertex->indices == V3I32{0, 0, 0})
+                        {
                             vertex->indices = indices;
                             vertex->index = (u16)vertexCount;
                             vertex->nextInHash = 0;
-                            modelIndices[indexCount++] = vertex->index;
+                            modelIndices[indexCount++] = (u16)vertexCount;
+                            Assert(vertexCount == (u16)vertexCount);
 
                             ModelVertex newModelVertex;
                             newModelVertex.position = positionVertices[indices.x - 1];
                             newModelVertex.uv = uvVertices[indices.y - 1];
                             newModelVertex.normal = normalVertices[indices.z - 1];
                             modelVertices[vertexCount++] = newModelVertex;
+                            Assert(vertexCount < MAX_MODEL_VERTEX_COUNT);
+                            Assert(indexCount < MAX_MODEL_INDEX_COUNT);
+                            break;
                         }
                         vertex = vertex->nextInHash;
 
-                        Assert(vertexCount != UINT16_MAX);
-                        Assert(indexCount != UINT16_MAX);
 
                     } while (vertex);
-
-                    // ModelVertex vertex;
-                    // vertex.position = positionVertices[indices.x - 1];
-                    // vertex.uv = uvVertices[indices.y - 1];
-                    // vertex.normal = normalVertices[indices.z - 1];
-                    // modelVertices[vertexCount++] = vertex;
-                    // if combination of indices exists in hash table, use the vertex
-                    // otherwise create vertex and add to hash table
-                    // at the end free the entire hash table
                 }
                 break;
             }
@@ -320,7 +307,8 @@ struct TGAResult
 internal TGAResult DebugLoadTGA(Arena *arena, DebugPlatformReadFileFunctionType *PlatformReadFile, const char *filename)
 {
     // int width, height, nChannels;
-    // u8* data = (u8*)stbi_load(filename, &width, &height, &nChannels, 0);
+    // stbi_set_flip_vertically_on_load(true);
+    // u8 *data = (u8 *)stbi_load(filename, &width, &height, &nChannels, 0);
     // TGAResult result;
     // result.width = (u32)width;
     // result.height = (u32)height;

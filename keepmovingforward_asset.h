@@ -28,3 +28,12 @@ struct Model
     u16 *indices;
     u32 indexCount;
 };
+
+// NOTE: Temporary hash
+struct FaceVertex
+{
+    V3I32 indices;
+    u16 index;
+
+    FaceVertex *nextInHash;
+};

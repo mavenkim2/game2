@@ -156,6 +156,25 @@ internal void CompileModelProgram(OpenGL *openGL)
     modelShader->uvId = openGL->glGetAttribLocation(modelShader->base.id, "uv");
 }
 
+internal void OpenGLBindTexture(OpenGL *openGL, Texture *texture)
+{
+    glGenTextures(1, &openGL->textureId);
+    openGL->glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, openGL->textureId);
+
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, texture->width, texture->width, 0, GL_RGB, GL_UNSIGNED_BYTE,
+                 texture->contents);
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
+    glTexEnvi(GL_TEXTURE_2D, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    texture->loaded = true;
+}
+
 internal void OpenGLInit(OpenGL *openGL)
 {
     u32 maxQuadCountPerFrame = 1 << 14;
@@ -248,102 +267,106 @@ internal void OpenGLBeginFrame(OpenGL *openGL, i32 width, i32 height)
 
 internal void OpenGLEndFrame(OpenGL *openGL, HDC deviceContext, int clientWidth, int clientHeight)
 {
-    glViewport(0, 0, clientWidth, clientHeight);
+    // INITIALIZE
+    {
+        glViewport(0, 0, clientWidth, clientHeight);
 
-    glEnable(GL_DEPTH_TEST);
-    glEnable(GL_TEXTURE_2D);
-    glClearColor(0.5f, 0.5f, 0.5f, 1.f);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        glEnable(GL_DEPTH_TEST);
+        glEnable(GL_TEXTURE_2D);
+        glClearColor(0.5f, 0.5f, 0.5f, 1.f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        // glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+        // glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    }
 
-    openGL->glUseProgram(openGL->cubeShader.base.id);
-    openGL->glBindVertexArray(openGL->vao);
-    openGL->glBindBuffer(GL_ARRAY_BUFFER, openGL->vertexBufferId);
-    openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(RenderVertex) * openGL->group.vertexCount, openGL->group.vertexArray,
-                         GL_STREAM_DRAW);
+    // RENDER CUBES
+    {
+        openGL->glUseProgram(openGL->cubeShader.base.id);
+        openGL->glBindVertexArray(openGL->vao);
+        openGL->glBindBuffer(GL_ARRAY_BUFFER, openGL->vertexBufferId);
+        openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(RenderVertex) * openGL->group.vertexCount,
+                             openGL->group.vertexArray, GL_STREAM_DRAW);
 
-    openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, openGL->indexBufferId);
-    openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(u16) * openGL->group.indexCount, openGL->group.indexArray,
-                         GL_STREAM_DRAW);
+        openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, openGL->indexBufferId);
+        openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(u16) * openGL->group.indexCount, openGL->group.indexArray,
+                             GL_STREAM_DRAW);
 
-    GLuint positionId = openGL->cubeShader.base.positionId;
-    GLuint colorId = openGL->cubeShader.colorId;
-    GLuint normalId = openGL->cubeShader.base.normalId;
-    openGL->glEnableVertexAttribArray(positionId);
-    openGL->glVertexAttribPointer(positionId, 4, GL_FLOAT, GL_FALSE, sizeof(RenderVertex),
-                                  (void *)Offset(RenderVertex, p));
+        GLuint positionId = openGL->cubeShader.base.positionId;
+        GLuint colorId = openGL->cubeShader.colorId;
+        GLuint normalId = openGL->cubeShader.base.normalId;
+        openGL->glEnableVertexAttribArray(positionId);
+        openGL->glVertexAttribPointer(positionId, 4, GL_FLOAT, GL_FALSE, sizeof(RenderVertex),
+                                      (void *)Offset(RenderVertex, p));
 
-    openGL->glEnableVertexAttribArray(colorId);
-    openGL->glVertexAttribPointer(colorId, 3, GL_FLOAT, GL_FALSE, sizeof(RenderVertex),
-                                  (void *)Offset(RenderVertex, color));
+        openGL->glEnableVertexAttribArray(colorId);
+        openGL->glVertexAttribPointer(colorId, 3, GL_FLOAT, GL_FALSE, sizeof(RenderVertex),
+                                      (void *)Offset(RenderVertex, color));
 
-    openGL->glEnableVertexAttribArray(normalId);
-    openGL->glVertexAttribPointer(normalId, 3, GL_FLOAT, GL_FALSE, sizeof(RenderVertex),
-                                  (void *)Offset(RenderVertex, n));
+        openGL->glEnableVertexAttribArray(normalId);
+        openGL->glVertexAttribPointer(normalId, 3, GL_FLOAT, GL_FALSE, sizeof(RenderVertex),
+                                      (void *)Offset(RenderVertex, n));
 
-    GLint transformLocation = openGL->glGetUniformLocation(openGL->cubeShader.base.id, "transform");
-    openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, openGL->transform.elements[0]);
+        GLint transformLocation = openGL->glGetUniformLocation(openGL->cubeShader.base.id, "transform");
+        openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, openGL->transform.elements[0]);
 
-    GLint cameraPosition = openGL->glGetUniformLocation(openGL->cubeShader.base.id, "cameraPosition");
-    openGL->glUniform3fv(cameraPosition, 1, openGL->camera.position.e);
+        GLint cameraPosition = openGL->glGetUniformLocation(openGL->cubeShader.base.id, "cameraPosition");
+        openGL->glUniform3fv(cameraPosition, 1, openGL->camera.position.e);
 
-    glDrawElements(GL_TRIANGLES, 6 * openGL->group.quadCount, GL_UNSIGNED_SHORT, 0);
+        glDrawElements(GL_TRIANGLES, 6 * openGL->group.quadCount, GL_UNSIGNED_SHORT, 0);
 
-    openGL->glUseProgram(0);
-    openGL->glDisableVertexAttribArray(positionId);
-    openGL->glDisableVertexAttribArray(colorId);
-    openGL->glDisableVertexAttribArray(normalId);
+        openGL->glUseProgram(0);
+        openGL->glDisableVertexAttribArray(positionId);
+        openGL->glDisableVertexAttribArray(colorId);
+        openGL->glDisableVertexAttribArray(normalId);
+    }
 
-    openGL->glUseProgram(openGL->modelShader.base.id);
-    // TODO: doing this every frame tanks the frame rate, unsurprisingly
-    glGenTextures(1, &openGL->textureId);
-    openGL->glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, openGL->textureId);
+    // RENDER MODEL
+    {
+        openGL->glUseProgram(openGL->modelShader.base.id);
+        if (!openGL->group.texture.loaded)
+        {
+            OpenGLBindTexture(openGL, &openGL->group.texture);
+        }
+        glBindTexture(GL_TEXTURE_2D, openGL->textureId);
+        openGL->glBindBuffer(GL_ARRAY_BUFFER, openGL->modelVertexBufferId);
+        openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(ModelVertex) * openGL->group.model.vertexCount,
+                             openGL->group.model.vertices, GL_STREAM_DRAW);
+        openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, openGL->modelIndexBufferId);
+        openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(u16) * openGL->group.model.indexCount,
+                             openGL->group.model.indices, GL_STREAM_DRAW);
 
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, openGL->group.texture.width, openGL->group.texture.width, 0, GL_RGB,
-                 GL_UNSIGNED_BYTE, openGL->group.texture.contents);
+        GLuint positionId = openGL->modelShader.base.positionId;
+        GLuint normalId = openGL->modelShader.base.normalId;
+        GLuint uvId = openGL->modelShader.uvId;
 
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
-    glTexEnvi(GL_TEXTURE_2D, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+        openGL->glEnableVertexAttribArray(positionId);
+        openGL->glVertexAttribPointer(positionId, 3, GL_FLOAT, GL_FALSE, sizeof(ModelVertex),
+                                      (void *)Offset(ModelVertex, position));
 
-    openGL->glBindBuffer(GL_ARRAY_BUFFER, openGL->modelVertexBufferId);
-    openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(ModelVertex) * openGL->group.model.vertexCount,
-                         openGL->group.model.vertices, GL_STREAM_DRAW);
-    openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, openGL->modelIndexBufferId);
-    openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(u16) * openGL->group.model.indexCount,
-                         openGL->group.model.indices, GL_STREAM_DRAW);
+        openGL->glEnableVertexAttribArray(normalId);
+        openGL->glVertexAttribPointer(normalId, 3, GL_FLOAT, GL_FALSE, sizeof(ModelVertex),
+                                      (void *)Offset(ModelVertex, normal));
 
-    positionId = openGL->modelShader.base.positionId;
-    normalId = openGL->modelShader.base.normalId;
-    GLuint uvId = openGL->modelShader.uvId;
+        openGL->glEnableVertexAttribArray(uvId);
+        openGL->glVertexAttribPointer(uvId, 2, GL_FLOAT, GL_FALSE, sizeof(ModelVertex),
+                                      (void *)Offset(ModelVertex, uv));
 
-    openGL->glEnableVertexAttribArray(positionId);
-    openGL->glVertexAttribPointer(positionId, 3, GL_FLOAT, GL_FALSE, sizeof(ModelVertex),
-                                  (void *)Offset(ModelVertex, position));
+        Mat4 translate = Translate4(V3{0, 0, 5});
+        Mat4 scale = Scale4(V3{2, 2, 2});
+        Mat4 rotate = Rotate4(V3{1, 0, 0}, PI / 2);
+        Mat4 newTransform = openGL->transform * translate * rotate * scale;
+        GLint transformLocation = openGL->glGetUniformLocation(openGL->modelShader.base.id, "transform");
+        openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, newTransform.elements[0]);
+        // glDrawArrays(GL_TRIANGLES, 0, openGL->group.model.vertexCount);
+        glDrawElements(GL_TRIANGLES, openGL->group.model.indexCount, GL_UNSIGNED_SHORT, 0);
 
-    openGL->glEnableVertexAttribArray(normalId);
-    openGL->glVertexAttribPointer(normalId, 3, GL_FLOAT, GL_FALSE, sizeof(ModelVertex),
-                                  (void *)Offset(ModelVertex, normal));
+        openGL->glUseProgram(0);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        openGL->glDisableVertexAttribArray(positionId);
+        openGL->glDisableVertexAttribArray(normalId);
+        openGL->glDisableVertexAttribArray(uvId);
+    }
 
-    openGL->glEnableVertexAttribArray(uvId);
-    openGL->glVertexAttribPointer(uvId, 2, GL_FLOAT, GL_FALSE, sizeof(ModelVertex), (void *)Offset(ModelVertex, uv));
-
-    Mat4 translate = Translate4(V3{0, 0, 5});
-    Mat4 scale = Scale4(V3{2, 2, 2});
-    Mat4 rotate = Rotate4(V3{1, 0, 0}, PI / 2);
-    Mat4 newTransform = openGL->transform * translate * rotate * scale;
-    transformLocation = openGL->glGetUniformLocation(openGL->modelShader.base.id, "transform");
-    openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, newTransform.elements[0]);
-    openGL->glUseProgram(openGL->modelShader.base.id);
-    glDrawElements(GL_TRIANGLES, openGL->group.model.indexCount, GL_UNSIGNED_SHORT, 0);
-
-    openGL->glUseProgram(0);
-    glBindTexture(GL_TEXTURE_2D, 0);
-    openGL->glDisableVertexAttribArray(positionId);
-    openGL->glDisableVertexAttribArray(normalId);
-    openGL->glDisableVertexAttribArray(uvId);
-
+    // DOUBLE BUFFER SWAP
     SwapBuffers(deviceContext);
 }

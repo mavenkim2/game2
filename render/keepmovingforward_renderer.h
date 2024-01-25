@@ -6,6 +6,7 @@ struct RenderVertex {
 };
 
 struct Texture {
+    b32 loaded;
     u8* contents;
     u32 width;
     u32 height;

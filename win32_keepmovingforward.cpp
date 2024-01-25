@@ -767,7 +767,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     i16 *samples = (i16 *)VirtualAlloc(sampleBaseAddress, bufferSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 
 #if INTERNAL
-    LPVOID baseAddress = (LPVOID)terabytes(2);
+    LPVOID baseAddress = (LPVOID)terabytes(5);
 #else
     LPVOID baseAddress = 0;
 #endif

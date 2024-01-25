@@ -35,3 +35,14 @@ internal TempArena TempBegin(Arena* arena) {
 internal void TempEnd(TempArena temp) {
     ArenaPopTo(temp.arena, temp.pos);
 }
+
+internal b32 CheckZero(u32 size, u8* instance) {
+    b32 result = true; 
+    while (size-- > 0) {
+        if (*instance++) {
+            result = false;
+            break;
+        }
+    }
+    return result;
+}

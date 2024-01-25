@@ -93,10 +93,14 @@ internal void PushQuad(RenderGroup *group, V3 p0, V3 p1, V3 p2, V3 p3, V3 n, V4 
 
 // TODO IMPORTANT: the architecture is kind of spiraling out of control lol?
 // regardless, I really need to consider how stuff is going to be organized, if at all.
-internal void PushTexture(RenderGroup *group, Texture texture) {
-    group->texture = texture; 
+internal void PushTexture(RenderGroup* group, Texture texture)
+{
+    group->texture.contents = texture.contents;
+    group->texture.width = texture.width;
+    group->texture.height = texture.height;
+    group->texture.loaded = false;
 }
 
 // internal void PushModel(Model model) {
-//         
+//
 // }
