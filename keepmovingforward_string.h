@@ -10,8 +10,14 @@ struct String8
 #define STB_SPRINTF_IMPLEMENTATION
 #include "third_party/stb_sprintf.h"
 
-internal String8 Str8(u8 *str, u64 size);
+inline b32 CharIsWhitespace(u8 c);
+internal b32 CharIsAlpha(u8 c);
+internal b32 CharIsAlphaUpper(u8 c);
+internal b32 CharIsAlphaLower(u8 c);
 internal b32 CharIsDigit(u8 c);
+
+internal String8 Str8(u8 *str, u64 size);
+inline String8 Substr8(String8 str, u64 min, u64 max);
 internal u64 CalculateCStringLength(char *cstr);
 internal String8 Str8PathChopLastSlash(String8 string);
 internal String8 Str8PathChopPastLastSlash(String8 string);

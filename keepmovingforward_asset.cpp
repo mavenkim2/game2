@@ -1,6 +1,13 @@
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_ONLY_TGA
 #include "third_party/stb_image.h"
+
+#if INTERNAL
+#include "third_party/assimp/Importer.hpp"
+#include "third_party/assimp/scene.h"
+#include "third_party/assimp/postprocess.h"
+#endif
+
 // TODO: <= or < ?
 inline b32 IsEndOfFile(Iter *iter)
 {
@@ -132,10 +139,21 @@ internal u32 VertexHash(V3I32 indices)
     }
     return result;
 }
+inline u8 GetByte(Iter *iter)
+{
+    u8 result = 0;
+    if (iter->cursor < iter->end)
+    {
+        result = *iter->cursor++;
+    }
+    return result;
+}
 
 // TODO: # vertices is hardcoded, handle groups?
 // Add indices
-internal Model DebugLoadModel(Arena *arena, DebugPlatformReadFileFunctionType *PlatformReadFile, const char *filename)
+#if 0
+internal Model DebugLoadOBJModel(Arena *arena, DebugPlatformReadFileFunctionType *PlatformReadFile,
+                                 DebugPlatformFreeFileFunctionType *PlatformFreeFile, const char *filename)
 {
     DebugReadFileOutput output = PlatformReadFile(filename);
     Assert(output.fileSize != 0);
@@ -150,7 +168,7 @@ internal Model DebugLoadModel(Arena *arena, DebugPlatformReadFileFunctionType *P
     const i32 MAX_NORMAL_VERTEX_COUNT = 3500;
     const i32 MAX_UV_VERTEX_COUNT = 3300;
 
-    ModelVertex *modelVertices = PushArrayNoZero(arena, ModelVertex, MAX_MODEL_VERTEX_COUNT);
+    MeshVertex *modelVertices = PushArrayNoZero(arena, MeshVertex, MAX_MODEL_VERTEX_COUNT);
     u32 vertexCount = 0;
 
     u16 *modelIndices = PushArrayNoZero(arena, u16, MAX_MODEL_INDEX_COUNT);
@@ -165,7 +183,7 @@ internal Model DebugLoadModel(Arena *arena, DebugPlatformReadFileFunctionType *P
     u32 uvCount = 0;
 
     u32 length = MAX_MODEL_INDEX_COUNT / 2 - 7;
-    FaceVertex* vertexHash = PushArray(tempArena.arena, FaceVertex, length);
+    FaceVertex *vertexHash = PushArray(tempArena.arena, FaceVertex, length);
     // FaceVertex vertexHash[MAX_MODEL_INDEX_COUNT / 2-7] = {};
     // std::unordered_map<V3I32, u32> vertexHash;
 
@@ -226,7 +244,8 @@ internal Model DebugLoadModel(Arena *arena, DebugPlatformReadFileFunctionType *P
                             modelIndices[indexCount++] = vertex->index;
                             break;
                         }
-                        if (vertex->indices != V3I32{0, 0, 0} && vertex->nextInHash == 0) {
+                        if (vertex->indices != V3I32{0, 0, 0} && vertex->nextInHash == 0)
+                        {
                             vertex->nextInHash = PushStruct(tempArena.arena, FaceVertex);
                             vertex = vertex->nextInHash;
                         }
@@ -238,17 +257,16 @@ internal Model DebugLoadModel(Arena *arena, DebugPlatformReadFileFunctionType *P
                             modelIndices[indexCount++] = (u16)vertexCount;
                             Assert(vertexCount == (u16)vertexCount);
 
-                            ModelVertex newModelVertex;
-                            newModelVertex.position = positionVertices[indices.x - 1];
-                            newModelVertex.uv = uvVertices[indices.y - 1];
-                            newModelVertex.normal = normalVertices[indices.z - 1];
-                            modelVertices[vertexCount++] = newModelVertex;
+                            MeshVertex newMeshVertex;
+                            newMeshVertex.position = positionVertices[indices.x - 1];
+                            newMeshVertex.uv = uvVertices[indices.y - 1];
+                            newMeshVertex.normal = normalVertices[indices.z - 1];
+                            modelVertices[vertexCount++] = newMeshVertex;
                             Assert(vertexCount < MAX_MODEL_VERTEX_COUNT);
                             Assert(indexCount < MAX_MODEL_INDEX_COUNT);
                             break;
                         }
                         vertex = vertex->nextInHash;
-
 
                     } while (vertex);
                 }
@@ -267,44 +285,199 @@ internal Model DebugLoadModel(Arena *arena, DebugPlatformReadFileFunctionType *P
     model.vertexCount = vertexCount;
     model.indices = modelIndices;
     model.indexCount = indexCount;
+    PlatformFreeFile(output.contents);
     return model;
 }
+#endif
 
-#pragma pack(push, 1)
-struct TGAHeader
+internal String8 ConsumeLine(Iter *iter)
 {
-    u8 idLength;
-    u8 colorMapType;
-    u8 imageType;
-    u16 colorMapOrigin;
-    u16 colorMapLength;
-    u8 colorMapEntrySize;
-    u16 xOrigin;
-    u16 yOrigin;
-    u16 width;
-    u16 height;
-    u8 bitsPerPixel;
-    u8 imageDescriptor;
-};
-#pragma pack(pop)
-
-inline u8 GetByte(Iter *iter)
-{
-    u8 result = 0;
-    if (iter->cursor < iter->end)
+    String8 result;
+    result.str = iter->cursor;
+    u32 size = 0;
+    while (*iter->cursor++ != '\n')
     {
-        result = *iter->cursor++;
+        size++;
     }
+    result.size = size;
     return result;
 }
 
-struct TGAResult
+internal LoadedMesh ProcessMesh(aiMesh *mesh, const aiScene *scene)
 {
-    u8 *contents;
-    u32 width;
-    u32 height;
+    LoadedMesh result;
+    std::vector<MeshVertex> vertices;
+    std::vector<u32> indices;
+
+    for (u32 i = 0; i < mesh->mNumVertices; i++)
+    {
+        MeshVertex vertex;
+        vertex.position.x = mesh->mVertices[i].x;
+        vertex.position.y = mesh->mVertices[i].y;
+        vertex.position.z = mesh->mVertices[i].z;
+
+        if (mesh->HasNormals())
+        {
+            vertex.normal.x = mesh->mNormals[i].x;
+            vertex.normal.y = mesh->mNormals[i].y;
+            vertex.normal.z = mesh->mNormals[i].z;
+        }
+        // surely if you have vertex with multiple texture coordinates, it just becomes a different vertex altogeter?
+        if (mesh->mTextureCoords[0])
+        {
+            vertex.uv.u = mesh->mTextureCoords[0][i].x;
+            vertex.uv.y = mesh->mTextureCoords[0][i].y;
+            // TODO: load tangents/bitangents maybe
+        }
+        else {
+            vertex.uv = {0, 0};
+        }
+        vertices.push_back(vertex);
+        
+    }
+    for (u32 i = 0; i < mesh->mNumFaces; i++) {
+        aiFace face = mesh->mFaces[i];
+        for (u32 indexindex = 0; indexindex < face.mNumIndices; indexindex++) {
+            indices.push_back(face.mIndices[indexindex]);
+        }
+    }
+    result.vertices = vertices;
+    result.indices = indices;
+    result.vertexCount = (u32)vertices.size();
+    result.indexCount = (u32)indices.size();
+    
+    //TODO: Load materials
+    // aiMaterial* material = scene->mMaterials[mesh->mMaterialIndex];
+    return result;
+}
+
+internal void ProcessNode(LoadedModel *model, aiNode *node, const aiScene *scene)
+{
+    for (u32 i = 0; i < node->mNumMeshes; i++)
+    {
+        aiMesh *mesh = scene->mMeshes[node->mMeshes[i]];
+        model->meshes.push_back(ProcessMesh(mesh, scene));
+    }
+    for (u32 i = 0; i < node->mNumChildren; i++)
+    {
+        ProcessNode(model, node->mChildren[i], scene);
+    }
+}
+
+internal Model ConvertModel(Arena* arena, LoadedModel* model) {
+    Model result = {};
+    u32 meshCount = (u32)model->meshes.size();
+    result.meshCount = meshCount;
+    Mesh* meshes = PushArray(arena, Mesh, meshCount);
+    for (u32 i = 0; i < meshCount; i++) {
+        u32 vertexCount = model->meshes[i].vertexCount;
+        u32 indexCount = model->meshes[i].indexCount;
+
+        MeshVertex* vertices = PushArray(arena, MeshVertex, vertexCount);
+        u32* indices = PushArray(arena, u32, indexCount);
+
+        std::copy(model->meshes[i].vertices.begin(), model->meshes[i].vertices.end(), vertices);
+        std::copy(model->meshes[i].indices.begin(), model->meshes[i].indices.end(), indices);
+
+        meshes[i].vertices = vertices;
+        meshes[i].indices = indices;
+        meshes[i].vertexCount = vertexCount;
+        meshes[i].indexCount = indexCount;
+    }
+    result.meshes = meshes;
+    return result;
+}
+
+// ANIMATION: 
+// if you have a parent node, multiple by the inverse of the parent offset matrix, then your offset matrix
+struct Skeleton {};
+struct AnimationChannel {};
+struct Animation {
 };
-internal TGAResult DebugLoadTGA(Arena *arena, DebugPlatformReadFileFunctionType *PlatformReadFile, const char *filename)
+// internal Mat4 ConvertAssimpMatrix4x4(aiMatrix4x4t a) {
+//     Mat4 result;
+//     result.
+// }
+// internal Skeleton
+/*
+ * ASSIMP
+ */
+// NOTE IMPORTANT: WE DO NOT CARE ABOUT THIS CODE AT ALL. EVENTUALLY WE WILL LOAD DIFFERENT FILE TYPES
+// (GLTF, FBX, OBJ, BMP, TGA, WAV, ETC), AND JUST BAKE ALL THE ASSETS INTO ONE MEGA FILE THAT WE CAN EASILY
+// READ/ACCESS/COMPRESS.
+internal Model AssimpDebugLoadModel(Arena* arena, String8 filename)
+{
+    LoadedModel loadedModel = {};
+    Model model = {};
+    Assimp::Importer importer;
+    const char *file = (const char *)filename.str;
+    const aiScene *scene = importer.ReadFile(file, aiProcess_Triangulate | aiProcess_FlipUVs);
+
+    if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode)
+    {
+        return model;
+    }
+
+    aiMatrix4x4t<f32> globalTransform = scene->mRootNode->mTransformation;
+    ProcessNode(&loadedModel, scene->mRootNode, scene);
+
+    model = ConvertModel(arena, &loadedModel);
+    return model;
+}
+/*
+ * END ASSIMP
+ */
+
+// TODO: i really don't like using function pointers for platform layer stuff
+// NOTE: array of nodes, each with a parent index and a name
+// you know i think I'm just goin to use assimp to load the file once, write it in an easier format to use,
+// and then use that format
+internal void DebugLoadGLTF(Arena *arena, DebugPlatformReadFileFunctionType *PlatformReadFile,
+                            DebugPlatformFreeFileFunctionType *PlatformFreeFile, const char *gltfFilename,
+                            const char *binaryFilename)
+{
+    // Model result;
+
+    // READ THE ENTIRE FILE
+    // DebugReadFileOutput gltfOutput = PlatformReadFile(gltfFilename);
+    // Assert(gltfOutput.fileSize != 0);
+    //
+    // DebugReadFileOutput binaryOutput = PlatformReadFile(binaryFilename);
+    // Assert(binaryOutput.fileSize != 0);
+    //
+    // Iter iter;
+    // iter.cursor = (u8 *)gltfOutput.contents;
+    // iter.end = (u8 *)gltfOutput.contents + gltfOutput.fileSize;
+    //
+    // // NOTE: gltf is json format. things can be nested, unnested etc etc
+    // // right now we're just hard coding the order because we're only loading one gltf file
+    // // READ ACCESSORS
+    // {
+    //     // TODO: carriage returns???
+    //     String8 bracket = ConsumeLine(&iter);
+    //     String8 accessorsStart = ConsumeLine(&iter);
+    //     String8 accessor = SkipWhitespace(accessorsStart);
+    //     if (StartsWith(accessor, Str8C("\"accessors\"")))
+    //     {
+    //         // loop:
+    //         // never mind just get the entire element string
+    //         //  check for closing ], if not
+    //         //  get element, load accessor
+    //         //      stop on }
+    //         OutputDebugStringA("All good");
+    //     }
+    //     else
+    //     {
+    //         OutputDebugStringA("Not all good");
+    //         return;
+    //     }
+    // }
+    // // return result;
+    // PlatformFreeFile(gltfOutput.contents);
+}
+
+internal TGAResult DebugLoadTGA(Arena *arena, DebugPlatformReadFileFunctionType *PlatformReadFile,
+                                DebugPlatformFreeFileFunctionType *PlatformFreeFile, const char *filename)
 {
     // int width, height, nChannels;
     // stbi_set_flip_vertically_on_load(true);
@@ -406,5 +579,6 @@ internal TGAResult DebugLoadTGA(Arena *arena, DebugPlatformReadFileFunctionType 
             pixel += bytesPerPixel;
         }
     }
+    PlatformFreeFile(output.contents);
     return result;
 }

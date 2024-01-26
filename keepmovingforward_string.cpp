@@ -8,6 +8,44 @@ internal String8 Str8(u8 *str, u64 size)
     return result;
 }
 
+inline b32 CharIsWhitespace(u8 c)
+{
+    return c == ' ';
+}
+
+inline String8 Substr8(String8 str, u64 min, u64 max)
+{
+    if (max > str.size)
+    {
+        max = str.size;
+    }
+    if (min > str.size)
+    {
+        min = str.size;
+    }
+    if (min > max)
+    {
+        Swap(u64, min, max);
+    }
+    str.size = max - min;
+    str.str += min;
+    return str;
+}
+
+internal b32 CharIsAlpha(u8 c)
+{
+    return CharIsAlphaUpper(c) || CharIsAlphaLower(c);
+}
+
+internal b32 CharIsAlphaUpper(u8 c)
+{
+    return c >= 'A' && c <= 'Z';
+}
+
+internal b32 CharIsAlphaLower(u8 c)
+{
+    return c >= 'a' && c <= 'z';
+}
 internal b32 CharIsDigit(u8 c)
 {
     return (c >= '0' && c <= '9');
@@ -101,5 +139,37 @@ internal String8 PushStr8F(Arena *arena, char *fmt, ...)
     va_start(args, fmt);
     result = PushStr8FV(arena, fmt, args);
     va_end(args);
+    return result;
+}
+
+internal String8 SkipWhitespace(String8 str)
+{
+    u32 start = 0;
+    for (u32 i = 0; i < str.size; i++)
+    {
+        start = i;
+        if (!CharIsWhitespace(str.str[i]))
+        {
+            break;
+        }
+    }
+    String8 result = Substr8(str, start, str.size);
+    return result;
+}
+
+internal b32 StartsWith(String8 a, String8 b)
+{
+    b32 result = true;
+    if (a.size >= b.size)
+    {
+        for (i32 i = 0; i < b.size; i++)
+        {
+            if (a.str[i] != b.str[i])
+            {
+                result = false;
+                break;
+            }
+        }
+    }
     return result;
 }

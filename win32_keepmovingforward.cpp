@@ -4,14 +4,14 @@
 
 #include "keepmovingforward_common.h"
 #include "keepmovingforward_math.h"
+#include "keepmovingforward_memory.h"
+#include "keepmovingforward_string.h"
 #include "keepmovingforward_camera.h"
 #include "keepmovingforward_asset.h"
 #include "render/keepmovingforward_renderer.h"
 #include "render/win32_keepmovingforward_opengl.h"
 #include "keepmovingforward_platform.h"
 
-#include "keepmovingforward_memory.h"
-#include "keepmovingforward_string.h"
 #include "win32_keepmovingforward.h"
 
 #include "keepmovingforward_memory.cpp"
@@ -130,7 +130,6 @@ internal String8 Win32GetBinaryDirectory(Win32State *win32State)
     binaryDirectory.str = fullPath;
     binaryDirectory.size = length;
 
-    // TODO: chop past last slash
     binaryDirectory = Str8PathChopLastSlash(binaryDirectory);
     return binaryDirectory;
 }
@@ -959,7 +958,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
 
         oldInput = newInput;
 
-#if 1
+#if 0
         u64 endCycleCount = __rdtsc();
 
         double framesPerSecond = 1 / (double)(msPerFrame / 1000.f);

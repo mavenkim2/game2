@@ -619,13 +619,19 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         // gameState->bmpTest = DebugLoadBMP(memory->DebugPlatformReadFile, "test/tile.bmp");
         gameState->worldArena = ArenaAlloc((void *)((u8 *)(memory->PersistentStorageMemory) + sizeof(GameState)),
                                            memory->PersistentStorageSize - sizeof(GameState));
-        openGL->group.model = DebugLoadModel(gameState->worldArena, memory->DebugPlatformReadFile, "diablo3_pose.obj");
-        TGAResult result = DebugLoadTGA(gameState->worldArena, memory->DebugPlatformReadFile, "diablo3_pose_diffuse.tga");
-        Texture texture;
-        texture.contents = result.contents;
-        texture.width = result.width;
-        texture.height = result.height;
-        PushTexture(&openGL->group, texture);
+        openGL->group.model = AssimpDebugLoadModel(gameState->worldArena, Str8C("scene.gltf"));
+        // DebugLoadGLTF(gameState->worldArena, memory->DebugPlatformReadFile, memory->DebugPlatformFreeFile,
+        //               "scene.gltf", "scene.bin");
+
+        // openGL->group.model = DebugLoadOBJModel(gameState->worldArena, memory->DebugPlatformReadFile,
+        //                                         memory->DebugPlatformFreeFile, "diablo3_pose.obj");
+        // TGAResult result = DebugLoadTGA(gameState->worldArena, memory->DebugPlatformReadFile,
+        //                                 memory->DebugPlatformFreeFile, "diablo3_pose_diffuse.tga");
+        // Texture texture;
+        // texture.contents = result.contents;
+        // texture.width = result.width;
+        // texture.height = result.height;
+        // PushTexture(&openGL->group, texture);
 
         gameState->level = PushStruct(gameState->worldArena, Level);
         gameState->cameraMode = CameraMode_Player;
@@ -683,6 +689,8 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     // TODO: separate out movement code from input
     switch (gameState->cameraMode)
     {
+        // TODO: when you alt tab, the game still tracks your mouse. probably need to switch to raw input,
+        // and only use deltas when the game is capturing your mouse
         case CameraMode_Player:
         {
             // TODO: hide mouse, move camera about player
@@ -746,7 +754,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             f32 speed = 3.f;
             if (input->shift.keyDown)
             {
-                speed = 10.f;
+                speed = 1000.f;
             }
 
             Mat4 rotation = MakeMat4(1.f);
@@ -784,7 +792,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
             Mat4 projection = Perspective4(Radians(45.f), 16.f / 9.f, .1f, 1000.f);
             Mat4 cameraMatrix = LookAt4(camera->position, camera->position + camera->forward, worldUp);
-                //CameraTransform(camera->right, up, -camera->forward, camera->position);
+            // CameraTransform(camera->right, up, -camera->forward, camera->position);
 
             Mat4 transform = projection * cameraMatrix;
 

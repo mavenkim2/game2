@@ -148,7 +148,7 @@ internal void CompileModelProgram(OpenGL *openGL)
 
                                     void main()
                                     {
-                                        FragColor = V4(texture(diffuseTexture, outUv).rgb, 1.f);
+                                        FragColor = V4(1, 0.5, 0.5, 1.f);//texture(diffuseTexture, outUv).rgb, 1.f);
                                     })";
 
     ModelShader *modelShader = &openGL->modelShader;
@@ -310,7 +310,7 @@ internal void OpenGLEndFrame(OpenGL *openGL, HDC deviceContext, int clientWidth,
         openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, openGL->transform.elements[0]);
 
         GLint cameraPosition = openGL->glGetUniformLocation(openGL->cubeShader.base.id, "cameraPosition");
-        openGL->glUniform3fv(cameraPosition, 1, openGL->camera.position.e);
+        openGL->glUniform3fv(cameraPosition, 1, openGL->camera.position.elements);
 
         glDrawElements(GL_TRIANGLES, 6 * openGL->group.quadCount, GL_UNSIGNED_SHORT, 0);
 
@@ -323,45 +323,50 @@ internal void OpenGLEndFrame(OpenGL *openGL, HDC deviceContext, int clientWidth,
     // RENDER MODEL
     {
         openGL->glUseProgram(openGL->modelShader.base.id);
-        if (!openGL->group.texture.loaded)
-        {
-            OpenGLBindTexture(openGL, &openGL->group.texture);
-        }
-        glBindTexture(GL_TEXTURE_2D, openGL->textureId);
-        openGL->glBindBuffer(GL_ARRAY_BUFFER, openGL->modelVertexBufferId);
-        openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(ModelVertex) * openGL->group.model.vertexCount,
-                             openGL->group.model.vertices, GL_STREAM_DRAW);
-        openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, openGL->modelIndexBufferId);
-        openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(u16) * openGL->group.model.indexCount,
-                             openGL->group.model.indices, GL_STREAM_DRAW);
+        // if (!openGL->group.texture.loaded)
+        // {
+        //     OpenGLBindTexture(openGL, &openGL->group.texture);
+        // }
+        // glBindTexture(GL_TEXTURE_2D, openGL->textureId);
 
         GLuint positionId = openGL->modelShader.base.positionId;
         GLuint normalId = openGL->modelShader.base.normalId;
         GLuint uvId = openGL->modelShader.uvId;
+        // TODO: I don't think the buffer data should be bound every frame
+        for (u32 i = 0; i < openGL->group.model.meshCount; i++)
+        {
+            openGL->glBindBuffer(GL_ARRAY_BUFFER, openGL->modelVertexBufferId);
+            openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(MeshVertex) * openGL->group.model.meshes[i].vertexCount,
+                                 openGL->group.model.meshes[i].vertices, GL_STREAM_DRAW);
+            openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, openGL->modelIndexBufferId);
+            openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(u32) * openGL->group.model.meshes[i].indexCount,
+                                 openGL->group.model.meshes[i].indices, GL_STREAM_DRAW);
 
-        openGL->glEnableVertexAttribArray(positionId);
-        openGL->glVertexAttribPointer(positionId, 3, GL_FLOAT, GL_FALSE, sizeof(ModelVertex),
-                                      (void *)Offset(ModelVertex, position));
 
-        openGL->glEnableVertexAttribArray(normalId);
-        openGL->glVertexAttribPointer(normalId, 3, GL_FLOAT, GL_FALSE, sizeof(ModelVertex),
-                                      (void *)Offset(ModelVertex, normal));
+            openGL->glEnableVertexAttribArray(positionId);
+            openGL->glVertexAttribPointer(positionId, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
+                                          (void *)Offset(MeshVertex, position));
 
-        openGL->glEnableVertexAttribArray(uvId);
-        openGL->glVertexAttribPointer(uvId, 2, GL_FLOAT, GL_FALSE, sizeof(ModelVertex),
-                                      (void *)Offset(ModelVertex, uv));
+            openGL->glEnableVertexAttribArray(normalId);
+            openGL->glVertexAttribPointer(normalId, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
+                                          (void *)Offset(MeshVertex, normal));
 
-        Mat4 translate = Translate4(V3{0, 0, 5});
-        Mat4 scale = Scale4(V3{2, 2, 2});
-        Mat4 rotate = Rotate4(V3{1, 0, 0}, PI / 2);
-        Mat4 newTransform = openGL->transform * translate * rotate * scale;
-        GLint transformLocation = openGL->glGetUniformLocation(openGL->modelShader.base.id, "transform");
-        openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, newTransform.elements[0]);
-        // glDrawArrays(GL_TRIANGLES, 0, openGL->group.model.vertexCount);
-        glDrawElements(GL_TRIANGLES, openGL->group.model.indexCount, GL_UNSIGNED_SHORT, 0);
+            openGL->glEnableVertexAttribArray(uvId);
+            openGL->glVertexAttribPointer(uvId, 2, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
+                                          (void *)Offset(MeshVertex, uv));
+
+            Mat4 translate = Translate4(V3{0, 0, 5});
+            Mat4 scale = Scale4(V3{0.5, 0.5, 0.5});
+            Mat4 rotate = Rotate4(V3{1, 0, 0}, PI / 2);
+            Mat4 newTransform = openGL->transform * translate * rotate * scale;
+            GLint transformLocation = openGL->glGetUniformLocation(openGL->modelShader.base.id, "transform");
+            openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, newTransform.elements[0]);
+            // glDrawArrays(GL_TRIANGLES, 0, openGL->group.model.vertexCount);
+            glDrawElements(GL_TRIANGLES, openGL->group.model.meshes[i].indexCount, GL_UNSIGNED_INT, 0);
+        }
 
         openGL->glUseProgram(0);
-        glBindTexture(GL_TEXTURE_2D, 0);
+        // glBindTexture(GL_TEXTURE_2D, 0);
         openGL->glDisableVertexAttribArray(positionId);
         openGL->glDisableVertexAttribArray(normalId);
         openGL->glDisableVertexAttribArray(uvId);

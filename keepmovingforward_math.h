@@ -103,7 +103,7 @@ union V2I32
     {
         i32 u, v;
     };
-    i32 e[2];
+    i32 elements[2];
 };
 
 union V3
@@ -126,7 +126,7 @@ union V3
         f32 _x;
         V2 yz;
     };
-    f32 e[3];
+    f32 elements[3];
 };
 
 union V3I32
@@ -183,7 +183,7 @@ union V4
         V3 rgb;
         f32 __a;
     };
-    f32 e[4];
+    f32 elements[4];
 };
 
 union Mat3
@@ -197,6 +197,13 @@ union Mat4
 {
     f32 elements[4][4];
     V4 columns[4];
+    struct
+    {
+        f32 a1, a2, a3, a4;
+        f32 b1, b2, b3, b4;
+        f32 c1, c2, c3, c4;
+        f32 d1, d2, d3, d4;
+    };
 };
 
 union Rect2
@@ -232,8 +239,31 @@ union Rect3
         f32 zSize;
     };
 };
+
+union Quat
+{
+    V4 xyzw;
+    struct
+    {
+        V3 xyz;
+        f32 w;
+    };
+    struct
+    {
+        f32 x;
+        V3 yzw;
+    };
+    struct
+    {
+        f32 __x;
+        f32 y;
+        f32 z;
+        f32 __w;
+    };
+    f32 elements[4];
+};
 /*
- * VECTOR2
+ * VECTOR 2
  */
 
 inline V2 operator+(V2 a, V2 b)
@@ -503,6 +533,187 @@ inline V4 Hadamard(V4 a, V4 b)
     return result;
 }
 
+inline V4 operator+(V4 a, V4 b)
+{
+    V4 result;
+    result.x = a.x + b.x;
+    result.y = a.y + b.y;
+    result.z = a.z + b.z;
+    result.w = a.w + b.w;
+    return result;
+}
+
+inline V4 &operator+=(V4 &a, V4 b)
+{
+    a = a + b;
+    return a;
+}
+
+inline V4 operator-(V4 a, V4 b)
+{
+    V4 result;
+    result.x = a.x - b.x;
+    result.y = a.y - b.y;
+    result.z = a.z - b.z;
+    result.w = a.w - b.w;
+    return result;
+}
+
+inline V4 operator-(V4 a)
+{
+    V4 result;
+    result.x = -a.x;
+    result.y = -a.y;
+    result.z = -a.z;
+    result.w = -a.w;
+    return result;
+}
+
+inline V4 &operator-=(V4 &a, V4 b)
+{
+    a = a - b;
+    return a;
+}
+inline V4 operator*(V4 a, f32 b)
+{
+    V4 result;
+    result.x = a.x * b;
+    result.y = a.y * b;
+    result.z = a.z * b;
+    result.w = a.w * b;
+    return result;
+}
+
+inline V4 operator*(f32 b, V4 a)
+{
+    V4 result = a * b;
+    return result;
+}
+
+inline V4 operator*=(V4 &a, f32 b)
+{
+    a = a * b;
+    return a;
+}
+
+inline V4 operator/(V4 a, f32 b)
+{
+    V4 result = a * (1.f / b);
+    return result;
+}
+
+inline V4 operator/=(V4 &a, f32 b)
+{
+    a = a * (1.f / b);
+    return a;
+}
+
+inline b32 operator==(V4 &a, V4 b)
+{
+    b32 result = a.x == b.x && a.y == b.y && a.z == b.z && a.w == b.w ? true : false;
+    return result;
+}
+
+inline f32 Dot(V4 a, V4 b)
+{
+    f32 result = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+    return result;
+}
+
+/*
+ * QUATERNIONS!!!
+ */
+
+inline Quat MakeQuat() {}
+
+inline Quat operator+(Quat a, Quat b)
+{
+    Quat result;
+    result.x = a.x + b.x;
+    result.y = a.y + b.y;
+    result.z = a.z + b.z;
+    result.w = a.w + b.w;
+    return result;
+}
+
+inline Quat operator-(Quat a, Quat b)
+{
+    Quat result;
+    result.x = a.x - b.x;
+    result.y = a.y - b.y;
+    result.z = a.z - b.z;
+    result.w = a.w - b.w;
+    return result;
+}
+
+inline Quat operator*(Quat a, Quat b)
+{
+    Quat result;
+    result.x = a.w * b.x + a.x * b.w + a.y * b.z + a.z * -b.y;
+    result.y = a.w * b.y + a.x * -b.z + a.y * b.w + a.z * b.x;
+    result.z = a.w * b.z + a.x * b.y + a.y * -b.x + a.z * b.w;
+    result.w = a.w * b.w + a.x * -b.x + -a.y * b.y + a.z * -b.z;
+
+    return result;
+}
+
+inline f32 Dot(Quat a, Quat b)
+{
+    f32 result = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+    return result;
+}
+
+inline Quat Conjugate(Quat a)
+{
+    Quat result;
+    result.x = -a.x;
+    result.y = -a.x;
+    result.z = -a.x;
+    result.w = a.w;
+    return result;
+}
+
+inline Quat Normalize(Quat a)
+{
+    Quat result = a;
+    f32 length = Length(a.xyzw);
+    result.xyzw /= length;
+    return result;
+}
+
+inline Mat4 QuatToMatrix(Quat a)
+{
+    Quat4 normalized = Normalize(a);
+    f32 xx = normalized.x * normalized.x;
+    f32 yy = normalized.y * normalized.y;
+    f32 zz = normalized.z * normalized.z;
+    f32 xy = normalized.x * normalized.y;
+    f32 xz = normalized.x * normalized.z;
+    f32 yz = normalized.y * normalized.z;
+    f32 wx = normalized.w * normalized.x;
+    f32 wy = normalized.w * normalized.y;
+    f32 wz = normalized.w * normalized.z;
+
+    Mat4 result;
+    result.a1 = 1 - 2 * (yy + zz);
+    result.a2 = 2 * (xy + wz);
+    result.a3 = 2 * (xz - wy);
+    result.a4 = 0;
+    result.b1 = 2 * (xy - wz);
+    result.b2 = 1 - 2 * (xx + zz);
+    result.b3 = 2 * (yz * wx);
+    result.b4 = 0;
+    result.c1 = 2 * (xz + wy);
+    result.c2 = 2 * (yz - wx);
+    result.c3 = 1 - 2 * (xx + yy);
+    result.c3 = 0;
+    result.d1 = 0;
+    result.d2 = 0;
+    result.d3 = 0;
+    result.d4 = 1;
+    return result;
+}
+
 /*
  * MATRIX 3X3
  */
@@ -577,6 +788,26 @@ inline Mat4 operator*(Mat4 a, Mat4 b)
     return result;
 }
 
+inline Mat4 operator/(Mat4 a, float b)
+{
+    Mat4 result;
+    f32 divisor = 1.f / b;
+    result.columns[0] *= divisor;
+    result.columns[1] *= divisor;
+    result.columns[2] *= divisor;
+    result.columns[3] *= divisor;
+    return result;
+}
+
+inline Mat4 operator*(Mat4 a, float b)
+{
+    Mat4 result;
+    result.columns[0] *= b;
+    result.columns[1] *= b;
+    result.columns[2] *= b;
+    result.columns[3] *= b;
+    return result;
+}
 inline Mat4 MakeMat4(f32 a)
 {
     Mat4 result = {{
@@ -713,6 +944,64 @@ internal Mat4 CameraTransform(V3 x, V3 y, V3 z, V3 p)
     result.columns[3].y = ap.y;
     result.columns[3].z = ap.z;
     return result;
+}
+
+internal f32 Determinant(Mat4 a)
+{
+    f32 result =
+        a.a1 * a.b2 * a.c3 * a.d4 - a.a1 * a.b2 * a.c4 * a.d3 + a.a1 * a.b3 * a.c4 * a.d2 - a.a1 * a.b3 * a.c2 * a.d4 +
+        a.a1 * a.b4 * a.c2 * a.d3 - a.a1 * a.b4 * a.c3 * a.d2 - a.a2 * a.b3 * a.c4 * a.d1 + a.a2 * a.b3 * a.c1 * a.d4 -
+        a.a2 * a.b4 * a.c1 * a.d3 + a.a2 * a.b4 * a.c3 * a.d1 - a.a2 * a.b1 * a.c3 * a.d4 + a.a2 * a.b1 * a.c4 * a.d3 +
+        a.a3 * a.b4 * a.c1 * a.d2 - a.a3 * a.b4 * a.c2 * a.d1 + a.a3 * a.b1 * a.c2 * a.d4 - a.a3 * a.b1 * a.c4 * a.d2 +
+        a.a3 * a.b2 * a.c4 * a.d1 - a.a3 * a.b2 * a.c1 * a.d4 - a.a4 * a.b1 * a.c2 * a.d3 + a.a4 * a.b1 * a.c3 * a.d2 -
+        a.a4 * a.b2 * a.c3 * a.d1 + a.a4 * a.b2 * a.c1 * a.d3 - a.a4 * a.b3 * a.c1 * a.d2 + a.a4 * a.b3 * a.c2 * a.d1;
+    return result;
+}
+
+internal Mat4 Inverse(Mat4 a)
+{
+    Mat4 res = {};
+    f32 invdet = Determinant(a);
+    if (invdet == 0)
+    {
+        return res;
+    }
+    invdet = 1.f / invdet;
+    // NOTE: transpose
+    res.a1 = invdet * (a.b2 * (a.c3 * a.d4 - a.d3 * a.c4) - a.c2 * (a.b3 * a.d4 - a.d3 * a.b4) +
+                       a.d2 * (a.b3 * a.c4 - a.c3 * a.b4));
+    res.a2 = -invdet * (a.a2 * (a.c3 * a.d4 - a.d3 * a.c4) - a.c2 * (a.a3 * a.d4 - a.d3 * a.a4) +
+                        a.d2 * (a.a3 * a.c4 - a.c3 * a.a4));
+    res.a3 = invdet * (a.a2 * (a.b3 * a.d4 - a.d3 * a.b4) - a.b2 * (a.a3 * a.d4 - a.d3 * a.a4) +
+                       a.d2 * (a.a3 * a.b4 - a.b3 * a.a4));
+    res.a4 = -invdet * (a.a2 * (a.b3 * a.c4 - a.b4 * a.c3) - a.b2 * (a.a3 * a.c4 - a.c3 * a.a4) +
+                        a.c2 * (a.a3 * a.b4 - a.b3 * a.a4));
+    res.b1 = -invdet * (a.b1 * (a.c3 * a.d4 - a.d3 * a.c4) - a.c1 * (a.b3 * a.d4 - a.d3 * a.b4) +
+                        a.d1 * (a.b3 * a.c4 - a.c3 * a.b4));
+    res.b2 = invdet * (a.a1 * (a.c3 * a.d4 - a.d3 * a.c4) - a.c1 * (a.a3 * a.d4 - a.d3 * a.a4) +
+                       a.d1 * (a.a3 * a.c4 - a.c3 * a.a4));
+    res.b3 = -invdet * (a.a1 * (a.b3 * a.d4 - a.d3 * a.b4) - a.b1 * (a.a3 * a.d4 - a.d3 * a.a4) +
+                        a.d1 * (a.a3 * a.b4 - a.b3 * a.a4));
+    res.b4 = invdet * (a.a1 * (a.b3 * a.c4 - a.b4 * a.c3) - a.b1 * (a.a3 * a.c4 - a.c3 * a.a4) +
+                       a.c1 * (a.a3 * a.b4 - a.b3 * a.a4));
+    res.c1 = invdet * (a.b1 * (a.c2 * a.d4 - a.d2 * a.c4) - a.c1 * (a.b2 * a.d4 - a.d2 * a.b4) +
+                       a.d1 * (a.b2 * a.c4 - a.c2 * a.b4));
+    res.c2 = -invdet * (a.a1 * (a.c2 * a.d4 - a.d2 * a.c4) - a.c1 * (a.a2 * a.d4 - a.d2 * a.a4) +
+                        a.d1 * (a.a2 * a.c4 - a.c2 * a.a4));
+    res.c3 = invdet * (a.a1 * (a.b2 * a.d4 - a.d2 * a.b4) - a.b1 * (a.a2 * a.d4 - a.d2 * a.a4) +
+                       a.d1 * (a.a2 * a.b4 - a.b2 * a.a4));
+    res.c4 = -invdet * (a.a1 * (a.b2 * a.c4 - a.c2 * a.b4) - a.b1 * (a.a2 * a.c4 - a.c2 * a.a4) +
+                        a.c1 * (a.a2 * a.b4 - a.b2 * a.a4));
+    res.d1 = -invdet * (a.b1 * (a.c2 * a.d3 - a.d2 * a.c3) - a.c1 * (a.b2 * a.d3 - a.d2 * a.b3) +
+                        a.d1 * (a.b2 * a.c3 - a.c2 * a.b3));
+    res.d2 = invdet * (a.a1 * (a.c2 * a.d3 - a.c3 * a.d2) - a.c1 * (a.a2 * a.d3 - a.d2 * a.a3) +
+                       a.d1 * (a.a2 * a.c3 - a.c2 * a.a3));
+    res.d3 = -invdet * (a.a1 * (a.b2 * a.d3 - a.d2 * a.b3) - a.b1 * (a.a2 * a.d3 - a.d2 * a.a3) +
+                        a.d1 * (a.a2 * a.b3 - a.b2 * a.a3));
+    res.d4 = invdet * (a.a1 * (a.b2 * a.c3 - a.c2 * a.b3) - a.b1 * (a.a2 * a.c3 - a.c2 * a.a3) +
+                       a.c1 * (a.a2 * a.b3 - a.b2 * a.a3));
+
+    return res;
 }
 
 /*

@@ -5,12 +5,6 @@ struct RenderVertex {
     V3 color;
 };
 
-struct Texture {
-    b32 loaded;
-    u8* contents;
-    u32 width;
-    u32 height;
-};
 
 struct RenderGroup {
     u32 quadCount;
@@ -24,6 +18,7 @@ struct RenderGroup {
     u16* indexArray;
 
     Model model;
+
     Texture texture;
 };
 

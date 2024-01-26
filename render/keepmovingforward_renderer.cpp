@@ -1,9 +1,3 @@
-// TODO: THOUGHTS: I'm assuming that you just pass the local vertices here, and then somehow
-// create a transformation matrix for each object based on its position or something?
-// but like how do I do the transformation matrix part in a way that isn't braindead?
-
-// i think a better way to do it is just have world coordinates, and then transform based on the camera
-
 /* internal RenderGroup BeginRenderGroup(OpenGL* openGL) {
     RenderGroup* group = &openGL->group;
     // TODO: if the number is any higher, then u16 index cannot represent
