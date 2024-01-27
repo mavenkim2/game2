@@ -21,16 +21,18 @@ struct MeshVertex
     V2 uv;
 };
 
-enum TextureType {
+enum TextureType
+{
     TextureType_Diffuse,
     TextureType_Specular,
     TextureType_Normal,
     TextureType_Height
 };
 
-struct Texture {
+struct Texture
+{
     b32 loaded;
-    u8* contents;
+    u8 *contents;
     u32 width;
     u32 height;
 
@@ -42,28 +44,70 @@ struct Texture {
 //     u32 type;
 // };
 
-struct LoadedMesh {
+struct BoneInfo
+{
+    String8 name;
+    Mat4 globalToBoneSpaceMatrix; // TODO: I don't think this is the right name
+};
+
+struct VertexBoneInfoPiece
+{
+    u32 boneIndex;
+    f32 boneWeight;
+};
+
+#define MAX_MATRICES_PER_VERTEX 4
+struct VertexBoneInfo
+{
+    i32 numMatrices; // is this necesary? maybe just hardcode 4
+    VertexBoneInfoPiece pieces[MAX_MATRICES_PER_VERTEX];
+};
+
+struct Skeleton
+{
+    BoneInfo *boneInfo;
+    u32 boneCount;
+
+    VertexBoneInfo *vertexBoneInfo;
+};
+
+struct AnimationChannel
+{
+};
+struct Animation
+{
+};
+
+struct LoadedMesh
+{
     std::vector<MeshVertex> vertices;
     std::vector<u32> indices;
+    Skeleton *skeleton;
+    // int VertexToSkeletonInfoMap[];
     // std::vector<Texture> textures;
 
     u32 vertexCount;
     u32 indexCount;
 };
-struct LoadedModel {
-    std::vector<LoadedMesh> meshes; 
+struct LoadedModel
+{
+    std::vector<LoadedMesh> meshes;
 };
 
-struct Mesh {
+struct Mesh
+{
     MeshVertex *vertices;
     u32 vertexCount;
 
     u32 *indices;
     u32 indexCount;
+
+    Skeleton *skeleton;
 };
 
-struct Model {
-    Mesh* meshes;
+struct Model
+{
+    Mesh *meshes;
     u32 meshCount;
 };
 

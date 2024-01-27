@@ -512,6 +512,11 @@ inline b32 operator!=(V3I32 &a, V3I32 b)
     return result;
 }
 
+inline V3 Lerp(V3 a, V3 b, f32 t) {
+    V3 result = (1-t) * a + t * b;
+    return result;
+}
+
 /*
  * VECTOR 4
  */
@@ -620,11 +625,24 @@ inline f32 Dot(V4 a, V4 b)
     return result;
 }
 
+inline f32 Length(V4 a)
+{
+    f32 result = SquareRoot(Dot(a, a));
+    return result;
+}
+
 /*
  * QUATERNIONS!!!
  */
 
-inline Quat MakeQuat() {}
+inline Quat QuatFromAxisAngle(V3 axis, f32 theta)
+{
+    Quat result;
+    V3 axisN = Normalize(axis);
+    result.xyz = axisN / Sin(theta / 2.f);
+    result.w = Cos(theta / 2.f);
+    return result;
+}
 
 inline Quat operator+(Quat a, Quat b)
 {
@@ -657,6 +675,24 @@ inline Quat operator*(Quat a, Quat b)
     return result;
 }
 
+inline Quat operator*(f32 f, Quat q)
+{
+    Quat result;
+    result.x = q.x * f;
+    result.y = q.y * f;
+    result.z = q.z * f;
+    result.w = q.w * f;
+
+    return result;
+}
+
+inline Quat operator*(Quat q, f32 f)
+{
+    Quat result = f * q;
+
+    return result;
+}
+
 inline f32 Dot(Quat a, Quat b)
 {
     f32 result = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
@@ -683,7 +719,7 @@ inline Quat Normalize(Quat a)
 
 inline Mat4 QuatToMatrix(Quat a)
 {
-    Quat4 normalized = Normalize(a);
+    Quat normalized = Normalize(a);
     f32 xx = normalized.x * normalized.x;
     f32 yy = normalized.y * normalized.y;
     f32 zz = normalized.z * normalized.z;
@@ -711,6 +747,18 @@ inline Mat4 QuatToMatrix(Quat a)
     result.d2 = 0;
     result.d3 = 0;
     result.d4 = 1;
+    return result;
+}
+
+inline Quat Lerp(Quat a, Quat b, f32 t)
+{
+    Quat result;
+    result = (1 - t) * a + t * b;
+    return result;
+}
+inline Quat Nlerp(Quat a, Quat b, f32 t)
+{
+    Quat result = Normalize(Lerp(a, b, t));
     return result;
 }
 
