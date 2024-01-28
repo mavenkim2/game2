@@ -853,8 +853,18 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     int currentSample = 0;
     int currentSound = 0;
 
+    f32 previousTime = 0;
+    f32 dT = 0;
+    f32 currentTime = 0;
+
+    f32 lag = 0;
+
     while (RUNNING)
     {
+        previousTime = currentTime;
+        currentTime = Win32GetTimeElapsed();
+        dT = currentTime - previousTime;
+
         FILETIME lastWriteTime = Win32LastWriteTime(sourceDLLFilename);
         if (CompareFileTime(&lastWriteTime, &win32GameCode.lastWriteTime) > 0)
         {
@@ -919,7 +929,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
         }
         if (win32GameCode.GameUpdateAndRender)
         {
-            win32GameCode.GameUpdateAndRender(&gameMemory, &openGL, &soundOutput, &newInput);
+            win32GameCode.GameUpdateAndRender(&gameMemory, &openGL, &soundOutput, &newInput, dT);
         }
         // Sleep until next frame
         {

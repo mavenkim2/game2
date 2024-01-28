@@ -1,9 +1,16 @@
 #ifndef KEEPMOVINGFORWARD_MATH_H
 #include <math.h>
 
+
 inline u32 Max(u32 a, u32 b)
 {
     u32 result = a > b ? a : b;
+    return result;
+}
+
+inline u32 Min(u32 a, u32 b)
+{
+    u32 result = a < b ? a : b;
     return result;
 }
 
@@ -16,6 +23,35 @@ inline f32 Max(f32 a, f32 b)
 inline f32 Min(f32 a, f32 b)
 {
     f32 result = a < b ? a : b;
+    return result;
+}
+
+inline f64 Max(f64 a, f64 b)
+{
+    f64 result = a > b ? a : b;
+    return result;
+}
+
+inline f64 Min(f64 a, f64 b)
+{
+    f64 result = a < b ? a : b;
+    return result;
+}
+
+inline u32 Clamp(u32 a, u32 low, u32 high)
+{
+    u32 result = Max(low, Min(a, high));
+    return result;
+}
+inline f64 Clamp(f64 a, f64 low, f64 high)
+{
+    f64 result = Max(low, Min(a, high));
+    return result;
+}
+
+inline f32 Clamp(f32 a, f32 low, f32 high)
+{
+    f32 result = Max(low, Min(a, high));
     return result;
 }
 
@@ -528,8 +564,9 @@ inline b32 operator!=(V3I32 &a, V3I32 b)
     return result;
 }
 
-inline V3 Lerp(V3 a, V3 b, f32 t) {
-    V3 result = (1-t) * a + t * b;
+inline V3 Lerp(V3 a, V3 b, f32 t)
+{
+    V3 result = (1 - t) * a + t * b;
     return result;
 }
 

@@ -619,13 +619,15 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         // gameState->bmpTest = DebugLoadBMP(memory->DebugPlatformReadFile, "test/tile.bmp");
         gameState->worldArena = ArenaAlloc((void *)((u8 *)(memory->PersistentStorageMemory) + sizeof(GameState)),
                                            memory->PersistentStorageSize - sizeof(GameState));
-        openGL->group.model = AssimpDebugLoadModel(gameState->worldArena, Str8C("scene.gltf"));
+        ModelOutput output = AssimpDebugLoadModel(gameState->worldArena, Str8C("scene.gltf"));
+        openGL->group.model = output.model;
+
         // DebugLoadGLTF(gameState->worldArena, memory->DebugPlatformReadFile, memory->DebugPlatformFreeFile,
         //               "scene.gltf", "scene.bin");
 
         // openGL->group.model = DebugLoadOBJModel(gameState->worldArena, memory->DebugPlatformReadFile,
         //                                         memory->DebugPlatformFreeFile, "diablo3_pose.obj");
-        // TGAResult result = DebugLoadTGA(gameState->worldArena, memory->DebugPlatformReadFile,
+        // TGAResult result = DebugLoainput->dTGA(gameState->worldArena, memory->DebugPlatformReadFile,
         //                                 memory->DebugPlatformFreeFile, "diablo3_pose_diffuse.tga");
         // Texture texture;
         // texture.contents = result.contents;
@@ -660,7 +662,11 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         openGL->camera.yaw = PI / 2;
         memory->isInitialized = true;
 
+        AnimationPlayer *aPlayer = &gameState->animPlayer;
+        StartLoopedAnimation(aPlayer, output.animation);
         // gameState->camera.pos = V2{TILE_MAP_X_COUNT / 2.f, TILE_MAP_Y_COUNT / 2.f};
+
+        gameState->tforms = PushArray(gameState->worldArena, AnimationTransform, MAX_BONES);
     }
     Level *level = gameState->level;
     GameInput *playerController = input;
@@ -967,5 +973,8 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         PushCube(&openGL->group, player->pos, player->size, player->color);
         // PushModel();
     }
+
+    PlayCurrentAnimation(&gameState->animPlayer, input->dT, gameState->tforms);
+    
     // GameOutputSound(soundBuffer, gameState->toneHz);
 }

@@ -72,6 +72,9 @@ struct GameState
     DebugBmpResult bmpTest;
 
     CameraMode cameraMode;
+
+    AnimationPlayer animPlayer;
+    AnimationTransform* tforms;
 };
 
 #define KEEPMOVINGFORWARD_H

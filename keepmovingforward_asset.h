@@ -128,30 +128,44 @@ struct MeshNodeInfoArray
     u32 cap;
 };
 
-struct AnimationTransformData {
-    f32 time;
-    AnimationTransform transform;
-};
-
 struct BoneChannel {
     String8 name;
-    AnimationTransformData transforms[MAX_FRAMES];
+    AnimationTransform transforms[MAX_FRAMES];
+};
+struct Keyframe {
+    AnimationTransform transforms[MAX_BONES];
 };
 
-struct AnimationChannel
+struct KeyframedAnimation
 {
-    BoneChannel boneChannels[MAX_BONES];
+    Keyframe keyframes[MAX_FRAMES];
+
+    // struct NodeInfo {
+    //     String8 name;
+    //     u32 parentIndex;
+    //
+    // };
+    //
+    // NodeInfo nodeInfo[MAX_BONES];
+    // BoneChannel boneChannels[MAX_BONES];
     f32 duration;
     u32 numFrames;
-    // AnimationTransform transformStates[MAX_FRAMES];
 
-    b32 isActive;
+    // b32 isActive;
 };
+
+// struct AnimationChannel {
+//     KeyframedAnimation* currentAnimation;
+// };
 
 struct AnimationPlayer
 {
+    KeyframedAnimation* currentAnimation;
     f32 currentTime;
-    f32 currentDuration;
+    f32 duration;
+    u32 numFrames;
+
+    b32 isLooping;
 };
 
 struct LoadedMesh
@@ -185,8 +199,6 @@ struct Model
 {
     Mesh *meshes;
     u32 meshCount;
-
-    AnimationChannel* animationChannel;
 };
 
 // NOTE: Temporary hash

@@ -315,12 +315,11 @@ internal void ProcessNode(Arena *arena, LoadedModel *model, aiNode *node, const 
                           MeshNodeInfoArray *nodeArray)
 {
     u32 index = nodeArray->count++;
-    MeshNodeInfo* nodeInfo = &nodeArray->info[index];
-    nodeInfo->name = {Str8((u8 *)node->mName.data, node->mName.length), 0};
-    nodeInfo->transformToParent = node->mTransformation;
-    nodeInfo->parentId = 
+    MeshNodeInfo *nodeInfo = &nodeArray->info[index];
+    nodeInfo->name = Str8((u8 *)node->mName.data, node->mName.length);
+    nodeInfo->transformToParent = ConvertAssimpMatrix4x4(node->mTransformation);
+    nodeInfo->parentId = 0; // Str8((u8*)node->mParent->mName.data, node->mParent->mName.length);
 
-    nodeArray->count++;
     Assert(nodeArray->count < nodeArray->cap);
     // String8 parentName = Str8((u8*)node->mParent->mName.data, node->mParent->mName.data);
 
@@ -333,7 +332,6 @@ internal void ProcessNode(Arena *arena, LoadedModel *model, aiNode *node, const 
             model->meshes.push_back(ProcessMesh(arena, mesh, scene, baseVertex));
             baseVertex += model->meshes[i].vertexCount;
         }
-        // MeshNodes[
     }
     for (u32 i = 0; i < node->mNumChildren; i++)
     {
@@ -371,7 +369,7 @@ internal Model ConvertModel(Arena *arena, LoadedModel *model)
 }
 
 // TODO: load all the other animations
-internal void ProcessAnimations(const aiScene *scene, AnimationChannel* animationChannel)
+internal void ProcessAnimations(Arena *arena, const aiScene *scene, KeyframedAnimation *animationChannel)
 {
 
     // for (u32 i = 0; i < scene->mNumAnimations; i++) {
@@ -380,11 +378,14 @@ internal void ProcessAnimations(const aiScene *scene, AnimationChannel* animatio
     aiAnimation *animation = scene->mAnimations[0];
     animationChannel->duration = (f32)animation->mDuration / (f32)animation->mTicksPerSecond;
     animationChannel->numFrames = 0;
+    TempArena temp = ScratchBegin(arena);
+    BoneChannel *boneChannels = PushArray(temp.arena, BoneChannel, MAX_BONES);
+    u32 boneCount = 0;
     for (u32 i = 0; i < animation->mNumChannels; i++)
     {
         BoneChannel boneChannel;
         aiNodeAnim *channel = animation->mChannels[i];
-        String8 name = Str8((u8*)channel->mNodeName.data, channel->mNodeName.length);
+        String8 name = Str8((u8 *)channel->mNodeName.data, channel->mNodeName.length);
 
         boneChannel.name = name;
 
@@ -407,19 +408,22 @@ internal void ProcessAnimations(const aiScene *scene, AnimationChannel* animatio
             V3 scale = MakeV3(aiScale.x, aiScale.y, aiScale.z);
 
             AnimationTransform transform = {position, rotation, scale};
-            boneChannel.transforms[j].transform = transform;
-            boneChannel.transforms[j].time = (f32)channel->mPositionKeys[positionIndex].mTime;
+            boneChannel.transforms[j] = transform;
+            // boneChannel.transforms[j]= (f32)channel->mPositionKeys[positionIndex].mTime;
             positionIndex++;
             rotationIndex++;
             scaleIndex++;
 
-            if (positionIndex == channel->mNumPositionKeys) {
+            if (positionIndex == channel->mNumPositionKeys)
+            {
                 positionIndex--;
             }
-            if (rotationIndex == channel->mNumRotationKeys) {
+            if (rotationIndex == channel->mNumRotationKeys)
+            {
                 rotationIndex--;
             }
-            if (scaleIndex == channel->mNumScalingKeys) {
+            if (scaleIndex == channel->mNumScalingKeys)
+            {
                 scaleIndex--;
             }
             // NOTE: cruft because converting from mTime to key frames
@@ -427,8 +431,6 @@ internal void ProcessAnimations(const aiScene *scene, AnimationChannel* animatio
             f64 positionTime = channel->mPositionKeys[positionIndex].mTime;
             f64 rotationTime = channel->mRotationKeys[rotationIndex].mTime;
             f64 scaleTime = channel->mScalingKeys[scaleIndex].mTime;
-            
-
 
             if (positionTime > rotationTime || positionTime > scaleTime)
             {
@@ -442,14 +444,20 @@ internal void ProcessAnimations(const aiScene *scene, AnimationChannel* animatio
             {
                 rotationIndex--;
             }
-
         }
-
-        animationChannel->boneChannels[i] = boneChannel;
+        boneChannels[boneCount++] = boneChannel;
     }
+
+    for (u32 keyFrameIndex = 0; keyFrameIndex < animationChannel->numFrames; keyFrameIndex++)
+    {
+        for (u32 boneIndex = 0; boneIndex < animation->mNumChannels; boneIndex++)
+        {
+            animationChannel->keyframes[keyFrameIndex].transforms[boneIndex] =
+                boneChannels[boneIndex].transforms[keyFrameIndex];
+        }
+    }
+    ScratchEnd(temp);
 }
-// ANIMATION:
-// if you have a parent node, multiple by the inverse of the parent offset matrix, then your offset matrix
 
 /*
  * ASSIMP
@@ -457,17 +465,25 @@ internal void ProcessAnimations(const aiScene *scene, AnimationChannel* animatio
 // NOTE IMPORTANT: WE DO NOT CARE ABOUT THIS CODE AT ALL. EVENTUALLY WE WILL LOAD DIFFERENT FILE TYPES
 // (GLTF, FBX, OBJ, BMP, TGA, WAV, ETC), AND JUST BAKE ALL THE ASSETS INTO ONE MEGA FILE THAT WE CAN EASILY
 // READ/ACCESS/COMPRESS.
-internal Model AssimpDebugLoadModel(Arena *arena, String8 filename)
+struct ModelOutput
+{
+    Model model;
+    KeyframedAnimation *animation;
+};
+
+internal ModelOutput AssimpDebugLoadModel(Arena *arena, String8 filename)
 {
     LoadedModel loadedModel = {};
-    Model model = {};
+
+    ModelOutput result = {};
+
     Assimp::Importer importer;
     const char *file = (const char *)filename.str;
     const aiScene *scene = importer.ReadFile(file, aiProcess_Triangulate | aiProcess_FlipUVs);
 
     if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode)
     {
-        return model;
+        return result;
     }
 
     // NOTE LEAK: we're probably leaking memory when processing assimp nodes
@@ -475,32 +491,89 @@ internal Model AssimpDebugLoadModel(Arena *arena, String8 filename)
     Mat4 globalTransform = ConvertAssimpMatrix4x4(transform);
 
     MeshNodeInfoArray infoArray;
-    infoArray.info = PushArray(arena, MeshNodeInfo, 200);
+    infoArray.info = PushArrayNoZero(arena, MeshNodeInfo, 200);
     infoArray.cap = 200;
     infoArray.count = 0;
     ProcessNode(arena, &loadedModel, scene->mRootNode, scene, &infoArray);
     // TODO IMPORTANT: don't throw away the info array!
-    // the problem with the hash table thing i was thinking about, where you hash the string and get the parent id, 
-    // bone transform, and transform to parent, is that for some reason the node structure of the mesh 
-    // and of the skeleton are different. maybe instead we create two hash tables, one for the skeleton, 
-    // one for the mesh, and then hash by name into the mesh one to get the parentid and the transform to parent, 
-    // and hash into the skeleton one to get the bone matrix. 
+    // the problem with the hash table thing i was thinking about, where you hash the string and get the parent id,
+    // bone transform, and transform to parent, is that for some reason the node structure of the mesh
+    // and of the skeleton are different. maybe instead we create two hash tables, one for the skeleton,
+    // one for the mesh, and then hash by name into the mesh one to get the parentid and the transform to parent,
+    // and hash into the skeleton one to get the bone matrix.
     // actually maybe this can all be collapsed into one thing. and u also say whether or not it's a bone, or if it's
     // just a node.
 
-    model = ConvertModel(arena, &loadedModel);
-    AnimationChannel* animationChannel = PushStruct(arena, AnimationChannel);
-    ProcessAnimations(scene, animationChannel);
+    result.model = ConvertModel(arena, &loadedModel);
+    result.animation = PushStruct(arena, KeyframedAnimation);
+    ProcessAnimations(arena, scene, result.animation);
 
-    model.animationChannel = animationChannel;
-    return model;
+    return result;
 }
 /*
  * END ASSIMP
  */
 
-internal void PlayAnimation(Skeleton* skeleton, AnimationChannel* channel) {
-    // skeleton->
+// TODO: is this too object oriented??
+internal void StartLoopedAnimation(AnimationPlayer *player, KeyframedAnimation *animation)
+{
+    player->currentAnimation = animation;
+    player->duration = animation->duration;
+    player->numFrames = animation->numFrames;
+    player->isLooping = true;
+}
+
+internal void PlayCurrentAnimation(AnimationPlayer *player, f32 dT, AnimationTransform *transforms)
+{
+    u32 frame = (u32)((player->numFrames - 1) * (player->currentTime / player->duration));
+    frame = Clamp(frame, 0, player->numFrames - 1);
+
+    // this gets how far into the current frame the animation is, in order to lerp
+    f32 fraction;
+    if (player->numFrames > 1)
+    {
+        f32 timePerSample = player->duration * (1.f / (f32)(player->numFrames - 1));
+        f32 timeBase = player->duration * (frame / (f32)(player->numFrames - 1));
+        fraction = (player->currentTime - timeBase) / (timePerSample);
+    }
+    else
+    {
+        fraction = 0.f;
+    }
+    fraction = Clamp(fraction, 0.f, 1.f);
+
+    Keyframe *currentKeyframe = player->currentAnimation->keyframes + frame;
+    Keyframe *nextKeyframe = 0;
+    if (frame + 1 < player->numFrames)
+    {
+        nextKeyframe = player->currentAnimation->keyframes + frame + 1;
+    }
+    for (u32 boneIndex = 0; boneIndex < player->numFrames; boneIndex++)
+    {
+        const AnimationTransform t1 = currentKeyframe->transforms[boneIndex];
+        if (!nextKeyframe)
+        {
+            transforms[boneIndex] = t1;
+        }
+        else
+        {
+            const AnimationTransform t2 = nextKeyframe->transforms[boneIndex];
+            transforms[boneIndex] = Lerp(t1, t2, fraction);
+        }
+    }
+
+    player->currentTime += dT;
+    if (player->currentTime > player->duration)
+    {
+        if (player->isLooping)
+        {
+            player->currentTime -= player->duration;
+        }
+        else
+        {
+            // TODO: handle this case for non looping animations
+        }
+    }
 }
 
 // TODO: i really don't like using function pointers for platform layer stuff
