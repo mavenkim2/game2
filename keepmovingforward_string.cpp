@@ -32,6 +32,16 @@ inline String8 Substr8(String8 str, u64 min, u64 max)
     return str;
 }
 
+internal u64 HashString(String8 string)
+{
+    u64 result = 5381;
+    for (u64 i = 0; i < string.size; i += 1)
+    {
+        result = ((result << 5) + result) + string.str[i];
+    }
+    return result;
+}
+
 internal b32 CharIsAlpha(u8 c)
 {
     return CharIsAlphaUpper(c) || CharIsAlphaLower(c);

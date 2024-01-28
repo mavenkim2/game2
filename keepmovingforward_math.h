@@ -1,6 +1,12 @@
 #ifndef KEEPMOVINGFORWARD_MATH_H
 #include <math.h>
 
+inline u32 Max(u32 a, u32 b)
+{
+    u32 result = a > b ? a : b;
+    return result;
+}
+
 inline f32 Max(f32 a, f32 b)
 {
     f32 result = a > b ? a : b;
@@ -65,6 +71,7 @@ inline u32 RoundF32ToU32(f32 value)
     u32 result = (u32)roundf(value);
     return result;
 }
+
 inline u32 RoundF32ToI32(f32 value)
 {
     i32 result = (i32)roundf(value);
@@ -379,6 +386,15 @@ inline V2 Normalize(V2 a)
  * VECTOR 3
  */
 
+inline V3 MakeV3(f32 x, f32 y, f32 z)
+{
+    V3 result;
+    result.x = x;
+    result.y = y;
+    result.z = z;
+    return result;
+}
+
 inline V3 MakeV3(V2 xy, float z)
 {
     V3 result;
@@ -651,6 +667,17 @@ inline Quat operator+(Quat a, Quat b)
     result.y = a.y + b.y;
     result.z = a.z + b.z;
     result.w = a.w + b.w;
+    return result;
+}
+
+inline Quat operator-(Quat q)
+{
+    Quat result;
+    result.x = -q.x;
+    result.y = -q.y;
+    result.z = -q.z;
+    result.w = -q.w;
+
     return result;
 }
 

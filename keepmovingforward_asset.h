@@ -1,4 +1,9 @@
 #include <vector>
+#define MAX_MATRICES_PER_VERTEX 4
+#define MAX_BONES 500
+#define MAX_VERTEX_COUNT 20000
+#define MAX_FRAMES 200
+
 struct Iter
 {
     u8 *cursor;
@@ -44,10 +49,25 @@ struct Texture
 //     u32 type;
 // };
 
+/* struct BoneInfo
+{
+    String8 name;
+    Mat4 convertToBoneSpaceMatrix; // TODO: I don't think this is the right name
+
+    BoneInfo *nextInHash;
+    BoneInfo *parent;
+};
+
+struct BoneInfoTable
+{
+    BoneInfo *slots;
+    u32 count;
+}; */
+
 struct BoneInfo
 {
     String8 name;
-    Mat4 globalToBoneSpaceMatrix; // TODO: I don't think this is the right name
+    Mat4 convertToBoneSpaceMatrix; // TODO: I don't think this is the right name
 };
 
 struct VertexBoneInfoPiece
@@ -56,7 +76,6 @@ struct VertexBoneInfoPiece
     f32 boneWeight;
 };
 
-#define MAX_MATRICES_PER_VERTEX 4
 struct VertexBoneInfo
 {
     i32 numMatrices; // is this necesary? maybe just hardcode 4
@@ -71,11 +90,68 @@ struct Skeleton
     VertexBoneInfo *vertexBoneInfo;
 };
 
+struct AnimationTransform
+{
+    V3 translation;
+    Quat rotation;
+    V3 scale;
+};
+
+inline AnimationTransform Lerp(AnimationTransform t1, AnimationTransform t2, f32 t)
+{
+    AnimationTransform result;
+    result.translation = Lerp(t1.translation, t2.translation, t);
+    // NEIGHBORHOOD
+    if (Dot(t1.rotation, t2.rotation) < 0)
+    {
+        result.rotation = Nlerp(t1.rotation, -t2.rotation, t);
+    }
+    else
+    {
+        result.rotation = Nlerp(t1.rotation, t2.rotation, t);
+    }
+    result.scale = Lerp(t1.scale, t2.scale, t);
+    return result;
+}
+
+struct MeshNodeInfo
+{
+    String8 name;
+    u32 parentId;
+    Mat4 transformToParent;
+};
+
+struct MeshNodeInfoArray
+{
+    MeshNodeInfo* info;
+    u32 count;
+    u32 cap;
+};
+
+struct AnimationTransformData {
+    f32 time;
+    AnimationTransform transform;
+};
+
+struct BoneChannel {
+    String8 name;
+    AnimationTransformData transforms[MAX_FRAMES];
+};
+
 struct AnimationChannel
 {
+    BoneChannel boneChannels[MAX_BONES];
+    f32 duration;
+    u32 numFrames;
+    // AnimationTransform transformStates[MAX_FRAMES];
+
+    b32 isActive;
 };
-struct Animation
+
+struct AnimationPlayer
 {
+    f32 currentTime;
+    f32 currentDuration;
 };
 
 struct LoadedMesh
@@ -109,6 +185,8 @@ struct Model
 {
     Mesh *meshes;
     u32 meshCount;
+
+    AnimationChannel* animationChannel;
 };
 
 // NOTE: Temporary hash

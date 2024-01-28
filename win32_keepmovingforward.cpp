@@ -35,7 +35,8 @@ internal V2 Win32GetWindowDimension(HWND window)
     return result;
 }
 
-void PlatformToggleCursor(b32 value) {
+void PlatformToggleCursor(b32 value)
+{
     GLOBAL_SHOW_CURSOR = value;
 }
 
@@ -729,7 +730,6 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     {
         return 1;
     }
-
     // NOTE: this works, lowered framerate for testing
     // int gameUpdateHz = GetDeviceCaps(deviceContext, VREFRESH);
     // if (gameUpdateHz <= 1)

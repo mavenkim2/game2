@@ -195,19 +195,19 @@ inline void AddVertexBoneData(Skeleton *skeleton, u32 vertexId, u32 boneIndex, f
 {
     if (boneWeight != 0)
     {
+        Assert(vertexId < MAX_VERTEX_COUNT);
         VertexBoneInfo *vertexBoneInfo = skeleton->vertexBoneInfo + vertexId;
         vertexBoneInfo->pieces[vertexBoneInfo->numMatrices++] = {boneIndex, boneWeight};
         Assert(vertexBoneInfo->numMatrices <= MAX_MATRICES_PER_VERTEX);
     }
 }
 
-#define MAX_BONES 500
-#define MAX_VERTEX_COUNT 26000
 global String8 StringToBoneIdMap[MAX_BONES];
 
 internal i32 FindBone(String8 name)
 {
     b32 result = -1;
+
     for (u32 i = 0; i < ArrayLength(StringToBoneIdMap); i++)
     {
         if (StringToBoneIdMap[i] == name)
@@ -232,19 +232,22 @@ internal void LoadBones(Skeleton *skeleton, aiMesh *mesh, u32 baseVertex)
         {
             info.name = name;
             // TODO bone map
-            info.globalToBoneSpaceMatrix = ConvertAssimpMatrix4x4(bone->mOffsetMatrix);
-            skeleton->boneInfo[skeleton->boneCount] = info;
-            StringToBoneIdMap[skeleton->boneCount++] = name;
+            info.convertToBoneSpaceMatrix = ConvertAssimpMatrix4x4(bone->mOffsetMatrix);
+            u32 boneId = skeleton->boneCount;
+            skeleton->boneInfo[boneId] = info;
+            StringToBoneIdMap[boneId] = name;
+            skeleton->boneCount++;
             Assert(skeleton->boneCount < MAX_BONES);
+            boneIndex = boneId;
+        }
 
-            for (u32 j = 0; j < bone->mNumWeights; j++)
-            {
-                aiVertexWeight *weight = bone->mWeights + j;
-                u32 vertexId = baseVertex + weight->mVertexId;
-                f32 boneWeight = weight->mWeight;
+        for (u32 j = 0; j < bone->mNumWeights; j++)
+        {
+            aiVertexWeight *weight = bone->mWeights + j;
+            u32 vertexId = baseVertex + weight->mVertexId;
+            f32 boneWeight = weight->mWeight;
 
-                AddVertexBoneData(skeleton, vertexId, i, boneWeight);
-            }
+            AddVertexBoneData(skeleton, vertexId, boneIndex, boneWeight);
         }
     }
 }
@@ -255,7 +258,7 @@ internal LoadedMesh ProcessMesh(Arena *arena, aiMesh *mesh, const aiScene *scene
     std::vector<MeshVertex> vertices;
     std::vector<u32> indices;
 
-    Skeleton* skeleton = PushStruct(arena, Skeleton);
+    Skeleton *skeleton = PushStruct(arena, Skeleton);
 
     skeleton->boneInfo = PushArray(arena, BoneInfo, MAX_BONES);
     skeleton->vertexBoneInfo = PushArray(arena, VertexBoneInfo, MAX_VERTEX_COUNT);
@@ -287,9 +290,8 @@ internal LoadedMesh ProcessMesh(Arena *arena, aiMesh *mesh, const aiScene *scene
             vertex.uv = {0, 0};
         }
         vertices.push_back(vertex);
-
-        LoadBones(skeleton, mesh, baseVertex);
     }
+    LoadBones(skeleton, mesh, baseVertex);
     for (u32 i = 0; i < mesh->mNumFaces; i++)
     {
         aiFace face = mesh->mFaces[i];
@@ -309,18 +311,33 @@ internal LoadedMesh ProcessMesh(Arena *arena, aiMesh *mesh, const aiScene *scene
     return result;
 }
 
-internal void ProcessNode(Arena *arena, LoadedModel *model, aiNode *node, const aiScene *scene)
+internal void ProcessNode(Arena *arena, LoadedModel *model, aiNode *node, const aiScene *scene,
+                          MeshNodeInfoArray *nodeArray)
 {
+    u32 index = nodeArray->count++;
+    MeshNodeInfo* nodeInfo = &nodeArray->info[index];
+    nodeInfo->name = {Str8((u8 *)node->mName.data, node->mName.length), 0};
+    nodeInfo->transformToParent = node->mTransformation;
+    nodeInfo->parentId = 
+
+    nodeArray->count++;
+    Assert(nodeArray->count < nodeArray->cap);
+    // String8 parentName = Str8((u8*)node->mParent->mName.data, node->mParent->mName.data);
+
     for (u32 i = 0; i < node->mNumMeshes; i++)
     {
         u32 baseVertex = 0;
         aiMesh *mesh = scene->mMeshes[node->mMeshes[i]];
-        model->meshes.push_back(ProcessMesh(arena, mesh, scene, baseVertex));
-        baseVertex += model->meshes[i].vertexCount;
+        if (mesh)
+        {
+            model->meshes.push_back(ProcessMesh(arena, mesh, scene, baseVertex));
+            baseVertex += model->meshes[i].vertexCount;
+        }
+        // MeshNodes[
     }
     for (u32 i = 0; i < node->mNumChildren; i++)
     {
-        ProcessNode(arena, model, node->mChildren[i], scene);
+        ProcessNode(arena, model, node->mChildren[i], scene, nodeArray);
     }
 }
 
@@ -333,7 +350,7 @@ internal Model ConvertModel(Arena *arena, LoadedModel *model)
     Mesh *meshes = PushArray(arena, Mesh, meshCount);
     for (u32 i = 0; i < meshCount; i++)
     {
-        LoadedMesh* loadedMesh = &model->meshes[i];
+        LoadedMesh *loadedMesh = &model->meshes[i];
         u32 vertexCount = loadedMesh->vertexCount;
         u32 indexCount = loadedMesh->indexCount;
 
@@ -353,6 +370,84 @@ internal Model ConvertModel(Arena *arena, LoadedModel *model)
     return result;
 }
 
+// TODO: load all the other animations
+internal void ProcessAnimations(const aiScene *scene, AnimationChannel* animationChannel)
+{
+
+    // for (u32 i = 0; i < scene->mNumAnimations; i++) {
+    //     aiAnimation* animation = scene->mAnimations[i]
+    // }
+    aiAnimation *animation = scene->mAnimations[0];
+    animationChannel->duration = (f32)animation->mDuration / (f32)animation->mTicksPerSecond;
+    animationChannel->numFrames = 0;
+    for (u32 i = 0; i < animation->mNumChannels; i++)
+    {
+        BoneChannel boneChannel;
+        aiNodeAnim *channel = animation->mChannels[i];
+        String8 name = Str8((u8*)channel->mNodeName.data, channel->mNodeName.length);
+
+        boneChannel.name = name;
+
+        u32 iterateLength = Max(channel->mNumPositionKeys, Max(channel->mNumRotationKeys, channel->mNumScalingKeys));
+        if (animationChannel->numFrames == 0)
+        {
+            animationChannel->numFrames = iterateLength;
+        }
+        u32 positionIndex = 0;
+        u32 scaleIndex = 0;
+        u32 rotationIndex = 0;
+        // NOTE: for some godawful reason, the number of keys can be different for scale, rotation, position!
+        for (u32 j = 0; j < iterateLength; j++)
+        {
+            aiVector3t<f32> aiPosition = channel->mPositionKeys[positionIndex].mValue;
+            V3 position = {aiPosition.x, aiPosition.y, aiPosition.z};
+            aiQuaterniont<f32> aiQuat = channel->mRotationKeys[rotationIndex].mValue;
+            Quat rotation = {aiQuat.x, aiQuat.y, aiQuat.z, aiQuat.w};
+            aiVector3t<f32> aiScale = channel->mScalingKeys[scaleIndex].mValue;
+            V3 scale = MakeV3(aiScale.x, aiScale.y, aiScale.z);
+
+            AnimationTransform transform = {position, rotation, scale};
+            boneChannel.transforms[j].transform = transform;
+            boneChannel.transforms[j].time = (f32)channel->mPositionKeys[positionIndex].mTime;
+            positionIndex++;
+            rotationIndex++;
+            scaleIndex++;
+
+            if (positionIndex == channel->mNumPositionKeys) {
+                positionIndex--;
+            }
+            if (rotationIndex == channel->mNumRotationKeys) {
+                rotationIndex--;
+            }
+            if (scaleIndex == channel->mNumScalingKeys) {
+                scaleIndex--;
+            }
+            // NOTE: cruft because converting from mTime to key frames
+
+            f64 positionTime = channel->mPositionKeys[positionIndex].mTime;
+            f64 rotationTime = channel->mRotationKeys[rotationIndex].mTime;
+            f64 scaleTime = channel->mScalingKeys[scaleIndex].mTime;
+            
+
+
+            if (positionTime > rotationTime || positionTime > scaleTime)
+            {
+                positionIndex--;
+            }
+            if (rotationTime > positionTime || rotationTime > scaleTime)
+            {
+                scaleIndex--;
+            }
+            if (scaleTime > rotationTime || scaleTime > positionTime)
+            {
+                rotationIndex--;
+            }
+
+        }
+
+        animationChannel->boneChannels[i] = boneChannel;
+    }
+}
 // ANIMATION:
 // if you have a parent node, multiple by the inverse of the parent offset matrix, then your offset matrix
 
@@ -379,14 +474,34 @@ internal Model AssimpDebugLoadModel(Arena *arena, String8 filename)
     aiMatrix4x4t<f32> transform = scene->mRootNode->mTransformation;
     Mat4 globalTransform = ConvertAssimpMatrix4x4(transform);
 
-    ProcessNode(arena, &loadedModel, scene->mRootNode, scene);
+    MeshNodeInfoArray infoArray;
+    infoArray.info = PushArray(arena, MeshNodeInfo, 200);
+    infoArray.cap = 200;
+    infoArray.count = 0;
+    ProcessNode(arena, &loadedModel, scene->mRootNode, scene, &infoArray);
+    // TODO IMPORTANT: don't throw away the info array!
+    // the problem with the hash table thing i was thinking about, where you hash the string and get the parent id, 
+    // bone transform, and transform to parent, is that for some reason the node structure of the mesh 
+    // and of the skeleton are different. maybe instead we create two hash tables, one for the skeleton, 
+    // one for the mesh, and then hash by name into the mesh one to get the parentid and the transform to parent, 
+    // and hash into the skeleton one to get the bone matrix. 
+    // actually maybe this can all be collapsed into one thing. and u also say whether or not it's a bone, or if it's
+    // just a node.
 
     model = ConvertModel(arena, &loadedModel);
+    AnimationChannel* animationChannel = PushStruct(arena, AnimationChannel);
+    ProcessAnimations(scene, animationChannel);
+
+    model.animationChannel = animationChannel;
     return model;
 }
 /*
  * END ASSIMP
  */
+
+internal void PlayAnimation(Skeleton* skeleton, AnimationChannel* channel) {
+    // skeleton->
+}
 
 // TODO: i really don't like using function pointers for platform layer stuff
 // NOTE: array of nodes, each with a parent index and a name

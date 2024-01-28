@@ -15,6 +15,7 @@ internal b32 CharIsAlpha(u8 c);
 internal b32 CharIsAlphaUpper(u8 c);
 internal b32 CharIsAlphaLower(u8 c);
 internal b32 CharIsDigit(u8 c);
+internal u64 HashString(String8 string);
 
 internal String8 Str8(u8 *str, u64 size);
 inline String8 Substr8(String8 str, u64 min, u64 max);
