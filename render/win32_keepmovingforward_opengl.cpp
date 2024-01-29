@@ -183,7 +183,7 @@ internal void CompileModelProgram(OpenGL *openGL)
 
                                     void main()
                                     {
-                                        FragColor = V4(1, 0.5, 0.5, 1.f);//texture(diffuseTexture, outUv).rgb, 1.f);
+                                        FragColor = V4(texture(diffuseTexture, outUv).rgb, 1.f);
                                     })";
 
     ModelShader *modelShader = &openGL->modelShader;
@@ -193,11 +193,11 @@ internal void CompileModelProgram(OpenGL *openGL)
     modelShader->boneWeightId = openGL->glGetAttribLocation(modelShader->base.id, "boneWeights");
 }
 
-internal void OpenGLBindTexture(OpenGL *openGL, Texture *texture)
+internal void OpenGLBindTexture(OpenGL *openGL, Texture *texture, i32 i)
 {
-    glGenTextures(1, &openGL->textureId);
+    glGenTextures(1, &openGL->textureIds[i]);
     openGL->glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, openGL->textureId);
+    glBindTexture(GL_TEXTURE_2D, openGL->textureIds[i]);
 
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, texture->width, texture->width, 0, GL_RGB, GL_UNSIGNED_BYTE,
                  texture->contents);
@@ -362,11 +362,13 @@ internal void OpenGLEndFrame(OpenGL *openGL, HDC deviceContext, int clientWidth,
     // RENDER MODEL
     {
         openGL->glUseProgram(openGL->modelShader.base.id);
-        // if (!openGL->group.texture.loaded)
-        // {
-        //     OpenGLBindTexture(openGL, &openGL->group.texture);
-        // }
-        // glBindTexture(GL_TEXTURE_2D, openGL->textureId);
+        for (u32 i = 0; i < openGL->group.textureCount; i++) 
+        {
+            if (!openGL->group.textures[i].loaded)
+            {
+                OpenGLBindTexture(openGL, &openGL->group.textures[i], i);
+            }
+        }
 
         GLuint positionId = openGL->modelShader.base.positionId;
         GLuint normalId = openGL->modelShader.base.normalId;
@@ -374,8 +376,10 @@ internal void OpenGLEndFrame(OpenGL *openGL, HDC deviceContext, int clientWidth,
         GLuint boneIdId = openGL->modelShader.boneIdId;
         GLuint boneWeightId = openGL->modelShader.boneWeightId;
         // TODO: I don't think the buffer data should be bound every frame
+        u32 baseBone = 0;
         for (u32 i = 0; i < openGL->group.model.meshCount; i++)
         {
+            glBindTexture(GL_TEXTURE_2D, openGL->textureIds[i]);
             Model *model = &openGL->group.model;
             Mesh *currentMesh = model->meshes + i;
             Skeleton *skeleton = currentMesh->skeleton;
@@ -415,9 +419,11 @@ internal void OpenGLEndFrame(OpenGL *openGL, HDC deviceContext, int clientWidth,
             openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, newTransform.elements[0]);
 
             GLint boneTformLocation = openGL->glGetUniformLocation(openGL->modelShader.base.id, "boneTransforms");
-            openGL->glUniformMatrix4fv(boneTformLocation, MAX_BONES, GL_FALSE,
-                                       openGL->group.finalTransforms->elements[0]);
+            openGL->glUniformMatrix4fv(boneTformLocation, skeleton->boneCount, GL_FALSE,
+                                       openGL->group.finalTransforms[baseBone].elements[0]);
             glDrawElements(GL_TRIANGLES, currentMesh->indexCount, GL_UNSIGNED_INT, 0);
+
+            baseBone += skeleton->boneCount;
         }
 
         openGL->glUseProgram(0);

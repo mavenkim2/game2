@@ -567,7 +567,8 @@ internal V2 TestMovingEntityCollision(const Rect2 *dynamic, const Rect2 *fixed, 
 #endif
 
 // TODO: return (0, 0) instead of bifurcating code path?
-internal b32 ScaleMousePosition(V2 mousePos, V2 resolutionScale, u32 bufferWidth, u32 bufferHeight, V2 *mouseTilePos)
+internal b32 ScaleMousePosition(V2 mousePos, V2 resolutionScale, u32 bufferWidth, u32 bufferHeight,
+                                V2 *mouseTilePos)
 {
     if (mousePos.x >= 0 && mousePos.y >= 0 && mousePos.x < resolutionScale.x && mousePos.y < resolutionScale.y)
     {
@@ -629,11 +630,24 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         //                                         memory->DebugPlatformFreeFile, "diablo3_pose.obj");
         // TGAResult result = DebugLoainput->dTGA(gameState->worldArena, memory->DebugPlatformReadFile,
         //                                 memory->DebugPlatformFreeFile, "diablo3_pose_diffuse.tga");
-        // Texture texture;
-        // texture.contents = result.contents;
-        // texture.width = result.width;
-        // texture.height = result.height;
-        // PushTexture(&openGL->group, texture);
+
+        int width, height, nChannels;
+        // stbi_set_flip_vertically_on_load(true);
+        u8 *data =
+            (u8 *)stbi_load("MI_M_B_44_Qishilong_body02_Inst_diffuse.png", &width, &height, &nChannels, 0);
+
+        Texture texture;
+        texture.contents = data;
+        texture.width = width;
+        texture.height = height;
+        PushTexture(&openGL->group, texture);
+
+        u8 *data2 = (u8 *)stbi_load("MI_M_B_44_Qishilong_body02_2_Inst_diffuse.png", &width, &height, &nChannels, 0);
+        Texture texture2;
+        texture2.contents = data2;
+        texture2.width = width;
+        texture2.height = height;
+        PushTexture(&openGL->group, texture2);
 
         gameState->level = PushStruct(gameState->worldArena, Level);
         gameState->cameraMode = CameraMode_Player;
@@ -798,7 +812,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             camera->right = Normalize(Cross(camera->forward, worldUp));
             V3 up = Normalize(Cross(camera->right, camera->forward));
 
-            Mat4 projection = Perspective4(Radians(45.f), 16.f / 9.f, .1f, 1000.f);
+            Mat4 projection = Perspective4(Radians(45.f), 16.f / 9.f, .1f, 10000.f);
             Mat4 cameraMatrix = LookAt4(camera->position, camera->position + camera->forward, worldUp);
             // CameraTransform(camera->right, up, -camera->forward, camera->position);
 
@@ -978,8 +992,9 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
     // ANIMATION
     PlayCurrentAnimation(&gameState->animPlayer, input->dT, gameState->tforms);
-    SkinModelToAnimation(&gameState->animPlayer, &openGL->group.model, gameState->tforms, gameState->meshNodeHierarchy,
-                         &gameState->finalTransforms);
+
+    SkinModelToAnimation(&gameState->animPlayer, &openGL->group.model, gameState->tforms,
+                         gameState->meshNodeHierarchy, &gameState->finalTransforms);
 
     openGL->group.finalTransforms = gameState->finalTransforms;
 

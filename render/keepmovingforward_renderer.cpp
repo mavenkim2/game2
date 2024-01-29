@@ -89,10 +89,13 @@ internal void PushQuad(RenderGroup *group, V3 p0, V3 p1, V3 p2, V3 p3, V3 n, V4 
 // regardless, I really need to consider how stuff is going to be organized, if at all.
 internal void PushTexture(RenderGroup* group, Texture texture)
 {
-    group->texture.contents = texture.contents;
-    group->texture.width = texture.width;
-    group->texture.height = texture.height;
-    group->texture.loaded = false;
+    Assert(group->textureCount < MAX_TEXTURES);
+    Texture* renderTexture = &group->textures[group->textureCount];
+    renderTexture->contents = texture.contents;
+    renderTexture->width = texture.width;
+    renderTexture->height = texture.height;
+    renderTexture->loaded = false;
+    group->textureCount++;
 }
 
 // internal void PushModel(Model model) {

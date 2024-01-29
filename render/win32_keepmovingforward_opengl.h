@@ -248,7 +248,7 @@ struct OpenGL
     GLuint modelVertexBufferId;
     GLuint modelIndexBufferId;
     ModelShader modelShader;
-    GLuint textureId;
+    GLuint textureIds[2];
 
     GLuint skeletonBufferId;
 

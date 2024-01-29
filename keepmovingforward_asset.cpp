@@ -1,5 +1,5 @@
 #define STB_IMAGE_IMPLEMENTATION
-#define STBI_ONLY_TGA
+// #define STBI_ONLY_TGA
 #include "third_party/stb_image.h"
 
 #if INTERNAL
@@ -231,32 +231,23 @@ internal void LoadBones(Arena *arena, Skeleton *skeleton, aiMesh *mesh, u32 base
     {
         aiBone *bone = mesh->mBones[i];
         BoneInfo info;
-        // TODO: allocate name?? actually I think this should copy, nevermind something feels icky about this
-        // currently
         String8 name = Str8((u8 *)bone->mName.data, bone->mName.length);
-        i32 boneIndex = FindBoneId(skeleton, name);
-        if (boneIndex == -1)
-        {
-            name = PushStr8Copy(arena, name);
-            info.name = name;
-            // TODO bone map
-            info.convertToBoneSpaceMatrix = ConvertAssimpMatrix4x4(bone->mOffsetMatrix);
-            u32 boneId = skeleton->boneCount;
-            info.boneId = boneId;
-            skeleton->boneInfo[boneId] = info;
-            // StringToBoneIdMap[boneId] = name;
-            skeleton->boneCount++;
-            Assert(skeleton->boneCount < MAX_BONES);
-            boneIndex = boneId;
-        }
+        name = PushStr8Copy(arena, name);
+        info.name = name;
+        info.convertToBoneSpaceMatrix = ConvertAssimpMatrix4x4(bone->mOffsetMatrix);
+        u32 boneId = skeleton->boneCount;
+        info.boneId = boneId;
+        skeleton->boneInfo[boneId] = info;
+        skeleton->boneCount++;
+        Assert(skeleton->boneCount <= mesh->mNumBones);
 
         for (u32 j = 0; j < bone->mNumWeights; j++)
         {
             aiVertexWeight *weight = bone->mWeights + j;
-            u32 vertexId = baseVertex + weight->mVertexId;
+            u32 vertexId = weight->mVertexId; // baseVertex + weight->mVertexId;
             f32 boneWeight = weight->mWeight;
 
-            AddVertexBoneData(skeleton, vertexId, boneIndex, boneWeight);
+            AddVertexBoneData(skeleton, vertexId, boneId, boneWeight);
         }
     }
 }
@@ -444,7 +435,6 @@ internal void ProcessAnimations(Arena *arena, const aiScene *scene, KeyframedAni
         u32 positionIndex = 0;
         u32 scaleIndex = 0;
         u32 rotationIndex = 0;
-        // NOTE: for some godawful reason, the number of keys can be different for scale, rotation, position!
         for (u32 j = 0; j < iterateLength; j++)
         {
             aiVector3t<f32> aiPosition = channel->mPositionKeys[positionIndex].mValue;
@@ -454,6 +444,9 @@ internal void ProcessAnimations(Arena *arena, const aiScene *scene, KeyframedAni
             aiVector3t<f32> aiScale = channel->mScalingKeys[scaleIndex].mValue;
             V3 scale = MakeV3(aiScale.x, aiScale.y, aiScale.z);
 
+            Assert(!IsZero(scale));
+            // Assert(!IsZero(position));
+            Assert(!IsZero(rotation));
             AnimationTransform transform = {position, rotation, scale};
             boneChannel.transforms[j] = transform;
             // boneChannel.transforms[j]= (f32)channel->mPositionKeys[positionIndex].mTime;
@@ -479,17 +472,23 @@ internal void ProcessAnimations(Arena *arena, const aiScene *scene, KeyframedAni
             f64 rotationTime = channel->mRotationKeys[rotationIndex].mTime;
             f64 scaleTime = channel->mScalingKeys[scaleIndex].mTime;
 
-            if (positionTime > rotationTime || positionTime > scaleTime)
+            if (channel->mNumPositionKeys < channel->mNumScalingKeys &&
+                channel->mNumPositionKeys < channel->mNumRotationKeys &&
+                (positionTime > rotationTime || positionTime > scaleTime))
             {
                 positionIndex--;
             }
-            if (rotationTime > positionTime || rotationTime > scaleTime)
-            {
-                scaleIndex--;
-            }
-            if (scaleTime > rotationTime || scaleTime > positionTime)
+            if (channel->mNumRotationKeys < channel->mNumScalingKeys &&
+                channel->mNumRotationKeys < channel->mNumPositionKeys &&
+                (rotationTime > positionTime || rotationTime > scaleTime))
             {
                 rotationIndex--;
+            }
+            if (channel->mNumScalingKeys < channel->mNumRotationKeys &&
+                channel->mNumScalingKeys < channel->mNumPositionKeys &&
+                (scaleTime > rotationTime || scaleTime > positionTime))
+            {
+                scaleIndex--;
             }
         }
         boneChannels[boneCount++] = boneChannel;
@@ -593,9 +592,11 @@ internal void PlayCurrentAnimation(AnimationPlayer *player, f32 dT, AnimationTra
     {
         nextKeyframe = player->currentAnimation->keyframes + frame + 1;
     }
-    for (u32 boneIndex = 0; boneIndex < MAX_BONES; boneIndex++)
+    // TODO: fix
+    for (u32 boneIndex = 0; boneIndex < 154; boneIndex++)
     {
         const AnimationTransform t1 = currentKeyframe->transforms[boneIndex];
+        Assert(!IsZero(t1)); // boneIndex >
         if (!nextKeyframe)
         {
             transforms[boneIndex] = t1;
@@ -624,10 +625,13 @@ internal void PlayCurrentAnimation(AnimationPlayer *player, f32 dT, AnimationTra
 internal void SkinModelToAnimation(AnimationPlayer *player, Model *model, AnimationTransform *transforms,
                                    MeshNodeInfoArray *infoArray, Mat4 **output)
 {
+    u32 baseBone = 0;
     for (u32 meshCount = 0; meshCount < model->meshCount; meshCount++)
     {
         Mesh *currentMesh = model->meshes;
-        SkinMeshToAnimation(player, currentMesh, transforms, infoArray, model->globalInverseTransform, *output);
+        SkinMeshToAnimation(player, currentMesh, transforms, infoArray, model->globalInverseTransform,
+                            *output + baseBone);
+        baseBone += currentMesh->skeleton->boneCount;
     }
 }
 
@@ -678,32 +682,36 @@ internal void SkinMeshToAnimation(AnimationPlayer *player, Mesh *mesh, Animation
         Mat4 lerpedMatrix;
         if (animationId == -1)
         {
-            lerpedMatrix = Identity();
+            lerpedMatrix = node->transformToParent;
         }
         else
         {
             lerpedMatrix = ConvertToMatrix(&transforms[animationId]);
         }
 
-        Mat4 currentTransformToParent = node->transformToParent;
+        Mat4 result = node->transformToParent;
+        // Mat4 currentTransformToParent = node->transformToParent;
+        Assert(!IsZero(lerpedMatrix));
         if (node->hasParent)
         {
             // TODO: store parent index and node index
             i32 parentId = FindBoneId(skeleton, node->parentName);
+            // THE PARENT DOESN'T EXIST IN THE SKELETON, BUT IN THE MESH NODE INFO IT HAS A TRANSFORM
             if (parentId == -1)
             {
                 Mat4 parentTransform = FindNodeMatrix(infoArray, node->parentName);
                 Assert(!IsZero(parentTransform));
-                transformToParent[id] = parentTransform * currentTransformToParent * lerpedMatrix;
+                transformToParent[id] = parentTransform * lerpedMatrix;
             }
+            // THE PARENT DOES EXIST IN THE SKELETON
             else
             {
-                transformToParent[id] = transformToParent[parentId] * currentTransformToParent * lerpedMatrix;
+                transformToParent[id] = transformToParent[parentId] * lerpedMatrix;
             }
         }
         else
         {
-            transformToParent[id] = currentTransformToParent * lerpedMatrix;
+            transformToParent[id] = lerpedMatrix;
         }
         finalTransforms[id] =
             globalInverseTransform * transformToParent[id] * boneInfo[id].convertToBoneSpaceMatrix;
