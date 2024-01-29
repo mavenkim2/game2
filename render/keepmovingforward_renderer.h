@@ -20,6 +20,7 @@ struct RenderGroup {
     Model model;
 
     Texture texture;
+    Mat4* finalTransforms;
 };
 
 

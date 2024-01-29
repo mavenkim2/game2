@@ -848,6 +848,20 @@ inline Mat3 operator*(Mat3 a, Mat3 b)
 /*
  * MATRIX 4X4
  */
+
+inline Mat4 MakeMat4(f32 a)
+{
+    Mat4 result = {{
+        {a, 0, 0, 0},
+        {0, a, 0, 0},
+        {0, 0, a, 0},
+        {0, 0, 0, a},
+    }};
+    return result;
+}
+internal Mat4 Identity() {
+    return MakeMat4(1.f);
+}
 internal V4 Transform(Mat4 a, V4 b)
 {
     V4 result;
@@ -918,16 +932,6 @@ inline Mat4 operator*(Mat4 a, float b)
     result.columns[1] *= b;
     result.columns[2] *= b;
     result.columns[3] *= b;
-    return result;
-}
-inline Mat4 MakeMat4(f32 a)
-{
-    Mat4 result = {{
-        {a, 0, 0, 0},
-        {0, a, 0, 0},
-        {0, 0, a, 0},
-        {0, 0, 0, a},
-    }};
     return result;
 }
 

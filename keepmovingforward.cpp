@@ -664,9 +664,11 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
         AnimationPlayer *aPlayer = &gameState->animPlayer;
         StartLoopedAnimation(aPlayer, output.animation);
+        gameState->meshNodeHierarchy = output.infoArray;
         // gameState->camera.pos = V2{TILE_MAP_X_COUNT / 2.f, TILE_MAP_Y_COUNT / 2.f};
 
         gameState->tforms = PushArray(gameState->worldArena, AnimationTransform, MAX_BONES);
+        gameState->finalTransforms = PushArray(gameState->worldArena, Mat4, output.model.meshCount * MAX_BONES);
     }
     Level *level = gameState->level;
     GameInput *playerController = input;
@@ -974,7 +976,12 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         // PushModel();
     }
 
+    // ANIMATION
     PlayCurrentAnimation(&gameState->animPlayer, input->dT, gameState->tforms);
-    
+    SkinModelToAnimation(&gameState->animPlayer, &openGL->group.model, gameState->tforms, gameState->meshNodeHierarchy,
+                         &gameState->finalTransforms);
+
+    openGL->group.finalTransforms = gameState->finalTransforms;
+
     // GameOutputSound(soundBuffer, gameState->toneHz);
 }

@@ -73,8 +73,11 @@ struct GameState
 
     CameraMode cameraMode;
 
+    // Animation
     AnimationPlayer animPlayer;
     AnimationTransform* tforms;
+    MeshNodeInfoArray* meshNodeHierarchy;
+    Mat4* finalTransforms;
 };
 
 #define KEEPMOVINGFORWARD_H

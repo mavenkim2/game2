@@ -228,6 +228,8 @@ struct ModelShader
 {
     OpenGLShader base;
     GLuint uvId;
+    GLuint boneIdId;
+    GLuint boneWeightId;
 };
 
 struct OpenGL
@@ -247,6 +249,8 @@ struct OpenGL
     GLuint modelIndexBufferId;
     ModelShader modelShader;
     GLuint textureId;
+
+    GLuint skeletonBufferId;
 
     OpenGLFunction(glGenBuffers);
     OpenGLFunction(glBindBuffer);
@@ -275,6 +279,7 @@ struct OpenGL
     OpenGLFunction(glUniform3fv);
     OpenGLFunction(glGetAttribLocation);
     OpenGLFunction(glValidateProgram);
+    OpenGLFunction(glVertexAttribIPointer);
 
     RenderGroup group;
 };

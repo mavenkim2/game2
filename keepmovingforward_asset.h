@@ -1,6 +1,6 @@
 #include <vector>
 #define MAX_MATRICES_PER_VERTEX 4
-#define MAX_BONES 500
+#define MAX_BONES 200
 #define MAX_VERTEX_COUNT 20000
 #define MAX_FRAMES 200
 
@@ -24,6 +24,9 @@ struct MeshVertex
     V3 position;
     V3 normal;
     V2 uv;
+
+    u32 boneIds[MAX_MATRICES_PER_VERTEX];
+    f32 boneWeights[MAX_MATRICES_PER_VERTEX];
 };
 
 enum TextureType
@@ -49,30 +52,31 @@ struct Texture
 //     u32 type;
 // };
 
-/* struct BoneInfo
-{
-    String8 name;
-    Mat4 convertToBoneSpaceMatrix; // TODO: I don't think this is the right name
-
-    BoneInfo *nextInHash;
-    BoneInfo *parent;
-};
-
-struct BoneInfoTable
-{
-    BoneInfo *slots;
-    u32 count;
-}; */
+// struct BoneInfo
+// {
+//     String8 name;
+//     Mat4 convertToBoneSpaceMatrix; // TODO: I don't think this is the right name
+//
+//     BoneInfo *nextInHash;
+// };
+//
+// struct BoneInfoTable
+// {
+//     BoneInfo *slots;
+//     u32 count;
+// };
 
 struct BoneInfo
 {
     String8 name;
+    u32 boneId;
     Mat4 convertToBoneSpaceMatrix; // TODO: I don't think this is the right name
 };
 
 struct VertexBoneInfoPiece
 {
     u32 boneIndex;
+    // String8 boneName;
     f32 boneWeight;
 };
 
@@ -84,6 +88,7 @@ struct VertexBoneInfo
 
 struct Skeleton
 {
+    // BoneInfoTable boneTable;
     BoneInfo *boneInfo;
     u32 boneCount;
 
@@ -117,22 +122,26 @@ inline AnimationTransform Lerp(AnimationTransform t1, AnimationTransform t2, f32
 struct MeshNodeInfo
 {
     String8 name;
-    u32 parentId;
+    // u32 parentId;
+    b32 hasParent;
+    String8 parentName;
     Mat4 transformToParent;
 };
 
 struct MeshNodeInfoArray
 {
-    MeshNodeInfo* info;
+    MeshNodeInfo *info;
     u32 count;
     u32 cap;
 };
 
-struct BoneChannel {
+struct BoneChannel
+{
     String8 name;
     AnimationTransform transforms[MAX_FRAMES];
 };
-struct Keyframe {
+struct Keyframe
+{
     AnimationTransform transforms[MAX_BONES];
 };
 
@@ -140,13 +149,13 @@ struct KeyframedAnimation
 {
     Keyframe keyframes[MAX_FRAMES];
 
-    // struct NodeInfo {
-    //     String8 name;
-    //     u32 parentIndex;
-    //
-    // };
-    //
-    // NodeInfo nodeInfo[MAX_BONES];
+    struct NodeInfo
+    {
+        String8 name;
+        // u32 parentIndex;
+    };
+
+    NodeInfo nodeInfo[MAX_BONES];
     // BoneChannel boneChannels[MAX_BONES];
     f32 duration;
     u32 numFrames;
@@ -160,7 +169,7 @@ struct KeyframedAnimation
 
 struct AnimationPlayer
 {
-    KeyframedAnimation* currentAnimation;
+    KeyframedAnimation *currentAnimation;
     f32 currentTime;
     f32 duration;
     u32 numFrames;
@@ -199,6 +208,8 @@ struct Model
 {
     Mesh *meshes;
     u32 meshCount;
+
+    Mat4 globalInverseTransform;
 };
 
 // NOTE: Temporary hash
@@ -234,3 +245,7 @@ struct TGAResult
     u32 width;
     u32 height;
 };
+
+internal void SkinMeshToAnimation(AnimationPlayer *player, Mesh *mesh, AnimationTransform *transforms,
+                                  MeshNodeInfoArray *infoArray, Mat4 globalInverseTransform, Mat4 *finalTransforms);
+                                  // u32 vertexCount);

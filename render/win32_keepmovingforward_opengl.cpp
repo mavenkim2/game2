@@ -118,20 +118,54 @@ internal void CompileCubeProgram(OpenGL *openGL)
 
 internal void CompileModelProgram(OpenGL *openGL)
 {
+    // char *vertexCode = R"(
+    //                                 in V3 pos;
+    //                                 in V3 n;
+    //                                 in V2 uv;
+    //
+    //                                 out V4 outPos;
+    //                                 out V3 outN;
+    //                                 out V2 outUv;
+    //
+    //                                 uniform mat4 transform;
+    //
+    //                                 uniform mat4
+    //
+    //                                 void main()
+    //                                 {
+    //                                     gl_Position = transform * V4(pos, 1.0);
+    //                                     outPos = V4(pos, 1.0f);
+    //                                     outN = n;
+    //                                     outUv = uv;
+    //                                 })";
+
     char *vertexCode = R"(
                                     in V3 pos;
                                     in V3 n;
                                     in V2 uv;
+                                    in uvec4 boneIds;
+                                    in vec4 boneWeights;
 
                                     out V4 outPos;
                                     out V3 outN;
                                     out V2 outUv;
 
-                                    uniform mat4 transform; 
+                                    const int MAX_BONES = 200;
+
+                                    uniform Mat4 transform; 
+                                    uniform Mat4 boneTransforms[MAX_BONES];
+
 
                                     void main()
                                     { 
-                                        gl_Position = transform * V4(pos, 1.0);
+                                        Mat4 boneTransform = boneTransforms[boneIds[0]] * boneWeights[0];
+                                        boneTransform += boneTransforms[boneIds[1]] * boneWeights[1];
+                                        boneTransform += boneTransforms[boneIds[2]] * boneWeights[2];
+                                        boneTransform += boneTransforms[boneIds[3]] * boneWeights[3];
+
+                                        gl_Position = transform * boneTransform * V4(pos, 1.0);
+                                        
+                                        // TODO: these normals are wrong now
                                         outPos = V4(pos, 1.0f);
                                         outN = n;
                                         outUv = uv;
@@ -141,6 +175,7 @@ internal void CompileModelProgram(OpenGL *openGL)
                                     in V4 outPos;
                                     in V3 outN;
                                     in V2 outUv;
+
 
                                     out V4 FragColor;
 
@@ -154,6 +189,8 @@ internal void CompileModelProgram(OpenGL *openGL)
     ModelShader *modelShader = &openGL->modelShader;
     modelShader->base = OpenGLCreateProgram(openGL, globalHeaderCode, vertexCode, fragmentCode);
     modelShader->uvId = openGL->glGetAttribLocation(modelShader->base.id, "uv");
+    modelShader->boneIdId = openGL->glGetAttribLocation(modelShader->base.id, "boneIds");
+    modelShader->boneWeightId = openGL->glGetAttribLocation(modelShader->base.id, "boneWeights");
 }
 
 internal void OpenGLBindTexture(OpenGL *openGL, Texture *texture)
@@ -188,6 +225,7 @@ internal void OpenGLInit(OpenGL *openGL)
     openGL->glGenBuffers(1, &openGL->indexBufferId);
     openGL->glGenBuffers(1, &openGL->modelVertexBufferId);
     openGL->glGenBuffers(1, &openGL->modelIndexBufferId);
+    // openGL->glGenBuffers(1, &openGL->skeletonBufferId);
 
     CompileCubeProgram(openGL);
     CompileModelProgram(openGL);
@@ -243,6 +281,7 @@ internal OpenGL Win32InitOpenGL(HWND window)
         Win32GetOpenGLFunction(glUniform3fv);
         Win32GetOpenGLFunction(glGetAttribLocation);
         Win32GetOpenGLFunction(glValidateProgram);
+        Win32GetOpenGLFunction(glVertexAttribIPointer);
     }
     else
     {
@@ -288,8 +327,8 @@ internal void OpenGLEndFrame(OpenGL *openGL, HDC deviceContext, int clientWidth,
                              openGL->group.vertexArray, GL_STREAM_DRAW);
 
         openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, openGL->indexBufferId);
-        openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(u16) * openGL->group.indexCount, openGL->group.indexArray,
-                             GL_STREAM_DRAW);
+        openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(u16) * openGL->group.indexCount,
+                             openGL->group.indexArray, GL_STREAM_DRAW);
 
         GLuint positionId = openGL->cubeShader.base.positionId;
         GLuint colorId = openGL->cubeShader.colorId;
@@ -332,16 +371,21 @@ internal void OpenGLEndFrame(OpenGL *openGL, HDC deviceContext, int clientWidth,
         GLuint positionId = openGL->modelShader.base.positionId;
         GLuint normalId = openGL->modelShader.base.normalId;
         GLuint uvId = openGL->modelShader.uvId;
+        GLuint boneIdId = openGL->modelShader.boneIdId;
+        GLuint boneWeightId = openGL->modelShader.boneWeightId;
         // TODO: I don't think the buffer data should be bound every frame
         for (u32 i = 0; i < openGL->group.model.meshCount; i++)
         {
-            openGL->glBindBuffer(GL_ARRAY_BUFFER, openGL->modelVertexBufferId);
-            openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(MeshVertex) * openGL->group.model.meshes[i].vertexCount,
-                                 openGL->group.model.meshes[i].vertices, GL_STREAM_DRAW);
-            openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, openGL->modelIndexBufferId);
-            openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(u32) * openGL->group.model.meshes[i].indexCount,
-                                 openGL->group.model.meshes[i].indices, GL_STREAM_DRAW);
+            Model *model = &openGL->group.model;
+            Mesh *currentMesh = model->meshes + i;
+            Skeleton *skeleton = currentMesh->skeleton;
 
+            openGL->glBindBuffer(GL_ARRAY_BUFFER, openGL->modelVertexBufferId);
+            openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(MeshVertex) * model->meshes[i].vertexCount,
+                                 currentMesh->vertices, GL_STREAM_DRAW);
+            openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, openGL->modelIndexBufferId);
+            openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(u32) * model->meshes[i].indexCount,
+                                 currentMesh->indices, GL_STREAM_DRAW);
 
             openGL->glEnableVertexAttribArray(positionId);
             openGL->glVertexAttribPointer(positionId, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
@@ -355,14 +399,25 @@ internal void OpenGLEndFrame(OpenGL *openGL, HDC deviceContext, int clientWidth,
             openGL->glVertexAttribPointer(uvId, 2, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
                                           (void *)Offset(MeshVertex, uv));
 
+            openGL->glEnableVertexAttribArray(boneIdId);
+            openGL->glVertexAttribIPointer(boneIdId, 4, GL_UNSIGNED_INT, sizeof(MeshVertex),
+                                           (void *)Offset(MeshVertex, boneIds));
+
+            openGL->glEnableVertexAttribArray(boneWeightId);
+            openGL->glVertexAttribPointer(boneWeightId, 4, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
+                                          (void *)Offset(MeshVertex, boneWeights));
+
             Mat4 translate = Translate4(V3{0, 0, 5});
-            Mat4 scale = Scale4(V3{0.5, 0.5, 0.5});
+            Mat4 scale = Scale4(V3{0.5f, 0.5f, 0.5f});
             Mat4 rotate = Rotate4(V3{1, 0, 0}, PI / 2);
             Mat4 newTransform = openGL->transform * translate * rotate * scale;
             GLint transformLocation = openGL->glGetUniformLocation(openGL->modelShader.base.id, "transform");
             openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, newTransform.elements[0]);
-            // glDrawArrays(GL_TRIANGLES, 0, openGL->group.model.vertexCount);
-            glDrawElements(GL_TRIANGLES, openGL->group.model.meshes[i].indexCount, GL_UNSIGNED_INT, 0);
+
+            GLint boneTformLocation = openGL->glGetUniformLocation(openGL->modelShader.base.id, "boneTransforms");
+            openGL->glUniformMatrix4fv(boneTformLocation, MAX_BONES, GL_FALSE,
+                                       openGL->group.finalTransforms->elements[0]);
+            glDrawElements(GL_TRIANGLES, currentMesh->indexCount, GL_UNSIGNED_INT, 0);
         }
 
         openGL->glUseProgram(0);

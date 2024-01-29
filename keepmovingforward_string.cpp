@@ -125,6 +125,16 @@ internal String8 PushStr8FV(Arena *arena, char *fmt, va_list args)
     return result;
 }
 
+internal String8 PushStr8Copy(Arena *arena, String8 string)
+{
+    String8 res;
+    res.size = string.size;
+    res.str = PushArrayNoZero(arena, u8, string.size + 1);
+    MemoryCopy(res.str, string.str, string.size);
+    res.str[string.size] = 0;
+    return res;
+}
+
 internal b32 operator==(String8 a, String8 b)
 {
     b32 result = false;
