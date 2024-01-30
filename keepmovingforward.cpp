@@ -633,8 +633,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
         int width, height, nChannels;
         // stbi_set_flip_vertically_on_load(true);
-        u8 *data =
-            (u8 *)stbi_load("MI_M_B_44_Qishilong_body02_Inst_diffuse.png", &width, &height, &nChannels, 0);
+        u8 *data = (u8 *)stbi_load("MI_M_B_44_Qishilong_body02_Inst_diffuse.png", &width, &height, &nChannels, 0);
 
         Texture texture;
         texture.contents = data;
@@ -642,7 +641,8 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         texture.height = height;
         PushTexture(&openGL->group, texture);
 
-        u8 *data2 = (u8 *)stbi_load("MI_M_B_44_Qishilong_body02_2_Inst_diffuse.png", &width, &height, &nChannels, 0);
+        u8 *data2 =
+            (u8 *)stbi_load("MI_M_B_44_Qishilong_body02_2_Inst_diffuse.png", &width, &height, &nChannels, 0);
         Texture texture2;
         texture2.contents = data2;
         texture2.width = width;
@@ -776,7 +776,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             f32 speed = 3.f;
             if (input->shift.keyDown)
             {
-                speed = 1000.f;
+                speed = 100.f;
             }
 
             Mat4 rotation = MakeMat4(1.f);

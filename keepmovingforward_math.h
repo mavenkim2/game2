@@ -801,12 +801,12 @@ inline Mat4 QuatToMatrix(Quat a)
     result.a4 = 0;
     result.b1 = 2 * (xy - wz);
     result.b2 = 1 - 2 * (xx + zz);
-    result.b3 = 2 * (yz * wx);
+    result.b3 = 2 * (yz + wx);
     result.b4 = 0;
     result.c1 = 2 * (xz + wy);
     result.c2 = 2 * (yz - wx);
     result.c3 = 1 - 2 * (xx + yy);
-    result.c3 = 0;
+    result.c4 = 0;
     result.d1 = 0;
     result.d2 = 0;
     result.d3 = 0;
@@ -823,6 +823,15 @@ inline Quat Lerp(Quat a, Quat b, f32 t)
 inline Quat Nlerp(Quat a, Quat b, f32 t)
 {
     Quat result = Normalize(Lerp(a, b, t));
+    return result;
+}
+
+inline Quat MakeQuat(f32 x, f32 y, f32 z, f32 w) {
+    Quat result;
+    result.x = x;
+    result.y = y;
+    result.z = z;
+    result.w = w;
     return result;
 }
 

@@ -1,7 +1,7 @@
 #include <vector>
 #define MAX_MATRICES_PER_VERTEX 4
 #define MAX_BONES 200
-#define MAX_VERTEX_COUNT 20000
+#define MAX_VERTEX_COUNT 100000
 #define MAX_FRAMES 200
 
 struct Iter
@@ -135,6 +135,15 @@ struct MeshNodeInfoArray
     u32 cap;
 };
 
+// struct AnimationData {
+//     AnimationTransform transform;
+//     f32 time;
+// };
+// struct BoneChannel {
+//     String8 name; 
+//     AnimationData data[MAX_FRAMES];
+// };
+
 struct BoneChannel
 {
     String8 name;
@@ -147,15 +156,17 @@ struct Keyframe
 
 struct KeyframedAnimation
 {
-    Keyframe keyframes[MAX_FRAMES];
+    // Keyframe keyframes[MAX_FRAMES];
 
-    struct NodeInfo
-    {
-        String8 name;
+    // struct NodeInfo
+    // {
+        // String8 name;
         // u32 parentIndex;
-    };
+    // };
 
-    NodeInfo nodeInfo[MAX_BONES];
+    // NodeInfo nodeInfo[MAX_BONES];
+    BoneChannel *boneChannels;
+    u32 numNodes;
     // BoneChannel boneChannels[MAX_BONES];
     f32 duration;
     u32 numFrames;
@@ -246,6 +257,6 @@ struct TGAResult
     u32 height;
 };
 
-internal void SkinMeshToAnimation(AnimationPlayer *player, Mesh *mesh, AnimationTransform *transforms,
+internal void SkinMeshToAnimation(AnimationPlayer *player, Mesh *mesh, const AnimationTransform *transforms,
                                   MeshNodeInfoArray *infoArray, Mat4 globalInverseTransform, Mat4 *finalTransforms);
                                   // u32 vertexCount);

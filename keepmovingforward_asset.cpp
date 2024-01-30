@@ -8,6 +8,14 @@
 #include "third_party/assimp/postprocess.h"
 #endif
 
+inline AnimationTransform MakeAnimTform(V3 position, Quat rotation, V3 scale)
+{
+    AnimationTransform result;
+    result.translation = position;
+    result.rotation = rotation;
+    result.scale = scale;
+    return result;
+}
 // TODO: <= or < ?
 inline b32 IsEndOfFile(Iter *iter)
 {
@@ -222,6 +230,14 @@ internal Mat4 ConvertToMatrix(const AnimationTransform *transform)
 {
     Mat4 result =
         Translate4(transform->translation) * QuatToMatrix(transform->rotation) * Scale4(transform->scale);
+#if 0
+    char printBuffer[256];
+    stbsp_snprintf(printBuffer, sizeof(printBuffer), "%f %f %f \n%f %f %f %f\n%f %f %f\n\n",
+                   transform->translation.x, transform->translation.y, transform->translation.z,
+                   transform->rotation.x, transform->rotation.y, transform->rotation.z, transform->rotation.w,
+                   transform->scale.x, transform->scale.y, transform->scale.z);
+    OutputDebugStringA(printBuffer);
+#endif
     return result;
 }
 
@@ -414,8 +430,8 @@ internal void ProcessAnimations(Arena *arena, const aiScene *scene, KeyframedAni
     aiAnimation *animation = scene->mAnimations[0];
     animationChannel->duration = (f32)animation->mDuration / (f32)animation->mTicksPerSecond;
     animationChannel->numFrames = 0;
-    TempArena temp = ScratchBegin(arena);
-    BoneChannel *boneChannels = PushArray(temp.arena, BoneChannel, MAX_BONES);
+    animationChannel->numNodes = 0;
+    BoneChannel *boneChannels = PushArray(arena, BoneChannel, animation->mNumChannels);
     u32 boneCount = 0;
     for (u32 i = 0; i < animation->mNumChannels; i++)
     {
@@ -438,16 +454,16 @@ internal void ProcessAnimations(Arena *arena, const aiScene *scene, KeyframedAni
         for (u32 j = 0; j < iterateLength; j++)
         {
             aiVector3t<f32> aiPosition = channel->mPositionKeys[positionIndex].mValue;
-            V3 position = {aiPosition.x, aiPosition.y, aiPosition.z};
+            V3 position = MakeV3(aiPosition.x, aiPosition.y, aiPosition.z);
             aiQuaterniont<f32> aiQuat = channel->mRotationKeys[rotationIndex].mValue;
-            Quat rotation = {aiQuat.x, aiQuat.y, aiQuat.z, aiQuat.w};
+            Quat rotation = MakeQuat(aiQuat.x, aiQuat.y, aiQuat.z, aiQuat.w);
             aiVector3t<f32> aiScale = channel->mScalingKeys[scaleIndex].mValue;
             V3 scale = MakeV3(aiScale.x, aiScale.y, aiScale.z);
 
             Assert(!IsZero(scale));
             // Assert(!IsZero(position));
             Assert(!IsZero(rotation));
-            AnimationTransform transform = {position, rotation, scale};
+            AnimationTransform transform = MakeAnimTform(position, rotation, scale);
             boneChannel.transforms[j] = transform;
             // boneChannel.transforms[j]= (f32)channel->mPositionKeys[positionIndex].mTime;
             positionIndex++;
@@ -493,17 +509,18 @@ internal void ProcessAnimations(Arena *arena, const aiScene *scene, KeyframedAni
         }
         boneChannels[boneCount++] = boneChannel;
     }
+    animationChannel->boneChannels = boneChannels;
+    animationChannel->numNodes = boneCount;
 
-    for (u32 keyFrameIndex = 0; keyFrameIndex < animationChannel->numFrames; keyFrameIndex++)
-    {
-        for (u32 boneIndex = 0; boneIndex < animation->mNumChannels; boneIndex++)
-        {
-            animationChannel->keyframes[keyFrameIndex].transforms[boneIndex] =
-                boneChannels[boneIndex].transforms[keyFrameIndex];
-            animationChannel->nodeInfo[boneIndex].name = boneChannels[boneIndex].name;
-        }
-    }
-    ScratchEnd(temp);
+    // for (u32 keyFrameIndex = 0; keyFrameIndex < animationChannel->numFrames; keyFrameIndex++)
+    // {
+    //     for (u32 boneIndex = 0; boneIndex < animation->mNumChannels; boneIndex++)
+    //     {
+    //         animationChannel->keyframes[keyFrameIndex].transforms[boneIndex] =
+    //             boneChannels[boneIndex].transforms[keyFrameIndex];
+    //         animationChannel->nodeInfo[boneIndex].name = boneChannels[boneIndex].name;
+    //     }
+    // }
 }
 
 /*
@@ -586,16 +603,17 @@ internal void PlayCurrentAnimation(AnimationPlayer *player, f32 dT, AnimationTra
     }
     fraction = Clamp(fraction, 0.f, 1.f);
 
-    Keyframe *currentKeyframe = player->currentAnimation->keyframes + frame;
-    Keyframe *nextKeyframe = 0;
-    if (frame + 1 < player->numFrames)
+    b32 nextKeyframe = (frame + 1 < player->numFrames);
+    // Keyframe *currentKeyframe = player->currentAnimation->keyframes + frame;
+    // Keyframe *nextKeyframe = 0;
+    // if (frame + 1 < player->numFrames)
+    // {
+    //     nextKeyframe = player->currentAnimation->keyframes + frame + 1;
+    // }
+    for (u32 boneIndex = 0; boneIndex < player->currentAnimation->numNodes; boneIndex++)
     {
-        nextKeyframe = player->currentAnimation->keyframes + frame + 1;
-    }
-    // TODO: fix
-    for (u32 boneIndex = 0; boneIndex < 154; boneIndex++)
-    {
-        const AnimationTransform t1 = currentKeyframe->transforms[boneIndex];
+        const AnimationTransform t1 = player->currentAnimation->boneChannels[boneIndex].transforms[frame];
+        // ->transforms[frame]; // currentKeyframe->transforms[boneIndex];
         Assert(!IsZero(t1)); // boneIndex >
         if (!nextKeyframe)
         {
@@ -603,10 +621,12 @@ internal void PlayCurrentAnimation(AnimationPlayer *player, f32 dT, AnimationTra
         }
         else
         {
-            const AnimationTransform t2 = nextKeyframe->transforms[boneIndex];
+            const AnimationTransform t2 = player->currentAnimation->boneChannels[boneIndex].transforms[frame + 1];
+            // ->transforms[frame + 1]; // nextKeyframe->transforms[boneIndex];
             transforms[boneIndex] = Lerp(t1, t2, fraction);
         }
     }
+
 
     player->currentTime += dT;
     if (player->currentTime > player->duration)
@@ -622,7 +642,7 @@ internal void PlayCurrentAnimation(AnimationPlayer *player, f32 dT, AnimationTra
     }
 }
 
-internal void SkinModelToAnimation(AnimationPlayer *player, Model *model, AnimationTransform *transforms,
+internal void SkinModelToAnimation(AnimationPlayer *player, Model *model, const AnimationTransform *transforms,
                                    MeshNodeInfoArray *infoArray, Mat4 **output)
 {
     u32 baseBone = 0;
@@ -650,7 +670,22 @@ internal Mat4 FindNodeMatrix(MeshNodeInfoArray *infoArray, String8 name)
     return result;
 }
 
-internal void SkinMeshToAnimation(AnimationPlayer *player, Mesh *mesh, AnimationTransform *transforms,
+internal i32 FindNode(MeshNodeInfoArray *infoArray, String8 name)
+{
+    i32 result = -1;
+    for (u32 i = 0; i < infoArray->count; i++)
+    {
+        MeshNodeInfo *info = infoArray->info + i;
+        if (info->name == name)
+        {
+            result = (i32)i;
+            break;
+        }
+    }
+    return result;
+}
+
+internal void SkinMeshToAnimation(AnimationPlayer *player, Mesh *mesh, const AnimationTransform *transforms,
                                   MeshNodeInfoArray *infoArray, Mat4 globalInverseTransform, Mat4 *finalTransforms)
 {
     VertexBoneInfo *vertexBoneInfo = mesh->skeleton->vertexBoneInfo;
@@ -658,14 +693,39 @@ internal void SkinMeshToAnimation(AnimationPlayer *player, Mesh *mesh, Animation
 
     Mat4 transformToParent[MAX_BONES];
     Skeleton *skeleton = mesh->skeleton;
+
+    i32 previousId = -1;
+    Mat4 parentTransform = Identity();
+    // for (u32 i = 0; i < skeleton->boneCount; i++)
+    // {
+    //
+    //     i32 animationId = -1;
+    //     for (u32 index = 0; index < MAX_BONES; index++)
+    //     {
+    //         if (player->currentAnimation->boneChannels[index].name == skeleton->boneInfo[i].name)
+    //         {
+    //             animationId = index;
+    //             break;
+    //         }
+    //     }
+    //     if (animationId == -1) {
+    //         transformToParent[i] = FindNodeMatrix(infoArray, skeleton->boneInfo[i].name);
+    //
+    //     }
+    //     else
+    //     {
+    //         transformToParent[i] = ConvertToMatrix(&transforms[animationId]);
+    //     }
+    // }
+
     for (u32 i = 0; i < infoArray->count; i++)
     {
         MeshNodeInfo *node = infoArray->info + i;
         i32 id = FindBoneId(skeleton, node->name);
 
-        // TODO: HOW THE HELL DO I DEAL WITH THE DIFFERENT HIERARCHIES!!!!
         if (id == -1)
         {
+            parentTransform = parentTransform * FindNodeMatrix(infoArray, node->name);
             continue;
         }
 
@@ -673,12 +733,13 @@ internal void SkinMeshToAnimation(AnimationPlayer *player, Mesh *mesh, Animation
         // WHY OH WHY GOD
         for (u32 index = 0; index < MAX_BONES; index++)
         {
-            if (player->currentAnimation->nodeInfo[index].name == node->name)
+            if (player->currentAnimation->boneChannels[index].name == node->name)
             {
                 animationId = index;
                 break;
             }
         }
+        // Mat4 lerpedMatrix = node->transformToParent;
         Mat4 lerpedMatrix;
         if (animationId == -1)
         {
@@ -687,34 +748,65 @@ internal void SkinMeshToAnimation(AnimationPlayer *player, Mesh *mesh, Animation
         else
         {
             lerpedMatrix = ConvertToMatrix(&transforms[animationId]);
+#if 0
+            const AnimationTransform *transform = &transforms[animationId];
+            char printBuffer[256];
+            stbsp_snprintf(printBuffer, sizeof(printBuffer), "%f %f %f \n%f %f %f %f\n%f %f %f %S\n\n",
+                           transform->translation.x, transform->translation.y, transform->translation.z,
+                           transform->rotation.x, transform->rotation.y, transform->rotation.z,
+                           transform->rotation.w, transform->scale.x, transform->scale.y, transform->scale.z, 
+                           node->name);
+            OutputDebugStringA(printBuffer);
+#endif
+#if 0
+            // char printBuffer[256];
+            stbsp_snprintf(printBuffer, sizeof(printBuffer),
+                           "%f %f %f %f\n%f %f %f %f\n%f %f %f %f\n%f %f %f %f\n\n", lerpedMatrix.a1,
+                           lerpedMatrix.b1, lerpedMatrix.c1, lerpedMatrix.d1, lerpedMatrix.a2, lerpedMatrix.b2,
+                           lerpedMatrix.c2, lerpedMatrix.d2, lerpedMatrix.a3, lerpedMatrix.b3, lerpedMatrix.c3,
+                           lerpedMatrix.d3, lerpedMatrix.a4, lerpedMatrix.b4, lerpedMatrix.c4, lerpedMatrix.d4);
+            OutputDebugStringA(printBuffer);
+#endif
+        }
+        i32 parentId = FindBoneId(skeleton, node->parentName);
+
+        // Mat4 currentTransformToParent = node->transformToParent;
+        // Assert(!IsZero(lerpedMatrix));
+
+        // TODO: store parent index and node index i32 parentId = FindBoneId(skeleton, node->parentName);
+        // THE PARENT DOESN'T EXIST IN THE SKELETON, BUT IN THE MESH NODE INFO IT HAS A TRANSFORM
+        if (parentId == -1)
+        {
+            // Mat4 parentTransform = FindNodeMatrix(infoArray, node->parentName);
+
+            // Assert(!IsZero(parentTransform));
+            transformToParent[id] = parentTransform * node->transformToParent;
+            // transformToParent[id] = Identity();
+        }
+        // THE PARENT DOES EXIST IN THE SKELETON
+        // NOTE IMPORTANT: the animation data in assimp replaces the transformation matrix to the parent. sigh
+        else
+        // if (parentId > -1)
+        {
+            Assert(!IsZero(transformToParent[parentId]));
+            // print(lerpedMatrix);
+            // TODO: make this a printf
+#if 0
+            char printBuffer[256];
+            stbsp_snprintf(printBuffer, sizeof(printBuffer),
+                           "%f %f %f %f\n%f %f %f %f\n%f %f %f %f\n%f %f %f %f\n\n", lerpedMatrix.a1,
+                           lerpedMatrix.b1, lerpedMatrix.c1, lerpedMatrix.d1, lerpedMatrix.a2, lerpedMatrix.b2,
+                           lerpedMatrix.c2, lerpedMatrix.d2, lerpedMatrix.a3, lerpedMatrix.b3, lerpedMatrix.c3,
+                           lerpedMatrix.d3, lerpedMatrix.a4, lerpedMatrix.b4, lerpedMatrix.c4, lerpedMatrix.d4);
+            OutputDebugStringA(printBuffer);
+#endif
+
+            transformToParent[id] = transformToParent[parentId] * lerpedMatrix;
         }
 
-        Mat4 result = node->transformToParent;
-        // Mat4 currentTransformToParent = node->transformToParent;
-        Assert(!IsZero(lerpedMatrix));
-        if (node->hasParent)
-        {
-            // TODO: store parent index and node index
-            i32 parentId = FindBoneId(skeleton, node->parentName);
-            // THE PARENT DOESN'T EXIST IN THE SKELETON, BUT IN THE MESH NODE INFO IT HAS A TRANSFORM
-            if (parentId == -1)
-            {
-                Mat4 parentTransform = FindNodeMatrix(infoArray, node->parentName);
-                Assert(!IsZero(parentTransform));
-                transformToParent[id] = parentTransform * lerpedMatrix;
-            }
-            // THE PARENT DOES EXIST IN THE SKELETON
-            else
-            {
-                transformToParent[id] = transformToParent[parentId] * lerpedMatrix;
-            }
-        }
-        else
-        {
-            transformToParent[id] = lerpedMatrix;
-        }
-        finalTransforms[id] =
-            globalInverseTransform * transformToParent[id] * boneInfo[id].convertToBoneSpaceMatrix;
+        Assert(id > previousId);
+        previousId = id;
+        finalTransforms[id] = globalInverseTransform * transformToParent[id] * boneInfo[id].convertToBoneSpaceMatrix;
     }
 }
 

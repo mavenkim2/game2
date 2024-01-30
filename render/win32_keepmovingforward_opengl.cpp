@@ -413,7 +413,7 @@ internal void OpenGLEndFrame(OpenGL *openGL, HDC deviceContext, int clientWidth,
 
             Mat4 translate = Translate4(V3{0, 0, 5});
             Mat4 scale = Scale4(V3{0.5f, 0.5f, 0.5f});
-            Mat4 rotate = Rotate4(V3{1, 0, 0}, PI / 2);
+            Mat4 rotate = Identity();//Rotate4(V3{1, 0, 0}, PI / 2);
             Mat4 newTransform = openGL->transform * translate * rotate * scale;
             GLint transformLocation = openGL->glGetUniformLocation(openGL->modelShader.base.id, "transform");
             openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, newTransform.elements[0]);
