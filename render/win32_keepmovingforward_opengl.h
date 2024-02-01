@@ -230,6 +230,7 @@ struct ModelShader
     GLuint uvId;
     GLuint boneIdId;
     GLuint boneWeightId;
+    GLuint tangentId;
 };
 
 struct OpenGL
@@ -280,6 +281,7 @@ struct OpenGL
     OpenGLFunction(glGetAttribLocation);
     OpenGLFunction(glValidateProgram);
     OpenGLFunction(glVertexAttribIPointer);
+    OpenGLFunction(glUniform1i);
 
     RenderGroup group;
 };

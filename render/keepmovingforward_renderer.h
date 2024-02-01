@@ -1,5 +1,5 @@
 #ifndef KEEPMOVINGFORWARD_RENDERER_H
-#define MAX_TEXTURES 2
+#define MAX_TEXTURES 4
 struct RenderVertex
 {
     V4 p;

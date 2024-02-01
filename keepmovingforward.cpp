@@ -633,6 +633,8 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
         int width, height, nChannels;
         // stbi_set_flip_vertically_on_load(true);
+
+        // TODO: pushing textures needs to be fixed. these also need to be freed when loaded.
         u8 *data = (u8 *)stbi_load("MI_M_B_44_Qishilong_body02_Inst_diffuse.png", &width, &height, &nChannels, 0);
 
         Texture texture;
@@ -648,6 +650,21 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         texture2.width = width;
         texture2.height = height;
         PushTexture(&openGL->group, texture2);
+
+        u8 *data3 = (u8 *)stbi_load("MI_M_B_44_Qishilong_body02_Inst_normal.png", &width, &height, &nChannels, 0);
+        Texture texture3;
+        texture3.contents = data3;
+        texture3.width = width;
+        texture3.height = height;
+        PushTexture(&openGL->group, texture3);
+
+        u8 *data4 =
+            (u8 *)stbi_load("MI_M_B_44_Qishilong_body02_2_Inst_normal.png", &width, &height, &nChannels, 0);
+        Texture texture4;
+        texture4.contents = data4;
+        texture4.width = width;
+        texture4.height = height;
+        PushTexture(&openGL->group, texture4);
 
         gameState->level = PushStruct(gameState->worldArena, Level);
         gameState->cameraMode = CameraMode_Player;

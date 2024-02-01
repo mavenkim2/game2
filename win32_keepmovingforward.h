@@ -38,7 +38,7 @@ struct Win32State
     int currentRecordingIndex;
 
     HANDLE playbackHandle;
-    int currentPlaybackIndex;
+    int    currentPlaybackIndex;
 
     Win32ReplayState replayStates[4];
     void *memory;

@@ -24,6 +24,8 @@ struct MeshVertex
     V3 position;
     V3 normal;
     V2 uv;
+    V3 tangent;
+    // V3 bitangent;
 
     u32 boneIds[MAX_MATRICES_PER_VERTEX];
     f32 boneWeights[MAX_MATRICES_PER_VERTEX];
@@ -156,27 +158,14 @@ struct Keyframe
 
 struct KeyframedAnimation
 {
-    // Keyframe keyframes[MAX_FRAMES];
-
-    // struct NodeInfo
-    // {
-        // String8 name;
-        // u32 parentIndex;
-    // };
-
-    // NodeInfo nodeInfo[MAX_BONES];
     BoneChannel *boneChannels;
     u32 numNodes;
-    // BoneChannel boneChannels[MAX_BONES];
+
     f32 duration;
     u32 numFrames;
 
     // b32 isActive;
 };
-
-// struct AnimationChannel {
-//     KeyframedAnimation* currentAnimation;
-// };
 
 struct AnimationPlayer
 {

@@ -9,7 +9,7 @@ global char *globalHeaderCode = R"(
 // TODO: hotload shaders?
 internal OpenGLShader OpenGLCreateProgram(OpenGL *openGL, char *defines, char *vertexCode, char *fragmentCode)
 {
-    GLuint vertexShaderId = openGL->glCreateShader(GL_VERTEX_SHADER);
+    GLuint vertexShaderId      = openGL->glCreateShader(GL_VERTEX_SHADER);
     GLchar *vertexShaderCode[] = {
         defines,
         vertexCode,
@@ -17,7 +17,7 @@ internal OpenGLShader OpenGLCreateProgram(OpenGL *openGL, char *defines, char *v
     openGL->glShaderSource(vertexShaderId, ArrayLength(vertexShaderCode), vertexShaderCode, 0);
     openGL->glCompileShader(vertexShaderId);
 
-    GLuint fragmentShaderId = openGL->glCreateShader(GL_FRAGMENT_SHADER);
+    GLuint fragmentShaderId      = openGL->glCreateShader(GL_FRAGMENT_SHADER);
     GLchar *fragmentShaderCode[] = {
         defines,
         fragmentCode,
@@ -49,9 +49,9 @@ internal OpenGLShader OpenGLCreateProgram(OpenGL *openGL, char *defines, char *v
     openGL->glDeleteShader(fragmentShaderId);
 
     OpenGLShader result;
-    result.id = shaderProgramId;
+    result.id         = shaderProgramId;
     result.positionId = openGL->glGetAttribLocation(shaderProgramId, "pos");
-    result.normalId = openGL->glGetAttribLocation(shaderProgramId, "n");
+    result.normalId   = openGL->glGetAttribLocation(shaderProgramId, "n");
     return result;
 }
 
@@ -87,14 +87,14 @@ internal void CompileCubeProgram(OpenGL *openGL)
 
                                     void main()
                                     {
-                                        V3 lightPosition = vec3(-20, 10, 5);
+                                        V3 lightPosition = vec3(0, 0, 5);
                                         f32 lightCoefficient = 50.f;
                                         V3 toLight = normalize(lightPosition - worldPosition);
                                         f32 lightDistance = distance(lightPosition, worldPosition);
                                         f32 lightStrength = lightCoefficient / (lightDistance * lightDistance); 
 
                                         //AMBIENT
-                                        f32 ambient= 0.1f;
+                                        f32 ambient = 0.1f;
                                         //DIFFUSE
                                         f32 diffuseCoefficient = 0.1f;
                                         f32 diffuseCosAngle = max(dot(worldN, lightPosition), 0.f);
@@ -112,8 +112,8 @@ internal void CompileCubeProgram(OpenGL *openGL)
                                     })";
 
     CubeShader *cubeShader = &openGL->cubeShader;
-    cubeShader->base = OpenGLCreateProgram(openGL, globalHeaderCode, vertexCode, fragmentCode);
-    cubeShader->colorId = openGL->glGetAttribLocation(cubeShader->base.id, "colorIn");
+    cubeShader->base       = OpenGLCreateProgram(openGL, globalHeaderCode, vertexCode, fragmentCode);
+    cubeShader->colorId    = openGL->glGetAttribLocation(cubeShader->base.id, "colorIn");
 }
 
 internal void CompileModelProgram(OpenGL *openGL)
@@ -143,54 +143,98 @@ internal void CompileModelProgram(OpenGL *openGL)
                                     in V3 pos;
                                     in V3 n;
                                     in V2 uv;
+                                    in V3 tangent;
+                                    in V3 bitangent;
                                     in uvec4 boneIds;
                                     in vec4 boneWeights;
 
-                                    out V4 outPos;
-                                    out V3 outN;
                                     out V2 outUv;
+                                    out V3 tangentLightDir;
+                                    out V3 tangentViewPos;
+                                    out V3 tangentFragPos;
+                                    out V3 outN;
+                                    out V3 outT;
+                                    out V3 outP;
 
                                     const int MAX_BONES = 200;
 
                                     uniform Mat4 transform; 
                                     uniform Mat4 boneTransforms[MAX_BONES];
 
+                                    uniform Mat4 model;
+                                    uniform V3 lightPos; 
+                                    uniform V3 viewPos;
+
 
                                     void main()
                                     { 
                                         Mat4 boneTransform = boneTransforms[boneIds[0]] * boneWeights[0];
-                                        boneTransform += boneTransforms[boneIds[1]] * boneWeights[1];
-                                        boneTransform += boneTransforms[boneIds[2]] * boneWeights[2];
-                                        boneTransform += boneTransforms[boneIds[3]] * boneWeights[3];
+                                        boneTransform     += boneTransforms[boneIds[1]] * boneWeights[1];
+                                        boneTransform     += boneTransforms[boneIds[2]] * boneWeights[2];
+                                        boneTransform     += boneTransforms[boneIds[3]] * boneWeights[3];
+
+                                        V3 localPos = (model * V4(pos, 1.0)).xyz;
 
                                         gl_Position = transform * boneTransform * V4(pos, 1.0);
+
                                         
-                                        // TODO: these normals are wrong now
-                                        outPos = V4(pos, 1.0f);
-                                        outN = n;
+                                        mat3 normalMatrix = transpose(inverse(mat3(model)));
+                                        V3 t = normalize(normalMatrix * tangent);
+                                        V3 n = normalize(normalMatrix * n);
+                                        t = normalize(t - dot(t, n) * n);
+                                        V3 b = cross(n, t);
+                                        // Inverse of orthonormal basis is just the transpose
+                                        mat3 tbn = transpose(mat3(t, b, n));
+
+                                        tangentLightDir = tbn * V3(0, 0, 1);
+                                        tangentViewPos = tbn * viewPos;
+                                        tangentFragPos = tbn * localPos;
                                         outUv = uv;
                                     })";
 
     char *fragmentCode = R"(
-                                    in V4 outPos;
-                                    in V3 outN;
+                                    uniform sampler2D diffuseMap;
+                                    uniform sampler2D normalMap;
+                                    
                                     in V2 outUv;
-
+                                    in V3 tangentLightDir;
+                                    in V3 tangentViewPos;
+                                    in V3 tangentFragPos;
 
                                     out V4 FragColor;
-
-                                    uniform sampler2D diffuseTexture;
-
+                                    
                                     void main()
                                     {
-                                        FragColor = V4(texture(diffuseTexture, outUv).rgb, 1.f);
+                                        V3 normal = normalize(texture(normalMap, outUv).rgb);
+                                        normal = normal * 2.0 - 1.0;
+
+                                        V3 color = texture(diffuseMap, outUv).rgb;
+
+                                        // Direction Phong Light
+                                        V3 lightDir = normalize(tangentLightDir);
+
+                                        //AMBIENT
+                                        V3 ambient = 0.1f * color;
+                                        //DIFFUSE
+                                        f32 diffuseCosAngle = max(dot(normal, lightDir), 0.f);
+                                        V3 diffuse = diffuseCosAngle * color;
+                                        //SPECULAR
+                                        V3 toViewPosition = normalize(tangentViewPos - tangentFragPos);
+                                        V3 reflectVector = -lightDir + 2 * dot(normal, lightDir) * normal;
+                                        f32 specularStrength = pow(max(dot(reflectVector, toViewPosition), 0.f), 64);
+
+                                        f32 spec = specularStrength;
+                                        V3 specular = spec * color;
+
+                                        FragColor = V4(ambient + diffuse + specular, 1.0);
                                     })";
 
-    ModelShader *modelShader = &openGL->modelShader;
-    modelShader->base = OpenGLCreateProgram(openGL, globalHeaderCode, vertexCode, fragmentCode);
-    modelShader->uvId = openGL->glGetAttribLocation(modelShader->base.id, "uv");
-    modelShader->boneIdId = openGL->glGetAttribLocation(modelShader->base.id, "boneIds");
+    ModelShader *modelShader  = &openGL->modelShader;
+    modelShader->base         = OpenGLCreateProgram(openGL, globalHeaderCode, vertexCode, fragmentCode);
+    modelShader->uvId         = openGL->glGetAttribLocation(modelShader->base.id, "uv");
+    modelShader->boneIdId     = openGL->glGetAttribLocation(modelShader->base.id, "boneIds");
     modelShader->boneWeightId = openGL->glGetAttribLocation(modelShader->base.id, "boneWeights");
+    modelShader->tangentId    = openGL->glGetAttribLocation(modelShader->base.id, "tangent");
 }
 
 internal void OpenGLBindTexture(OpenGL *openGL, Texture *texture, i32 i)
@@ -206,7 +250,6 @@ internal void OpenGLBindTexture(OpenGL *openGL, Texture *texture, i32 i)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
-    glTexEnvi(GL_TEXTURE_2D, GL_TEXTURE_ENV_MODE, GL_MODULATE);
     glBindTexture(GL_TEXTURE_2D, 0);
 
     texture->loaded = true;
@@ -214,9 +257,9 @@ internal void OpenGLBindTexture(OpenGL *openGL, Texture *texture, i32 i)
 
 internal void OpenGLInit(OpenGL *openGL)
 {
-    u32 maxQuadCountPerFrame = 1 << 14;
+    u32 maxQuadCountPerFrame     = 1 << 14;
     openGL->group.maxVertexCount = maxQuadCountPerFrame * 4;
-    openGL->group.maxIndexCount = maxQuadCountPerFrame * 6;
+    openGL->group.maxIndexCount  = maxQuadCountPerFrame * 6;
 
     openGL->glGenVertexArrays(1, &openGL->vao);
     openGL->glBindVertexArray(openGL->vao);
@@ -235,16 +278,16 @@ internal OpenGL Win32InitOpenGL(HWND window)
 {
     OpenGL openGL_ = {};
     OpenGL *openGL = &openGL_;
-    HDC dc = GetDC(window);
+    HDC dc         = GetDC(window);
 
     PIXELFORMATDESCRIPTOR desiredPixelFormat = {};
-    desiredPixelFormat.nSize = sizeof(desiredPixelFormat);
-    desiredPixelFormat.nVersion = 1;
-    desiredPixelFormat.dwFlags = PFD_SUPPORT_OPENGL | PFD_DRAW_TO_WINDOW | PFD_DOUBLEBUFFER;
-    desiredPixelFormat.iPixelType = PFD_TYPE_RGBA;
-    desiredPixelFormat.cColorBits = 32;
-    desiredPixelFormat.cAlphaBits = 8;
-    desiredPixelFormat.iLayerType = PFD_MAIN_PLANE;
+    desiredPixelFormat.nSize                 = sizeof(desiredPixelFormat);
+    desiredPixelFormat.nVersion              = 1;
+    desiredPixelFormat.dwFlags               = PFD_SUPPORT_OPENGL | PFD_DRAW_TO_WINDOW | PFD_DOUBLEBUFFER;
+    desiredPixelFormat.iPixelType            = PFD_TYPE_RGBA;
+    desiredPixelFormat.cColorBits            = 32;
+    desiredPixelFormat.cAlphaBits            = 8;
+    desiredPixelFormat.iLayerType            = PFD_MAIN_PLANE;
 
     int suggestedPixelFormatIndex = ChoosePixelFormat(dc, &desiredPixelFormat);
     PIXELFORMATDESCRIPTOR suggestedPixelFormat;
@@ -282,6 +325,7 @@ internal OpenGL Win32InitOpenGL(HWND window)
         Win32GetOpenGLFunction(glGetAttribLocation);
         Win32GetOpenGLFunction(glValidateProgram);
         Win32GetOpenGLFunction(glVertexAttribIPointer);
+        Win32GetOpenGLFunction(glUniform1i);
     }
     else
     {
@@ -296,12 +340,12 @@ internal OpenGL Win32InitOpenGL(HWND window)
 
 internal void OpenGLBeginFrame(OpenGL *openGL, i32 width, i32 height)
 {
-    openGL->width = width;
-    openGL->height = height;
+    openGL->width      = width;
+    openGL->height     = height;
     RenderGroup *group = &openGL->group;
-    group->indexCount = 0;
+    group->indexCount  = 0;
     group->vertexCount = 0;
-    group->quadCount = 0;
+    group->quadCount   = 0;
 }
 
 internal void OpenGLEndFrame(OpenGL *openGL, HDC deviceContext, int clientWidth, int clientHeight)
@@ -312,6 +356,8 @@ internal void OpenGLEndFrame(OpenGL *openGL, HDC deviceContext, int clientWidth,
 
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_TEXTURE_2D);
+        glEnable(GL_CULL_FACE);
+        glCullFace(GL_BACK);
         glClearColor(0.5f, 0.5f, 0.5f, 1.f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         // glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
@@ -331,8 +377,8 @@ internal void OpenGLEndFrame(OpenGL *openGL, HDC deviceContext, int clientWidth,
                              openGL->group.indexArray, GL_STREAM_DRAW);
 
         GLuint positionId = openGL->cubeShader.base.positionId;
-        GLuint colorId = openGL->cubeShader.colorId;
-        GLuint normalId = openGL->cubeShader.base.normalId;
+        GLuint colorId    = openGL->cubeShader.colorId;
+        GLuint normalId   = openGL->cubeShader.base.normalId;
         openGL->glEnableVertexAttribArray(positionId);
         openGL->glVertexAttribPointer(positionId, 4, GL_FLOAT, GL_FALSE, sizeof(RenderVertex),
                                       (void *)Offset(RenderVertex, p));
@@ -362,7 +408,7 @@ internal void OpenGLEndFrame(OpenGL *openGL, HDC deviceContext, int clientWidth,
     // RENDER MODEL
     {
         openGL->glUseProgram(openGL->modelShader.base.id);
-        for (u32 i = 0; i < openGL->group.textureCount; i++) 
+        for (u32 i = 0; i < openGL->group.textureCount; i++)
         {
             if (!openGL->group.textures[i].loaded)
             {
@@ -370,18 +416,26 @@ internal void OpenGLEndFrame(OpenGL *openGL, HDC deviceContext, int clientWidth,
             }
         }
 
-        GLuint positionId = openGL->modelShader.base.positionId;
-        GLuint normalId = openGL->modelShader.base.normalId;
-        GLuint uvId = openGL->modelShader.uvId;
-        GLuint boneIdId = openGL->modelShader.boneIdId;
+        GLuint positionId   = openGL->modelShader.base.positionId;
+        GLuint normalId     = openGL->modelShader.base.normalId;
+        GLuint uvId         = openGL->modelShader.uvId;
+        GLuint boneIdId     = openGL->modelShader.boneIdId;
         GLuint boneWeightId = openGL->modelShader.boneWeightId;
+        GLuint tangentId    = openGL->modelShader.tangentId;
         // TODO: I don't think the buffer data should be bound every frame
         u32 baseBone = 0;
         for (u32 i = 0; i < openGL->group.model.meshCount; i++)
         {
+            openGL->glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, openGL->textureIds[i]);
-            Model *model = &openGL->group.model;
-            Mesh *currentMesh = model->meshes + i;
+
+            openGL->glActiveTexture(GL_TEXTURE0 + 1);
+            glBindTexture(GL_TEXTURE_2D, openGL->textureIds[i + 2]);
+
+            openGL->glActiveTexture(GL_TEXTURE0);
+
+            Model *model       = &openGL->group.model;
+            Mesh *currentMesh  = model->meshes + i;
             Skeleton *skeleton = currentMesh->skeleton;
 
             openGL->glBindBuffer(GL_ARRAY_BUFFER, openGL->modelVertexBufferId);
@@ -403,6 +457,10 @@ internal void OpenGLEndFrame(OpenGL *openGL, HDC deviceContext, int clientWidth,
             openGL->glVertexAttribPointer(uvId, 2, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
                                           (void *)Offset(MeshVertex, uv));
 
+            openGL->glEnableVertexAttribArray(tangentId);
+            openGL->glVertexAttribPointer(tangentId, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
+                                          (void *)Offset(MeshVertex, tangent));
+
             openGL->glEnableVertexAttribArray(boneIdId);
             openGL->glVertexAttribIPointer(boneIdId, 4, GL_UNSIGNED_INT, sizeof(MeshVertex),
                                            (void *)Offset(MeshVertex, boneIds));
@@ -412,15 +470,36 @@ internal void OpenGLEndFrame(OpenGL *openGL, HDC deviceContext, int clientWidth,
                                           (void *)Offset(MeshVertex, boneWeights));
 
             Mat4 translate = Translate4(V3{0, 0, 5});
-            Mat4 scale = Scale4(V3{0.5f, 0.5f, 0.5f});
-            Mat4 rotate = Identity();//Rotate4(V3{1, 0, 0}, PI / 2);
-            Mat4 newTransform = openGL->transform * translate * rotate * scale;
+            Mat4 scale     = Scale4(V3{0.5f, 0.5f, 0.5f});
+            Mat4 rotate    = Identity();
+
+            Mat4 modelMat           = translate * rotate * scale;
+            Mat4 newTransform       = openGL->transform * modelMat;
             GLint transformLocation = openGL->glGetUniformLocation(openGL->modelShader.base.id, "transform");
             openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, newTransform.elements[0]);
 
             GLint boneTformLocation = openGL->glGetUniformLocation(openGL->modelShader.base.id, "boneTransforms");
             openGL->glUniformMatrix4fv(boneTformLocation, skeleton->boneCount, GL_FALSE,
                                        openGL->group.finalTransforms[baseBone].elements[0]);
+
+            GLint modelLoc = openGL->glGetUniformLocation(openGL->modelShader.base.id, "model");
+            openGL->glUniformMatrix4fv(modelLoc, 1, GL_FALSE, modelMat.elements[0]);
+
+            V3 lightPosition  = MakeV3(5, 5, 0);
+            GLint lightPosLoc = openGL->glGetUniformLocation(openGL->modelShader.base.id, "lightPos");
+            openGL->glUniform3fv(lightPosLoc, 1, lightPosition.elements);
+
+            GLint viewPosLoc = openGL->glGetUniformLocation(openGL->modelShader.base.id, "viewPos");
+            openGL->glUniform3fv(viewPosLoc, 1, openGL->camera.position.elements);
+
+            // TEXTURE MAP
+            GLint textureLoc = openGL->glGetUniformLocation(openGL->modelShader.base.id, "diffuseMap");
+            openGL->glUniform1i(textureLoc, 0);
+
+            // NORMAL MAP
+            GLint nmapLoc = openGL->glGetUniformLocation(openGL->modelShader.base.id, "normalMap");
+            openGL->glUniform1i(nmapLoc, 1);
+
             glDrawElements(GL_TRIANGLES, currentMesh->indexCount, GL_UNSIGNED_INT, 0);
 
             baseBone += skeleton->boneCount;
@@ -431,6 +510,9 @@ internal void OpenGLEndFrame(OpenGL *openGL, HDC deviceContext, int clientWidth,
         openGL->glDisableVertexAttribArray(positionId);
         openGL->glDisableVertexAttribArray(normalId);
         openGL->glDisableVertexAttribArray(uvId);
+        openGL->glDisableVertexAttribArray(tangentId);
+        openGL->glDisableVertexAttribArray(boneIdId);
+        openGL->glDisableVertexAttribArray(boneWeightId);
     }
 
     // DOUBLE BUFFER SWAP

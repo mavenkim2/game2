@@ -1,7 +1,6 @@
 #ifndef KEEPMOVINGFORWARD_MATH_H
 #include <math.h>
 
-
 inline u32 Max(u32 a, u32 b)
 {
     u32 result = a > b ? a : b;

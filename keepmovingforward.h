@@ -13,6 +13,17 @@
 #include <windows.h>
 #include <gl/GL.h>
 #include "render/win32_keepmovingforward_opengl.h"
+
+inline void Printf(char *fmt, ...)
+{
+    va_list va;
+    va_start(va, fmt);
+    char printBuffer[1024];
+    stbsp_vsprintf(printBuffer, fmt, va);
+    va_end(va);
+    OutputDebugStringA(printBuffer);
+}
+
 #endif
 
 #include "keepmovingforward_platform.h"
@@ -54,17 +65,18 @@ struct BmpHeader
 };
 #pragma pack(pop)
 
-enum CameraMode {
+enum CameraMode
+{
     CameraMode_Debug,
     CameraMode_Player,
 };
 
 struct GameState
 {
-    u64 entity_id_gen; 
+    u64 entity_id_gen;
     Entity player;
 
-    Arena* worldArena;
+    Arena *worldArena;
     Level *level;
 
     Camera camera;
@@ -75,9 +87,9 @@ struct GameState
 
     // Animation
     AnimationPlayer animPlayer;
-    AnimationTransform* tforms;
-    MeshNodeInfoArray* meshNodeHierarchy;
-    Mat4* finalTransforms;
+    AnimationTransform *tforms;
+    MeshNodeInfoArray *meshNodeHierarchy;
+    Mat4 *finalTransforms;
 };
 
 #define KEEPMOVINGFORWARD_H
