@@ -6,7 +6,7 @@ global char *globalHeaderCode = R"(
                                 #define V4 vec4
                                 #define Mat4 mat4
                                 )";
-// TODO: hotload shaders?
+
 internal OpenGLShader OpenGLCreateProgram(OpenGL *openGL, char *defines, char *vertexCode, char *fragmentCode)
 {
     GLuint vertexShaderId      = openGL->glCreateShader(GL_VERTEX_SHADER);
@@ -153,8 +153,6 @@ internal void CompileModelProgram(OpenGL *openGL)
                                     out V3 tangentViewPos;
                                     out V3 tangentFragPos;
                                     out V3 outN;
-                                    out V3 outT;
-                                    out V3 outP;
 
                                     const int MAX_BONES = 200;
 
@@ -201,12 +199,13 @@ internal void CompileModelProgram(OpenGL *openGL)
                                     in V3 tangentViewPos;
                                     in V3 tangentFragPos;
 
+                                    in V3 outN;
+
                                     out V4 FragColor;
                                     
                                     void main()
                                     {
-                                        V3 normal = normalize(texture(normalMap, outUv).rgb);
-                                        normal = normal * 2.0 - 1.0;
+                                        V3 normal = normalize(texture(normalMap, outUv).rgb * 2 - 1);
 
                                         V3 color = texture(diffuseMap, outUv).rgb;
 
@@ -361,7 +360,7 @@ internal void OpenGLEndFrame(OpenGL *openGL, HDC deviceContext, int clientWidth,
         glClearColor(0.5f, 0.5f, 0.5f, 1.f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         // glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-        // glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     }
 
     // RENDER CUBES
@@ -471,7 +470,7 @@ internal void OpenGLEndFrame(OpenGL *openGL, HDC deviceContext, int clientWidth,
 
             Mat4 translate = Translate4(V3{0, 0, 5});
             Mat4 scale     = Scale4(V3{0.5f, 0.5f, 0.5f});
-            Mat4 rotate    = Identity();
+            Mat4 rotate    = Rotate4(MakeV3(1, 0, 0), PI/2);
 
             Mat4 modelMat           = translate * rotate * scale;
             Mat4 newTransform       = openGL->transform * modelMat;

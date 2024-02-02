@@ -236,10 +236,7 @@ inline V3 CalculateTangents(const MeshVertex *vertex1, const MeshVertex *vertex2
 
     f32 coef = 1 / (deltaUv1.u * deltaUv2.v - deltaUv2.u * deltaUv1.v);
 
-    V3 tangent;
-    tangent.x = coef * (deltaUv2.v * edge1.x - deltaUv1.v * edge2.x);
-    tangent.y = coef * (deltaUv2.v * edge1.y - deltaUv1.v * edge2.y);
-    tangent.z = coef * (deltaUv2.v * edge1.z - deltaUv1.v * edge2.z);
+    V3 tangent = coef * (deltaUv2.v * edge1 - deltaUv1.v * edge2);
 
     // DEBUG
     return tangent;
@@ -704,20 +701,35 @@ internal Mat4 FindNodeMatrix(MeshNodeInfoArray *infoArray, String8 name)
     return result;
 }
 
-internal i32 FindNode(MeshNodeInfoArray *infoArray, String8 name)
+internal MeshNodeInfo* FindNode(MeshNodeInfoArray *infoArray, String8 name)
 {
-    i32 result = -1;
+    MeshNodeInfo *node = 0;
     for (u32 i = 0; i < infoArray->count; i++)
     {
         MeshNodeInfo *info = infoArray->info + i;
         if (info->name == name)
         {
-            result = (i32)i;
+            node = info;
             break;
         }
     }
-    return result;
+    return node;
 }
+
+// internal i32 FindNode(MeshNodeInfoArray *infoArray, String8 name)
+// {
+//     i32 result = -1;
+//     for (u32 i = 0; i < infoArray->count; i++)
+//     {
+//         MeshNodeInfo *info = infoArray->info + i;
+//         if (info->name == name)
+//         {
+//             result = (i32)i;
+//             break;
+//         }
+//     }
+//     return result;
+// }
 
 internal void SkinMeshToAnimation(AnimationPlayer *player, Mesh *mesh, const AnimationTransform *transforms,
                                   MeshNodeInfoArray *infoArray, Mat4 globalInverseTransform, Mat4 *finalTransforms)
@@ -728,8 +740,8 @@ internal void SkinMeshToAnimation(AnimationPlayer *player, Mesh *mesh, const Ani
     Mat4 transformToParent[MAX_BONES];
     Skeleton *skeleton = mesh->skeleton;
 
-    i32 previousId       = -1;
-    Mat4 parentTransform = Identity();
+    i32 previousId = -1;
+    // Mat4 parentTransform = Identity();
 
     for (u32 i = 0; i < infoArray->count; i++)
     {
@@ -738,7 +750,7 @@ internal void SkinMeshToAnimation(AnimationPlayer *player, Mesh *mesh, const Ani
 
         if (id == -1)
         {
-            parentTransform = parentTransform * FindNodeMatrix(infoArray, node->name);
+            // parentTransform = parentTransform * FindNodeMatrix(infoArray, node->name);
             continue;
         }
 
@@ -787,6 +799,16 @@ internal void SkinMeshToAnimation(AnimationPlayer *player, Mesh *mesh, const Ani
         // THE PARENT DOESN'T EXIST IN THE SKELETON, BUT IN THE MESH NODE INFO IT HAS A TRANSFORM
         if (parentId == -1)
         {
+            Mat4 parentTransform    = Identity();
+            String8 parentName = node->parentName;
+            while (node->hasParent && parentName.size)
+            {
+                parentTransform = parentTransform * FindNodeMatrix(infoArray, parentName);
+
+                node       = FindNode(infoArray, parentName);
+                parentName = node->parentName;
+            }
+            // parentTransform       = parentTransform * FindNodeMatrix(infoArray, node->name);
             transformToParent[id] = parentTransform * node->transformToParent;
         }
         // THE PARENT DOES EXIST IN THE SKELETON
@@ -804,6 +826,7 @@ internal void SkinMeshToAnimation(AnimationPlayer *player, Mesh *mesh, const Ani
     }
 }
 
+internal void WriteAnimation(KeyframedAnimation *animation) {}
 #if 0
 // TODO: i really don't like using function pointers for platform layer stuff
 // NOTE: array of nodes, each with a parent index and a name

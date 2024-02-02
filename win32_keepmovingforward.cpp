@@ -162,6 +162,32 @@ internal FILETIME Win32LastWriteTime(String8 filename)
     return fileTime;
 }
 
+// internal u64 OS_CheckLastWriteTime(String8 filename)
+// {
+//     FILETIME fileTime = {};
+//     WIN32_FILE_ATTRIBUTE_DATA data;
+//     if (GetFileAttributesExA((char *)(filename.str), GetFileExInfoStandard, &data))
+//     {
+//         fileTime = data.ftLastWriteTime;
+//     }
+//     return fileTime;
+// }
+
+// internal void fdsa()
+// {
+//     FILETIME lastWriteTime = Win32LastWriteTime(sourceDLLFilename);
+//     if (CompareFileTime(&lastWriteTime, &win32GameCode.lastWriteTime) > 0)
+//     {
+//         Win32UnloadGameCode(&win32GameCode);
+//         win32GameCode = Win32LoadGameCode(sourceDLLFilename, tempDLLFilename, lockFilename);
+//     }
+// }
+
+// internal LoadDLL(String8 source, String8 temp, String8 lock) {
+//     WIN32_FILE_ATTRIBUTE_DATA ignored;
+//     if (!GetFileAttributesExA(, GET_FILEEX_INFO_LEVELS fInfoLevelId, LPVOID lpFileInformation)
+// }
+
 internal Win32GameCode Win32LoadGameCode(String8 sourceDLLFilename, String8 tempDLLFilename, String8 lockFilename)
 {
     Win32GameCode win32GameCode = {};
