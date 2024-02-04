@@ -118,9 +118,9 @@ internal void CompileCubeProgram(OpenGL *openGL)
 
 internal void CompileModelProgram(OpenGL *openGL)
 {
-    string globalFilename = Str8Lit("shaders/global.glsl");
-    string vsFilename = Str8Lit("shaders/model.vs");
-    string fsFilename = Str8Lit("shaders/model.fs");
+    string globalFilename = Str8Lit("src/shaders/global.glsl");
+    string vsFilename = Str8Lit("src/shaders/model.vs");
+    string fsFilename = Str8Lit("src/shaders/model.fs");
 
     string globals = ReadEntireFile(globalFilename);
     string vs      = ReadEntireFile(vsFilename);
