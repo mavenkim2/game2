@@ -1,8 +1,8 @@
 #include <string.h>
 
-internal String8 Str8(u8 *str, u64 size)
+internal string Str8(u8 *str, u64 size)
 {
-    String8 result;
+    string result;
     result.str = str;
     result.size = size;
     return result;
@@ -13,7 +13,7 @@ inline b32 CharIsWhitespace(u8 c)
     return c == ' ';
 }
 
-inline String8 Substr8(String8 str, u64 min, u64 max)
+inline string Substr8(string str, u64 min, u64 max)
 {
     if (max > str.size)
     {
@@ -32,7 +32,7 @@ inline String8 Substr8(String8 str, u64 min, u64 max)
     return str;
 }
 
-internal u64 HashString(String8 string)
+internal u64 HashString(string string)
 {
     u64 result = 5381;
     for (u64 i = 0; i < string.size; i += 1)
@@ -70,7 +70,7 @@ internal u64 CalculateCStringLength(char *cstr)
     return length;
 }
 
-internal String8 Str8PathChopLastSlash(String8 string)
+internal string Str8PathChopLastSlash(string string)
 {
     u64 onePastLastSlash = string.size;
     for (u64 count = 0; count < string.size; count++)
@@ -84,7 +84,7 @@ internal String8 Str8PathChopLastSlash(String8 string)
     return string;
 }
 
-internal String8 Str8PathChopPastLastSlash(String8 string)
+internal string Str8PathChopPastLastSlash(string string)
 {
     // TODO: implement find substring
     u64 onePastLastSlash = string.size;
@@ -99,9 +99,9 @@ internal String8 Str8PathChopPastLastSlash(String8 string)
     return string;
 }
 
-// internal String8 Concat(Arena *arena, String8 a, String8 b)
+// internal string Concat(Arena *arena, string a, string b)
 // {
-//     String8 result = {};
+//     string result = {};
 //     result.size = a.size + b.size;
 //     result.str = PushArray(arena, u8, result.size + 1);
 //
@@ -113,9 +113,9 @@ internal String8 Str8PathChopPastLastSlash(String8 string)
 //     return result;
 // }
 
-internal String8 PushStr8FV(Arena *arena, char *fmt, va_list args)
+internal string PushStr8FV(Arena *arena, char *fmt, va_list args)
 {
-    String8 result = {};
+    string result = {};
     va_list args2;
     va_copy(args2, args);
     u64 neededBytes = stbsp_vsnprintf(0, 0, fmt, args) + 1;
@@ -125,17 +125,17 @@ internal String8 PushStr8FV(Arena *arena, char *fmt, va_list args)
     return result;
 }
 
-internal String8 PushStr8Copy(Arena *arena, String8 string)
+internal string PushStr8Copy(Arena *arena, string str)
 {
-    String8 res;
-    res.size = string.size;
-    res.str = PushArrayNoZero(arena, u8, string.size + 1);
-    MemoryCopy(res.str, string.str, string.size);
-    res.str[string.size] = 0;
+    string res;
+    res.size = str.size;
+    res.str = PushArrayNoZero(arena, u8, str.size + 1);
+    MemoryCopy(res.str, str.str, str.size);
+    res.str[str.size] = 0;
     return res;
 }
 
-internal b32 operator==(String8 a, String8 b)
+internal b32 operator==(string a, string b)
 {
     b32 result = false;
     if (a.size == b.size)
@@ -152,9 +152,9 @@ internal b32 operator==(String8 a, String8 b)
     return result;
 }
 
-internal String8 PushStr8F(Arena *arena, char *fmt, ...)
+internal string PushStr8F(Arena *arena, char *fmt, ...)
 {
-    String8 result = {};
+    string result = {};
     va_list args;
     va_start(args, fmt);
     result = PushStr8FV(arena, fmt, args);
@@ -162,7 +162,7 @@ internal String8 PushStr8F(Arena *arena, char *fmt, ...)
     return result;
 }
 
-internal String8 SkipWhitespace(String8 str)
+internal string SkipWhitespace(string str)
 {
     u32 start = 0;
     for (u32 i = 0; i < str.size; i++)
@@ -173,11 +173,11 @@ internal String8 SkipWhitespace(String8 str)
             break;
         }
     }
-    String8 result = Substr8(str, start, str.size);
+    string result = Substr8(str, start, str.size);
     return result;
 }
 
-internal b32 StartsWith(String8 a, String8 b)
+internal b32 StartsWith(string a, string b)
 {
     b32 result = true;
     if (a.size >= b.size)

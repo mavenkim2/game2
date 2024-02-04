@@ -16,6 +16,7 @@
 
 #include "keepmovingforward_memory.cpp"
 #include "keepmovingforward_string.cpp"
+#include "win32.cpp"
 #include "render/win32_keepmovingforward_opengl.cpp"
 
 global b32 RUNNING = true;
@@ -43,16 +44,6 @@ void PlatformToggleCursor(b32 value)
 //*******************************************
 // DEBUG START
 //*******************************************
-
-internal void Printf(char *fmt, ...)
-{
-    va_list va;
-    va_start(va, fmt);
-    char printBuffer[1024];
-    stbsp_vsprintf(printBuffer, fmt, va);
-    va_end(va);
-    OutputDebugStringA(printBuffer);
-}
 
 #if INTERNAL
 DEBUG_PLATFORM_GET_RESOLUTION(DebugPlatformGetResolution)
@@ -131,13 +122,13 @@ DEBUG_PLATFORM_WRITE_FILE(DebugPlatformWriteFile)
 }
 #endif
 
-internal String8 Win32GetBinaryDirectory(Win32State *win32State)
+internal string Win32GetBinaryDirectory(Win32State *win32State)
 {
     DWORD size   = kilobytes(4);
     u8 *fullPath = PushArray(win32State->arena, u8, size);
     DWORD length = GetModuleFileNameA(0, (char *)fullPath, size);
 
-    String8 binaryDirectory;
+    string binaryDirectory;
     binaryDirectory.str  = fullPath;
     binaryDirectory.size = length;
 
@@ -145,13 +136,13 @@ internal String8 Win32GetBinaryDirectory(Win32State *win32State)
     return binaryDirectory;
 }
 
-internal String8 Win32GetFilePathInBinaryDirectory(Win32State *win32State, String8 filename)
+internal string Win32GetFilePathInBinaryDirectory(Win32State *win32State, string filename)
 {
-    String8 result = PushStr8F(win32State->arena, (char *)"%S/%S", win32State->binaryDirectory, filename);
+    string result = PushStr8F(win32State->arena, (char *)"%S/%S", win32State->binaryDirectory, filename);
     return result;
 }
 
-internal FILETIME Win32LastWriteTime(String8 filename)
+internal FILETIME Win32LastWriteTime(string filename)
 {
     FILETIME fileTime = {};
     WIN32_FILE_ATTRIBUTE_DATA data;
@@ -162,33 +153,7 @@ internal FILETIME Win32LastWriteTime(String8 filename)
     return fileTime;
 }
 
-// internal u64 OS_CheckLastWriteTime(String8 filename)
-// {
-//     FILETIME fileTime = {};
-//     WIN32_FILE_ATTRIBUTE_DATA data;
-//     if (GetFileAttributesExA((char *)(filename.str), GetFileExInfoStandard, &data))
-//     {
-//         fileTime = data.ftLastWriteTime;
-//     }
-//     return fileTime;
-// }
-
-// internal void fdsa()
-// {
-//     FILETIME lastWriteTime = Win32LastWriteTime(sourceDLLFilename);
-//     if (CompareFileTime(&lastWriteTime, &win32GameCode.lastWriteTime) > 0)
-//     {
-//         Win32UnloadGameCode(&win32GameCode);
-//         win32GameCode = Win32LoadGameCode(sourceDLLFilename, tempDLLFilename, lockFilename);
-//     }
-// }
-
-// internal LoadDLL(String8 source, String8 temp, String8 lock) {
-//     WIN32_FILE_ATTRIBUTE_DATA ignored;
-//     if (!GetFileAttributesExA(, GET_FILEEX_INFO_LEVELS fInfoLevelId, LPVOID lpFileInformation)
-// }
-
-internal Win32GameCode Win32LoadGameCode(String8 sourceDLLFilename, String8 tempDLLFilename, String8 lockFilename)
+internal Win32GameCode Win32LoadGameCode(string sourceDLLFilename, string tempDLLFilename, string lockFilename)
 {
     Win32GameCode win32GameCode = {};
 
@@ -230,7 +195,7 @@ internal void Win32BeginRecording(Win32State *state, int recordingIndex)
     Win32ReplayState *replayState = Win32GetReplayState(state, recordingIndex);
 
     TempArena temp = ScratchBegin(state->arena);
-    String8 filename =
+    string filename =
         PushStr8F(temp.arena, (char *)"%Skeepmovingforward_%d_input.kmf", state->binaryDirectory, recordingIndex);
 
     state->recordingHandle =
@@ -266,7 +231,7 @@ internal void Win32BeginPlayback(Win32State *state, int playbackIndex)
     Win32ReplayState *replayState = Win32GetReplayState(state, playbackIndex);
 
     TempArena temp = ScratchBegin(state->arena);
-    String8 filename =
+    string filename =
         PushStr8F(temp.arena, (char *)"%Skeepmovingforward_%d_input.kmf", state->binaryDirectory, playbackIndex);
 
     state->playbackHandle = CreateFileA((char *)filename.str, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_ALWAYS,
@@ -828,7 +793,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     Arena *win32Arena = ArenaAlloc(win32Memory, kilobytes(64));
 
     gameMemory.PlatformToggleCursor = PlatformToggleCursor;
-#if INTERNAL
+#if 0
     gameMemory.DebugPlatformFreeFile      = DebugPlatformFreeFile;
     gameMemory.DebugPlatformReadFile      = DebugPlatformReadFile;
     gameMemory.DebugPlatformWriteFile     = DebugPlatformWriteFile;
@@ -851,10 +816,10 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     win32State.binaryDirectory = Win32GetBinaryDirectory(&win32State);
 
     // TODO: FIX
-    String8 sourceDLLFilename = Win32GetFilePathInBinaryDirectory(&win32State, Str8Lit("keepmovingforward.dll"));
-    String8 tempDLLFilename =
+    string sourceDLLFilename = Win32GetFilePathInBinaryDirectory(&win32State, Str8Lit("keepmovingforward.dll"));
+    string tempDLLFilename =
         Win32GetFilePathInBinaryDirectory(&win32State, Str8Lit("keepmovingforward_temp.dll"));
-    String8 lockFilename = Win32GetFilePathInBinaryDirectory(&win32State, Str8Lit("lock.tmp"));
+    string lockFilename = Win32GetFilePathInBinaryDirectory(&win32State, Str8Lit("lock.tmp"));
 
     Win32GameCode win32GameCode = Win32LoadGameCode(sourceDLLFilename, tempDLLFilename, lockFilename);
 

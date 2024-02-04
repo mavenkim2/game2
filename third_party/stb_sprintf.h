@@ -581,10 +581,10 @@ cl = lg;                                 \
    
    //~ rjf: TELESCOPE ADDITION
    
-   case 'S': // String8
+   case 'S': // string8
    {
     //- rjf: pull out string
-    String8 str = va_arg(va, String8);
+    string str = va_arg(va, string);
     
     //- rjf: get string length
     s = (char *)str.str;

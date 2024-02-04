@@ -2,7 +2,7 @@
 #define KEEPMOVINGFORWARD_STRING_H
 
 // IMPORTANT: STRINGS ARE IMMUTABLE.
-struct String8
+struct string
 {
     u8 *str;
     u64 size;
@@ -15,17 +15,17 @@ internal b32 CharIsAlpha(u8 c);
 internal b32 CharIsAlphaUpper(u8 c);
 internal b32 CharIsAlphaLower(u8 c);
 internal b32 CharIsDigit(u8 c);
-internal u64 HashString(String8 string);
+internal u64 HashString(string string);
 
-internal String8 Str8(u8 *str, u64 size);
-inline String8 Substr8(String8 str, u64 min, u64 max);
+internal string Str8(u8 *str, u64 size);
+inline string Substr8(string str, u64 min, u64 max);
 internal u64 CalculateCStringLength(char *cstr);
-internal String8 Str8PathChopLastSlash(String8 string);
-internal String8 Str8PathChopPastLastSlash(String8 string);
-// internal String8 Concat(Arena *arena, String8 a, String8 b);
+internal string Str8PathChopLastSlash(string string);
+internal string Str8PathChopPastLastSlash(string string);
+// internal string Concat(Arena *arena, string a, String8 b);
 
-internal String8 PushStr8F(Arena *arena, char *fmt, ...);
-internal String8 PushStr8FV(Arena *arena, char *fmt, va_list args);
+internal string PushStr8F(Arena *arena, char *fmt, ...);
+internal string PushStr8FV(Arena *arena, char *fmt, va_list args);
 
 #define Str8Lit(s) Str8((u8 *)(s), sizeof(s) - 1)
 #define Str8C(cstring) Str8((u8 *)(cstring), CalculateCStringLength(cstring))

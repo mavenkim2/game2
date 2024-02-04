@@ -56,7 +56,7 @@ struct Texture
 
 // struct BoneInfo
 // {
-//     String8 name;
+//     string name;
 //     Mat4 convertToBoneSpaceMatrix; // TODO: I don't think this is the right name
 //
 //     BoneInfo *nextInHash;
@@ -70,7 +70,7 @@ struct Texture
 
 struct BoneInfo
 {
-    String8 name;
+    string name;
     u32 boneId;
     Mat4 convertToBoneSpaceMatrix; // TODO: I don't think this is the right name
 };
@@ -78,7 +78,7 @@ struct BoneInfo
 struct VertexBoneInfoPiece
 {
     u32 boneIndex;
-    // String8 boneName;
+    // string boneName;
     f32 boneWeight;
 };
 
@@ -123,10 +123,10 @@ inline AnimationTransform Lerp(AnimationTransform t1, AnimationTransform t2, f32
 
 struct MeshNodeInfo
 {
-    String8 name;
+    string name;
     // u32 parentId;
     b32 hasParent;
-    String8 parentName;
+    string parentName;
     Mat4 transformToParent;
 };
 
@@ -142,13 +142,13 @@ struct MeshNodeInfoArray
 //     f32 time;
 // };
 // struct BoneChannel {
-//     String8 name; 
+//     string name; 
 //     AnimationData data[MAX_FRAMES];
 // };
 
 struct BoneChannel
 {
-    String8 name;
+    string name;
     AnimationTransform transforms[MAX_FRAMES];
 };
 struct Keyframe

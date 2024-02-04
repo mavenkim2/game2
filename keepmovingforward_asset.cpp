@@ -25,7 +25,7 @@ inline b32 IsEndOfFile(Iter *iter)
 
 inline u32 GetType(Iter iter)
 {
-    String8 type = Str8(iter.cursor, 2);
+    string type = Str8(iter.cursor, 2);
     u32 objType  = OBJ_Invalid;
     if (type == Str8C("v "))
     {
@@ -159,9 +159,9 @@ inline u8 GetByte(Iter *iter)
 
 // TODO LATER: chunked linked list while building skeleton, then pack into array?
 
-internal String8 ConsumeLine(Iter *iter)
+internal string ConsumeLine(Iter *iter)
 {
-    String8 result;
+    string result;
     result.str = iter->cursor;
     u32 size   = 0;
     while (*iter->cursor++ != '\n')
@@ -210,7 +210,7 @@ inline void AddVertexBoneData(Skeleton *skeleton, u32 vertexId, u32 boneIndex, f
     }
 }
 
-internal i32 FindBoneId(Skeleton *skeleton, String8 name)
+internal i32 FindBoneId(Skeleton *skeleton, string name)
 {
     i32 result = -1;
 
@@ -255,7 +255,7 @@ internal void LoadBones(Arena *arena, Skeleton *skeleton, aiMesh *mesh, u32 base
     {
         aiBone *bone = mesh->mBones[i];
         BoneInfo info;
-        String8 name                  = Str8((u8 *)bone->mName.data, bone->mName.length);
+        string name                  = Str8((u8 *)bone->mName.data, bone->mName.length);
         name                          = PushStr8Copy(arena, name);
         info.name                     = name;
         info.convertToBoneSpaceMatrix = ConvertAssimpMatrix4x4(bone->mOffsetMatrix);
@@ -379,13 +379,13 @@ internal void ProcessNode(Arena *arena, LoadedModel *model, aiNode *node, const 
 {
     u32 index                   = nodeArray->count++;
     MeshNodeInfo *nodeInfo      = &nodeArray->info[index];
-    String8 name                = Str8((u8 *)node->mName.data, node->mName.length);
+    string name                = Str8((u8 *)node->mName.data, node->mName.length);
     name                        = PushStr8Copy(arena, name);
     nodeInfo->name              = name;
     nodeInfo->transformToParent = ConvertAssimpMatrix4x4(node->mTransformation);
     if (node->mParent)
     {
-        String8 parentName   = Str8((u8 *)node->mParent->mName.data, node->mParent->mName.length);
+        string parentName   = Str8((u8 *)node->mParent->mName.data, node->mParent->mName.length);
         parentName           = PushStr8Copy(arena, parentName);
         nodeInfo->parentName = parentName;
         nodeInfo->hasParent  = true;
@@ -397,12 +397,12 @@ internal void ProcessNode(Arena *arena, LoadedModel *model, aiNode *node, const 
 
     // u32 parentId = -1;
     // if (node->mParent) {
-    //     String8 parentName = Str8((u8*)node->mParent->mName.data, node->mParent->mName.length);
+    //     string parentName = Str8((u8*)node->mParent->mName.data, node->mParent->mName.length);
     //     nodeInfo->parentId = FindBone(parentName);
     // }
 
     Assert(nodeArray->count < nodeArray->cap);
-    // String8 parentName = Str8((u8*)node->mParent->mName.data, node->mParent->mName.data);
+    // string parentName = Str8((u8*)node->mParent->mName.data, node->mParent->mName.data);
 
     for (u32 i = 0; i < node->mNumMeshes; i++)
     {
@@ -468,7 +468,7 @@ internal void ProcessAnimations(Arena *arena, const aiScene *scene, KeyframedAni
     {
         BoneChannel boneChannel;
         aiNodeAnim *channel = animation->mChannels[i];
-        String8 name        = Str8((u8 *)channel->mNodeName.data, channel->mNodeName.length);
+        string name        = Str8((u8 *)channel->mNodeName.data, channel->mNodeName.length);
         name                = PushStr8Copy(arena, name);
 
         boneChannel.name = name;
@@ -567,7 +567,7 @@ struct ModelOutput
     MeshNodeInfoArray *infoArray;
 };
 
-internal ModelOutput AssimpDebugLoadModel(Arena *arena, String8 filename)
+internal ModelOutput AssimpDebugLoadModel(Arena *arena, string filename)
 {
     LoadedModel loadedModel = {};
 
@@ -686,7 +686,7 @@ internal void SkinModelToAnimation(AnimationPlayer *player, Model *model, const 
     }
 }
 
-internal Mat4 FindNodeMatrix(MeshNodeInfoArray *infoArray, String8 name)
+internal Mat4 FindNodeMatrix(MeshNodeInfoArray *infoArray, string name)
 {
     Mat4 result = {};
     for (u32 i = 0; i < infoArray->count; i++)
@@ -701,7 +701,7 @@ internal Mat4 FindNodeMatrix(MeshNodeInfoArray *infoArray, String8 name)
     return result;
 }
 
-internal MeshNodeInfo* FindNode(MeshNodeInfoArray *infoArray, String8 name)
+internal MeshNodeInfo* FindNode(MeshNodeInfoArray *infoArray, string name)
 {
     MeshNodeInfo *node = 0;
     for (u32 i = 0; i < infoArray->count; i++)
@@ -716,7 +716,7 @@ internal MeshNodeInfo* FindNode(MeshNodeInfoArray *infoArray, String8 name)
     return node;
 }
 
-// internal i32 FindNode(MeshNodeInfoArray *infoArray, String8 name)
+// internal i32 FindNode(MeshNodeInfoArray *infoArray, string name)
 // {
 //     i32 result = -1;
 //     for (u32 i = 0; i < infoArray->count; i++)
@@ -800,7 +800,7 @@ internal void SkinMeshToAnimation(AnimationPlayer *player, Mesh *mesh, const Ani
         if (parentId == -1)
         {
             Mat4 parentTransform    = Identity();
-            String8 parentName = node->parentName;
+            string parentName = node->parentName;
             while (node->hasParent && parentName.size)
             {
                 parentTransform = parentTransform * FindNodeMatrix(infoArray, parentName);
@@ -854,9 +854,9 @@ internal void DebugLoadGLTF(Arena *arena, DebugPlatformReadFileFunctionType *Pla
     // // READ ACCESSORS
     // {
     //     // TODO: carriage returns???
-    //     String8 bracket = ConsumeLine(&iter);
-    //     String8 accessorsStart = ConsumeLine(&iter);
-    //     String8 accessor = SkipWhitespace(accessorsStart);
+    //     string bracket = ConsumeLine(&iter);
+    //     string accessorsStart = ConsumeLine(&iter);
+    //     string accessor = SkipWhitespace(accessorsStart);
     //     if (StartsWith(accessor, Str8C("\"accessors\"")))
     //     {
     //         // loop:

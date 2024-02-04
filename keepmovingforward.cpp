@@ -1,11 +1,17 @@
 #include "keepmovingforward.h"
 
+#if WINDOWS
+#include "win32.cpp"
+#endif
+
 #include "keepmovingforward_memory.cpp"
 #include "keepmovingforward_string.cpp"
 #include "keepmovingforward_camera.cpp"
 #include "keepmovingforward_entity.cpp"
 #include "keepmovingforward_asset.cpp"
 #include "render/keepmovingforward_renderer.cpp"
+
+
 
 const f32 GRAVITY = 49.f;
 
@@ -620,7 +626,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         // gameState->bmpTest = DebugLoadBMP(memory->DebugPlatformReadFile, "test/tile.bmp");
         gameState->worldArena = ArenaAlloc((void *)((u8 *)(memory->PersistentStorageMemory) + sizeof(GameState)),
                                            memory->PersistentStorageSize - sizeof(GameState));
-        ModelOutput output = AssimpDebugLoadModel(gameState->worldArena, Str8C("scene.gltf"));
+        ModelOutput output = AssimpDebugLoadModel(gameState->worldArena, Str8Lit("dragon/scene.gltf"));
         openGL->group.model = output.model;
 
         // DebugLoadGLTF(gameState->worldArena, memory->DebugPlatformReadFile, memory->DebugPlatformFreeFile,
@@ -635,7 +641,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         // stbi_set_flip_vertically_on_load(true);
 
         // TODO: pushing textures needs to be fixed. these also need to be freed when loaded.
-        u8 *data = (u8 *)stbi_load("MI_M_B_44_Qishilong_body02_Inst_diffuse.png", &width, &height, &nChannels, 0);
+        u8 *data = (u8 *)stbi_load("dragon/MI_M_B_44_Qishilong_body02_Inst_diffuse.png", &width, &height, &nChannels, 0);
 
         Texture texture;
         texture.contents = data;
@@ -644,14 +650,14 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         PushTexture(&openGL->group, texture);
 
         u8 *data2 =
-            (u8 *)stbi_load("MI_M_B_44_Qishilong_body02_2_Inst_diffuse.png", &width, &height, &nChannels, 0);
+            (u8 *)stbi_load("dragon/MI_M_B_44_Qishilong_body02_2_Inst_diffuse.png", &width, &height, &nChannels, 0);
         Texture texture2;
         texture2.contents = data2;
         texture2.width = width;
         texture2.height = height;
         PushTexture(&openGL->group, texture2);
 
-        u8 *data3 = (u8 *)stbi_load("MI_M_B_44_Qishilong_body02_Inst_normal.png", &width, &height, &nChannels, 0);
+        u8 *data3 = (u8 *)stbi_load("dragon/MI_M_B_44_Qishilong_body02_Inst_normal.png", &width, &height, &nChannels, 0);
         Texture texture3;
         texture3.contents = data3;
         texture3.width = width;
@@ -659,7 +665,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         PushTexture(&openGL->group, texture3);
 
         u8 *data4 =
-            (u8 *)stbi_load("MI_M_B_44_Qishilong_body02_2_Inst_normal.png", &width, &height, &nChannels, 0);
+            (u8 *)stbi_load("dragon/MI_M_B_44_Qishilong_body02_2_Inst_normal.png", &width, &height, &nChannels, 0);
         Texture texture4;
         texture4.contents = data4;
         texture4.width = width;

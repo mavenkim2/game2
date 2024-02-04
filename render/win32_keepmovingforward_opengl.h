@@ -216,6 +216,14 @@ struct OpenGLShader
     GLuint id;
     GLuint positionId;
     GLuint normalId;
+
+    string globalsFile;
+    string vsFile;
+    string fsFile;
+
+    u64 globalsWriteTime;
+    u64 vsWriteTime;
+    u64 fsWriteTime;
 };
 
 struct CubeShader
@@ -282,6 +290,7 @@ struct OpenGL
     OpenGLFunction(glValidateProgram);
     OpenGLFunction(glVertexAttribIPointer);
     OpenGLFunction(glUniform1i);
+    OpenGLFunction(glDeleteProgram);
 
     RenderGroup group;
 };

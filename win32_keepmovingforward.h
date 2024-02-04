@@ -25,7 +25,7 @@ struct Win32WindowDimension
 struct Win32ReplayState
 {
     HANDLE fileHandle;
-    String8 filename;
+    string filename;
 
     void *fileMemory;
     u64 totalSize;
@@ -43,7 +43,7 @@ struct Win32State
     Win32ReplayState replayStates[4];
     void *memory;
 
-    String8 binaryDirectory;
+    string binaryDirectory;
 };
 
 // NOTE: if invalid, GameUpdateAndRender = 0

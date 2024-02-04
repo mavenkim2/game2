@@ -4,6 +4,7 @@
 #include "keepmovingforward_camera.h"
 #include "keepmovingforward_memory.h"
 #include "keepmovingforward_string.h"
+#include "platform.h"
 #include "keepmovingforward_asset.h"
 #include "render/keepmovingforward_renderer.h"
 
@@ -13,16 +14,6 @@
 #include <windows.h>
 #include <gl/GL.h>
 #include "render/win32_keepmovingforward_opengl.h"
-
-inline void Printf(char *fmt, ...)
-{
-    va_list va;
-    va_start(va, fmt);
-    char printBuffer[1024];
-    stbsp_vsprintf(printBuffer, fmt, va);
-    va_end(va);
-    OutputDebugStringA(printBuffer);
-}
 
 #endif
 

@@ -118,122 +118,51 @@ internal void CompileCubeProgram(OpenGL *openGL)
 
 internal void CompileModelProgram(OpenGL *openGL)
 {
-    // char *vertexCode = R"(
-    //                                 in V3 pos;
-    //                                 in V3 n;
-    //                                 in V2 uv;
-    //
-    //                                 out V4 outPos;
-    //                                 out V3 outN;
-    //                                 out V2 outUv;
-    //
-    //                                 uniform mat4 transform;
-    //
-    //                                 uniform mat4
-    //
-    //                                 void main()
-    //                                 {
-    //                                     gl_Position = transform * V4(pos, 1.0);
-    //                                     outPos = V4(pos, 1.0f);
-    //                                     outN = n;
-    //                                     outUv = uv;
-    //                                 })";
+    string globalFilename = Str8Lit("shaders/global.glsl");
+    string vsFilename = Str8Lit("shaders/model.vs");
+    string fsFilename = Str8Lit("shaders/model.fs");
 
-    char *vertexCode = R"(
-                                    in V3 pos;
-                                    in V3 n;
-                                    in V2 uv;
-                                    in V3 tangent;
-                                    in V3 bitangent;
-                                    in uvec4 boneIds;
-                                    in vec4 boneWeights;
-
-                                    out V2 outUv;
-                                    out V3 tangentLightDir;
-                                    out V3 tangentViewPos;
-                                    out V3 tangentFragPos;
-                                    out V3 outN;
-
-                                    const int MAX_BONES = 200;
-
-                                    uniform Mat4 transform; 
-                                    uniform Mat4 boneTransforms[MAX_BONES];
-
-                                    uniform Mat4 model;
-                                    uniform V3 lightPos; 
-                                    uniform V3 viewPos;
-
-
-                                    void main()
-                                    { 
-                                        Mat4 boneTransform = boneTransforms[boneIds[0]] * boneWeights[0];
-                                        boneTransform     += boneTransforms[boneIds[1]] * boneWeights[1];
-                                        boneTransform     += boneTransforms[boneIds[2]] * boneWeights[2];
-                                        boneTransform     += boneTransforms[boneIds[3]] * boneWeights[3];
-
-                                        V3 localPos = (model * V4(pos, 1.0)).xyz;
-
-                                        gl_Position = transform * boneTransform * V4(pos, 1.0);
-
-                                        
-                                        mat3 normalMatrix = transpose(inverse(mat3(model)));
-                                        V3 t = normalize(normalMatrix * tangent);
-                                        V3 n = normalize(normalMatrix * n);
-                                        t = normalize(t - dot(t, n) * n);
-                                        V3 b = cross(n, t);
-                                        // Inverse of orthonormal basis is just the transpose
-                                        mat3 tbn = transpose(mat3(t, b, n));
-
-                                        tangentLightDir = tbn * V3(0, 0, 1);
-                                        tangentViewPos = tbn * viewPos;
-                                        tangentFragPos = tbn * localPos;
-                                        outUv = uv;
-                                    })";
-
-    char *fragmentCode = R"(
-                                    uniform sampler2D diffuseMap;
-                                    uniform sampler2D normalMap;
-                                    
-                                    in V2 outUv;
-                                    in V3 tangentLightDir;
-                                    in V3 tangentViewPos;
-                                    in V3 tangentFragPos;
-
-                                    in V3 outN;
-
-                                    out V4 FragColor;
-                                    
-                                    void main()
-                                    {
-                                        V3 normal = normalize(texture(normalMap, outUv).rgb * 2 - 1);
-
-                                        V3 color = texture(diffuseMap, outUv).rgb;
-
-                                        // Direction Phong Light
-                                        V3 lightDir = normalize(tangentLightDir);
-
-                                        //AMBIENT
-                                        V3 ambient = 0.1f * color;
-                                        //DIFFUSE
-                                        f32 diffuseCosAngle = max(dot(normal, lightDir), 0.f);
-                                        V3 diffuse = diffuseCosAngle * color;
-                                        //SPECULAR
-                                        V3 toViewPosition = normalize(tangentViewPos - tangentFragPos);
-                                        V3 reflectVector = -lightDir + 2 * dot(normal, lightDir) * normal;
-                                        f32 specularStrength = pow(max(dot(reflectVector, toViewPosition), 0.f), 64);
-
-                                        f32 spec = specularStrength;
-                                        V3 specular = spec * color;
-
-                                        FragColor = V4(ambient + diffuse + specular, 1.0);
-                                    })";
+    string globals = ReadEntireFile(globalFilename);
+    string vs      = ReadEntireFile(vsFilename);
+    string fs      = ReadEntireFile(fsFilename);
 
     ModelShader *modelShader  = &openGL->modelShader;
-    modelShader->base         = OpenGLCreateProgram(openGL, globalHeaderCode, vertexCode, fragmentCode);
+    modelShader->base         = OpenGLCreateProgram(openGL, (char *)globals.str, (char *)vs.str, (char *)fs.str);
     modelShader->uvId         = openGL->glGetAttribLocation(modelShader->base.id, "uv");
     modelShader->boneIdId     = openGL->glGetAttribLocation(modelShader->base.id, "boneIds");
     modelShader->boneWeightId = openGL->glGetAttribLocation(modelShader->base.id, "boneWeights");
     modelShader->tangentId    = openGL->glGetAttribLocation(modelShader->base.id, "tangent");
+
+    modelShader->base.globalsFile      = globalFilename;
+    modelShader->base.vsFile           = vsFilename;
+    modelShader->base.fsFile           = fsFilename;
+    modelShader->base.globalsWriteTime = GetLastWriteTime(globalFilename);
+    modelShader->base.vsWriteTime      = GetLastWriteTime(vsFilename);
+    modelShader->base.fsWriteTime      = GetLastWriteTime(fsFilename);
+
+    FreeFileMemory(globals.str);
+    FreeFileMemory(vs.str);
+    FreeFileMemory(fs.str);
+}
+
+internal void ReloadModelProgram(OpenGL *openGL)
+{
+    // HOT RELOAD!
+    if (openGL->modelShader.base.id)
+    {
+        openGL->glDeleteProgram(openGL->modelShader.base.id);
+    }
+    CompileModelProgram(openGL);
+}
+
+internal void HotloadShaders(OpenGL *openGL, OpenGLShader *shader)
+{
+    if (GetLastWriteTime(shader->globalsFile) != shader->globalsWriteTime ||
+        GetLastWriteTime(shader->vsFile) != shader->vsWriteTime ||
+        GetLastWriteTime(shader->fsFile) != shader->fsWriteTime)
+    {
+        ReloadModelProgram(openGL);
+    }
 }
 
 internal void OpenGLBindTexture(OpenGL *openGL, Texture *texture, i32 i)
@@ -325,6 +254,7 @@ internal OpenGL Win32InitOpenGL(HWND window)
         Win32GetOpenGLFunction(glValidateProgram);
         Win32GetOpenGLFunction(glVertexAttribIPointer);
         Win32GetOpenGLFunction(glUniform1i);
+        Win32GetOpenGLFunction(glDeleteProgram);
     }
     else
     {
@@ -470,7 +400,7 @@ internal void OpenGLEndFrame(OpenGL *openGL, HDC deviceContext, int clientWidth,
 
             Mat4 translate = Translate4(V3{0, 0, 5});
             Mat4 scale     = Scale4(V3{0.5f, 0.5f, 0.5f});
-            Mat4 rotate    = Rotate4(MakeV3(1, 0, 0), PI/2);
+            Mat4 rotate    = Rotate4(MakeV3(1, 0, 0), PI / 2);
 
             Mat4 modelMat           = translate * rotate * scale;
             Mat4 newTransform       = openGL->transform * modelMat;
@@ -512,6 +442,9 @@ internal void OpenGLEndFrame(OpenGL *openGL, HDC deviceContext, int clientWidth,
         openGL->glDisableVertexAttribArray(tangentId);
         openGL->glDisableVertexAttribArray(boneIdId);
         openGL->glDisableVertexAttribArray(boneWeightId);
+
+        // HOT RELOAD! this probably shouldnt' be here
+        HotloadShaders(openGL, &openGL->modelShader.base);
     }
 
     // DOUBLE BUFFER SWAP

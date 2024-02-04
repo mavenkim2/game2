@@ -27,17 +27,17 @@ internal void PushCube(RenderGroup *group, V3 pos, V3 radius, V4 color)
     V3 p6 = {maxX, maxY, maxZ};
     V3 p7 = {minX, maxY, maxZ};
 
-    // TODO: if things aren't axis aligned, this gets tricky, or have to compute normal in PushQuad
+    //NOTE: winding must be counterclockwise if it's a front face
     // -X
     PushQuad(group, p3, p0, p4, p7, V3{-1, 0, 0}, color);
     // +X
-    PushQuad(group, p2, p1, p5, p6, V3{1, 0, 0}, color);
+    PushQuad(group, p1, p2, p6, p5, V3{1, 0, 0}, color);
     // -Y
     PushQuad(group, p0, p1, p5, p4, V3{0, -1, 0}, color);
     // +Y
-    PushQuad(group, p3, p2, p6, p7, V3{0, 1, 0}, color);
+    PushQuad(group, p2, p3, p7, p6, V3{0, 1, 0}, color);
     // -Z
-    PushQuad(group, p0, p1, p2, p3, V3{0, 0, -1}, color);
+    PushQuad(group, p3, p2, p1, p0, V3{0, 0, -1}, color);
     // +Z
     PushQuad(group, p4, p5, p6, p7, V3{0, 0, 1}, color);
 }

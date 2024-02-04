@@ -39,12 +39,12 @@ struct GameMemory
     u64 TransientStorageSize;
     void *TransientStorageMemory;
 
-#if INTERNAL
+    PlatformToggleCursorFunctionType *PlatformToggleCursor;
+#if 0
     DebugPlatformFreeFileFunctionType *DebugPlatformFreeFile;
     DebugPlatformReadFileFunctionType *DebugPlatformReadFile;
     DebugPlatformWriteFileFunctionType *DebugPlatformWriteFile;
     DebugPlatformGetResolutionFunctionType *DebugPlatformGetResolution;
-    PlatformToggleCursorFunctionType *PlatformToggleCursor;
     DebugPlatformHandle handle;
 #endif
 };
