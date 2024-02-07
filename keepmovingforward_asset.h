@@ -42,13 +42,11 @@ enum TextureType
 struct Texture
 {
     u32 id;
-    b32 loaded;
-    u8 *contents;
-
     u32 width;
     u32 height;
-
     u32 type;
+    b32 loaded;
+    u8 *contents;
 };
 
 struct BoneInfo
@@ -177,8 +175,9 @@ struct Mesh
     GLuint vbo;
     GLuint ebo;
 
-    Texture textures[16];
-    u8 textureCount;
+    ArrayDef(Texture) textures;
+    // Texture textures[16];
+    // u8 textureCount;
 };
 
 struct Model

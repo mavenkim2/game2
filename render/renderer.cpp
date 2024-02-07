@@ -92,7 +92,7 @@
 
 internal void PushTexture(Texture texture, Mesh *mesh)
 {
-    mesh->textures[mesh->textureCount++] = texture;
+    ArrayPush(&mesh->textures, texture);
 }
 
 internal void PushMesh(RenderState *state, Mesh *mesh, Mat4 *finalTransforms = 0)

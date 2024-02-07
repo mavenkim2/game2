@@ -1,4 +1,3 @@
-#ifndef KEEPMOVINGFORWARD_COMMON_H
 #include <stdint.h>
 
 #if _MSC_VER
@@ -34,11 +33,16 @@ typedef uint16_t u16;
 typedef uint32_t u32;
 typedef uint64_t u64;
 
-typedef float f32; 
+typedef float f32;
 typedef double f64;
 
 typedef i32 b32;
 typedef i64 b64;
+
+// clang-format off
+//
+// MACROS
+//
 
 #define ArrayLength(array) sizeof(array) / sizeof((array)[0])
 #define kilobytes(value) ((value)*1024LL)
@@ -61,16 +65,21 @@ typedef i64 b64;
 #define MemoryCopy memcpy
 #define MemorySet memset
 #define MemoryZero(ptr, size) MemorySet((ptr), 0, (size))
-// #define RESX 640
-// #define RESY 360
+
+#define ArrayInit(arena, array, type, _cap) \
+    do { array.cap = _cap; array.items = PushArray(arena, type, _cap); array.count; } while (0)
 
 #define ArrayDef(type) struct Array_##type { type* items; u32 count; u32 cap; }
-
 #define ArrayPush(array, item) (Assert((array)->count < (array)->cap), (array)->items[(array)->count++] = item) 
 
+#define DO_STRING_JOIN(arg1, arg2) arg1 ## arg2
+#define STRING_JOIN(arg1, arg2) DO_STRING_JOIN(arg1, arg2)
 #define foreach(array, ptr) \
-    for (u32 _i = 0; _i < (array)->count; _i++) \
-        if ((ptr = (array)->items + _i) != 0)
+    for (u32 STRING_JOIN(i, __LINE__) = 0; STRING_JOIN(i, __LINE__) < (array)->count; STRING_JOIN(i, __LINE__)++) \
+        if ((ptr = (array)->items + STRING_JOIN(i, __LINE__)) != 0)
 
-#define KEEPMOVINGFORWARD_COMMON_H
-#endif
+#define foreach_index(array, ptr, index) \
+    for (u32 index = 0; index < (array)->count; index++) \
+        if ((ptr = (array)->items + index) != 0)
+
+// clang-format on

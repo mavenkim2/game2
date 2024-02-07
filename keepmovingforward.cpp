@@ -642,14 +642,20 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         int width, height, nChannels;
         // stbi_set_flip_vertically_on_load(true);
 
-        // TODO: pushing textures needs to be fixed. these also need to be freed when loaded.
+        // TODO: it's annoying that for every array I have to manually initialize the memory. maybe use
+        // stb arrays
+        ArrayInit(gameState->worldArena, gameState->model.meshes[0].textures, Texture, 2);
+        ArrayInit(gameState->worldArena, gameState->model.meshes[1].textures, Texture, 2);
+
         void *data =
             stbi_load("data/dragon/MI_M_B_44_Qishilong_body02_Inst_diffuse.png", &width, &height, &nChannels, 0);
         Texture texture;
         texture.id       = 0;
         texture.width    = width;
         texture.height   = height;
+        texture.type     = TextureType_Diffuse;
         texture.contents = (u8 *)data;
+
         PushTexture(texture, &gameState->model.meshes[0]);
 
         void *data2 =
@@ -658,6 +664,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         texture2.id       = 0;
         texture2.width    = width;
         texture2.height   = height;
+        texture2.type     = TextureType_Normal;
         texture2.contents = (u8 *)data2;
         PushTexture(texture2, &gameState->model.meshes[0]);
 
@@ -667,6 +674,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         texture3.id       = 0;
         texture3.width    = width;
         texture3.height   = height;
+        texture3.type     = TextureType_Diffuse;
         texture3.contents = (u8 *)data3;
         PushTexture(texture3, &gameState->model.meshes[1]);
 
@@ -676,6 +684,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         texture4.id       = 0;
         texture4.width    = width;
         texture4.height   = height;
+        texture4.type     = TextureType_Normal;
         texture4.contents = (u8 *)data4;
         PushTexture(texture4, &gameState->model.meshes[1]);
 
@@ -1023,8 +1032,6 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         // ANIMATION
         PlayCurrentAnimation(&gameState->animPlayer, input->dT, gameState->tforms);
 
-        // TODO: right now it's really weird that the dragon has two meshes, which share the same skeleton
-        // hierarchy but also not really? sigh guess i'm messing a renderer. no pbr
         SkinModelToAnimation(&gameState->animPlayer, &gameState->model, gameState->tforms,
                              gameState->meshNodeHierarchy, &gameState->finalTransforms);
 

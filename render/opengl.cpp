@@ -360,8 +360,8 @@ internal void OpenGLEndFrame(RenderState *renderState, HDC deviceContext, int cl
         GLuint boneWeightId = openGL->modelShader.boneWeightId;
         GLuint tangentId    = openGL->modelShader.tangentId;
         u32 baseBone        = 0;
-        RenderCommand *command;
 
+        RenderCommand *command;
         foreach (&renderState->commands, command)
         {
             Mesh *mesh         = command->mesh;
@@ -370,21 +370,34 @@ internal void OpenGLEndFrame(RenderState *renderState, HDC deviceContext, int cl
             {
                 LoadMesh(mesh);
             }
-            // TODO: hardcode
-            if (!mesh->textures[0].id)
-            {
-                LoadTexture(&mesh->textures[0]);
-            }
-            if (!mesh->textures[1].id)
-            {
-                LoadTexture(&mesh->textures[1]);
-            }
 
-            openGL->glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_2D, mesh->textures[0].id);
-
-            openGL->glActiveTexture(GL_TEXTURE0 + 1);
-            glBindTexture(GL_TEXTURE_2D, mesh->textures[1].id);
+            Texture *texture;
+            foreach (&mesh->textures, texture)
+            {
+                if (!texture->id)
+                {
+                    LoadTexture(texture);
+                }
+                switch (texture->type)
+                {
+                    case TextureType_Diffuse:
+                    {
+                        openGL->glActiveTexture(GL_TEXTURE0);
+                        glBindTexture(GL_TEXTURE_2D, texture->id);
+                        break;
+                    }
+                    case TextureType_Normal:
+                    {
+                        openGL->glActiveTexture(GL_TEXTURE0 + 1);
+                        glBindTexture(GL_TEXTURE_2D, texture->id);
+                        break;
+                    }
+                    default:
+                    {
+                        Assert(!"Texture type not supported in renderer.");
+                    }
+                }
+            }
 
             openGL->glActiveTexture(GL_TEXTURE0);
 
