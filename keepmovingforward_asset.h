@@ -43,6 +43,7 @@ struct Texture
 {
     u32 id;
     b32 loaded;
+    u8 *contents;
 
     u32 width;
     u32 height;
@@ -54,7 +55,7 @@ struct BoneInfo
 {
     string name;
     u32 boneId;
-    Mat4 convertToBoneSpaceMatrix; 
+    Mat4 convertToBoneSpaceMatrix;
 };
 
 struct VertexBoneInfoPiece
@@ -176,7 +177,7 @@ struct Mesh
     GLuint vbo;
     GLuint ebo;
 
-    Texture* textures[16];
+    Texture textures[16];
     u8 textureCount;
 };
 
@@ -223,4 +224,5 @@ struct TGAResult
 };
 
 internal void SkinMeshToAnimation(AnimationPlayer *player, Mesh *mesh, const AnimationTransform *transforms,
-                                  MeshNodeInfoArray *infoArray, Mat4 globalInverseTransform, Mat4 *finalTransforms);
+                                  MeshNodeInfoArray *infoArray, Mat4 globalInverseTransform,
+                                  Mat4 *finalTransforms);

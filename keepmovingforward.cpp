@@ -625,7 +625,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         gameState->worldArena = ArenaAlloc((void *)((u8 *)(memory->PersistentStorageMemory) + sizeof(GameState)),
                                            memory->PersistentStorageSize - sizeof(GameState));
         ModelOutput output    = AssimpDebugLoadModel(gameState->worldArena, Str8Lit("data/dragon/scene.gltf"));
-        gameState->model = output.model;
+        gameState->model      = output.model;
 
         // ArrayPush(&renderState->commands, output.model.meshes[0]);
         // ArrayPush(&renderState->commands, output.model.meshes[0]);
@@ -646,34 +646,38 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         void *data =
             stbi_load("data/dragon/MI_M_B_44_Qishilong_body02_Inst_diffuse.png", &width, &height, &nChannels, 0);
         Texture texture;
-        texture.width  = width;
-        texture.height = height;
-        PushTexture(&texture, &gameState->model.meshes[0], data);
-        stbi_image_free(data);
+        texture.id       = 0;
+        texture.width    = width;
+        texture.height   = height;
+        texture.contents = (u8 *)data;
+        PushTexture(texture, &gameState->model.meshes[0]);
 
-        data = stbi_load("data/dragon/MI_M_B_44_Qishilong_body02_2_Inst_diffuse.png", &width, &height,
-                                &nChannels, 0);
+        void *data2 =
+            stbi_load("data/dragon/MI_M_B_44_Qishilong_body02_Inst_normal.png", &width, &height, &nChannels, 0);
         Texture texture2;
+        texture2.id       = 0;
         texture2.width    = width;
         texture2.height   = height;
-        PushTexture(&texture2, &gameState->model.meshes[0], data);
-        stbi_image_free(data);
+        texture2.contents = (u8 *)data2;
+        PushTexture(texture2, &gameState->model.meshes[0]);
 
-        data = stbi_load("data/dragon/MI_M_B_44_Qishilong_body02_Inst_normal.png", &width, &height,
-                                &nChannels, 0);
+        void *data3 =
+            stbi_load("data/dragon/MI_M_B_44_Qishilong_body02_2_Inst_diffuse.png", &width, &height, &nChannels, 0);
         Texture texture3;
+        texture3.id       = 0;
         texture3.width    = width;
         texture3.height   = height;
-        PushTexture(&texture3, &gameState->model.meshes[1], data);
-        stbi_image_free(data);
+        texture3.contents = (u8 *)data3;
+        PushTexture(texture3, &gameState->model.meshes[1]);
 
-        data = stbi_load("data/dragon/MI_M_B_44_Qishilong_body02_2_Inst_normal.png", &width, &height,
-                                &nChannels, 0);
+        void *data4 =
+            stbi_load("data/dragon/MI_M_B_44_Qishilong_body02_2_Inst_normal.png", &width, &height, &nChannels, 0);
         Texture texture4;
+        texture4.id       = 0;
         texture4.width    = width;
         texture4.height   = height;
-        PushTexture(&texture4, &gameState->model.meshes[1], data);
-        stbi_image_free(data);
+        texture4.contents = (u8 *)data4;
+        PushTexture(texture4, &gameState->model.meshes[1]);
 
         gameState->level      = PushStruct(gameState->worldArena, Level);
         gameState->cameraMode = CameraMode_Player;
@@ -698,9 +702,9 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
         renderState->camera.position = gameState->player.pos - V3{0, 10, 0};
         // openGL->camera.position = {0, 0, 5};
-        renderState->camera.pitch  = -PI / 4;
-        renderState->camera.yaw    = PI / 2;
-        memory->isInitialized = true;
+        renderState->camera.pitch = -PI / 4;
+        renderState->camera.yaw   = PI / 2;
+        memory->isInitialized     = true;
 
         AnimationPlayer *aPlayer = &gameState->animPlayer;
         StartLoopedAnimation(aPlayer, output.animation);
@@ -1008,27 +1012,25 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
     // Render
     {
+        renderState->commands.count = 0;
         // for (Entity *entity = 0; IncrementEntity(level, &entity);)
         // {
         //     PushCube(&openGL->group, entity->pos, entity->size, entity->color);
         // }
         // PushCube(&openGL->group, player->pos, player->size, player->color);
         // PushModel();
+
+        // ANIMATION
+        PlayCurrentAnimation(&gameState->animPlayer, input->dT, gameState->tforms);
+
+        // TODO: right now it's really weird that the dragon has two meshes, which share the same skeleton
+        // hierarchy but also not really? sigh guess i'm messing a renderer. no pbr
+        SkinModelToAnimation(&gameState->animPlayer, &gameState->model, gameState->tforms,
+                             gameState->meshNodeHierarchy, &gameState->finalTransforms);
+
+        // TODO: are the final transforms the same for each node?
+        PushMesh(renderState, &gameState->model.meshes[0], gameState->finalTransforms);
+        PushMesh(renderState, &gameState->model.meshes[1], gameState->finalTransforms);
     }
-
-    // ANIMATION
-    PlayCurrentAnimation(&gameState->animPlayer, input->dT, gameState->tforms);
-
-    // TODO: right now it's really weird that the dragon has two meshes, which share the same skeleton hierarchy 
-    // but also not really?
-    // sigh guess i'm messing a renderer. no pbr
-    SkinModelToAnimation(&gameState->animPlayer, &gameState->model, gameState->tforms,
-                         gameState->meshNodeHierarchy, &gameState->finalTransforms);
-
-    // TODO: are the final transforms the same for each node?
-    PushMesh(renderState, &gameState->model.meshes[0], gameState->finalTransforms);
-    PushMesh(renderState, &gameState->model.meshes[1], gameState->finalTransforms);
-    // openGL->group.finalTransforms = gameState->finalTransforms;
-
     // GameOutputSound(soundBuffer, gameState->toneHz);
 }

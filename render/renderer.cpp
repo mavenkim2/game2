@@ -90,38 +90,13 @@
 //     group->quadCount += 1;
 // }
 
-internal void PushTexture(Texture *texture, Mesh* mesh, void *contents)
+internal void PushTexture(Texture texture, Mesh *mesh)
 {
-    texture->loaded = true;
-
-    glGenTextures(1, &texture->id);
-    glBindTexture(GL_TEXTURE_2D, texture->id);
-
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, texture->width, texture->height, 0, GL_RGB, GL_UNSIGNED_BYTE,
-                 contents);
-
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-    glBindTexture(GL_TEXTURE_2D, 0);
-
     mesh->textures[mesh->textureCount++] = texture;
 }
 
 internal void PushMesh(RenderState *state, Mesh *mesh, Mat4 *finalTransforms = 0)
 {
-    openGL->glGenBuffers(1, &mesh->vbo);
-    openGL->glGenBuffers(1, &mesh->ebo);
-
-    openGL->glBindBuffer(GL_ARRAY_BUFFER, mesh->vbo);
-    openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(mesh->vertices[0]) * mesh->vertexCount, mesh->vertices,
-                         GL_STREAM_DRAW);
-
-    openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh->ebo);
-    openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(mesh->indices[0]) * mesh->indexCount, mesh->indices,
-                         GL_STREAM_DRAW);
-
     RenderCommand command;
     command.mesh      = mesh;
     command.transform = Identity();
@@ -129,6 +104,7 @@ internal void PushMesh(RenderState *state, Mesh *mesh, Mat4 *finalTransforms = 0
     {
         command.finalBoneTransforms = finalTransforms;
     }
+    ArrayPush(&state->commands, command);
 }
 // internal void PushModel(Model *model)
 // {

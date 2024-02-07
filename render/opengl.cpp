@@ -56,6 +56,45 @@ internal OpenGLShader OpenGLCreateProgram(char *defines, char *vertexCode, char 
     return result;
 }
 
+internal void LoadTexture(Texture *texture)
+{
+    if (!texture->id)
+    {
+        glGenTextures(1, &texture->id);
+        glBindTexture(GL_TEXTURE_2D, texture->id);
+
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, texture->width, texture->height, 0, GL_RGB, GL_UNSIGNED_BYTE,
+                     texture->contents);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        glBindTexture(GL_TEXTURE_2D, 0);
+
+        // TODO: Memory management
+        free(texture->contents);
+        texture->loaded = true;
+    }
+}
+
+internal void LoadMesh(Mesh *mesh)
+{
+    // NOTE: must be 0
+    if (!mesh->vbo)
+    {
+        openGL->glGenBuffers(1, &mesh->vbo);
+        openGL->glGenBuffers(1, &mesh->ebo);
+
+        openGL->glBindBuffer(GL_ARRAY_BUFFER, mesh->vbo);
+        openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(mesh->vertices[0]) * mesh->vertexCount, mesh->vertices,
+                             GL_STREAM_DRAW);
+
+        openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh->ebo);
+        openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(mesh->indices[0]) * mesh->indexCount, mesh->indices,
+                             GL_STREAM_DRAW);
+    }
+}
+
 internal void CompileCubeProgram()
 {
     char *vertexCode = R"(
@@ -313,13 +352,6 @@ internal void OpenGLEndFrame(RenderState *renderState, HDC deviceContext, int cl
     // RENDER MODEL
     {
         openGL->glUseProgram(openGL->modelShader.base.id);
-        // for (u32 i = 0; i < openGL->group.textureCount; i++)
-        // {
-        //     if (!openGL->group.textures[i].loaded)
-        //     {
-        //         OpenGLBindTexture(openGL, &openGL->group.textures[i], i);
-        //     }
-        // }
 
         GLuint positionId   = openGL->modelShader.base.positionId;
         GLuint normalId     = openGL->modelShader.base.normalId;
@@ -327,29 +359,41 @@ internal void OpenGLEndFrame(RenderState *renderState, HDC deviceContext, int cl
         GLuint boneIdId     = openGL->modelShader.boneIdId;
         GLuint boneWeightId = openGL->modelShader.boneWeightId;
         GLuint tangentId    = openGL->modelShader.tangentId;
-        // TODO: I don't think the buffer data should be bound every frame
-        u32 baseBone = 0;
+        u32 baseBone        = 0;
         RenderCommand *command;
-        foreach(&renderState->commands, command)
+
+        foreach (&renderState->commands, command)
         {
+            Mesh *mesh         = command->mesh;
+            Skeleton *skeleton = mesh->skeleton;
+            if (!mesh->vbo)
+            {
+                LoadMesh(mesh);
+            }
+            // TODO: hardcode
+            if (!mesh->textures[0].id)
+            {
+                LoadTexture(&mesh->textures[0]);
+            }
+            if (!mesh->textures[1].id)
+            {
+                LoadTexture(&mesh->textures[1]);
+            }
+
             openGL->glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_2D, command->mesh->textures[0]->id);
+            glBindTexture(GL_TEXTURE_2D, mesh->textures[0].id);
 
             openGL->glActiveTexture(GL_TEXTURE0 + 1);
-            glBindTexture(GL_TEXTURE_2D, command->mesh->textures[1]->id);
+            glBindTexture(GL_TEXTURE_2D, mesh->textures[1].id);
 
             openGL->glActiveTexture(GL_TEXTURE0);
 
-            Mesh *currentMesh  = command->mesh;
-            Skeleton *skeleton = currentMesh->skeleton;
-
-            openGL->glBindBuffer(GL_ARRAY_BUFFER, currentMesh->vbo);
-            openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(currentMesh->vertices[0]) * currentMesh->vertexCount,
-                                 currentMesh->vertices, GL_STREAM_DRAW);
-            openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, currentMesh->ebo);
-            openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER,
-                                 sizeof(currentMesh->indices[0]) * currentMesh->indexCount, currentMesh->indices,
+            openGL->glBindBuffer(GL_ARRAY_BUFFER, mesh->vbo);
+            openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(mesh->vertices[0]) * mesh->vertexCount, mesh->vertices,
                                  GL_STREAM_DRAW);
+            openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh->ebo);
+            openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(mesh->indices[0]) * mesh->indexCount,
+                                 mesh->indices, GL_STREAM_DRAW);
 
             openGL->glEnableVertexAttribArray(positionId);
             openGL->glVertexAttribPointer(positionId, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
@@ -392,7 +436,7 @@ internal void OpenGLEndFrame(RenderState *renderState, HDC deviceContext, int cl
                 GLint boneTformLocation =
                     openGL->glGetUniformLocation(openGL->modelShader.base.id, "boneTransforms");
                 openGL->glUniformMatrix4fv(boneTformLocation, skeleton->boneCount, GL_FALSE,
-                                           command->finalBoneTransforms[baseBone].elements[0]);
+                                           command->finalBoneTransforms->elements[0]);
             }
 
             GLint modelLoc = openGL->glGetUniformLocation(openGL->modelShader.base.id, "model");
@@ -413,7 +457,7 @@ internal void OpenGLEndFrame(RenderState *renderState, HDC deviceContext, int cl
             GLint nmapLoc = openGL->glGetUniformLocation(openGL->modelShader.base.id, "normalMap");
             openGL->glUniform1i(nmapLoc, 1);
 
-            glDrawElements(GL_TRIANGLES, currentMesh->indexCount, GL_UNSIGNED_INT, 0);
+            glDrawElements(GL_TRIANGLES, mesh->indexCount, GL_UNSIGNED_INT, 0);
 
             baseBone += skeleton->boneCount;
         }
