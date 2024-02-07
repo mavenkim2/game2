@@ -26,7 +26,7 @@ inline b32 IsEndOfFile(Iter *iter)
 inline u32 GetType(Iter iter)
 {
     string type = Str8(iter.cursor, 2);
-    u32 objType  = OBJ_Invalid;
+    u32 objType = OBJ_Invalid;
     if (type == Str8C("v "))
     {
         objType = OBJ_Vertex;
@@ -234,7 +234,7 @@ inline V3 CalculateTangents(const MeshVertex *vertex1, const MeshVertex *vertex2
     V2 deltaUv1 = vertex2->uv - vertex1->uv;
     V2 deltaUv2 = vertex3->uv - vertex1->uv;
 
-    f32 coef = 1 / (deltaUv1.u * deltaUv2.v - deltaUv2.u * deltaUv1.v);
+    f32 coef = 1.f / (deltaUv1.u * deltaUv2.v - deltaUv2.u * deltaUv1.v);
 
     V3 tangent = coef * (deltaUv2.v * edge1 - deltaUv1.v * edge2);
 
@@ -255,7 +255,7 @@ internal void LoadBones(Arena *arena, Skeleton *skeleton, aiMesh *mesh, u32 base
     {
         aiBone *bone = mesh->mBones[i];
         BoneInfo info;
-        string name                  = Str8((u8 *)bone->mName.data, bone->mName.length);
+        string name                   = Str8((u8 *)bone->mName.data, bone->mName.length);
         name                          = PushStr8Copy(arena, name);
         info.name                     = name;
         info.convertToBoneSpaceMatrix = ConvertAssimpMatrix4x4(bone->mOffsetMatrix);
@@ -347,12 +347,12 @@ internal LoadedMesh ProcessMesh(Arena *arena, aiMesh *mesh, const aiScene *scene
         MeshVertex *vertex3 = &vertices[face.mIndices[2]];
 
         // V3 tangent = CalculateTangents(vertex1, vertex2, vertex3);
-
-        // vertex1->tangent += tangent;
-        // vertex2->tangent += tangent;
-        // vertex3->tangent += tangent;
+        //
+        // vertex1->tangent += 2 * tangent;
+        // vertex2->tangent += 2 * tangent;
+        // vertex3->tangent += 2 * tangent;
     }
-#if 1
+#if 0
     aiVector3D result1 = mesh->mTangents[0];
     // aiVector3D result2 = mesh->mTangents[1];
     // aiVector3D result3 = mesh->mTangents[2];
@@ -379,13 +379,13 @@ internal void ProcessNode(Arena *arena, LoadedModel *model, aiNode *node, const 
 {
     u32 index                   = nodeArray->count++;
     MeshNodeInfo *nodeInfo      = &nodeArray->info[index];
-    string name                = Str8((u8 *)node->mName.data, node->mName.length);
+    string name                 = Str8((u8 *)node->mName.data, node->mName.length);
     name                        = PushStr8Copy(arena, name);
     nodeInfo->name              = name;
     nodeInfo->transformToParent = ConvertAssimpMatrix4x4(node->mTransformation);
     if (node->mParent)
     {
-        string parentName   = Str8((u8 *)node->mParent->mName.data, node->mParent->mName.length);
+        string parentName    = Str8((u8 *)node->mParent->mName.data, node->mParent->mName.length);
         parentName           = PushStr8Copy(arena, parentName);
         nodeInfo->parentName = parentName;
         nodeInfo->hasParent  = true;
@@ -468,7 +468,7 @@ internal void ProcessAnimations(Arena *arena, const aiScene *scene, KeyframedAni
     {
         BoneChannel boneChannel;
         aiNodeAnim *channel = animation->mChannels[i];
-        string name        = Str8((u8 *)channel->mNodeName.data, channel->mNodeName.length);
+        string name         = Str8((u8 *)channel->mNodeName.data, channel->mNodeName.length);
         name                = PushStr8Copy(arena, name);
 
         boneChannel.name = name;
@@ -701,7 +701,7 @@ internal Mat4 FindNodeMatrix(MeshNodeInfoArray *infoArray, string name)
     return result;
 }
 
-internal MeshNodeInfo* FindNode(MeshNodeInfoArray *infoArray, string name)
+internal MeshNodeInfo *FindNode(MeshNodeInfoArray *infoArray, string name)
 {
     MeshNodeInfo *node = 0;
     for (u32 i = 0; i < infoArray->count; i++)
@@ -773,25 +773,6 @@ internal void SkinMeshToAnimation(AnimationPlayer *player, Mesh *mesh, const Ani
         else
         {
             lerpedMatrix = ConvertToMatrix(&transforms[animationId]);
-#if 0
-            const AnimationTransform *transform = &transforms[animationId];
-            char printBuffer[256];
-            stbsp_snprintf(printBuffer, sizeof(printBuffer), "%f %f %f \n%f %f %f %f\n%f %f %f %S\n\n",
-                           transform->translation.x, transform->translation.y, transform->translation.z,
-                           transform->rotation.x, transform->rotation.y, transform->rotation.z,
-                           transform->rotation.w, transform->scale.x, transform->scale.y, transform->scale.z, 
-                           node->name);
-            OutputDebugStringA(printBuffer);
-#endif
-#if 0
-            // char printBuffer[256];
-            stbsp_snprintf(printBuffer, sizeof(printBuffer),
-                           "%f %f %f %f\n%f %f %f %f\n%f %f %f %f\n%f %f %f %f\n\n", lerpedMatrix.a1,
-                           lerpedMatrix.b1, lerpedMatrix.c1, lerpedMatrix.d1, lerpedMatrix.a2, lerpedMatrix.b2,
-                           lerpedMatrix.c2, lerpedMatrix.d2, lerpedMatrix.a3, lerpedMatrix.b3, lerpedMatrix.c3,
-                           lerpedMatrix.d3, lerpedMatrix.a4, lerpedMatrix.b4, lerpedMatrix.c4, lerpedMatrix.d4);
-            OutputDebugStringA(printBuffer);
-#endif
         }
         i32 parentId = FindBoneId(skeleton, node->parentName);
 
@@ -799,8 +780,8 @@ internal void SkinMeshToAnimation(AnimationPlayer *player, Mesh *mesh, const Ani
         // THE PARENT DOESN'T EXIST IN THE SKELETON, BUT IN THE MESH NODE INFO IT HAS A TRANSFORM
         if (parentId == -1)
         {
-            Mat4 parentTransform    = Identity();
-            string parentName = node->parentName;
+            Mat4 parentTransform = Identity();
+            string parentName    = node->parentName;
             while (node->hasParent && parentName.size)
             {
                 parentTransform = parentTransform * FindNodeMatrix(infoArray, parentName);

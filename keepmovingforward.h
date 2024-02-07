@@ -1,21 +1,12 @@
-#ifndef KEEPMOVINGFORWARD_H
 #include "keepmovingforward_common.h"
 #include "keepmovingforward_math.h"
 #include "keepmovingforward_camera.h"
 #include "keepmovingforward_memory.h"
 #include "keepmovingforward_string.h"
 #include "platform.h"
+#include "render/opengl.h"
 #include "keepmovingforward_asset.h"
-#include "render/keepmovingforward_renderer.h"
-
-// TODO IMPORTANT GET RID OF THE WIN32 AND GL STUFF FROM HERE
-// also platform should definitely not need to depend on OPENGL function
-#if WINDOWS
-#include <windows.h>
-#include <gl/GL.h>
-#include "render/win32_keepmovingforward_opengl.h"
-
-#endif
+#include "render/renderer.h"
 
 #include "keepmovingforward_platform.h"
 #include "keepmovingforward_entity.h"
@@ -76,12 +67,13 @@ struct GameState
 
     CameraMode cameraMode;
 
-    // Animation
+    // TODO IMPORTANT: TEMPORARY, move transforms into animation related struct
+    // also mesh node hierarchy should use id's for parent name. 
+    // also need to use the same hierarchy for animation/skeleton/mesh
     AnimationPlayer animPlayer;
     AnimationTransform *tforms;
     MeshNodeInfoArray *meshNodeHierarchy;
     Mat4 *finalTransforms;
-};
 
-#define KEEPMOVINGFORWARD_H
-#endif
+    Model model;
+};

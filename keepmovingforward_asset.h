@@ -41,38 +41,20 @@ enum TextureType
 
 struct Texture
 {
+    u32 id;
     b32 loaded;
-    u8 *contents;
+
     u32 width;
     u32 height;
 
-    u32 id;
     u32 type;
 };
-// struct Texture {
-//     u32 id;
-//     u32 type;
-// };
-
-// struct BoneInfo
-// {
-//     string name;
-//     Mat4 convertToBoneSpaceMatrix; // TODO: I don't think this is the right name
-//
-//     BoneInfo *nextInHash;
-// };
-//
-// struct BoneInfoTable
-// {
-//     BoneInfo *slots;
-//     u32 count;
-// };
 
 struct BoneInfo
 {
     string name;
     u32 boneId;
-    Mat4 convertToBoneSpaceMatrix; // TODO: I don't think this is the right name
+    Mat4 convertToBoneSpaceMatrix; 
 };
 
 struct VertexBoneInfoPiece
@@ -90,7 +72,6 @@ struct VertexBoneInfo
 
 struct Skeleton
 {
-    // BoneInfoTable boneTable;
     BoneInfo *boneInfo;
     u32 boneCount;
 
@@ -137,15 +118,6 @@ struct MeshNodeInfoArray
     u32 cap;
 };
 
-// struct AnimationData {
-//     AnimationTransform transform;
-//     f32 time;
-// };
-// struct BoneChannel {
-//     string name; 
-//     AnimationData data[MAX_FRAMES];
-// };
-
 struct BoneChannel
 {
     string name;
@@ -182,8 +154,6 @@ struct LoadedMesh
     std::vector<MeshVertex> vertices;
     std::vector<u32> indices;
     Skeleton *skeleton;
-    // int VertexToSkeletonInfoMap[];
-    // std::vector<Texture> textures;
 
     u32 vertexCount;
     u32 indexCount;
@@ -202,6 +172,12 @@ struct Mesh
     u32 indexCount;
 
     Skeleton *skeleton;
+
+    GLuint vbo;
+    GLuint ebo;
+
+    Texture* textures[16];
+    u8 textureCount;
 };
 
 struct Model
@@ -248,4 +224,3 @@ struct TGAResult
 
 internal void SkinMeshToAnimation(AnimationPlayer *player, Mesh *mesh, const AnimationTransform *transforms,
                                   MeshNodeInfoArray *infoArray, Mat4 globalInverseTransform, Mat4 *finalTransforms);
-                                  // u32 vertexCount);

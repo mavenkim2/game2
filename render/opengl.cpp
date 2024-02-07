@@ -1,13 +1,12 @@
 global char *globalHeaderCode = R"(
-                                #version 330 core
-                                #define f32 float
-                                #define V2 vec2
-                                #define V3 vec3
-                                #define V4 vec4
-                                #define Mat4 mat4
-                                )";
+#version 330 core
+#define f32 float
+#define V2 vec2
+#define V3 vec3
+#define V4 vec4
+#define Mat4 mat4)";
 
-internal OpenGLShader OpenGLCreateProgram(OpenGL *openGL, char *defines, char *vertexCode, char *fragmentCode)
+internal OpenGLShader OpenGLCreateProgram(char *defines, char *vertexCode, char *fragmentCode)
 {
     GLuint vertexShaderId      = openGL->glCreateShader(GL_VERTEX_SHADER);
     GLchar *vertexShaderCode[] = {
@@ -42,7 +41,9 @@ internal OpenGLShader OpenGLCreateProgram(OpenGL *openGL, char *defines, char *v
         openGL->glGetShaderInfoLog(fragmentShaderId, 4096, 0, fragmentShaderErrors);
         openGL->glGetProgramInfoLog(shaderProgramId, 4096, 0, programErrors);
 
-        Assert(!"Shader failed");
+        Printf("Vertex shader errors: %s\n", vertexShaderErrors);
+        Printf("Fragment shader errors: %s\n", vertexShaderErrors);
+        Printf("Program errors: %s\n", vertexShaderErrors);
     }
 
     openGL->glDeleteShader(vertexShaderId);
@@ -55,7 +56,7 @@ internal OpenGLShader OpenGLCreateProgram(OpenGL *openGL, char *defines, char *v
     return result;
 }
 
-internal void CompileCubeProgram(OpenGL *openGL)
+internal void CompileCubeProgram()
 {
     char *vertexCode = R"(
                                     in V4 pos;
@@ -112,22 +113,22 @@ internal void CompileCubeProgram(OpenGL *openGL)
                                     })";
 
     CubeShader *cubeShader = &openGL->cubeShader;
-    cubeShader->base       = OpenGLCreateProgram(openGL, globalHeaderCode, vertexCode, fragmentCode);
+    cubeShader->base       = OpenGLCreateProgram(globalHeaderCode, vertexCode, fragmentCode);
     cubeShader->colorId    = openGL->glGetAttribLocation(cubeShader->base.id, "colorIn");
 }
 
-internal void CompileModelProgram(OpenGL *openGL)
+internal void CompileModelProgram()
 {
     string globalFilename = Str8Lit("src/shaders/global.glsl");
-    string vsFilename = Str8Lit("src/shaders/model.vs");
-    string fsFilename = Str8Lit("src/shaders/model.fs");
+    string vsFilename     = Str8Lit("src/shaders/model.vs");
+    string fsFilename     = Str8Lit("src/shaders/model.fs");
 
     string globals = ReadEntireFile(globalFilename);
     string vs      = ReadEntireFile(vsFilename);
     string fs      = ReadEntireFile(fsFilename);
 
     ModelShader *modelShader  = &openGL->modelShader;
-    modelShader->base         = OpenGLCreateProgram(openGL, (char *)globals.str, (char *)vs.str, (char *)fs.str);
+    modelShader->base         = OpenGLCreateProgram((char *)globals.str, (char *)vs.str, (char *)fs.str);
     modelShader->uvId         = openGL->glGetAttribLocation(modelShader->base.id, "uv");
     modelShader->boneIdId     = openGL->glGetAttribLocation(modelShader->base.id, "boneIds");
     modelShader->boneWeightId = openGL->glGetAttribLocation(modelShader->base.id, "boneWeights");
@@ -145,68 +146,45 @@ internal void CompileModelProgram(OpenGL *openGL)
     FreeFileMemory(fs.str);
 }
 
-internal void ReloadModelProgram(OpenGL *openGL)
+internal void ReloadModelProgram()
 {
     // HOT RELOAD!
     if (openGL->modelShader.base.id)
     {
         openGL->glDeleteProgram(openGL->modelShader.base.id);
     }
-    CompileModelProgram(openGL);
+    CompileModelProgram();
 }
 
-internal void HotloadShaders(OpenGL *openGL, OpenGLShader *shader)
+internal void HotloadShaders(OpenGLShader *shader)
 {
     if (GetLastWriteTime(shader->globalsFile) != shader->globalsWriteTime ||
         GetLastWriteTime(shader->vsFile) != shader->vsWriteTime ||
         GetLastWriteTime(shader->fsFile) != shader->fsWriteTime)
     {
-        ReloadModelProgram(openGL);
+        ReloadModelProgram();
     }
 }
 
-internal void OpenGLBindTexture(OpenGL *openGL, Texture *texture, i32 i)
+internal void OpenGLInit()
 {
-    glGenTextures(1, &openGL->textureIds[i]);
-    openGL->glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, openGL->textureIds[i]);
-
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, texture->width, texture->width, 0, GL_RGB, GL_UNSIGNED_BYTE,
-                 texture->contents);
-
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
-    glBindTexture(GL_TEXTURE_2D, 0);
-
-    texture->loaded = true;
-}
-
-internal void OpenGLInit(OpenGL *openGL)
-{
-    u32 maxQuadCountPerFrame     = 1 << 14;
-    openGL->group.maxVertexCount = maxQuadCountPerFrame * 4;
-    openGL->group.maxIndexCount  = maxQuadCountPerFrame * 6;
+    // u32 maxQuadCountPerFrame     = 1 << 14;
+    // openGL->group.maxVertexCount = maxQuadCountPerFrame * 4;
+    // openGL->group.maxIndexCount  = maxQuadCountPerFrame * 6;
 
     openGL->glGenVertexArrays(1, &openGL->vao);
     openGL->glBindVertexArray(openGL->vao);
 
     openGL->glGenBuffers(1, &openGL->vertexBufferId);
     openGL->glGenBuffers(1, &openGL->indexBufferId);
-    openGL->glGenBuffers(1, &openGL->modelVertexBufferId);
-    openGL->glGenBuffers(1, &openGL->modelIndexBufferId);
-    // openGL->glGenBuffers(1, &openGL->skeletonBufferId);
 
-    CompileCubeProgram(openGL);
-    CompileModelProgram(openGL);
+    CompileCubeProgram();
+    CompileModelProgram();
 }
 
-internal OpenGL Win32InitOpenGL(HWND window)
+internal void Win32InitOpenGL(HWND window)
 {
-    OpenGL openGL_ = {};
-    OpenGL *openGL = &openGL_;
-    HDC dc         = GetDC(window);
+    HDC dc = GetDC(window);
 
     PIXELFORMATDESCRIPTOR desiredPixelFormat = {};
     desiredPixelFormat.nSize                 = sizeof(desiredPixelFormat);
@@ -262,22 +240,20 @@ internal OpenGL Win32InitOpenGL(HWND window)
     }
     ReleaseDC(window, dc);
 
-    OpenGLInit(openGL);
-
-    return openGL_;
+    OpenGLInit();
 };
 
-internal void OpenGLBeginFrame(OpenGL *openGL, i32 width, i32 height)
+internal void OpenGLBeginFrame(i32 width, i32 height)
 {
-    openGL->width      = width;
-    openGL->height     = height;
-    RenderGroup *group = &openGL->group;
-    group->indexCount  = 0;
-    group->vertexCount = 0;
-    group->quadCount   = 0;
+    // openGL->width      = width;
+    // openGL->height     = height;
+    // RenderGroup *group = &openGL->group;
+    // group->indexCount  = 0;
+    // group->vertexCount = 0;
+    // group->quadCount   = 0;
 }
 
-internal void OpenGLEndFrame(OpenGL *openGL, HDC deviceContext, int clientWidth, int clientHeight)
+internal void OpenGLEndFrame(RenderState *renderState, HDC deviceContext, int clientWidth, int clientHeight)
 {
     // INITIALIZE
     {
@@ -294,56 +270,56 @@ internal void OpenGLEndFrame(OpenGL *openGL, HDC deviceContext, int clientWidth,
     }
 
     // RENDER CUBES
-    {
-        openGL->glUseProgram(openGL->cubeShader.base.id);
-        openGL->glBindVertexArray(openGL->vao);
-        openGL->glBindBuffer(GL_ARRAY_BUFFER, openGL->vertexBufferId);
-        openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(RenderVertex) * openGL->group.vertexCount,
-                             openGL->group.vertexArray, GL_STREAM_DRAW);
-
-        openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, openGL->indexBufferId);
-        openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(u16) * openGL->group.indexCount,
-                             openGL->group.indexArray, GL_STREAM_DRAW);
-
-        GLuint positionId = openGL->cubeShader.base.positionId;
-        GLuint colorId    = openGL->cubeShader.colorId;
-        GLuint normalId   = openGL->cubeShader.base.normalId;
-        openGL->glEnableVertexAttribArray(positionId);
-        openGL->glVertexAttribPointer(positionId, 4, GL_FLOAT, GL_FALSE, sizeof(RenderVertex),
-                                      (void *)Offset(RenderVertex, p));
-
-        openGL->glEnableVertexAttribArray(colorId);
-        openGL->glVertexAttribPointer(colorId, 3, GL_FLOAT, GL_FALSE, sizeof(RenderVertex),
-                                      (void *)Offset(RenderVertex, color));
-
-        openGL->glEnableVertexAttribArray(normalId);
-        openGL->glVertexAttribPointer(normalId, 3, GL_FLOAT, GL_FALSE, sizeof(RenderVertex),
-                                      (void *)Offset(RenderVertex, n));
-
-        GLint transformLocation = openGL->glGetUniformLocation(openGL->cubeShader.base.id, "transform");
-        openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, openGL->transform.elements[0]);
-
-        GLint cameraPosition = openGL->glGetUniformLocation(openGL->cubeShader.base.id, "cameraPosition");
-        openGL->glUniform3fv(cameraPosition, 1, openGL->camera.position.elements);
-
-        glDrawElements(GL_TRIANGLES, 6 * openGL->group.quadCount, GL_UNSIGNED_SHORT, 0);
-
-        openGL->glUseProgram(0);
-        openGL->glDisableVertexAttribArray(positionId);
-        openGL->glDisableVertexAttribArray(colorId);
-        openGL->glDisableVertexAttribArray(normalId);
-    }
+    // {
+    //     openGL->glUseProgram(openGL->cubeShader.base.id);
+    //     openGL->glBindVertexArray(openGL->vao);
+    //     openGL->glBindBuffer(GL_ARRAY_BUFFER, openGL->vertexBufferId);
+    //     openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(RenderVertex) * openGL->group.vertexCount,
+    //                          openGL->group.vertexArray, GL_STREAM_DRAW);
+    //
+    //     openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, openGL->indexBufferId);
+    //     openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(u16) * openGL->group.indexCount,
+    //                          openGL->group.indexArray, GL_STREAM_DRAW);
+    //
+    //     GLuint positionId = openGL->cubeShader.base.positionId_UNIFORMS);;
+    //     GLuint colorId    = openGL->cubeShader.colorId;
+    //     GLuint normalId   = openGL->cubeShader.base.normalId;
+    //     openGL->glEnableVertexAttribArray(positionId);
+    //     openGL->glVertexAttribPointer(positionId, 4, GL_FLOAT, GL_FALSE, sizeof(RenderVertex),
+    //                                   (void *)Offset(RenderVertex, p));
+    //
+    //     openGL->glEnableVertexAttribArray(colorId);
+    //     openGL->glVertexAttribPointer(colorId, 3, GL_FLOAT, GL_FALSE, sizeof(RenderVertex),
+    //                                   (void *)Offset(RenderVertex, color));
+    //
+    //     openGL->glEnableVertexAttribArray(normalId);
+    //     openGL->glVertexAttribPointer(normalId, 3, GL_FLOAT, GL_FALSE, sizeof(RenderVertex),
+    //                                   (void *)Offset(RenderVertex, n));
+    //
+    //     GLint transformLocation = openGL->glGetUniformLocation(openGL->cubeShader.base.id, "transform");
+    //     openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, openGL->transform.elements[0]);
+    //
+    //     GLint cameraPosition = openGL->glGetUniformLocation(openGL->cubeShader.base.id, "cameraPosition");
+    //     openGL->glUniform3fv(cameraPosition, 1, openGL->camera.position.elements);
+    //
+    //     glDrawElements(GL_TRIANGLES, 6 * openGL->group.quadCount, GL_UNSIGNED_SHORT, 0);
+    //
+    //     openGL->glUseProgram(0);
+    //     openGL->glDisableVertexAttribArray(positionId);
+    //     openGL->glDisableVertexAttribArray(colorId);
+    //     openGL->glDisableVertexAttribArray(normalId);
+    // }
 
     // RENDER MODEL
     {
         openGL->glUseProgram(openGL->modelShader.base.id);
-        for (u32 i = 0; i < openGL->group.textureCount; i++)
-        {
-            if (!openGL->group.textures[i].loaded)
-            {
-                OpenGLBindTexture(openGL, &openGL->group.textures[i], i);
-            }
-        }
+        // for (u32 i = 0; i < openGL->group.textureCount; i++)
+        // {
+        //     if (!openGL->group.textures[i].loaded)
+        //     {
+        //         OpenGLBindTexture(openGL, &openGL->group.textures[i], i);
+        //     }
+        // }
 
         GLuint positionId   = openGL->modelShader.base.positionId;
         GLuint normalId     = openGL->modelShader.base.normalId;
@@ -353,26 +329,27 @@ internal void OpenGLEndFrame(OpenGL *openGL, HDC deviceContext, int clientWidth,
         GLuint tangentId    = openGL->modelShader.tangentId;
         // TODO: I don't think the buffer data should be bound every frame
         u32 baseBone = 0;
-        for (u32 i = 0; i < openGL->group.model.meshCount; i++)
+        RenderCommand *command;
+        foreach(&renderState->commands, command)
         {
             openGL->glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_2D, openGL->textureIds[i]);
+            glBindTexture(GL_TEXTURE_2D, command->mesh->textures[0]->id);
 
             openGL->glActiveTexture(GL_TEXTURE0 + 1);
-            glBindTexture(GL_TEXTURE_2D, openGL->textureIds[i + 2]);
+            glBindTexture(GL_TEXTURE_2D, command->mesh->textures[1]->id);
 
             openGL->glActiveTexture(GL_TEXTURE0);
 
-            Model *model       = &openGL->group.model;
-            Mesh *currentMesh  = model->meshes + i;
+            Mesh *currentMesh  = command->mesh;
             Skeleton *skeleton = currentMesh->skeleton;
 
-            openGL->glBindBuffer(GL_ARRAY_BUFFER, openGL->modelVertexBufferId);
-            openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(MeshVertex) * model->meshes[i].vertexCount,
+            openGL->glBindBuffer(GL_ARRAY_BUFFER, currentMesh->vbo);
+            openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(currentMesh->vertices[0]) * currentMesh->vertexCount,
                                  currentMesh->vertices, GL_STREAM_DRAW);
-            openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, openGL->modelIndexBufferId);
-            openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(u32) * model->meshes[i].indexCount,
-                                 currentMesh->indices, GL_STREAM_DRAW);
+            openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, currentMesh->ebo);
+            openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER,
+                                 sizeof(currentMesh->indices[0]) * currentMesh->indexCount, currentMesh->indices,
+                                 GL_STREAM_DRAW);
 
             openGL->glEnableVertexAttribArray(positionId);
             openGL->glVertexAttribPointer(positionId, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
@@ -390,26 +367,33 @@ internal void OpenGLEndFrame(OpenGL *openGL, HDC deviceContext, int clientWidth,
             openGL->glVertexAttribPointer(tangentId, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
                                           (void *)Offset(MeshVertex, tangent));
 
-            openGL->glEnableVertexAttribArray(boneIdId);
-            openGL->glVertexAttribIPointer(boneIdId, 4, GL_UNSIGNED_INT, sizeof(MeshVertex),
-                                           (void *)Offset(MeshVertex, boneIds));
+            if (skeleton)
+            {
+                openGL->glEnableVertexAttribArray(boneIdId);
+                openGL->glVertexAttribIPointer(boneIdId, 4, GL_UNSIGNED_INT, sizeof(MeshVertex),
+                                               (void *)Offset(MeshVertex, boneIds));
 
-            openGL->glEnableVertexAttribArray(boneWeightId);
-            openGL->glVertexAttribPointer(boneWeightId, 4, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
-                                          (void *)Offset(MeshVertex, boneWeights));
+                openGL->glEnableVertexAttribArray(boneWeightId);
+                openGL->glVertexAttribPointer(boneWeightId, 4, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
+                                              (void *)Offset(MeshVertex, boneWeights));
+            }
 
             Mat4 translate = Translate4(V3{0, 0, 5});
             Mat4 scale     = Scale4(V3{0.5f, 0.5f, 0.5f});
             Mat4 rotate    = Rotate4(MakeV3(1, 0, 0), PI / 2);
 
             Mat4 modelMat           = translate * rotate * scale;
-            Mat4 newTransform       = openGL->transform * modelMat;
+            Mat4 newTransform       = renderState->transform * modelMat;
             GLint transformLocation = openGL->glGetUniformLocation(openGL->modelShader.base.id, "transform");
             openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, newTransform.elements[0]);
 
-            GLint boneTformLocation = openGL->glGetUniformLocation(openGL->modelShader.base.id, "boneTransforms");
-            openGL->glUniformMatrix4fv(boneTformLocation, skeleton->boneCount, GL_FALSE,
-                                       openGL->group.finalTransforms[baseBone].elements[0]);
+            if (command->finalBoneTransforms)
+            {
+                GLint boneTformLocation =
+                    openGL->glGetUniformLocation(openGL->modelShader.base.id, "boneTransforms");
+                openGL->glUniformMatrix4fv(boneTformLocation, skeleton->boneCount, GL_FALSE,
+                                           command->finalBoneTransforms[baseBone].elements[0]);
+            }
 
             GLint modelLoc = openGL->glGetUniformLocation(openGL->modelShader.base.id, "model");
             openGL->glUniformMatrix4fv(modelLoc, 1, GL_FALSE, modelMat.elements[0]);
@@ -419,7 +403,7 @@ internal void OpenGLEndFrame(OpenGL *openGL, HDC deviceContext, int clientWidth,
             openGL->glUniform3fv(lightPosLoc, 1, lightPosition.elements);
 
             GLint viewPosLoc = openGL->glGetUniformLocation(openGL->modelShader.base.id, "viewPos");
-            openGL->glUniform3fv(viewPosLoc, 1, openGL->camera.position.elements);
+            openGL->glUniform3fv(viewPosLoc, 1, renderState->camera.position.elements);
 
             // TEXTURE MAP
             GLint textureLoc = openGL->glGetUniformLocation(openGL->modelShader.base.id, "diffuseMap");
@@ -444,7 +428,7 @@ internal void OpenGLEndFrame(OpenGL *openGL, HDC deviceContext, int clientWidth,
         openGL->glDisableVertexAttribArray(boneWeightId);
 
         // HOT RELOAD! this probably shouldnt' be here
-        HotloadShaders(openGL, &openGL->modelShader.base);
+        HotloadShaders(&openGL->modelShader.base);
     }
 
     // DOUBLE BUFFER SWAP

@@ -9,9 +9,7 @@
 #include "keepmovingforward_camera.cpp"
 #include "keepmovingforward_entity.cpp"
 #include "keepmovingforward_asset.cpp"
-#include "render/keepmovingforward_renderer.cpp"
-
-
+#include "render/renderer.cpp"
 
 const f32 GRAVITY = 49.f;
 
@@ -83,8 +81,8 @@ void DrawRectangle(GameOffscreenBuffer *buffer, const V2 min, const V2 max, cons
     {
         maxY = buffer->height;
     }
-    u32 red = RoundF32ToU32(r * 255.f);
-    u32 blue = RoundF32ToU32(b * 255.f);
+    u32 red   = RoundF32ToU32(r * 255.f);
+    u32 blue  = RoundF32ToU32(b * 255.f);
     u32 green = RoundF32ToU32(g * 255.f);
 
     u32 color = blue | green << 8 | red << 16;
@@ -114,12 +112,12 @@ void DrawBitmap(GameOffscreenBuffer *buffer, DebugBmpResult *bmp, const V2 min)
     if (minX < 0)
     {
         alignX = -minX;
-        minX = 0;
+        minX   = 0;
     }
     if (minY < 0)
     {
         alignY = -minY;
-        minY = 0;
+        minY   = 0;
     }
     if (maxX > buffer->width)
     {
@@ -133,11 +131,11 @@ void DrawBitmap(GameOffscreenBuffer *buffer, DebugBmpResult *bmp, const V2 min)
     // NOTE: assuming first row in pixels is bottom of screen
     // u32 *sourceRow = (u32 *)bmp->pixels + bmp->width * (bmp->height - 1);
     u32 *sourceRow = (u32 *)bmp->pixels + alignY * bmp->width + alignX;
-    u8 *destRow = ((u8 *)buffer->memory + minY * buffer->pitch + minX * buffer->bytesPerPixel);
+    u8 *destRow    = ((u8 *)buffer->memory + minY * buffer->pitch + minX * buffer->bytesPerPixel);
     for (int y = minY; y < maxY; y++)
     {
         u32 *source = sourceRow;
-        u32 *dest = (u32 *)destRow;
+        u32 *dest   = (u32 *)destRow;
         for (int x = minX; x < maxX; x++)
         {
             *dest++ = *source++;
@@ -149,15 +147,15 @@ void DrawBitmap(GameOffscreenBuffer *buffer, DebugBmpResult *bmp, const V2 min)
 
 internal DebugBmpResult DebugLoadBMP(DebugPlatformReadFileFunctionType *PlatformReadFile, const char *filename)
 {
-    DebugBmpResult result = {};
+    DebugBmpResult result      = {};
     DebugReadFileOutput output = PlatformReadFile(filename);
     if (output.fileSize != 0)
     {
         BmpHeader *header = (BmpHeader *)output.contents;
-        u32 *pixels = (u32 *)((u8 *)output.contents + header->offset);
-        result.pixels = pixels;
+        u32 *pixels       = (u32 *)((u8 *)output.contents + header->offset);
+        result.pixels     = pixels;
 
-        result.width = header->width;
+        result.width  = header->width;
         result.height = header->height;
     }
     return result;
@@ -211,8 +209,8 @@ inline void RemoveEntity(Level *level, Entity *entity)
 
 internal void GenerateLevel(GameState *gameState, i32 tileWidth, i32 tileHeight)
 {
-    Level *level = gameState->level;
-    level->levelWidth = tileWidth;
+    Level *level       = gameState->level;
+    level->levelWidth  = tileWidth;
     level->levelHeight = tileHeight;
 
     for (i32 y = -tileHeight / 2; y < tileHeight / 2; y++)
@@ -221,7 +219,7 @@ internal void GenerateLevel(GameState *gameState, i32 tileWidth, i32 tileHeight)
         {
             Entity *entity = CreateWall(gameState, gameState->level);
 
-            entity->pos = V3{(f32)x, (f32)y, 0.f};
+            entity->pos  = V3{(f32)x, (f32)y, 0.f};
             entity->size = V3{0.5f, 0.5f, 0.5f};
             if ((x + tileWidth / 2) % 3 == 0)
             {
@@ -448,26 +446,26 @@ struct Manifold
 internal Manifold NarrowPhaseAABBCollision(const Rect3 a, const Rect3 b)
 {
     Manifold manifold = {};
-    V3 relative = Center(a) - Center(b);
-    f32 aHalfExtent = a.xSize / 2;
-    f32 bHalfExtent = b.xSize / 2;
-    f32 xOverlap = aHalfExtent + bHalfExtent - Abs(relative.x);
+    V3 relative       = Center(a) - Center(b);
+    f32 aHalfExtent   = a.xSize / 2;
+    f32 bHalfExtent   = b.xSize / 2;
+    f32 xOverlap      = aHalfExtent + bHalfExtent - Abs(relative.x);
 
     if (xOverlap <= 0)
     {
         return manifold;
     }
 
-    aHalfExtent = a.ySize / 2;
-    bHalfExtent = b.ySize / 2;
+    aHalfExtent  = a.ySize / 2;
+    bHalfExtent  = b.ySize / 2;
     f32 yOverlap = aHalfExtent + bHalfExtent - Abs(relative.y);
     if (yOverlap <= 0)
     {
         return manifold;
     }
 
-    aHalfExtent = a.zSize / 2;
-    bHalfExtent = b.zSize / 2;
+    aHalfExtent  = a.zSize / 2;
+    bHalfExtent  = b.zSize / 2;
     f32 zOverlap = aHalfExtent + bHalfExtent - Abs(relative.z);
     if (zOverlap <= 0)
     {
@@ -578,7 +576,7 @@ internal b32 ScaleMousePosition(V2 mousePos, V2 resolutionScale, u32 bufferWidth
 {
     if (mousePos.x >= 0 && mousePos.y >= 0 && mousePos.x < resolutionScale.x && mousePos.y < resolutionScale.y)
     {
-        *mouseTilePos = mousePos;
+        *mouseTilePos   = mousePos;
         mouseTilePos->y = resolutionScale.y - mouseTilePos->y;
 
         resolutionScale.x /= bufferWidth;
@@ -618,16 +616,20 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     // Initialization
     GameState *gameState = (GameState *)memory->PersistentStorageMemory;
 
-    f32 screenCenterX = openGL->width * .5f;
-    f32 screenCenterY = openGL->height * .5f;
+    f32 screenCenterX = renderState->width * .5f;
+    f32 screenCenterY = renderState->height * .5f;
 
     if (!memory->isInitialized)
     {
         // gameState->bmpTest = DebugLoadBMP(memory->DebugPlatformReadFile, "test/tile.bmp");
         gameState->worldArena = ArenaAlloc((void *)((u8 *)(memory->PersistentStorageMemory) + sizeof(GameState)),
                                            memory->PersistentStorageSize - sizeof(GameState));
-        ModelOutput output = AssimpDebugLoadModel(gameState->worldArena, Str8Lit("data/dragon/scene.gltf"));
-        openGL->group.model = output.model;
+        ModelOutput output    = AssimpDebugLoadModel(gameState->worldArena, Str8Lit("data/dragon/scene.gltf"));
+        gameState->model = output.model;
+
+        // ArrayPush(&renderState->commands, output.model.meshes[0]);
+        // ArrayPush(&renderState->commands, output.model.meshes[0]);
+        // openGL->group.model = output.model;
 
         // DebugLoadGLTF(gameState->worldArena, memory->DebugPlatformReadFile, memory->DebugPlatformFreeFile,
         //               "scene.gltf", "scene.bin");
@@ -641,38 +643,39 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         // stbi_set_flip_vertically_on_load(true);
 
         // TODO: pushing textures needs to be fixed. these also need to be freed when loaded.
-        u8 *data = (u8 *)stbi_load("data/dragon/MI_M_B_44_Qishilong_body02_Inst_diffuse.png", &width, &height, &nChannels, 0);
-
+        void *data =
+            stbi_load("data/dragon/MI_M_B_44_Qishilong_body02_Inst_diffuse.png", &width, &height, &nChannels, 0);
         Texture texture;
-        texture.contents = data;
-        texture.width = width;
+        texture.width  = width;
         texture.height = height;
-        PushTexture(&openGL->group, texture);
+        PushTexture(&texture, &gameState->model.meshes[0], data);
+        stbi_image_free(data);
 
-        u8 *data2 =
-            (u8 *)stbi_load("data/dragon/MI_M_B_44_Qishilong_body02_2_Inst_diffuse.png", &width, &height, &nChannels, 0);
+        data = stbi_load("data/dragon/MI_M_B_44_Qishilong_body02_2_Inst_diffuse.png", &width, &height,
+                                &nChannels, 0);
         Texture texture2;
-        texture2.contents = data2;
-        texture2.width = width;
-        texture2.height = height;
-        PushTexture(&openGL->group, texture2);
+        texture2.width    = width;
+        texture2.height   = height;
+        PushTexture(&texture2, &gameState->model.meshes[0], data);
+        stbi_image_free(data);
 
-        u8 *data3 = (u8 *)stbi_load("data/dragon/MI_M_B_44_Qishilong_body02_Inst_normal.png", &width, &height, &nChannels, 0);
+        data = stbi_load("data/dragon/MI_M_B_44_Qishilong_body02_Inst_normal.png", &width, &height,
+                                &nChannels, 0);
         Texture texture3;
-        texture3.contents = data3;
-        texture3.width = width;
-        texture3.height = height;
-        PushTexture(&openGL->group, texture3);
+        texture3.width    = width;
+        texture3.height   = height;
+        PushTexture(&texture3, &gameState->model.meshes[1], data);
+        stbi_image_free(data);
 
-        u8 *data4 =
-            (u8 *)stbi_load("data/dragon/MI_M_B_44_Qishilong_body02_2_Inst_normal.png", &width, &height, &nChannels, 0);
+        data = stbi_load("data/dragon/MI_M_B_44_Qishilong_body02_2_Inst_normal.png", &width, &height,
+                                &nChannels, 0);
         Texture texture4;
-        texture4.contents = data4;
-        texture4.width = width;
-        texture4.height = height;
-        PushTexture(&openGL->group, texture4);
+        texture4.width    = width;
+        texture4.height   = height;
+        PushTexture(&texture4, &gameState->model.meshes[1], data);
+        stbi_image_free(data);
 
-        gameState->level = PushStruct(gameState->worldArena, Level);
+        gameState->level      = PushStruct(gameState->worldArena, Level);
         gameState->cameraMode = CameraMode_Player;
 
         Entity *nilEntity = CreateEntity(gameState, gameState->level);
@@ -681,22 +684,22 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
         InitializePlayer(gameState);
 
-        Entity *swap = CreateEntity(gameState, gameState->level);
-        *swap = {};
-        swap->pos.x = 8.f;
-        swap->pos.y = 8.f;
-        swap->size.x = TILE_METER_SIZE;
-        swap->size.y = TILE_METER_SIZE;
+        Entity *swap  = CreateEntity(gameState, gameState->level);
+        *swap         = {};
+        swap->pos.x   = 8.f;
+        swap->pos.y   = 8.f;
+        swap->size.x  = TILE_METER_SIZE;
+        swap->size.y  = TILE_METER_SIZE;
         swap->color.r = 0.f;
         swap->color.g = 1.f;
         swap->color.b = 1.f;
         swap->color.a = 1.f;
         AddFlag(swap, Entity_Valid | Entity_Collidable | Entity_Swappable);
 
-        openGL->camera.position = gameState->player.pos - V3{0, 10, 0};
+        renderState->camera.position = gameState->player.pos - V3{0, 10, 0};
         // openGL->camera.position = {0, 0, 5};
-        openGL->camera.pitch = -PI / 4;
-        openGL->camera.yaw = PI / 2;
+        renderState->camera.pitch  = -PI / 4;
+        renderState->camera.yaw    = PI / 2;
         memory->isInitialized = true;
 
         AnimationPlayer *aPlayer = &gameState->animPlayer;
@@ -704,19 +707,19 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         gameState->meshNodeHierarchy = output.infoArray;
         // gameState->camera.pos = V2{TILE_MAP_X_COUNT / 2.f, TILE_MAP_Y_COUNT / 2.f};
 
-        gameState->tforms = PushArray(gameState->worldArena, AnimationTransform, MAX_BONES);
+        gameState->tforms          = PushArray(gameState->worldArena, AnimationTransform, MAX_BONES);
         gameState->finalTransforms = PushArray(gameState->worldArena, Mat4, output.model.meshCount * MAX_BONES);
     }
-    Level *level = gameState->level;
+    Level *level                = gameState->level;
     GameInput *playerController = input;
 
     // Physics
 
     Entity *player = GetPlayer(gameState);
-    Entity *swap = {};
+    Entity *swap   = {};
 
     V3 *acceleration = &player->acceleration;
-    *acceleration = {};
+    *acceleration    = {};
 
     if (playerController->swap.keyDown && playerController->swap.halfTransitionCount > 0)
     {
@@ -741,9 +744,9 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             // TODO: hide mouse, move camera about player
             V2 dMouseP = input->deltaMouse;
 
-            Camera *camera = &openGL->camera;
+            Camera *camera   = &renderState->camera;
             f32 cameraOffset = 10.f;
-            f32 speed = 3.f;
+            f32 speed        = 3.f;
             if (input->shift.keyDown)
             {
                 speed = 10.f;
@@ -758,15 +761,15 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             camera->forward.x = Cos(camera->yaw) * Cos(camera->pitch);
             camera->forward.y = Sin(camera->yaw) * Cos(camera->pitch);
             camera->forward.z = Sin(camera->pitch);
-            camera->forward = Normalize(camera->forward);
+            camera->forward   = Normalize(camera->forward);
             // camera->right = Normalize(Cross(camera->forward, worldUp));
-            camera->position = player->pos - cameraOffset * camera->forward;
+            camera->position  = player->pos - cameraOffset * camera->forward;
             Mat4 cameraMatrix = LookAt4(camera->position, player->pos, worldUp);
 
             V3 forward = {Cos(camera->yaw), Sin(camera->yaw), 0};
-            forward = Normalize(forward);
-            V3 right = {Sin(camera->yaw), -Cos(camera->yaw), 0};
-            right = Normalize(right);
+            forward    = Normalize(forward);
+            V3 right   = {Sin(camera->yaw), -Cos(camera->yaw), 0};
+            right      = Normalize(right);
 
             if (playerController->right.keyDown)
             {
@@ -788,15 +791,15 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
             Mat4 transform = projection * cameraMatrix;
 
-            openGL->transform = transform;
+            renderState->transform = transform;
             break;
         }
         case CameraMode_Debug:
         {
             V2 dMouseP = input->mousePos - input->lastMousePos;
 
-            Camera *camera = &openGL->camera;
-            f32 speed = 3.f;
+            Camera *camera = &renderState->camera;
+            f32 speed      = 3.f;
             if (input->shift.keyDown)
             {
                 speed = 100.f;
@@ -831,17 +834,17 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             camera->forward.x = Cos(camera->yaw) * Cos(camera->pitch);
             camera->forward.y = Sin(camera->yaw) * Cos(camera->pitch);
             camera->forward.z = Sin(camera->pitch);
-            camera->forward = Normalize(camera->forward);
-            camera->right = Normalize(Cross(camera->forward, worldUp));
-            V3 up = Normalize(Cross(camera->right, camera->forward));
+            camera->forward   = Normalize(camera->forward);
+            camera->right     = Normalize(Cross(camera->forward, worldUp));
+            V3 up             = Normalize(Cross(camera->right, camera->forward));
 
-            Mat4 projection = Perspective4(Radians(45.f), 16.f / 9.f, .1f, 10000.f);
+            Mat4 projection   = Perspective4(Radians(45.f), 16.f / 9.f, .1f, 10000.f);
             Mat4 cameraMatrix = LookAt4(camera->position, camera->position + camera->forward, worldUp);
             // CameraTransform(camera->right, up, -camera->forward, camera->position);
 
             Mat4 transform = projection * cameraMatrix;
 
-            openGL->transform = transform;
+            renderState->transform = transform;
             break;
         }
     }
@@ -900,7 +903,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
     V3 playerDelta = *velocity * input->dT;
     player->pos += playerDelta;
-    playerBox.pos = player->pos;
+    playerBox.pos  = player->pos;
     playerBox.size = player->size;
 
     // TODO: fix position of boxes (center vs bottom left vs bottom center)
@@ -909,8 +912,8 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     {
         if (HasFlag(entity, Entity_Collidable))
         {
-            Rect3 collisionBox = Rect3BottomLeft(entity->pos, entity->size);
-            Manifold manifold = NarrowPhaseAABBCollision(playerBox, collisionBox);
+            Rect3 collisionBox      = Rect3BottomLeft(entity->pos, entity->size);
+            Manifold manifold       = NarrowPhaseAABBCollision(playerBox, collisionBox);
             f32 velocityAlongNormal = Dot(manifold.normal, *velocity);
             if (velocityAlongNormal > 0)
             {
@@ -976,7 +979,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             {
                 Entity *entity = CreateWall(gameState, gameState->level);
 
-                entity->pos = mouseTilePos;
+                entity->pos  = mouseTilePos;
                 entity->size = V2{TILE_METER_SIZE, TILE_METER_SIZE};
             }
         }
@@ -1005,21 +1008,27 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
     // Render
     {
-        for (Entity *entity = 0; IncrementEntity(level, &entity);)
-        {
-            PushCube(&openGL->group, entity->pos, entity->size, entity->color);
-        }
-        PushCube(&openGL->group, player->pos, player->size, player->color);
+        // for (Entity *entity = 0; IncrementEntity(level, &entity);)
+        // {
+        //     PushCube(&openGL->group, entity->pos, entity->size, entity->color);
+        // }
+        // PushCube(&openGL->group, player->pos, player->size, player->color);
         // PushModel();
     }
 
     // ANIMATION
     PlayCurrentAnimation(&gameState->animPlayer, input->dT, gameState->tforms);
 
-    SkinModelToAnimation(&gameState->animPlayer, &openGL->group.model, gameState->tforms,
+    // TODO: right now it's really weird that the dragon has two meshes, which share the same skeleton hierarchy 
+    // but also not really?
+    // sigh guess i'm messing a renderer. no pbr
+    SkinModelToAnimation(&gameState->animPlayer, &gameState->model, gameState->tforms,
                          gameState->meshNodeHierarchy, &gameState->finalTransforms);
 
-    openGL->group.finalTransforms = gameState->finalTransforms;
+    // TODO: are the final transforms the same for each node?
+    PushMesh(renderState, &gameState->model.meshes[0], gameState->finalTransforms);
+    PushMesh(renderState, &gameState->model.meshes[1], gameState->finalTransforms);
+    // openGL->group.finalTransforms = gameState->finalTransforms;
 
     // GameOutputSound(soundBuffer, gameState->toneHz);
 }

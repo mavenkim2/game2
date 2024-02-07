@@ -1,11 +1,7 @@
-#ifndef WIN32_KEEPMOVINGFORWARD_OPENGL_H
-#define WIN32_KEEPMOVINGFORWARD_OPENGL_H
-
-// #include "../keepmovingforward_common.h"
-// #include "../keepmovingforward_camera.h"
-// #include "keepmovingforward_renderer.h"
-// #include <windows.h>
-// #include <gl/GL.h>
+#if WINDOWS
+#include <windows.h>
+#include <gl/GL.h>
+#endif
 
 #define GL_NUM_EXTENSIONS 0x821D
 
@@ -243,23 +239,18 @@ struct ModelShader
 
 struct OpenGL
 {
-    Camera camera;
-    Mat4 transform;
-    i32 width;
-    i32 height;
-
+    // Camera camera;
+    // Mat4 transform;
+    // i32 width;
+    // i32 height;
+    //
     GLuint vao;
 
     GLuint vertexBufferId;
     GLuint indexBufferId;
     CubeShader cubeShader;
-
-    GLuint modelVertexBufferId;
-    GLuint modelIndexBufferId;
     ModelShader modelShader;
-    GLuint textureIds[2];
-
-    GLuint skeletonBufferId;
+    // GLuint textureIds[2];
 
     OpenGLFunction(glGenBuffers);
     OpenGLFunction(glBindBuffer);
@@ -292,6 +283,8 @@ struct OpenGL
     OpenGLFunction(glUniform1i);
     OpenGLFunction(glDeleteProgram);
 
-    RenderGroup group;
+    // RenderGroup group;
 };
-#endif
+
+global OpenGL _openGL;
+global OpenGL* openGL = &_openGL;

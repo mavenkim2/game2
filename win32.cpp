@@ -1,5 +1,4 @@
 #include <windows.h>
-#include <gl/GL.h>
 
 // NOTE: I'm too lazy to put all the platform stuff in one file, so I'm just going to put
 // platform specific stuff that the game calls into this file.

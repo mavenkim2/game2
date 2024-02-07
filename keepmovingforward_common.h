@@ -47,11 +47,7 @@ typedef i64 b64;
 #define terabytes(value) (gigabytes(value) * 1024LL)
 
 #if UNOPTIMIZED
-#define Assert(expression)                                                                              \
-    if (!(expression))                                                                                  \
-    {                                                                                                   \
-        *(volatile int *)0 = 0;                                                                         \
-    }
+#define Assert(expression) (!(expression) ? (*(volatile int *)0 = 0, 0) : 0)
 #else
 #define Assert(expression) (void)0
 #endif
@@ -67,6 +63,14 @@ typedef i64 b64;
 #define MemoryZero(ptr, size) MemorySet((ptr), 0, (size))
 // #define RESX 640
 // #define RESY 360
+
+#define ArrayDef(type) struct Array_##type { type* items; u32 count; u32 cap; }
+
+#define ArrayPush(array, item) (Assert((array)->count < (array)->cap), (array)->items[(array)->count++] = item) 
+
+#define foreach(array, ptr) \
+    for (u32 _i = 0; _i < (array)->count; _i++) \
+        if ((ptr = (array)->items + _i) != 0)
 
 #define KEEPMOVINGFORWARD_COMMON_H
 #endif

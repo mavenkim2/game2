@@ -6,10 +6,10 @@
 #include "keepmovingforward_math.h"
 #include "keepmovingforward_memory.h"
 #include "keepmovingforward_string.h"
+#include "render/opengl.h"
 #include "keepmovingforward_camera.h"
 #include "keepmovingforward_asset.h"
-#include "render/keepmovingforward_renderer.h"
-#include "render/win32_keepmovingforward_opengl.h"
+#include "render/renderer.h"
 #include "keepmovingforward_platform.h"
 
 #include "win32_keepmovingforward.h"
@@ -17,7 +17,7 @@
 #include "keepmovingforward_memory.cpp"
 #include "keepmovingforward_string.cpp"
 #include "win32.cpp"
-#include "render/win32_keepmovingforward_opengl.cpp"
+#include "render/opengl.cpp"
 
 global b32 RUNNING = true;
 
@@ -741,22 +741,25 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     int gameUpdateHz            = 144;
     f32 expectedSecondsPerFrame = 1.f / (f32)gameUpdateHz;
 
-    // NOTE: janky audio setup:
-    // 3 source voices, submit sine wave infinitely repeating to one
-    // when input occurs, create a new sine wave buffer and submit to another voice
-    // stop the previously running voice, start the other voice.
-
+    // AUDIO
     // for 1 sec buffer, samplesPerSecond = samplesPerBuffer
     int samplesPerSecond = 48000;
     int bytesPerSample   = sizeof(i16) * 2;
     // 2 frames of audio data
     int bufferSize = (int)(2 * samplesPerSecond * bytesPerSample / (f32)gameUpdateHz);
     Win32InitializeXAudio2(samplesPerSecond);
-    OpenGL openGL            = Win32InitOpenGL(windowHandle);
-    openGL.group.vertexArray = (RenderVertex *)VirtualAlloc(0, openGL.group.maxVertexCount * sizeof(RenderVertex),
-                                                            MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-    openGL.group.indexArray =
-        (u16 *)VirtualAlloc(0, openGL.group.maxIndexCount * sizeof(u16), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+
+    // GRAPHICS
+    //
+    // INIT RENDER STATE
+    //
+    RenderState renderState;
+    // TODO: maybe this won't work idk how C++11 works
+    renderState.commands.cap   = 10;
+    renderState.commands.items = (RenderCommand *)VirtualAlloc(
+        0, renderState.commands.cap * sizeof(renderState.commands.items[0]), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    renderState.commands.count = 0;
+    Win32InitOpenGL(windowHandle);
 
 #if INTERNAL
     LPVOID sampleBaseAddress = (LPVOID)terabytes(4);
@@ -773,6 +776,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     LPVOID baseAddress = 0;
 #endif
 
+    // GAME MEMORY
     GameMemory gameMemory            = {};
     gameMemory.PersistentStorageSize = megabytes(64);
     gameMemory.TransientStorageSize  = gigabytes(1);
@@ -817,9 +821,8 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
 
     // TODO: FIX
     string sourceDLLFilename = Win32GetFilePathInBinaryDirectory(&win32State, Str8Lit("keepmovingforward.dll"));
-    string tempDLLFilename =
-        Win32GetFilePathInBinaryDirectory(&win32State, Str8Lit("keepmovingforward_temp.dll"));
-    string lockFilename = Win32GetFilePathInBinaryDirectory(&win32State, Str8Lit("lock.tmp"));
+    string tempDLLFilename = Win32GetFilePathInBinaryDirectory(&win32State, Str8Lit("keepmovingforward_temp.dll"));
+    string lockFilename    = Win32GetFilePathInBinaryDirectory(&win32State, Str8Lit("lock.tmp"));
 
     Win32GameCode win32GameCode = Win32LoadGameCode(sourceDLLFilename, tempDLLFilename, lockFilename);
 
@@ -878,7 +881,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
         }
 
         V2 dimension = Win32GetWindowDimension(windowHandle);
-        OpenGLBeginFrame(&openGL, (i32)dimension.x, (i32)dimension.y);
+        OpenGLBeginFrame((i32)dimension.x, (i32)dimension.y);
 
         newInput    = {};
         newInput.dT = expectedSecondsPerFrame;
@@ -934,7 +937,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
         }
         if (win32GameCode.GameUpdateAndRender)
         {
-            win32GameCode.GameUpdateAndRender(&gameMemory, &openGL, &soundOutput, &newInput, dT);
+            win32GameCode.GameUpdateAndRender(&gameMemory, &renderState, &soundOutput, &newInput, dT);
         }
         // Sleep until next frame
         {
@@ -968,7 +971,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
         lastPerformanceCount = endPerformanceCount;
 
         HDC deviceContext = GetDC(windowHandle);
-        OpenGLEndFrame(&openGL, deviceContext, (i32)(dimension.x), (i32)(dimension.y));
+        OpenGLEndFrame(&renderState, deviceContext, (i32)(dimension.x), (i32)(dimension.y));
         ReleaseDC(windowHandle, deviceContext);
 
         oldInput = newInput;

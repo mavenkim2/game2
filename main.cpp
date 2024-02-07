@@ -13,8 +13,9 @@
 #endif
 
 // GAME GLOBALS
+ArrayDef(u8);
 
 int main(int argCount, char** args) {
-    OS_Init();
+    // OS_Init();
     return 0; 
 }
