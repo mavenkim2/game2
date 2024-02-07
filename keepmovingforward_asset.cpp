@@ -157,8 +157,6 @@ inline u8 GetByte(Iter *iter)
     return result;
 }
 
-// TODO LATER: chunked linked list while building skeleton, then pack into array?
-
 internal string ConsumeLine(Iter *iter)
 {
     string result;
@@ -172,7 +170,6 @@ internal string ConsumeLine(Iter *iter)
     return result;
 }
 
-// TODO: maybe memcpy or transpose or cast or something?
 internal Mat4 ConvertAssimpMatrix4x4(aiMatrix4x4t<f32> m)
 {
     Mat4 result;
@@ -198,7 +195,20 @@ internal Mat4 ConvertAssimpMatrix4x4(aiMatrix4x4t<f32> m)
     return result;
 }
 
-// NOTE: Maps vertices to bone indices, and the weight of the bone's impact on the vertex
+internal void MapSkeletonVertexInfoToVertices(LoadedMesh *mesh)
+{
+    Skeleton *skeleton = mesh->skeleton;
+    for (u32 i = 0; i < mesh->vertexCount; i++)
+    {
+        VertexBoneInfo *piece = &skeleton->vertexBoneInfo[i];
+        for (u32 j = 0; j < MAX_MATRICES_PER_VERTEX; j++)
+        {
+            mesh->vertices[i].boneIds[j]     = piece->pieces[j].boneIndex;
+            mesh->vertices[i].boneWeights[j] = piece->pieces[j].boneWeight;
+        }
+    }
+}
+
 inline void AddVertexBoneData(Skeleton *skeleton, u32 vertexId, u32 boneIndex, f32 boneWeight)
 {
     if (boneWeight != 0)
@@ -208,45 +218,6 @@ inline void AddVertexBoneData(Skeleton *skeleton, u32 vertexId, u32 boneIndex, f
         vertexBoneInfo->pieces[vertexBoneInfo->numMatrices++] = {boneIndex, boneWeight};
         Assert(vertexBoneInfo->numMatrices <= MAX_MATRICES_PER_VERTEX);
     }
-}
-
-internal i32 FindBoneId(Skeleton *skeleton, string name)
-{
-    i32 result = -1;
-
-    for (u32 i = 0; i < skeleton->boneCount; i++)
-    {
-        if (skeleton->boneInfo[i].name == name)
-        {
-            result = i;
-            Assert(result == (i32)skeleton->boneInfo[i].boneId);
-            break;
-        }
-    }
-    return result;
-}
-
-inline V3 CalculateTangents(const MeshVertex *vertex1, const MeshVertex *vertex2, const MeshVertex *vertex3)
-{
-    V3 edge1 = vertex2->position - vertex1->position;
-    V3 edge2 = vertex3->position - vertex1->position;
-
-    V2 deltaUv1 = vertex2->uv - vertex1->uv;
-    V2 deltaUv2 = vertex3->uv - vertex1->uv;
-
-    f32 coef = 1.f / (deltaUv1.u * deltaUv2.v - deltaUv2.u * deltaUv1.v);
-
-    V3 tangent = coef * (deltaUv2.v * edge1 - deltaUv1.v * edge2);
-
-    // DEBUG
-    return tangent;
-}
-
-internal Mat4 ConvertToMatrix(const AnimationTransform *transform)
-{
-    Mat4 result =
-        Translate4(transform->translation) * QuatToMatrix(transform->rotation) * Scale4(transform->scale);
-    return result;
 }
 
 internal void LoadBones(Arena *arena, Skeleton *skeleton, aiMesh *mesh, u32 baseVertex)
@@ -268,24 +239,10 @@ internal void LoadBones(Arena *arena, Skeleton *skeleton, aiMesh *mesh, u32 base
         for (u32 j = 0; j < bone->mNumWeights; j++)
         {
             aiVertexWeight *weight = bone->mWeights + j;
-            u32 vertexId           = weight->mVertexId; // baseVertex + weight->mVertexId;
+            u32 vertexId           = weight->mVertexId;
             f32 boneWeight         = weight->mWeight;
 
             AddVertexBoneData(skeleton, vertexId, boneId, boneWeight);
-        }
-    }
-}
-
-internal void MapSkeletonVertexInfoToVertices(LoadedMesh *mesh)
-{
-    Skeleton *skeleton = mesh->skeleton;
-    for (u32 i = 0; i < mesh->vertexCount; i++)
-    {
-        VertexBoneInfo *piece = &skeleton->vertexBoneInfo[i];
-        for (u32 j = 0; j < MAX_MATRICES_PER_VERTEX; j++)
-        {
-            mesh->vertices[i].boneIds[j]     = piece->pieces[j].boneIndex;
-            mesh->vertices[i].boneWeights[j] = piece->pieces[j].boneWeight;
         }
     }
 }
@@ -449,9 +406,6 @@ internal Model ConvertModel(Arena *arena, LoadedModel *model)
     return result;
 }
 
-// internal Model AddP
-
-// TODO: load all the other animations
 internal void ProcessAnimations(Arena *arena, const aiScene *scene, KeyframedAnimation *animationChannel)
 {
 
@@ -554,19 +508,6 @@ internal void ProcessAnimations(Arena *arena, const aiScene *scene, KeyframedAni
     // }
 }
 
-/*
- * ASSIMP
- */
-// NOTE IMPORTANT: WE DO NOT CARE ABOUT THIS CODE AT ALL. EVENTUALLY WE WILL LOAD DIFFERENT FILE TYPES
-// (GLTF, FBX, OBJ, BMP, TGA, WAV, ETC), AND JUST BAKE ALL THE ASSETS INTO ONE MEGA FILE THAT WE CAN EASILY
-// READ/ACCESS/COMPRESS.
-struct ModelOutput
-{
-    Model model;
-    KeyframedAnimation *animation;
-    MeshNodeInfoArray *infoArray;
-};
-
 internal ModelOutput AssimpDebugLoadModel(Arena *arena, string filename)
 {
     LoadedModel loadedModel = {};
@@ -603,9 +544,56 @@ internal ModelOutput AssimpDebugLoadModel(Arena *arena, string filename)
 
     return result;
 }
-/*
- * END ASSIMP
- */
+
+
+// TODO: load all the other animations
+
+// TODO: maybe memcpy or transpose or cast or something?
+
+// NOTE: Maps vertices to bone indices, and the weight of the bone's impact on the vertex
+
+internal i32 FindBoneId(Skeleton *skeleton, string name)
+{
+    i32 result = -1;
+
+    for (u32 i = 0; i < skeleton->boneCount; i++)
+    {
+        if (skeleton->boneInfo[i].name == name)
+        {
+            result = i;
+            Assert(result == (i32)skeleton->boneInfo[i].boneId);
+            break;
+        }
+    }
+    return result;
+}
+
+inline V3 CalculateTangents(const MeshVertex *vertex1, const MeshVertex *vertex2, const MeshVertex *vertex3)
+{
+    V3 edge1 = vertex2->position - vertex1->position;
+    V3 edge2 = vertex3->position - vertex1->position;
+
+    V2 deltaUv1 = vertex2->uv - vertex1->uv;
+    V2 deltaUv2 = vertex3->uv - vertex1->uv;
+
+    f32 coef = 1.f / (deltaUv1.u * deltaUv2.v - deltaUv2.u * deltaUv1.v);
+
+    V3 tangent = coef * (deltaUv2.v * edge1 - deltaUv1.v * edge2);
+
+    // DEBUG
+    return tangent;
+}
+
+internal Mat4 ConvertToMatrix(const AnimationTransform *transform)
+{
+    Mat4 result =
+        Translate4(transform->translation) * QuatToMatrix(transform->rotation) * Scale4(transform->scale);
+    return result;
+}
+
+// 
+// ANIMATION
+//
 
 // TODO: is this too object oriented??
 internal void StartLoopedAnimation(AnimationPlayer *player, KeyframedAnimation *animation)
@@ -673,34 +661,6 @@ internal void PlayCurrentAnimation(AnimationPlayer *player, f32 dT, AnimationTra
     }
 }
 
-internal void SkinModelToAnimation(AnimationPlayer *player, Model *model, const AnimationTransform *transforms,
-                                   MeshNodeInfoArray *infoArray, Mat4 **output)
-{
-    u32 baseBone = 0;
-    for (u32 meshCount = 0; meshCount < model->meshCount; meshCount++)
-    {
-        Mesh *currentMesh = model->meshes;
-        SkinMeshToAnimation(player, currentMesh, transforms, infoArray, model->globalInverseTransform,
-                            *output + baseBone);
-        baseBone += currentMesh->skeleton->boneCount;
-    }
-}
-
-internal Mat4 FindNodeMatrix(MeshNodeInfoArray *infoArray, string name)
-{
-    Mat4 result = {};
-    for (u32 i = 0; i < infoArray->count; i++)
-    {
-        MeshNodeInfo *info = infoArray->info + i;
-        if (info->name == name)
-        {
-            result = info->transformToParent;
-            break;
-        }
-    }
-    return result;
-}
-
 internal MeshNodeInfo *FindNode(MeshNodeInfoArray *infoArray, string name)
 {
     MeshNodeInfo *node = 0;
@@ -715,21 +675,6 @@ internal MeshNodeInfo *FindNode(MeshNodeInfoArray *infoArray, string name)
     }
     return node;
 }
-
-// internal i32 FindNode(MeshNodeInfoArray *infoArray, string name)
-// {
-//     i32 result = -1;
-//     for (u32 i = 0; i < infoArray->count; i++)
-//     {
-//         MeshNodeInfo *info = infoArray->info + i;
-//         if (info->name == name)
-//         {
-//             result = (i32)i;
-//             break;
-//         }
-//     }
-//     return result;
-// }
 
 internal void SkinMeshToAnimation(AnimationPlayer *player, Mesh *mesh, const AnimationTransform *transforms,
                                   MeshNodeInfoArray *infoArray, Mat4 globalInverseTransform, Mat4 *finalTransforms)
@@ -750,7 +695,6 @@ internal void SkinMeshToAnimation(AnimationPlayer *player, Mesh *mesh, const Ani
 
         if (id == -1)
         {
-            // parentTransform = parentTransform * FindNodeMatrix(infoArray, node->name);
             continue;
         }
 
@@ -773,6 +717,11 @@ internal void SkinMeshToAnimation(AnimationPlayer *player, Mesh *mesh, const Ani
         else
         {
             lerpedMatrix = ConvertToMatrix(&transforms[animationId]);
+            // Quat rot = transforms[animationId].rotation;
+            // TestResult result = MatrixToQuat(lerpedMatrix);
+            // Quat compare = result.result;
+            // Assert(rot == compare);
+            // Printf("Case: %i\n%f %f %f\n%f %f %f\n\n", result.c, rot.x, rot.y, rot.z, compare.x, compare.y, compare.z);
         }
         i32 parentId = FindBoneId(skeleton, node->parentName);
 
@@ -784,7 +733,7 @@ internal void SkinMeshToAnimation(AnimationPlayer *player, Mesh *mesh, const Ani
             string parentName    = node->parentName;
             while (node->hasParent && parentName.size)
             {
-                parentTransform = parentTransform * FindNodeMatrix(infoArray, parentName);
+                parentTransform = parentTransform * FindNode(infoArray, parentName)->transformToParent;
 
                 node       = FindNode(infoArray, parentName);
                 parentName = node->parentName;
@@ -807,7 +756,19 @@ internal void SkinMeshToAnimation(AnimationPlayer *player, Mesh *mesh, const Ani
     }
 }
 
-internal void WriteAnimation(KeyframedAnimation *animation) {}
+internal void SkinModelToAnimation(AnimationPlayer *player, Model *model, const AnimationTransform *transforms,
+                                   MeshNodeInfoArray *infoArray, Mat4 **output)
+{
+    u32 baseBone = 0;
+    for (u32 meshCount = 0; meshCount < model->meshCount; meshCount++)
+    {
+        Mesh *currentMesh = model->meshes;
+        SkinMeshToAnimation(player, currentMesh, transforms, infoArray, model->globalInverseTransform,
+                            *output + baseBone);
+        baseBone += currentMesh->skeleton->boneCount;
+    }
+}
+
 #if 0
 // TODO: i really don't like using function pointers for platform layer stuff
 // NOTE: array of nodes, each with a parent index and a name

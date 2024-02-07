@@ -1,10 +1,9 @@
 #include "keepmovingforward_common.h"
-#include "keepmovingforward_math.h"
-#include "keepmovingforward_camera.h"
 #include "keepmovingforward_memory.h"
 #include "keepmovingforward_string.h"
 #include "platform.h"
-#include "render/opengl.h"
+#include "keepmovingforward_math.h"
+#include "keepmovingforward_camera.h"
 #include "keepmovingforward_asset.h"
 #include "render/renderer.h"
 

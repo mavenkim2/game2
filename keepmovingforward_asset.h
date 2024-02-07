@@ -172,8 +172,8 @@ struct Mesh
 
     Skeleton *skeleton;
 
-    GLuint vbo;
-    GLuint ebo;
+    u32 vbo;
+    u32 ebo;
 
     ArrayDef(Texture) textures;
     // Texture textures[16];
@@ -222,6 +222,10 @@ struct TGAResult
     u32 height;
 };
 
-internal void SkinMeshToAnimation(AnimationPlayer *player, Mesh *mesh, const AnimationTransform *transforms,
-                                  MeshNodeInfoArray *infoArray, Mat4 globalInverseTransform,
-                                  Mat4 *finalTransforms);
+struct ModelOutput
+{
+    Model model;
+    KeyframedAnimation *animation;
+    MeshNodeInfoArray *infoArray;
+};
+

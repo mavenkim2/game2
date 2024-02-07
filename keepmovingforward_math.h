@@ -404,6 +404,12 @@ inline f32 SquareRoot(f32 a)
     return result;
 }
 
+inline f64 SquareRoot(f64 a)
+{
+    f64 result = sqrt(a);
+    return result;
+}
+
 inline f32 Length(V2 a)
 {
     f32 result = SquareRoot(Dot(a, a));
@@ -413,7 +419,7 @@ inline f32 Length(V2 a)
 inline V2 Normalize(V2 a)
 {
     f32 length = Length(a);
-    V2 result = a * (1.f / length);
+    V2 result  = a * (1.f / length);
     return result;
 }
 
@@ -434,7 +440,7 @@ inline V3 MakeV3(V2 xy, float z)
 {
     V3 result;
     result.xy = xy;
-    result.z = z;
+    result.z  = z;
     return result;
 }
 inline V3 operator+(V3 a, V3 b)
@@ -538,7 +544,7 @@ inline f32 Length(V3 a)
 inline V3 Normalize(V3 a)
 {
     f32 length = Length(a);
-    V3 result = a * (1.f / length);
+    V3 result  = a * (1.f / length);
     return result;
 }
 
@@ -576,7 +582,7 @@ inline V4 MakeV4(V3 xyz, float w)
 {
     V4 result;
     result.xyz = xyz;
-    result.w = w;
+    result.w   = w;
     return result;
 }
 
@@ -690,9 +696,9 @@ inline f32 Length(V4 a)
 inline Quat QuatFromAxisAngle(V3 axis, f32 theta)
 {
     Quat result;
-    V3 axisN = Normalize(axis);
+    V3 axisN   = Normalize(axis);
     result.xyz = axisN / Sin(theta / 2.f);
-    result.w = Cos(theta / 2.f);
+    result.w   = Cos(theta / 2.f);
     return result;
 }
 
@@ -775,7 +781,7 @@ inline Quat Conjugate(Quat a)
 inline Quat Normalize(Quat a)
 {
     Quat result = a;
-    f32 length = Length(a.xyzw);
+    f32 length  = Length(a.xyzw);
     result.xyzw /= length;
     return result;
 }
@@ -783,15 +789,15 @@ inline Quat Normalize(Quat a)
 inline Mat4 QuatToMatrix(Quat a)
 {
     Quat normalized = Normalize(a);
-    f32 xx = normalized.x * normalized.x;
-    f32 yy = normalized.y * normalized.y;
-    f32 zz = normalized.z * normalized.z;
-    f32 xy = normalized.x * normalized.y;
-    f32 xz = normalized.x * normalized.z;
-    f32 yz = normalized.y * normalized.z;
-    f32 wx = normalized.w * normalized.x;
-    f32 wy = normalized.w * normalized.y;
-    f32 wz = normalized.w * normalized.z;
+    f32 xx          = normalized.x * normalized.x;
+    f32 yy          = normalized.y * normalized.y;
+    f32 zz          = normalized.z * normalized.z;
+    f32 xy          = normalized.x * normalized.y;
+    f32 xz          = normalized.x * normalized.z;
+    f32 yz          = normalized.y * normalized.z;
+    f32 wx          = normalized.w * normalized.x;
+    f32 wy          = normalized.w * normalized.y;
+    f32 wz          = normalized.w * normalized.z;
 
     Mat4 result;
     result.a1 = 1 - 2 * (yy + zz);
@@ -813,6 +819,50 @@ inline Mat4 QuatToMatrix(Quat a)
     return result;
 }
 
+inline Quat MatrixToQuat(Mat4 m)
+{
+    Quat result;
+    if (m.a1 + m.b2 + m.c3 > 0.f)
+    {
+        f64 t  = m.a1 + m.b2 + m.c3 + 1.;
+        f64 s  = SquareRoot(t) * .5;
+        result.w = (f32)(s * t);
+        result.z = (f32)((m.a2 - m.b1) * s);
+        result.y = (f32)((m.c1 - m.a3) * s);
+        result.x = (f32)((m.b3 - m.c2) * s);
+    }
+    else if (m.a1 > m.b2 && m.a1 > m.c3)
+    {
+        f64 t  = m.a1 - m.b2 - m.c3 + 1.;
+        f64 s  = SquareRoot(t) * 0.5;
+        result.x = (f32)(s * t);
+        result.y = (f32)((m.a2 + m.b1) * s);
+        result.z = (f32)((m.c1 + m.a3) * s);
+        result.w = (f32)((m.b3 - m.c2) * s);
+    }
+    else if (m.b2 > m.c3)
+    {
+        f64 t  = -m.a1 + m.b2 - m.c3 + 1.;
+        f64 s  = SquareRoot(t) * 0.5;
+        result.y = (f32)(s * t);
+        result.x = (f32)((m.a2 + m.b1) * s);
+        result.w = (f32)( (m.c1 - m.a3) * s);
+        result.z = (f32)((m.b3 + m.c2) * s);
+    }
+    else
+    {
+        f64 t  = -m.a1 - m.b2 + m.c3 + 1.;
+        f64 s  = SquareRoot(t) * .5;
+        result.z = (f32)(s * t);
+        result.w = (f32)((m.a2 - m.b1) * s);
+        result.x = (f32)((m.c1 + m.a3) * s);
+        result.y = (f32)((m.b3 + m.c2) * s);
+    }
+
+    result = Normalize(result);
+    return result;
+}
+
 inline Quat Lerp(Quat a, Quat b, f32 t)
 {
     Quat result;
@@ -825,12 +875,19 @@ inline Quat Nlerp(Quat a, Quat b, f32 t)
     return result;
 }
 
-inline Quat MakeQuat(f32 x, f32 y, f32 z, f32 w) {
+inline Quat MakeQuat(f32 x, f32 y, f32 z, f32 w)
+{
     Quat result;
     result.x = x;
     result.y = y;
     result.z = z;
     result.w = w;
+    return result;
+}
+
+inline b32 operator==(Quat &a, Quat &b)
+{
+    b32 result = (a.x == b.x && a.y == b.y && a.z == b.z && a.w == b.w) ? true : false;
     return result;
 }
 
@@ -867,7 +924,8 @@ inline Mat4 MakeMat4(f32 a)
     }};
     return result;
 }
-internal Mat4 Identity() {
+internal Mat4 Identity()
+{
     return MakeMat4(1.f);
 }
 internal V4 Transform(Mat4 a, V4 b)
@@ -945,7 +1003,7 @@ inline Mat4 operator*(Mat4 a, float b)
 
 inline Mat4 Scale4(V3 value)
 {
-    Mat4 result = MakeMat4(1.f);
+    Mat4 result           = MakeMat4(1.f);
     result.elements[0][0] = value.x;
     result.elements[1][1] = value.y;
     result.elements[2][2] = value.z;
@@ -954,11 +1012,11 @@ inline Mat4 Scale4(V3 value)
 
 inline Mat4 Rotate4(V3 axis, f32 theta)
 {
-    Mat4 result = MakeMat4(1.f);
-    axis = Normalize(axis);
-    f32 sinTheta = Sin(theta);
-    f32 cosTheta = Cos(theta);
-    f32 cosValue = 1.f - cosTheta;
+    Mat4 result           = MakeMat4(1.f);
+    axis                  = Normalize(axis);
+    f32 sinTheta          = Sin(theta);
+    f32 cosTheta          = Cos(theta);
+    f32 cosValue          = 1.f - cosTheta;
     result.elements[0][0] = (axis.x * axis.x * cosValue) + cosTheta;
     result.elements[0][1] = (axis.x * axis.y * cosValue) + (axis.z * sinTheta);
     result.elements[0][2] = (axis.x * axis.z * cosValue) - (axis.y * sinTheta);
@@ -983,8 +1041,8 @@ inline Mat4 Translate4(V3 value)
 
 inline Mat4 Perspective4(f32 fov, f32 aspectRatio, f32 nearZ, f32 farZ)
 {
-    Mat4 result = {};
-    f32 cotangent = 1.f / Tan(fov / 2);
+    Mat4 result           = {};
+    f32 cotangent         = 1.f / Tan(fov / 2);
     result.elements[0][0] = cotangent / aspectRatio;
     result.elements[1][1] = cotangent;
     result.elements[2][3] = -1.f;
@@ -1014,9 +1072,9 @@ inline Mat4 Orthographic4(f32 left, f32 right, f32 bottom, f32 top, f32 nearZ, f
 inline Mat4 LookAt4(V3 eye, V3 center, V3 up)
 {
     Mat4 result;
-    V3 f = Normalize(center - eye);
-    V3 s = Normalize(Cross(f, up));
-    V3 u = Cross(s, f);
+    V3 f                  = Normalize(center - eye);
+    V3 s                  = Normalize(Cross(f, up));
+    V3 u                  = Cross(s, f);
     result.elements[0][0] = s.x;
     result.elements[0][1] = u.x;
     result.elements[0][2] = -f.x;
@@ -1062,8 +1120,8 @@ inline Mat4 Mat4Cols3x3(V3 x, V3 y, V3 z)
 
 internal Mat4 CameraTransform(V3 x, V3 y, V3 z, V3 p)
 {
-    Mat4 result = Mat4Rows3x3(x, y, z);
-    V3 ap = -(result * p);
+    Mat4 result         = Mat4Rows3x3(x, y, z);
+    V3 ap               = -(result * p);
     result.columns[3].x = ap.x;
     result.columns[3].y = ap.y;
     result.columns[3].z = ap.z;
@@ -1072,19 +1130,20 @@ internal Mat4 CameraTransform(V3 x, V3 y, V3 z, V3 p)
 
 internal f32 Determinant(Mat4 a)
 {
-    f32 result =
-        a.a1 * a.b2 * a.c3 * a.d4 - a.a1 * a.b2 * a.c4 * a.d3 + a.a1 * a.b3 * a.c4 * a.d2 - a.a1 * a.b3 * a.c2 * a.d4 +
-        a.a1 * a.b4 * a.c2 * a.d3 - a.a1 * a.b4 * a.c3 * a.d2 - a.a2 * a.b3 * a.c4 * a.d1 + a.a2 * a.b3 * a.c1 * a.d4 -
-        a.a2 * a.b4 * a.c1 * a.d3 + a.a2 * a.b4 * a.c3 * a.d1 - a.a2 * a.b1 * a.c3 * a.d4 + a.a2 * a.b1 * a.c4 * a.d3 +
-        a.a3 * a.b4 * a.c1 * a.d2 - a.a3 * a.b4 * a.c2 * a.d1 + a.a3 * a.b1 * a.c2 * a.d4 - a.a3 * a.b1 * a.c4 * a.d2 +
-        a.a3 * a.b2 * a.c4 * a.d1 - a.a3 * a.b2 * a.c1 * a.d4 - a.a4 * a.b1 * a.c2 * a.d3 + a.a4 * a.b1 * a.c3 * a.d2 -
-        a.a4 * a.b2 * a.c3 * a.d1 + a.a4 * a.b2 * a.c1 * a.d3 - a.a4 * a.b3 * a.c1 * a.d2 + a.a4 * a.b3 * a.c2 * a.d1;
+    f32 result = a.a1 * a.b2 * a.c3 * a.d4 - a.a1 * a.b2 * a.c4 * a.d3 + a.a1 * a.b3 * a.c4 * a.d2 -
+                 a.a1 * a.b3 * a.c2 * a.d4 + a.a1 * a.b4 * a.c2 * a.d3 - a.a1 * a.b4 * a.c3 * a.d2 -
+                 a.a2 * a.b3 * a.c4 * a.d1 + a.a2 * a.b3 * a.c1 * a.d4 - a.a2 * a.b4 * a.c1 * a.d3 +
+                 a.a2 * a.b4 * a.c3 * a.d1 - a.a2 * a.b1 * a.c3 * a.d4 + a.a2 * a.b1 * a.c4 * a.d3 +
+                 a.a3 * a.b4 * a.c1 * a.d2 - a.a3 * a.b4 * a.c2 * a.d1 + a.a3 * a.b1 * a.c2 * a.d4 -
+                 a.a3 * a.b1 * a.c4 * a.d2 + a.a3 * a.b2 * a.c4 * a.d1 - a.a3 * a.b2 * a.c1 * a.d4 -
+                 a.a4 * a.b1 * a.c2 * a.d3 + a.a4 * a.b1 * a.c3 * a.d2 - a.a4 * a.b2 * a.c3 * a.d1 +
+                 a.a4 * a.b2 * a.c1 * a.d3 - a.a4 * a.b3 * a.c1 * a.d2 + a.a4 * a.b3 * a.c2 * a.d1;
     return result;
 }
 
 internal Mat4 Inverse(Mat4 a)
 {
-    Mat4 res = {};
+    Mat4 res   = {};
     f32 invdet = Determinant(a);
     if (invdet == 0)
     {
@@ -1135,7 +1194,7 @@ internal Mat4 Inverse(Mat4 a)
 inline Rect2 CreateRectFromCenter(V2 pos, V2 dim)
 {
     Rect2 result;
-    result.pos = pos - (dim / 2.f);
+    result.pos  = pos - (dim / 2.f);
     result.size = dim;
     return result;
 }
@@ -1143,14 +1202,15 @@ inline Rect2 CreateRectFromCenter(V2 pos, V2 dim)
 inline Rect2 CreateRectFromBottomLeft(V2 pos, V2 dim)
 {
     Rect2 result;
-    result.pos = pos;
+    result.pos  = pos;
     result.size = dim;
     return result;
 }
 
 inline b32 IsInRectangle(Rect2 a, V2 pos)
 {
-    b32 result = pos.x >= a.pos.x && pos.x <= a.pos.x + a.size.x && pos.y >= a.pos.y && pos.y <= a.pos.y + a.size.y;
+    b32 result =
+        pos.x >= a.pos.x && pos.x <= a.pos.x + a.size.x && pos.y >= a.pos.y && pos.y <= a.pos.y + a.size.y;
     return result;
 }
 
@@ -1173,7 +1233,7 @@ inline V2 GetRectCenter(Rect2 a)
 inline Rect3 Rect3BottomLeft(V3 pos, V3 size)
 {
     Rect3 result;
-    result.pos = pos;
+    result.pos  = pos;
     result.size = size;
     return result;
 }
@@ -1181,7 +1241,7 @@ inline Rect3 Rect3BottomLeft(V3 pos, V3 size)
 inline Rect3 Rect3Center(V3 pos, V3 size)
 {
     Rect3 result;
-    result.pos = pos - size / 2;
+    result.pos  = pos - size / 2;
     result.size = size / 2;
     return result;
 }
@@ -1199,18 +1259,18 @@ inline V3 Center(Rect3 a)
 inline V3 Barycentric(V2 a, V2 b, V2 c, V2 p)
 {
     // NOTE: From Real Time Collision Detection by Christer Ericson
-    V2 v0 = b - a;
-    V2 v1 = c - a;
-    V2 v2 = p - a;
-    float d00 = Dot(v0, v0);
-    float d01 = Dot(v0, v1);
-    float d11 = Dot(v1, v1);
-    float d20 = Dot(v2, v0);
-    float d21 = Dot(v2, v1);
+    V2 v0       = b - a;
+    V2 v1       = c - a;
+    V2 v2       = p - a;
+    float d00   = Dot(v0, v0);
+    float d01   = Dot(v0, v1);
+    float d11   = Dot(v1, v1);
+    float d20   = Dot(v2, v0);
+    float d21   = Dot(v2, v1);
     float denom = d00 * d11 - d01 * d01;
-    float v = (d11 * d20 - d01 * d21) / denom;
-    float w = (d00 * d21 - d01 * d20) / denom;
-    float u = 1.0f - v - w;
+    float v     = (d11 * d20 - d01 * d21) / denom;
+    float w     = (d00 * d21 - d01 * d20) / denom;
+    float u     = 1.0f - v - w;
 
     V3 result = {u, v, w};
     return result;
