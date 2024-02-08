@@ -512,6 +512,7 @@ internal ModelOutput AssimpDebugLoadModel(Arena *arena, string filename)
 {
     LoadedModel loadedModel = {};
 
+    // Model model = {};
     ModelOutput result = {};
 
     Assimp::Importer importer;
@@ -544,7 +545,6 @@ internal ModelOutput AssimpDebugLoadModel(Arena *arena, string filename)
 
     return result;
 }
-
 
 // TODO: load all the other animations
 
@@ -591,7 +591,7 @@ internal Mat4 ConvertToMatrix(const AnimationTransform *transform)
     return result;
 }
 
-// 
+//
 // ANIMATION
 //
 
@@ -630,6 +630,8 @@ internal void PlayCurrentAnimation(AnimationPlayer *player, f32 dT, AnimationTra
     // {
     //     nextKeyframe = player->currentAnimation->keyframes + frame + 1;
     // }
+    // TODO: wrap to the first keyframe when looping?
+    // bicubic interpolation
     for (u32 boneIndex = 0; boneIndex < player->currentAnimation->numNodes; boneIndex++)
     {
         const AnimationTransform t1 = player->currentAnimation->boneChannels[boneIndex].transforms[frame];
@@ -717,11 +719,6 @@ internal void SkinMeshToAnimation(AnimationPlayer *player, Mesh *mesh, const Ani
         else
         {
             lerpedMatrix = ConvertToMatrix(&transforms[animationId]);
-            // Quat rot = transforms[animationId].rotation;
-            // TestResult result = MatrixToQuat(lerpedMatrix);
-            // Quat compare = result.result;
-            // Assert(rot == compare);
-            // Printf("Case: %i\n%f %f %f\n%f %f %f\n\n", result.c, rot.x, rot.y, rot.z, compare.x, compare.y, compare.z);
         }
         i32 parentId = FindBoneId(skeleton, node->parentName);
 

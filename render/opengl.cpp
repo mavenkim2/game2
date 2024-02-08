@@ -370,6 +370,7 @@ internal void OpenGLEndFrame(RenderState *renderState, HDC deviceContext, int cl
             {
                 LoadMesh(mesh);
             }
+            // TODO: hardcode
 
             Texture *texture;
             foreach (&mesh->textures, texture)

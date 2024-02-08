@@ -1032,12 +1032,16 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         // ANIMATION
         PlayCurrentAnimation(&gameState->animPlayer, input->dT, gameState->tforms);
 
+#if 1
         SkinModelToAnimation(&gameState->animPlayer, &gameState->model, gameState->tforms,
                              gameState->meshNodeHierarchy, &gameState->finalTransforms);
 
-        // TODO: are the final transforms the same for each node?
         PushMesh(renderState, &gameState->model.meshes[0], gameState->finalTransforms);
         PushMesh(renderState, &gameState->model.meshes[1], gameState->finalTransforms);
+#else
+        PushMesh(renderState, &gameState->model.meshes[0]);
+        PushMesh(renderState, &gameState->model.meshes[1]);
+#endif
     }
     // GameOutputSound(soundBuffer, gameState->toneHz);
 }

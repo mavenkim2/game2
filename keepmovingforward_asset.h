@@ -180,8 +180,27 @@ struct Mesh
     // u8 textureCount;
 };
 
+// struct BoneTransform {
+//     V3 translation;
+//     Quat rotation;
+// };
+// struct Bone {
+//     BoneTransform 
+// };
+// struct Bone
+// {
+//     string name;
+//     // u32 parentId;
+//     b32 hasParent;
+//     string parentName;
+//     Mat4 transformToParent;
+// };
 struct Model
 {
+    // ArrayDef(MeshVertex) vertices;
+    // ArrayDef(u32) indices;
+    //
+    // Skeleton* skeleton;
     Mesh *meshes;
     u32 meshCount;
 
