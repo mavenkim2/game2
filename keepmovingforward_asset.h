@@ -104,7 +104,8 @@ inline AnimationTransform Lerp(AnimationTransform t1, AnimationTransform t2, f32
 struct MeshNodeInfo
 {
     string name;
-    i32 parentId;
+    string parentName;
+    b32 hasParent;
     Mat4 transformToParent;
 };
 
@@ -146,51 +147,6 @@ struct AnimationPlayer
     b32 isLooping;
 };
 
-// struct LoadedMesh
-// {
-//     std::vector<MeshVertex> vertices;
-//     std::vector<u32> indices;
-//     Skeleton *skeleton;
-//
-//     u32 vertexCount;
-//     u32 indexCount;
-// };
-// struct LoadedModel
-// {
-//     std::vector<LoadedMesh> meshes;
-// };
-
-// struct Mesh
-// {
-//     MeshVertex *vertices;
-//     u32 vertexCount;
-//
-//     u32 *indices;
-//     u32 indexCount;
-//
-//     Skeleton *skeleton;
-//
-//     u32 vbo;
-//     u32 ebo;
-//
-//     ArrayDef(Texture) textures;
-// };
-
-// struct BoneTransform {
-//     V3 translation;
-//     Quat rotation;
-// };
-// struct Bone {
-//     BoneTransform
-// };
-// struct Bone
-// {
-//     string name;
-//     // u32 parentId;
-//     b32 hasParent;
-//     string parentName;
-//     Mat4 transformToParent;
-// };
 struct Model
 {
     ArrayDef(MeshVertex) vertices;

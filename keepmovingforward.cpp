@@ -712,7 +712,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
         renderState->camera.position = gameState->player.pos - V3{0, 10, 0};
         renderState->camera.pitch = -PI / 4;
-        renderState->camera.yaw   = PI / 2;
+        renderState->camera.yaw   = 0; //PI / 2;
         memory->isInitialized     = true;
 
         AnimationPlayer *aPlayer = &gameState->animPlayer;

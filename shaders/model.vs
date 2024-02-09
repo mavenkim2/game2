@@ -35,7 +35,6 @@ void main()
     // TODO: this should probably be calculated once on the cpu instead 
     // of for every vertex
     mat3 normalMatrix = transpose(inverse(mat3(model)));
-    // mat3 normalMatrix = mat3(model);
     V3 t = normalize(normalMatrix * tangent);
     V3 n = normalize(normalMatrix * n);
     t = normalize(t - dot(t, n) * n);
