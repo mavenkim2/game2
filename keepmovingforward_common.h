@@ -67,9 +67,9 @@ typedef i64 b64;
 #define MemoryZero(ptr, size) MemorySet((ptr), 0, (size))
 
 #define ArrayInit(arena, array, type, _cap) \
-    do { array.cap = _cap; array.items = PushArray(arena, type, _cap); array.count; } while (0)
+    do { array.cap = _cap; array.items = PushArray(arena, type, _cap); array.count = 0; } while (0)
 
-#define ArrayDef(type) struct Array_##type { type* items; u32 count; u32 cap; }
+#define ArrayDef(type) struct { type* items; u32 count; u32 cap; }
 #define ArrayPush(array, item) (Assert((array)->count < (array)->cap), (array)->items[(array)->count++] = item) 
 
 #define DO_STRING_JOIN(arg1, arg2) arg1 ## arg2
@@ -81,5 +81,10 @@ typedef i64 b64;
 #define foreach_index(array, ptr, index) \
     for (u32 index = 0; index < (array)->count; index++) \
         if ((ptr = (array)->items + index) != 0)
+
+#define loopi(start, end) for(u32 i = start; i < end; i++)
+#define loopj(start, end) for(u32 j = start; j < end; j++)
+
+#define AlignPow2(x,b)     (((x) + (b) - 1)&(~((b) - 1)))
 
 // clang-format on

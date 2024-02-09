@@ -195,70 +195,42 @@ internal Mat4 ConvertAssimpMatrix4x4(aiMatrix4x4t<f32> m)
     return result;
 }
 
-internal void MapSkeletonVertexInfoToVertices(LoadedMesh *mesh)
+internal void LoadBones(Arena *arena, AssimpSkeletonAsset *skeleton, aiMesh *mesh, u32 baseVertex)
 {
-    Skeleton *skeleton = mesh->skeleton;
-    for (u32 i = 0; i < mesh->vertexCount; i++)
-    {
-        VertexBoneInfo *piece = &skeleton->vertexBoneInfo[i];
-        for (u32 j = 0; j < MAX_MATRICES_PER_VERTEX; j++)
-        {
-            mesh->vertices[i].boneIds[j]     = piece->pieces[j].boneIndex;
-            mesh->vertices[i].boneWeights[j] = piece->pieces[j].boneWeight;
-        }
-    }
-}
-
-inline void AddVertexBoneData(Skeleton *skeleton, u32 vertexId, u32 boneIndex, f32 boneWeight)
-{
-    if (boneWeight != 0)
-    {
-        Assert(vertexId < MAX_VERTEX_COUNT);
-        VertexBoneInfo *vertexBoneInfo                        = skeleton->vertexBoneInfo + vertexId;
-        vertexBoneInfo->pieces[vertexBoneInfo->numMatrices++] = {boneIndex, boneWeight};
-        Assert(vertexBoneInfo->numMatrices <= MAX_MATRICES_PER_VERTEX);
-    }
-}
-
-internal void LoadBones(Arena *arena, Skeleton *skeleton, aiMesh *mesh, u32 baseVertex)
-{
+    skeleton->count = mesh->mNumBones;
     for (u32 i = 0; i < mesh->mNumBones; i++)
     {
         aiBone *bone = mesh->mBones[i];
-        BoneInfo info;
-        string name                   = Str8((u8 *)bone->mName.data, bone->mName.length);
-        name                          = PushStr8Copy(arena, name);
-        info.name                     = name;
-        info.convertToBoneSpaceMatrix = ConvertAssimpMatrix4x4(bone->mOffsetMatrix);
-        u32 boneId                    = skeleton->boneCount;
-        info.boneId                   = boneId;
-        skeleton->boneInfo[boneId]    = info;
-        skeleton->boneCount++;
-        Assert(skeleton->boneCount <= mesh->mNumBones);
+        if (baseVertex == 0)
+        {
+            string name = Str8((u8 *)bone->mName.data, bone->mName.length);
+            name        = PushStr8Copy(arena, name);
+
+            ArrayPush(&skeleton->names, name);
+            ArrayPush(&skeleton->inverseBindPoses, ConvertAssimpMatrix4x4(bone->mOffsetMatrix));
+        }
 
         for (u32 j = 0; j < bone->mNumWeights; j++)
         {
             aiVertexWeight *weight = bone->mWeights + j;
-            u32 vertexId           = weight->mVertexId;
+            u32 vertexId           = weight->mVertexId + baseVertex;
             f32 boneWeight         = weight->mWeight;
-
-            AddVertexBoneData(skeleton, vertexId, boneId, boneWeight);
+            if (boneWeight)
+            {
+                VertexBoneInfo *info = &skeleton->vertexBoneInfo.items[vertexId];
+                Assert(info->numMatrices < MAX_MATRICES_PER_VERTEX);
+                // NOTE: this doesn't increment the count of the array
+                info->pieces[info->numMatrices].boneIndex  = i;
+                info->pieces[info->numMatrices].boneWeight = boneWeight;
+                info->numMatrices++;
+            }
         }
     }
 }
 
-internal LoadedMesh ProcessMesh(Arena *arena, aiMesh *mesh, const aiScene *scene, u32 baseVertex)
+internal void ProcessMesh(Arena *arena, Model *model, const aiMesh *mesh)
 {
-    LoadedMesh result;
-    std::vector<MeshVertex> vertices;
-    std::vector<u32> indices;
-
-    Skeleton *skeleton = PushStruct(arena, Skeleton);
-
-    skeleton->boneInfo       = PushArray(arena, BoneInfo, MAX_BONES);
-    skeleton->vertexBoneInfo = PushArray(arena, VertexBoneInfo, MAX_VERTEX_COUNT);
-    skeleton->boneCount      = 0;
-    // skeleton.vertexBoneInfoCount = 0;
+    u32 baseVertex = model->vertices.count;
 
     for (u32 i = 0; i < mesh->mNumVertices; i++)
     {
@@ -277,8 +249,6 @@ internal LoadedMesh ProcessMesh(Arena *arena, aiMesh *mesh, const aiScene *scene
             vertex.normal.y = mesh->mNormals[i].y;
             vertex.normal.z = mesh->mNormals[i].z;
         }
-        // surely if you have vertex with multiple texture coordinates, it just becomes a different vertex
-        // altogeter?
         if (mesh->mTextureCoords[0])
         {
             vertex.uv.u = mesh->mTextureCoords[0][i].x;
@@ -288,122 +258,93 @@ internal LoadedMesh ProcessMesh(Arena *arena, aiMesh *mesh, const aiScene *scene
         {
             vertex.uv = {0, 0};
         }
-        vertices.push_back(vertex);
+        ArrayPush(&model->vertices, vertex);
     }
-    LoadBones(arena, skeleton, mesh, baseVertex);
     for (u32 i = 0; i < mesh->mNumFaces; i++)
     {
-        aiFace face = mesh->mFaces[i];
-        for (u32 indexindex = 0; indexindex < face.mNumIndices; indexindex++)
+        aiFace *face = &mesh->mFaces[i];
+        for (u32 indexindex = 0; indexindex < face->mNumIndices; indexindex++)
         {
-            indices.push_back(face.mIndices[indexindex]);
+            ArrayPush(&model->indices, face->mIndices[indexindex] + baseVertex);
         }
-        Assert(face.mNumIndices == 3);
-        MeshVertex *vertex1 = &vertices[face.mIndices[0]];
-        MeshVertex *vertex2 = &vertices[face.mIndices[1]];
-        MeshVertex *vertex3 = &vertices[face.mIndices[2]];
-
-        // V3 tangent = CalculateTangents(vertex1, vertex2, vertex3);
-        //
-        // vertex1->tangent += 2 * tangent;
-        // vertex2->tangent += 2 * tangent;
-        // vertex3->tangent += 2 * tangent;
     }
-#if 0
-    aiVector3D result1 = mesh->mTangents[0];
-    // aiVector3D result2 = mesh->mTangents[1];
-    // aiVector3D result3 = mesh->mTangents[2];
-
-    V3 r = Normalize(vertices[0].tangent);
-    V3 n = vertices[0].normal;
-    Printf("%f %f %f\n%f %f %f\n%f %f %f\n\n", result1.x, result1.y, result1.z, r.x, r.y, r.z, n.x, n.y, n.z);
-
-#endif
-    result.vertices    = vertices;
-    result.indices     = indices;
-    result.vertexCount = (u32)vertices.size();
-    result.indexCount  = (u32)indices.size();
-    result.skeleton    = skeleton;
-
-    MapSkeletonVertexInfoToVertices(&result);
     // TODO: Load materials
     //  aiMaterial* material = scene->mMaterials[mesh->mMaterialIndex];
-    return result;
 }
 
-internal void ProcessNode(Arena *arena, LoadedModel *model, aiNode *node, const aiScene *scene,
-                          MeshNodeInfoArray *nodeArray)
+internal Model LoadAllMeshes(Arena *arena, const aiScene *scene)
+{
+    TempArena scratch    = ScratchBegin(scratchArena);
+    u32 totalVertexCount = 0;
+    u32 totalFaceCount   = 0;
+    Model model          = {};
+    loopi(0, scene->mNumMeshes)
+    {
+        aiMesh *mesh = scene->mMeshes[i];
+        totalVertexCount += mesh->mNumVertices;
+        totalFaceCount += mesh->mNumFaces;
+    }
+
+    ArrayInit(arena, model.vertices, MeshVertex, totalVertexCount);
+    ArrayInit(arena, model.indices, u32, totalFaceCount * 3);
+
+    AssimpSkeletonAsset assetSkeleton = {};
+    ArrayInit(arena, assetSkeleton.inverseBindPoses, Mat4, scene->mMeshes[0]->mNumBones);
+    ArrayInit(arena, assetSkeleton.names, string, scene->mMeshes[0]->mNumBones);
+    ArrayInit(scratch.arena, assetSkeleton.vertexBoneInfo, VertexBoneInfo, scene->mMeshes[0]->mNumBones);
+
+    loopi(0, scene->mNumMeshes)
+    {
+        aiMesh *mesh = scene->mMeshes[i];
+        ProcessMesh(arena, &model, mesh);
+    }
+
+    u32 baseVertex = 0;
+    loopi(0, scene->mNumMeshes)
+    {
+        aiMesh *mesh = scene->mMeshes[i];
+        LoadBones(arena, &assetSkeleton, mesh, baseVertex);
+        baseVertex += mesh->mNumVertices;
+    }
+
+    loopi(0, totalVertexCount)
+    {
+        VertexBoneInfo *piece = &assetSkeleton.vertexBoneInfo.items[i];
+        loopj(0, MAX_MATRICES_PER_VERTEX)
+        {
+            model.vertices.items[i].boneIds[j]     = piece->pieces[j].boneIndex;
+            model.vertices.items[i].boneWeights[j] = piece->pieces[j].boneWeight;
+        }
+    }
+
+    model.skeleton.count                  = assetSkeleton.count;
+    model.skeleton.inverseBindPoses.items = assetSkeleton.inverseBindPoses.items;
+    model.skeleton.inverseBindPoses.count = assetSkeleton.inverseBindPoses.count;
+    model.skeleton.inverseBindPoses.cap   = assetSkeleton.inverseBindPoses.cap;
+    model.skeleton.names.items            = assetSkeleton.names.items;
+    model.skeleton.names.count            = assetSkeleton.names.count;
+    model.skeleton.names.cap              = assetSkeleton.names.cap;
+
+    ScratchEnd(scratch);
+    return model;
+}
+
+internal void ProcessNode(Arena *arena, MeshNodeInfoArray *nodeArray, const aiNode *node, i32 parentIndex = -1)
 {
     u32 index                   = nodeArray->count++;
-    MeshNodeInfo *nodeInfo      = &nodeArray->info[index];
+    MeshNodeInfo *nodeInfo      = &nodeArray->items[index];
     string name                 = Str8((u8 *)node->mName.data, node->mName.length);
     name                        = PushStr8Copy(arena, name);
     nodeInfo->name              = name;
     nodeInfo->transformToParent = ConvertAssimpMatrix4x4(node->mTransformation);
-    if (node->mParent)
-    {
-        string parentName    = Str8((u8 *)node->mParent->mName.data, node->mParent->mName.length);
-        parentName           = PushStr8Copy(arena, parentName);
-        nodeInfo->parentName = parentName;
-        nodeInfo->hasParent  = true;
-    }
-    else
-    {
-        nodeInfo->hasParent = false;
-    }
-
-    // u32 parentId = -1;
-    // if (node->mParent) {
-    //     string parentName = Str8((u8*)node->mParent->mName.data, node->mParent->mName.length);
-    //     nodeInfo->parentId = FindBone(parentName);
-    // }
+    nodeInfo->parentId          = parentIndex;
 
     Assert(nodeArray->count < nodeArray->cap);
-    // string parentName = Str8((u8*)node->mParent->mName.data, node->mParent->mName.data);
 
-    for (u32 i = 0; i < node->mNumMeshes; i++)
-    {
-        u32 baseVertex = 0;
-        aiMesh *mesh   = scene->mMeshes[node->mMeshes[i]];
-        if (mesh)
-        {
-            model->meshes.push_back(ProcessMesh(arena, mesh, scene, baseVertex));
-            baseVertex += model->meshes[i].vertexCount;
-        }
-    }
     for (u32 i = 0; i < node->mNumChildren; i++)
     {
-        ProcessNode(arena, model, node->mChildren[i], scene, nodeArray);
+        ProcessNode(arena, nodeArray, node->mChildren[i], index);
     }
-}
-
-internal Model ConvertModel(Arena *arena, LoadedModel *model)
-{
-    Model result;
-    u32 meshCount    = (u32)model->meshes.size();
-    result.meshCount = meshCount;
-
-    Mesh *meshes = PushArray(arena, Mesh, meshCount);
-    for (u32 i = 0; i < meshCount; i++)
-    {
-        LoadedMesh *loadedMesh = &model->meshes[i];
-        u32 vertexCount        = loadedMesh->vertexCount;
-        u32 indexCount         = loadedMesh->indexCount;
-
-        MeshVertex *vertices = PushArray(arena, MeshVertex, vertexCount);
-        u32 *indices         = PushArray(arena, u32, indexCount);
-
-        std::copy(loadedMesh->vertices.begin(), loadedMesh->vertices.end(), vertices);
-        std::copy(loadedMesh->indices.begin(), loadedMesh->indices.end(), indices);
-
-        meshes[i].vertices    = vertices;
-        meshes[i].indices     = indices;
-        meshes[i].vertexCount = vertexCount;
-        meshes[i].indexCount  = indexCount;
-        meshes[i].skeleton    = loadedMesh->skeleton;
-    }
-    result.meshes = meshes;
-    return result;
 }
 
 internal void ProcessAnimations(Arena *arena, const aiScene *scene, KeyframedAnimation *animationChannel)
@@ -510,10 +451,8 @@ internal void ProcessAnimations(Arena *arena, const aiScene *scene, KeyframedAni
 
 internal ModelOutput AssimpDebugLoadModel(Arena *arena, string filename)
 {
-    LoadedModel loadedModel = {};
-
-    // Model model = {};
     ModelOutput result = {};
+    Model model;
 
     Assimp::Importer importer;
     const char *file = (const char *)filename.str;
@@ -528,45 +467,76 @@ internal ModelOutput AssimpDebugLoadModel(Arena *arena, string filename)
     // NOTE LEAK: we're probably leaking memory when processing assimp nodes
     aiMatrix4x4t<f32> transform = scene->mRootNode->mTransformation;
     Mat4 globalTransform        = ConvertAssimpMatrix4x4(transform);
+    model                       = LoadAllMeshes(arena, scene);
+    ArrayInit(arena, model.skeleton.parents, i32, scene->mMeshes[0]->mNumBones);
+    ArrayInit(arena, model.skeleton.transformsToParent, Mat4, scene->mMeshes[0]->mNumBones);
 
-    result.infoArray             = PushStruct(arena, MeshNodeInfoArray);
-    MeshNodeInfoArray *infoArray = result.infoArray;
-    infoArray->info              = PushArrayNoZero(arena, MeshNodeInfo, 200);
-    infoArray->cap               = 200;
-    infoArray->count             = 0;
-    ProcessNode(arena, &loadedModel, scene->mRootNode, scene, infoArray);
+    TempArena scratch = ScratchBegin(scratchArena);
 
-    result.model                        = ConvertModel(arena, &loadedModel);
+    MeshNodeInfoArray infoArray;
+    infoArray.items = PushArrayNoZero(scratch.arena, MeshNodeInfo, 200);
+    infoArray.cap   = 200;
+    infoArray.count = 0;
+    ProcessNode(arena, &infoArray, scene->mRootNode);
+
+    // TODO: this is very janky because assimp doesn't have a continuity in count b/t
+    // scene nodes, bones, and animation channels. probably need to get far away from assimp
+    // asap
+    u32 shift = 0;
+    MeshNodeInfo *info;
+    foreach (&infoArray, info)
+    {
+        string name    = info->name;
+        b32 inSkeleton = false;
+        for (u32 i = 0; i < model.skeleton.names.count; i++)
+        {
+            if (name == model.skeleton.names.items[i])
+            {
+                inSkeleton = true;
+                break;
+            }
+        }
+        if (inSkeleton)
+        {
+            break;
+        }
+        shift++;
+    }
+    for (u32 i = 0; i < model.skeleton.names.count; i++)
+    {
+        ArrayPush(&model.skeleton.parents, infoArray.items[i+shift].parentId-shift);
+        ArrayPush(&model.skeleton.transformsToParent, infoArray.items[i+shift].transformToParent);
+    }
+
+    result.model                        = model;
     result.model.globalInverseTransform = Inverse(globalTransform);
     result.animation                    = PushStruct(arena, KeyframedAnimation);
     ProcessAnimations(arena, scene, result.animation);
 
-    result.infoArray = infoArray;
+    ScratchEnd(scratch);
 
     return result;
 }
 
 // TODO: load all the other animations
 
-// TODO: maybe memcpy or transpose or cast or something?
-
 // NOTE: Maps vertices to bone indices, and the weight of the bone's impact on the vertex
 
-internal i32 FindBoneId(Skeleton *skeleton, string name)
-{
-    i32 result = -1;
-
-    for (u32 i = 0; i < skeleton->boneCount; i++)
-    {
-        if (skeleton->boneInfo[i].name == name)
-        {
-            result = i;
-            Assert(result == (i32)skeleton->boneInfo[i].boneId);
-            break;
-        }
-    }
-    return result;
-}
+// internal i32 FindBoneId(Skeleton *skeleton, string name)
+// {
+//     i32 result = -1;
+//
+//     for (u32 i = 0; i < skeleton->boneCount; i++)
+//     {
+//         if (skeleton->boneInfo[i].name == name)
+//         {
+//             result = i;
+//             Assert(result == (i32)skeleton->boneInfo[i].boneId);
+//             break;
+//         }
+//     }
+//     return result;
+// }
 
 inline V3 CalculateTangents(const MeshVertex *vertex1, const MeshVertex *vertex2, const MeshVertex *vertex3)
 {
@@ -663,83 +633,59 @@ internal void PlayCurrentAnimation(AnimationPlayer *player, f32 dT, AnimationTra
     }
 }
 
-internal MeshNodeInfo *FindNode(MeshNodeInfoArray *infoArray, string name)
-{
-    MeshNodeInfo *node = 0;
-    for (u32 i = 0; i < infoArray->count; i++)
-    {
-        MeshNodeInfo *info = infoArray->info + i;
-        if (info->name == name)
-        {
-            node = info;
-            break;
-        }
-    }
-    return node;
-}
+// internal MeshNodeInfo *FindNode(MeshNodeInfoArray *infoArray, string name)
+// {
+//     MeshNodeInfo *node = 0;
+//     for (u32 i = 0; i < infoArray->count; i++)
+//     {
+//         MeshNodeInfo *info = infoArray->items + i;
+//         if (info->name == name)
+//         {
+//             node = info;
+//             break;
+//         }
+//     }
+//     return node;
+// }
 
-internal void SkinMeshToAnimation(AnimationPlayer *player, Mesh *mesh, const AnimationTransform *transforms,
-                                  MeshNodeInfoArray *infoArray, Mat4 globalInverseTransform, Mat4 *finalTransforms)
+internal void SkinModelToAnimation(AnimationPlayer *player, Model *model, const AnimationTransform *transforms,
+                                   Mat4 *finalTransforms)
 {
-    VertexBoneInfo *vertexBoneInfo = mesh->skeleton->vertexBoneInfo;
-    BoneInfo *boneInfo             = mesh->skeleton->boneInfo;
-
     Mat4 transformToParent[MAX_BONES];
-    Skeleton *skeleton = mesh->skeleton;
+    Skeleton *skeleton = &model->skeleton;
 
     i32 previousId = -1;
     // Mat4 parentTransform = Identity();
 
-    for (u32 i = 0; i < infoArray->count; i++)
+    // TODO: missing some transforms maybe
+    loopi(0, skeleton->names.count)
     {
-        MeshNodeInfo *node = infoArray->info + i;
-        i32 id             = FindBoneId(skeleton, node->name);
-
-        if (id == -1)
-        {
-            continue;
-        }
+        const string name = skeleton->names.items[i];
+        i32 id            = i;
 
         i32 animationId = -1;
-        // WHY OH WHY GOD
         for (u32 index = 0; index < MAX_BONES; index++)
         {
-            if (player->currentAnimation->boneChannels[index].name == node->name)
+            if (player->currentAnimation->boneChannels[index].name == name)
             {
                 animationId = index;
                 break;
             }
         }
-        // Mat4 lerpedMatrix = node->transformToParent;
         Mat4 lerpedMatrix;
         if (animationId == -1)
         {
-            lerpedMatrix = node->transformToParent;
+            lerpedMatrix = skeleton->transformsToParent.items[id];
         }
         else
         {
             lerpedMatrix = ConvertToMatrix(&transforms[animationId]);
         }
-        i32 parentId = FindBoneId(skeleton, node->parentName);
-
-        // TODO: store parent index and node index
-        // THE PARENT DOESN'T EXIST IN THE SKELETON, BUT IN THE MESH NODE INFO IT HAS A TRANSFORM
+        i32 parentId = skeleton->parents.items[id];
         if (parentId == -1)
         {
-            Mat4 parentTransform = Identity();
-            string parentName    = node->parentName;
-            while (node->hasParent && parentName.size)
-            {
-                parentTransform = parentTransform * FindNode(infoArray, parentName)->transformToParent;
-
-                node       = FindNode(infoArray, parentName);
-                parentName = node->parentName;
-            }
-            // parentTransform       = parentTransform * FindNodeMatrix(infoArray, node->name);
-            transformToParent[id] = parentTransform * node->transformToParent;
+            transformToParent[id] = lerpedMatrix;
         }
-        // THE PARENT DOES EXIST IN THE SKELETON
-        // NOTE IMPORTANT: the animation data in assimp replaces the transformation matrix to the parent. sigh
         else
         {
             Assert(!IsZero(transformToParent[parentId]));
@@ -749,23 +695,51 @@ internal void SkinMeshToAnimation(AnimationPlayer *player, Mesh *mesh, const Ani
         Assert(id > previousId);
         previousId = id;
         finalTransforms[id] =
-            globalInverseTransform * transformToParent[id] * boneInfo[id].convertToBoneSpaceMatrix;
+            model->globalInverseTransform * transformToParent[id] * skeleton->inverseBindPoses.items[id];
     }
 }
 
-internal void SkinModelToAnimation(AnimationPlayer *player, Model *model, const AnimationTransform *transforms,
-                                   MeshNodeInfoArray *infoArray, Mat4 **output)
-{
-    u32 baseBone = 0;
-    for (u32 meshCount = 0; meshCount < model->meshCount; meshCount++)
-    {
-        Mesh *currentMesh = model->meshes;
-        SkinMeshToAnimation(player, currentMesh, transforms, infoArray, model->globalInverseTransform,
-                            *output + baseBone);
-        baseBone += currentMesh->skeleton->boneCount;
-    }
-}
+// internal void SkinModelToAnimation(AnimationPlayer *player, Model *model, const AnimationTransform *transforms,
+//                                    MeshNodeInfoArray *infoArray, Mat4 **output)
+// {
+//     u32 baseBone = 0;
+//     for (u32 meshCount = 0; meshCount < model->meshCount; meshCount++)
+//     {
+//         Mesh *currentMesh = model->meshes;
+//         SkinMeshToAnimation(player, currentMesh, transforms, infoArray, model->globalInverseTransform,
+//                             *output + baseBone);
+//         baseBone += currentMesh->skeleton->boneCount;
+//     }
+// }
 
+// internal Model ConvertModel(Arena *arena, LoadedModel *model)
+// {
+//     Model result;
+//     u32 meshCount    = (u32)model->meshes.size();
+//     result.meshCount = meshCount;
+//
+//     Mesh *meshes = PushArray(arena, Mesh, meshCount);
+//     for (u32 i = 0; i < meshCount; i++)
+//     {
+//         LoadedMesh *loadedMesh = &model->meshes[i];
+//         u32 vertexCount        = loadedMesh->vertexCount;
+//         u32 indexCount         = loadedMesh->indexCount;
+//
+//         MeshVertex *vertices = PushArray(arena, MeshVertex, vertexCount);
+//         u32 *indices         = PushArray(arena, u32, indexCount);
+//
+//         std::copy(loadedMesh->vertices.begin(), loadedMesh->vertices.end(), vertices);
+//         std::copy(loadedMesh->indices.begin(), loadedMesh->indices.end(), indices);
+//
+//         meshes[i].vertices    = vertices;
+//         meshes[i].indices     = indices;
+//         meshes[i].vertexCount = vertexCount;
+//         meshes[i].indexCount  = indexCount;
+//         meshes[i].skeleton    = loadedMesh->skeleton;
+//     }
+//     result.meshes = meshes;
+//     return result;
+// }
 #if 0
 // TODO: i really don't like using function pointers for platform layer stuff
 // NOTE: array of nodes, each with a parent index and a name

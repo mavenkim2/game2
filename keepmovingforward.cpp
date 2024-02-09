@@ -621,6 +621,8 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
     if (!memory->isInitialized)
     {
+        scratchArena = ArenaAlloc(megabytes(64));
+
         // gameState->bmpTest = DebugLoadBMP(memory->DebugPlatformReadFile, "test/tile.bmp");
         gameState->worldArena = ArenaAlloc((void *)((u8 *)(memory->PersistentStorageMemory) + sizeof(GameState)),
                                            memory->PersistentStorageSize - sizeof(GameState));
@@ -644,8 +646,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
         // TODO: it's annoying that for every array I have to manually initialize the memory. maybe use
         // stb arrays
-        ArrayInit(gameState->worldArena, gameState->model.meshes[0].textures, Texture, 2);
-        ArrayInit(gameState->worldArena, gameState->model.meshes[1].textures, Texture, 2);
+        ArrayInit(gameState->worldArena, gameState->model.textures, Texture, 4);
 
         void *data =
             stbi_load("data/dragon/MI_M_B_44_Qishilong_body02_Inst_diffuse.png", &width, &height, &nChannels, 0);
@@ -656,7 +657,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         texture.type     = TextureType_Diffuse;
         texture.contents = (u8 *)data;
 
-        PushTexture(texture, &gameState->model.meshes[0]);
+        PushTexture(texture, &gameState->model);
 
         void *data2 =
             stbi_load("data/dragon/MI_M_B_44_Qishilong_body02_Inst_normal.png", &width, &height, &nChannels, 0);
@@ -666,7 +667,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         texture2.height   = height;
         texture2.type     = TextureType_Normal;
         texture2.contents = (u8 *)data2;
-        PushTexture(texture2, &gameState->model.meshes[0]);
+        PushTexture(texture2, &gameState->model);
 
         void *data3 =
             stbi_load("data/dragon/MI_M_B_44_Qishilong_body02_2_Inst_diffuse.png", &width, &height, &nChannels, 0);
@@ -676,7 +677,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         texture3.height   = height;
         texture3.type     = TextureType_Diffuse;
         texture3.contents = (u8 *)data3;
-        PushTexture(texture3, &gameState->model.meshes[1]);
+        PushTexture(texture3, &gameState->model);
 
         void *data4 =
             stbi_load("data/dragon/MI_M_B_44_Qishilong_body02_2_Inst_normal.png", &width, &height, &nChannels, 0);
@@ -686,7 +687,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         texture4.height   = height;
         texture4.type     = TextureType_Normal;
         texture4.contents = (u8 *)data4;
-        PushTexture(texture4, &gameState->model.meshes[1]);
+        PushTexture(texture4, &gameState->model);
 
         gameState->level      = PushStruct(gameState->worldArena, Level);
         gameState->cameraMode = CameraMode_Player;
@@ -710,18 +711,16 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         AddFlag(swap, Entity_Valid | Entity_Collidable | Entity_Swappable);
 
         renderState->camera.position = gameState->player.pos - V3{0, 10, 0};
-        // openGL->camera.position = {0, 0, 5};
         renderState->camera.pitch = -PI / 4;
         renderState->camera.yaw   = PI / 2;
         memory->isInitialized     = true;
 
         AnimationPlayer *aPlayer = &gameState->animPlayer;
         StartLoopedAnimation(aPlayer, output.animation);
-        gameState->meshNodeHierarchy = output.infoArray;
-        // gameState->camera.pos = V2{TILE_MAP_X_COUNT / 2.f, TILE_MAP_Y_COUNT / 2.f};
 
-        gameState->tforms          = PushArray(gameState->worldArena, AnimationTransform, MAX_BONES);
-        gameState->finalTransforms = PushArray(gameState->worldArena, Mat4, output.model.meshCount * MAX_BONES);
+        gameState->tforms =
+            PushArray(gameState->worldArena, AnimationTransform, output.model.skeleton.names.count);
+        gameState->finalTransforms = PushArray(gameState->worldArena, Mat4, output.model.skeleton.names.count);
     }
     Level *level                = gameState->level;
     GameInput *playerController = input;
@@ -1033,11 +1032,11 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         PlayCurrentAnimation(&gameState->animPlayer, input->dT, gameState->tforms);
 
 #if 1
-        SkinModelToAnimation(&gameState->animPlayer, &gameState->model, gameState->tforms,
-                             gameState->meshNodeHierarchy, &gameState->finalTransforms);
 
-        PushMesh(renderState, &gameState->model.meshes[0], gameState->finalTransforms);
-        PushMesh(renderState, &gameState->model.meshes[1], gameState->finalTransforms);
+        SkinModelToAnimation(&gameState->animPlayer, &gameState->model, gameState->tforms,
+                             gameState->finalTransforms);
+
+        PushModel(renderState, &gameState->model, gameState->finalTransforms);
 #else
         PushMesh(renderState, &gameState->model.meshes[0]);
         PushMesh(renderState, &gameState->model.meshes[1]);

@@ -228,6 +228,40 @@ union V4
     f32 elements[4];
 };
 
+union V4I32
+{
+    struct
+    {
+        i32 x, y, z, w;
+    };
+    struct
+    {
+        i32 r, g, b, a;
+    };
+    struct
+    {
+        V2I32 xy;
+        V2I32 zw;
+    };
+    struct
+    {
+        i32 _x;
+        V2I32 yz;
+        i32 _w;
+    };
+    struct
+    {
+        V3I32 xyz;
+        i32 __w;
+    };
+    struct
+    {
+        V3I32 rgb;
+        i32 __a;
+    };
+    i32 elements[4];
+};
+
 union Mat3
 {
     f32 elements[3][3];

@@ -59,22 +59,22 @@ struct BoneInfo
 struct VertexBoneInfoPiece
 {
     u32 boneIndex;
-    // string boneName;
     f32 boneWeight;
 };
 
 struct VertexBoneInfo
 {
-    i32 numMatrices; // is this necesary? maybe just hardcode 4
+    i32 numMatrices;
     VertexBoneInfoPiece pieces[MAX_MATRICES_PER_VERTEX];
 };
 
 struct Skeleton
 {
-    BoneInfo *boneInfo;
-    u32 boneCount;
-
-    VertexBoneInfo *vertexBoneInfo;
+    u32 count;
+    ArrayDef(string) names;
+    ArrayDef(i32) parents;
+    ArrayDef(Mat4) inverseBindPoses;
+    ArrayDef(Mat4) transformsToParent;
 };
 
 struct AnimationTransform
@@ -104,15 +104,13 @@ inline AnimationTransform Lerp(AnimationTransform t1, AnimationTransform t2, f32
 struct MeshNodeInfo
 {
     string name;
-    // u32 parentId;
-    b32 hasParent;
-    string parentName;
+    i32 parentId;
     Mat4 transformToParent;
 };
 
 struct MeshNodeInfoArray
 {
-    MeshNodeInfo *info;
+    MeshNodeInfo *items;
     u32 count;
     u32 cap;
 };
@@ -148,44 +146,42 @@ struct AnimationPlayer
     b32 isLooping;
 };
 
-struct LoadedMesh
-{
-    std::vector<MeshVertex> vertices;
-    std::vector<u32> indices;
-    Skeleton *skeleton;
+// struct LoadedMesh
+// {
+//     std::vector<MeshVertex> vertices;
+//     std::vector<u32> indices;
+//     Skeleton *skeleton;
+//
+//     u32 vertexCount;
+//     u32 indexCount;
+// };
+// struct LoadedModel
+// {
+//     std::vector<LoadedMesh> meshes;
+// };
 
-    u32 vertexCount;
-    u32 indexCount;
-};
-struct LoadedModel
-{
-    std::vector<LoadedMesh> meshes;
-};
-
-struct Mesh
-{
-    MeshVertex *vertices;
-    u32 vertexCount;
-
-    u32 *indices;
-    u32 indexCount;
-
-    Skeleton *skeleton;
-
-    u32 vbo;
-    u32 ebo;
-
-    ArrayDef(Texture) textures;
-    // Texture textures[16];
-    // u8 textureCount;
-};
+// struct Mesh
+// {
+//     MeshVertex *vertices;
+//     u32 vertexCount;
+//
+//     u32 *indices;
+//     u32 indexCount;
+//
+//     Skeleton *skeleton;
+//
+//     u32 vbo;
+//     u32 ebo;
+//
+//     ArrayDef(Texture) textures;
+// };
 
 // struct BoneTransform {
 //     V3 translation;
 //     Quat rotation;
 // };
 // struct Bone {
-//     BoneTransform 
+//     BoneTransform
 // };
 // struct Bone
 // {
@@ -197,14 +193,16 @@ struct Mesh
 // };
 struct Model
 {
-    // ArrayDef(MeshVertex) vertices;
-    // ArrayDef(u32) indices;
-    //
-    // Skeleton* skeleton;
-    Mesh *meshes;
-    u32 meshCount;
+    ArrayDef(MeshVertex) vertices;
+    ArrayDef(u32) indices;
+
+    Skeleton skeleton;
 
     Mat4 globalInverseTransform;
+
+    ArrayDef(Texture) textures;
+    u32 vbo;
+    u32 ebo;
 };
 
 // NOTE: Temporary hash
@@ -245,6 +243,13 @@ struct ModelOutput
 {
     Model model;
     KeyframedAnimation *animation;
-    MeshNodeInfoArray *infoArray;
 };
 
+struct AssimpSkeletonAsset
+{
+    u32 count;
+    ArrayDef(string) names;
+    ArrayDef(i32) parents;
+    ArrayDef(Mat4) inverseBindPoses;
+    ArrayDef(VertexBoneInfo) vertexBoneInfo;
+};

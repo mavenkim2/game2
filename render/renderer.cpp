@@ -90,15 +90,15 @@
 //     group->quadCount += 1;
 // }
 
-internal void PushTexture(Texture texture, Mesh *mesh)
+internal void PushTexture(Texture texture, Model *model)
 {
-    ArrayPush(&mesh->textures, texture);
+    ArrayPush(&model->textures, texture);
 }
 
-internal void PushMesh(RenderState *state, Mesh *mesh, Mat4 *finalTransforms = 0)
+internal void PushModel(RenderState *state, Model *model, Mat4 *finalTransforms = 0)
 {
     RenderCommand command;
-    command.mesh      = mesh;
+    command.model      = model;
     command.transform = Identity();
     if (finalTransforms)
     {

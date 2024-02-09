@@ -79,6 +79,22 @@ internal string ReadEntireFile(string filename)
     return output;
 }
 
+internal u64 OS_PageSize()
+{
+    SYSTEM_INFO info;
+    GetSystemInfo(&info);
+    return info.dwPageSize;
+}
+
+internal void *OS_Alloc(u64 size)
+{
+    u64 pageSnappedSize = size;
+    pageSnappedSize += OS_PageSize() - 1;
+    pageSnappedSize -= pageSnappedSize % OS_PageSize();
+    void* ptr = VirtualAlloc(0, pageSnappedSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    return ptr;
+}
+
 // LRESULT OS_W32_Callback(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
 // {
 //     LRESULT result = 0;

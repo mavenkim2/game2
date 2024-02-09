@@ -77,21 +77,21 @@ internal void LoadTexture(Texture *texture)
     }
 }
 
-internal void LoadMesh(Mesh *mesh)
+internal void LoadModel(Model *model)
 {
     // NOTE: must be 0
-    if (!mesh->vbo)
+    if (!model->vbo)
     {
-        openGL->glGenBuffers(1, &mesh->vbo);
-        openGL->glGenBuffers(1, &mesh->ebo);
+        openGL->glGenBuffers(1, &model->vbo);
+        openGL->glGenBuffers(1, &model->ebo);
 
-        openGL->glBindBuffer(GL_ARRAY_BUFFER, mesh->vbo);
-        openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(mesh->vertices[0]) * mesh->vertexCount, mesh->vertices,
-                             GL_STREAM_DRAW);
+        openGL->glBindBuffer(GL_ARRAY_BUFFER, model->vbo);
+        openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(model->vertices.items[0]) * model->vertices.count,
+                             model->vertices.items, GL_STREAM_DRAW);
 
-        openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh->ebo);
-        openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(mesh->indices[0]) * mesh->indexCount, mesh->indices,
-                             GL_STREAM_DRAW);
+        openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, model->ebo);
+        openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(model->indices.items[0]) * model->indices.count,
+                             model->indices.items, GL_STREAM_DRAW);
     }
 }
 
@@ -359,21 +359,20 @@ internal void OpenGLEndFrame(RenderState *renderState, HDC deviceContext, int cl
         GLuint boneIdId     = openGL->modelShader.boneIdId;
         GLuint boneWeightId = openGL->modelShader.boneWeightId;
         GLuint tangentId    = openGL->modelShader.tangentId;
-        u32 baseBone        = 0;
 
         RenderCommand *command;
         foreach (&renderState->commands, command)
         {
-            Mesh *mesh         = command->mesh;
-            Skeleton *skeleton = mesh->skeleton;
-            if (!mesh->vbo)
+            Model *model       = command->model;
+            Skeleton *skeleton = &model->skeleton;
+            if (!model->vbo)
             {
-                LoadMesh(mesh);
+                LoadModel(model);
             }
             // TODO: hardcode
 
             Texture *texture;
-            foreach (&mesh->textures, texture)
+            foreach (&model->textures, texture)
             {
                 if (!texture->id)
                 {
@@ -402,12 +401,12 @@ internal void OpenGLEndFrame(RenderState *renderState, HDC deviceContext, int cl
 
             openGL->glActiveTexture(GL_TEXTURE0);
 
-            openGL->glBindBuffer(GL_ARRAY_BUFFER, mesh->vbo);
-            openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(mesh->vertices[0]) * mesh->vertexCount, mesh->vertices,
-                                 GL_STREAM_DRAW);
-            openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh->ebo);
-            openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(mesh->indices[0]) * mesh->indexCount,
-                                 mesh->indices, GL_STREAM_DRAW);
+            openGL->glBindBuffer(GL_ARRAY_BUFFER, model->vbo);
+            openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(model->vertices.items[0]) * model->vertices.count,
+                                 model->vertices.items, GL_STREAM_DRAW);
+            openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, model->ebo);
+            openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(model->indices.items[0]) * model->indices.count,
+                                 model->indices.items, GL_STREAM_DRAW);
 
             openGL->glEnableVertexAttribArray(positionId);
             openGL->glVertexAttribPointer(positionId, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
@@ -449,7 +448,7 @@ internal void OpenGLEndFrame(RenderState *renderState, HDC deviceContext, int cl
             {
                 GLint boneTformLocation =
                     openGL->glGetUniformLocation(openGL->modelShader.base.id, "boneTransforms");
-                openGL->glUniformMatrix4fv(boneTformLocation, skeleton->boneCount, GL_FALSE,
+                openGL->glUniformMatrix4fv(boneTformLocation, skeleton->count, GL_FALSE,
                                            command->finalBoneTransforms->elements[0]);
             }
 
@@ -471,9 +470,7 @@ internal void OpenGLEndFrame(RenderState *renderState, HDC deviceContext, int cl
             GLint nmapLoc = openGL->glGetUniformLocation(openGL->modelShader.base.id, "normalMap");
             openGL->glUniform1i(nmapLoc, 1);
 
-            glDrawElements(GL_TRIANGLES, mesh->indexCount, GL_UNSIGNED_INT, 0);
-
-            baseBone += skeleton->boneCount;
+            glDrawElements(GL_TRIANGLES, model->indices.count, GL_UNSIGNED_INT, 0);
         }
 
         openGL->glUseProgram(0);

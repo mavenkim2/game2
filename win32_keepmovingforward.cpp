@@ -14,9 +14,9 @@
 
 #include "win32_keepmovingforward.h"
 
+#include "win32.cpp"
 #include "keepmovingforward_memory.cpp"
 #include "keepmovingforward_string.cpp"
-#include "win32.cpp"
 #include "render/opengl.cpp"
 
 global b32 RUNNING = true;

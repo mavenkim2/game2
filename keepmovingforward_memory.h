@@ -32,6 +32,7 @@ internal b32 CheckZero(u32 size, u8* instance);
 #define ScratchBegin(arena) TempBegin(arena)
 #define ScratchEnd(temp) TempEnd(temp)
 
+#define ScratchStart() 
 #define IsZero(instance) CheckZero(sizeof(instance), (u8*)(&instance))
 
 #endif
