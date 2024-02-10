@@ -721,6 +721,8 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         gameState->tforms =
             PushArray(gameState->worldArena, AnimationTransform, output.model.skeleton.names.count);
         gameState->finalTransforms = PushArray(gameState->worldArena, Mat4, output.model.skeleton.names.count);
+
+        WriteModelToFile(&gameState->model, Str8Lit("dragon.model"));
     }
     Level *level                = gameState->level;
     GameInput *playerController = input;

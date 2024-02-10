@@ -154,8 +154,6 @@ struct Model
 
     Skeleton skeleton;
 
-    Mat4 globalInverseTransform;
-
     ArrayDef(Texture) textures;
     u32 vbo;
     u32 ebo;

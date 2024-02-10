@@ -3,7 +3,7 @@
 internal string Str8(u8 *str, u64 size)
 {
     string result;
-    result.str = str;
+    result.str  = str;
     result.size = size;
     return result;
 }
@@ -119,8 +119,8 @@ internal string PushStr8FV(Arena *arena, char *fmt, va_list args)
     va_list args2;
     va_copy(args2, args);
     u64 neededBytes = stbsp_vsnprintf(0, 0, fmt, args) + 1;
-    result.str = PushArray(arena, u8, neededBytes);
-    result.size = neededBytes - 1;
+    result.str      = PushArray(arena, u8, neededBytes);
+    result.size     = neededBytes - 1;
     stbsp_vsnprintf((char *)result.str, (int)neededBytes, fmt, args2);
     return result;
 }
@@ -129,7 +129,7 @@ internal string PushStr8Copy(Arena *arena, string str)
 {
     string res;
     res.size = str.size;
-    res.str = PushArrayNoZero(arena, u8, str.size + 1);
+    res.str  = PushArrayNoZero(arena, u8, str.size + 1);
     MemoryCopy(res.str, str.str, str.size);
     res.str[str.size] = 0;
     return res;
@@ -192,4 +192,61 @@ internal b32 StartsWith(string a, string b)
         }
     }
     return result;
+}
+
+struct StringBuilderNode
+{
+    string str;
+    StringBuilderNode *next;
+};
+
+struct StringBuilder
+{
+    StringBuilderNode *first;
+    StringBuilderNode *last;
+    u32 totalSize;
+    TempArena scratch;
+};
+
+internal void Put(StringBuilder *builder, void *data, u32 size)
+{
+    StringBuilderNode *node = PushStruct(builder->scratch.arena, StringBuilderNode);
+    node->str.str           = PushArray(builder->scratch.arena, u8, size);
+    node->str.size          = size;
+
+    builder->totalSize += size;
+
+    MemoryCopy(node->str.str, data, size);
+    QueuePush(builder->first, builder->last, node);
+}
+
+internal void Put(StringBuilder *builder, char* data)
+{
+    StringBuilderNode *node = PushStruct(builder->scratch.arena, StringBuilderNode);
+    u32 size = sizeof(data);
+    node->str.str           = PushArray(builder->scratch.arena, u8, size);
+    node->str.size          = size;
+
+    builder->totalSize += size;
+
+    MemoryCopy(node->str.str, data, size);
+    QueuePush(builder->first, builder->last, node);
+}
+
+internal b32 WriteEntireFile(StringBuilder *builder, string filename)
+{
+    string result;
+    result.str  = PushArray(builder->scratch.arena, u8, builder->totalSize);
+    result.size = builder->totalSize;
+
+    StringBuilderNode *node = builder->first;
+    u8 *cursor              = result.str;
+    while (node->next)
+    {
+        MemoryCopy(cursor, node->str.str, node->str.size);
+        cursor += node->str.size;
+        node = node->next;
+    }
+    b32 success = WriteFile(filename, result.str, (u32)result.size);
+    return success;
 }

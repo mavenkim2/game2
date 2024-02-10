@@ -493,7 +493,6 @@ internal ModelOutput AssimpDebugLoadModel(Arena *arena, string filename)
 
     // NOTE LEAK: we're probably leaking memory when processing assimp nodes
     aiMatrix4x4t<f32> transform = scene->mRootNode->mTransformation;
-    Mat4 globalTransform        = ConvertAssimpMatrix4x4(transform);
     model                       = LoadAllMeshes(arena, scene);
     ArrayInit(arena, model.skeleton.parents, i32, scene->mMeshes[0]->mNumBones);
     ArrayInit(arena, model.skeleton.transformsToParent, Mat4, scene->mMeshes[0]->mNumBones);
@@ -535,31 +534,25 @@ internal ModelOutput AssimpDebugLoadModel(Arena *arena, string filename)
     {
         MeshNodeInfo *info = &infoArray.items[i + shift];
         string parentName  = info->parentName;
-        i32 parentId = -1;
-        parentId     = FindNodeIndex(&model.skeleton, parentName);
+        i32 parentId       = -1;
+        parentId           = FindNodeIndex(&model.skeleton, parentName);
         ArrayPush(&model.skeleton.parents, parentId);
+        Mat4 parentTransform = info->transformToParent;
         if (parentId == -1)
         {
-            Mat4 parentTransform = Identity();
-            parentId             = FindMeshNodeInfo(&infoArray, parentName);
+            parentId = FindMeshNodeInfo(&infoArray, parentName);
             while (parentId != -1)
             {
                 info            = &infoArray.items[parentId];
                 parentTransform = info->transformToParent * parentTransform;
                 parentId        = FindMeshNodeInfo(&infoArray, info->parentName);
             }
-            ArrayPush(&model.skeleton.transformsToParent, parentTransform * info->transformToParent);
         }
-        else
-        {
-            Mat4 transformToParent = info->transformToParent;
-            ArrayPush(&model.skeleton.transformsToParent, transformToParent);
-        }
+        ArrayPush(&model.skeleton.transformsToParent, parentTransform);
     }
 
-    result.model                        = model;
-    result.model.globalInverseTransform = Inverse(globalTransform);
-    result.animation                    = PushStruct(arena, KeyframedAnimation);
+    result.model     = model;
+    result.animation = PushStruct(arena, KeyframedAnimation);
     ProcessAnimations(arena, scene, result.animation);
 
     ScratchEnd(scratch);
@@ -699,10 +692,24 @@ internal void SkinModelToAnimation(AnimationPlayer *player, Model *model, const 
         }
 
         Assert(id > previousId);
-        previousId = id;
-        finalTransforms[id] =
-            model->globalInverseTransform * transformToParent[id] * skeleton->inverseBindPoses.items[id];
+        previousId          = id;
+        finalTransforms[id] = transformToParent[id] * skeleton->inverseBindPoses.items[id];
     }
+}
+
+internal void WriteModelToFile(Model *model, string filename)
+{
+    StringBuilder builder = {};
+    TempArena temp = ScratchBegin(scratchArena);
+    builder.scratch = temp;
+    Put(&builder, "hello");
+    Put(&builder, model->vertices.items, sizeof(model->vertices.items[0]) * model->vertices.count);
+    Put(&builder, model->indices.items, sizeof(model->indices.items[0]) * model->vertices.count);
+    b32 success = WriteEntireFile(&builder, filename);
+    if (!success) {
+        Printf("Failed to write file %S\n", filename);
+    }
+    ScratchEnd(temp);
 }
 
 #if 0

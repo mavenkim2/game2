@@ -79,6 +79,22 @@ internal string ReadEntireFile(string filename)
     return output;
 }
 
+internal b32 WriteFile(string filename, void *fileMemory, u32 fileSize)
+{
+    b32 result        = false;
+    HANDLE fileHandle = CreateFileA((char*)filename.str, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (fileHandle != INVALID_HANDLE_VALUE)
+    {
+        DWORD bytesToWrite;
+        if (WriteFile(fileHandle, fileMemory, fileSize, &bytesToWrite, NULL))
+        {
+            result = (fileSize == bytesToWrite);
+        }
+        CloseHandle(fileHandle);
+    }
+    return result;
+}
+
 internal u64 OS_PageSize()
 {
     SYSTEM_INFO info;
@@ -91,7 +107,7 @@ internal void *OS_Alloc(u64 size)
     u64 pageSnappedSize = size;
     pageSnappedSize += OS_PageSize() - 1;
     pageSnappedSize -= pageSnappedSize % OS_PageSize();
-    void* ptr = VirtualAlloc(0, pageSnappedSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    void *ptr = VirtualAlloc(0, pageSnappedSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
     return ptr;
 }
 

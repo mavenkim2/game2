@@ -87,4 +87,13 @@ typedef i64 b64;
 
 #define AlignPow2(x,b)     (((x) + (b) - 1)&(~((b) - 1)))
 
+// Linked list
+#define CheckNull(p) ((p)==0)
+#define SetNull(p) ((p)=0)
+#define QueuePush_NZ(f,l,n,next,zchk,zset) (zchk(f)?\
+(((f)=(l)=(n)), zset((n)->next)):\
+((l)->next=(n),(l)=(n),zset((n)->next)))
+
+#define QueuePush(f,l,n) QueuePush_NZ(f,l,n,next,CheckNull,SetNull)
+
 // clang-format on
