@@ -220,16 +220,25 @@ internal void Put(StringBuilder *builder, void *data, u32 size)
     QueuePush(builder->first, builder->last, node);
 }
 
-internal void Put(StringBuilder *builder, char* data)
+internal void Put(StringBuilder *builder, string str)
 {
     StringBuilderNode *node = PushStruct(builder->scratch.arena, StringBuilderNode);
-    u32 size = sizeof(data);
+    u32 size                = (u32)str.size;
+    node->str               = str;
+
+    builder->totalSize += size;
+    QueuePush(builder->first, builder->last, node);
+}
+
+internal void Put(StringBuilder *builder, u32 value)
+{
+    StringBuilderNode *node = PushStruct(builder->scratch.arena, StringBuilderNode);
+    u32 size                = sizeof(value);
     node->str.str           = PushArray(builder->scratch.arena, u8, size);
     node->str.size          = size;
 
+    MemoryCopy(node->str.str, &value, size);
     builder->totalSize += size;
-
-    MemoryCopy(node->str.str, data, size);
     QueuePush(builder->first, builder->last, node);
 }
 
@@ -250,3 +259,26 @@ internal b32 WriteEntireFile(StringBuilder *builder, string filename)
     b32 success = WriteFile(filename, result.str, (u32)result.size);
     return success;
 }
+
+inline void Advance(string *fileData, u32 size)
+{
+    Assert(size <= fileData->size);
+    fileData->str += size;
+    fileData->size -= size;
+}
+
+internal u32 GetU32(string *fileData)
+{
+    u32 result = *(u32 *)(fileData->str);
+    Advance(fileData, sizeof(u32));
+    return result;
+}
+
+internal void Get(string *fileData, void *ptr, u32 size)
+{
+    MemoryCopy(ptr, fileData->str, size);
+    Advance(fileData, size);
+}
+
+#define PutArray(builder, array) Put(builder, array.items, sizeof(array.items[0]) * array.count)
+#define GetArray(data, array) Get(data, array.items, sizeof(array.items[0]) * array.count)

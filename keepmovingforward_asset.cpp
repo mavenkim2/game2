@@ -700,16 +700,39 @@ internal void SkinModelToAnimation(AnimationPlayer *player, Model *model, const 
 internal void WriteModelToFile(Model *model, string filename)
 {
     StringBuilder builder = {};
-    TempArena temp = ScratchBegin(scratchArena);
-    builder.scratch = temp;
-    Put(&builder, "hello");
-    Put(&builder, model->vertices.items, sizeof(model->vertices.items[0]) * model->vertices.count);
-    Put(&builder, model->indices.items, sizeof(model->indices.items[0]) * model->vertices.count);
+    TempArena temp        = ScratchBegin(scratchArena);
+    builder.scratch       = temp;
+    Put(&builder, model->vertices.count);
+    Put(&builder, model->indices.count);
+    PutArray(&builder, model->vertices);
+    PutArray(&builder, model->indices);
     b32 success = WriteEntireFile(&builder, filename);
-    if (!success) {
+    if (!success)
+    {
         Printf("Failed to write file %S\n", filename);
     }
     ScratchEnd(temp);
+}
+
+internal Model ReadModelFromFile(Arena *arena, string filename)
+{
+    string data = ReadEntireFile(filename);
+
+    u32 vertexCount = GetU32(&data);
+    u32 indexCount  = GetU32(&data);
+    Model model;
+    ArrayInit(arena, model.vertices, MeshVertex, vertexCount);
+    ArrayInit(arena, model.indices, u32, indexCount);
+    model.vertices.count = vertexCount;
+    model.indices.count  = indexCount;
+
+    GetArray(&data, model.vertices);
+    GetArray(&data, model.indices);
+
+    Assert(data.size == 0);
+
+    FreeFileMemory(data.str);
+    return model;
 }
 
 #if 0
