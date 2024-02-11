@@ -810,6 +810,61 @@ internal void ReadSkeletonFromFile(Arena *arena, Skeleton *skeleton, string file
     FreeFileMemory(tokenizer.input.str);
 }
 
+global u32 animationFileVersion = 1;
+internal void WriteAnimationToFile(KeyframedAnimation *animation, string filename)
+{
+    StringBuilder builder = {};
+    TempArena temp        = ScratchBegin(scratchArena);
+    builder.scratch       = temp;
+
+    Put(&builder, animationFileVersion);
+    Put(&builder, animation->numNodes);
+    PutPointer(&builder, &animation->duration);
+    Put(&builder, animation->numFrames);
+
+    loopi(0, animation->numNodes)
+    {
+        BoneChannel *channel = animation->boneChannels + i;
+        string output        = PushStr8F(temp.arena, "%S\n", channel->name);
+        Put(&builder, output);
+        Put(&builder, channel->transforms, sizeof(channel->transforms[0]) * animation->numFrames);
+    }
+
+    b32 success = WriteEntireFile(&builder, filename);
+    if (!success)
+    {
+        Printf("Failed to write file %S\n", filename);
+    }
+    ScratchEnd(temp);
+}
+
+internal void ReadAnimationFile(Arena *arena, KeyframedAnimation *animation, string filename)
+{
+    Tokenizer tokenizer;
+    tokenizer.input  = ReadEntireFile(filename);
+    tokenizer.cursor = tokenizer.input.str;
+
+    u32 version;
+    GetPointer(&tokenizer, &version);
+    GetPointer(&tokenizer, &animation->numNodes);
+    GetPointer(&tokenizer, &animation->duration);
+    GetPointer(&tokenizer, &animation->numFrames);
+
+    if (version == 1)
+    {
+        animation->boneChannels = PushArray(arena, BoneChannel, animation->numNodes);
+        loopi(0, animation->numNodes)
+        {
+            BoneChannel *channel = animation->boneChannels + i;
+            string output        = ReadLine(&tokenizer);
+            channel->name        = PushStr8Copy(arena, output);
+            Get(&tokenizer, channel->transforms, sizeof(channel->transforms[0]) * animation->numFrames);
+        }
+        Assert(EndOfBuffer(&tokenizer));
+    }
+    FreeFileMemory(tokenizer.input.str);
+}
+
 #if 0
 // TODO: i really don't like using function pointers for platform layer stuff
 // NOTE: array of nodes, each with a parent index and a name

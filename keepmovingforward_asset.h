@@ -1,8 +1,8 @@
 #include <vector>
 #define MAX_MATRICES_PER_VERTEX 4
-#define MAX_BONES 200
-#define MAX_VERTEX_COUNT 100000
-#define MAX_FRAMES 200
+#define MAX_BONES               200
+#define MAX_VERTEX_COUNT        100000
+#define MAX_FRAMES              200
 
 struct Iter
 {

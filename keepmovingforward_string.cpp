@@ -305,8 +305,10 @@ internal void Get(Tokenizer *tokenizer, void *ptr, u32 size)
     Advance(tokenizer, size);
 }
 
+#define PutPointer(builder, ptr) Put(builder, ptr, sizeof(*ptr))
+#define PutArray(builder, array) Put(builder, array.items, sizeof(array.items[0]) * array.count)
+
 #define GetPointer(tokenizer, ptr) Get(tokenizer, ptr, sizeof(*ptr))
-#define PutArray(builder, array)   Put(builder, array.items, sizeof(array.items[0]) * array.count)
 #define GetArray(tokenizer, array, count_)                                                                        \
     do                                                                                                            \
     {                                                                                                             \

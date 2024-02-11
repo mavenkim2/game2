@@ -638,7 +638,11 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         ReadModelFromFile(gameState->worldArena, &gameState->model, Str8Lit("data/dragon.model"));
         ReadSkeletonFromFile(gameState->worldArena, &gameState->model.skeleton, Str8Lit("data/dragon.skel"));
         KeyframedAnimation *animation = PushStruct(gameState->worldArena, KeyframedAnimation);
-        AssimpLoadAnimation(gameState->worldArena, Str8Lit("data/dragon/scene.gltf"), animation);
+
+        // AssimpLoadAnimation(gameState->worldArena, Str8Lit("data/dragon/scene.gltf"), animation);
+        // WriteAnimationToFile(animation, Str8Lit("data/dragon_attack_01.anim"));
+
+        ReadAnimationFile(gameState->worldArena, animation, Str8Lit("data/dragon_attack_01.anim"));
 
         int width, height, nChannels;
         // stbi_set_flip_vertically_on_load(true);
