@@ -6,6 +6,26 @@ global char *globalHeaderCode = R"(
 #define V4 vec4
 #define Mat4 mat4)";
 
+#if WINDOWS
+global wgl_swap_interval_ext *wglSwapIntervalEXT;
+#endif
+
+internal void VSyncToggle(b32 enable)
+{
+#if WINDOWS
+    if (!wglSwapIntervalEXT)
+    {
+        wglSwapIntervalEXT = (wgl_swap_interval_ext *)wglGetProcAddress("wglSwapIntervalEXT");
+    }
+    if (wglSwapIntervalEXT)
+    {
+        wglSwapIntervalEXT(enable ? 1 : 0);
+    }
+#else
+    Assert(!"VSync not supported on platform");
+#endif
+}
+
 internal OpenGLShader OpenGLCreateProgram(char *defines, char *vertexCode, char *fragmentCode)
 {
     GLuint vertexShaderId      = openGL->glCreateShader(GL_VERTEX_SHADER);
@@ -62,9 +82,21 @@ internal void LoadTexture(Texture *texture)
     {
         glGenTextures(1, &texture->id);
         glBindTexture(GL_TEXTURE_2D, texture->id);
+        switch (texture->type)
+        {
+            case TextureType_Diffuse:
+            {
+                // TODO: NOT SAFE!
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_SRGB8, texture->width, texture->height, 0, GL_RGB,
+                             GL_UNSIGNED_BYTE, texture->contents);
+            }
+            case TextureType_Normal:
+            {
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, texture->width, texture->height, 0, GL_RGB,
+                             GL_UNSIGNED_BYTE, texture->contents);
+            }
+        }
 
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, texture->width, texture->height, 0, GL_RGB, GL_UNSIGNED_BYTE,
-                     texture->contents);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
@@ -207,19 +239,42 @@ internal void HotloadShaders(OpenGLShader *shader)
 
 internal void OpenGLInit()
 {
-    // u32 maxQuadCountPerFrame     = 1 << 14;
-    // openGL->group.maxVertexCount = maxQuadCountPerFrame * 4;
-    // openGL->group.maxIndexCount  = maxQuadCountPerFrame * 6;
-
     openGL->glGenVertexArrays(1, &openGL->vao);
     openGL->glBindVertexArray(openGL->vao);
 
     openGL->glGenBuffers(1, &openGL->vertexBufferId);
     openGL->glGenBuffers(1, &openGL->indexBufferId);
 
+    VSyncToggle(1);
+
     CompileCubeProgram();
     CompileModelProgram();
 }
+
+struct OpenGLInfo
+{
+    b32 framebufferArb;
+};
+
+global OpenGLInfo openGLInfo;
+
+internal void OpenGLGetInfo()
+{
+    // TODO: I think you have to check wgl get extension string first? who even knows let's just use vulkan
+    if (openGL->glGetStringi)
+    {
+        GLint numExtensions = 0;
+        glGetIntegerv(GL_NUM_EXTENSIONS, &numExtensions);
+        loopi(0, (u32)numExtensions)
+        {
+            char *extension = (char *)openGL->glGetStringi(GL_EXTENSIONS, i);
+            if (Str8C(extension) == Str8Lit("GL_EXT_framebuffer_sRGB"))
+                openGLInfo.framebufferArb = true;
+            else if (Str8C(extension) == Str8Lit("GL_ARB_framebuffer_sRGB"))
+                openGLInfo.framebufferArb = true;
+        }
+    }
+};
 
 internal void Win32InitOpenGL(HWND window)
 {
@@ -272,6 +327,9 @@ internal void Win32InitOpenGL(HWND window)
         Win32GetOpenGLFunction(glVertexAttribIPointer);
         Win32GetOpenGLFunction(glUniform1i);
         Win32GetOpenGLFunction(glDeleteProgram);
+        Win32GetOpenGLFunction(glGetStringi);
+
+        OpenGLGetInfo();
     }
     else
     {
@@ -301,6 +359,11 @@ internal void OpenGLEndFrame(RenderState *renderState, HDC deviceContext, int cl
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_TEXTURE_2D);
         glEnable(GL_CULL_FACE);
+        // TODO: NOT SAFE!
+        if (openGLInfo.framebufferArb)
+        {
+            glEnable(GL_FRAMEBUFFER_SRGB);
+        }
         glCullFace(GL_BACK);
         glClearColor(0.5f, 0.5f, 0.5f, 1.f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);

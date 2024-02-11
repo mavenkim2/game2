@@ -267,18 +267,12 @@ inline void Advance(string *fileData, u32 size)
     fileData->size -= size;
 }
 
-internal u32 GetU32(string *fileData)
-{
-    u32 result = *(u32 *)(fileData->str);
-    Advance(fileData, sizeof(u32));
-    return result;
-}
-
 internal void Get(string *fileData, void *ptr, u32 size)
 {
     MemoryCopy(ptr, fileData->str, size);
     Advance(fileData, size);
 }
 
+#define GetPointer(data, ptr) Get(data, ptr, sizeof(*ptr))
 #define PutArray(builder, array) Put(builder, array.items, sizeof(array.items[0]) * array.count)
 #define GetArray(data, array) Get(data, array.items, sizeof(array.items[0]) * array.count)

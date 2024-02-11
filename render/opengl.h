@@ -48,6 +48,7 @@
 #define GL_TEXTURE_WRAP_R 0x8072
 
 #define GL_FRAMEBUFFER_SRGB 0x8DB9
+#define GL_SRGB8 0x8C41
 #define GL_SRGB8_ALPHA8 0x8C43
 
 #define GL_SHADING_LANGUAGE_VERSION 0x8B8C
@@ -150,15 +151,15 @@ typedef const char GLchar;
 typedef ptrdiff_t GLsizeiptr;
 typedef ptrdiff_t GLintptr;
 
-typedef void WINAPI type_glTexImage2DMultisample(GLenum target, GLsizei samples, GLenum internalformat, GLsizei width,
-                                                 GLsizei height, GLboolean fixedsamplelocations);
+typedef void WINAPI type_glTexImage2DMultisample(GLenum target, GLsizei samples, GLenum internalformat,
+                                                 GLsizei width, GLsizei height, GLboolean fixedsamplelocations);
 typedef void WINAPI type_glBindFramebuffer(GLenum target, GLuint framebuffer);
 typedef void WINAPI type_glGenFramebuffers(GLsizei n, GLuint *framebuffers);
 typedef void WINAPI type_glFramebufferTexture2D(GLenum target, GLenum attachment, GLenum textarget, GLuint texture,
                                                 GLint level);
 typedef GLenum WINAPI type_glCheckFramebufferStatus(GLenum target);
-typedef void WINAPI type_glBlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0, GLint dstY0,
-                                           GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter);
+typedef void WINAPI type_glBlitFramebuffer(GLint srcX0, GLint srcY0, GLint srcX1, GLint srcY1, GLint dstX0,
+                                           GLint dstY0, GLint dstX1, GLint dstY1, GLbitfield mask, GLenum filter);
 typedef void WINAPI type_glAttachShader(GLuint program, GLuint shader);
 typedef void WINAPI type_glCompileShader(GLuint shader);
 typedef GLuint WINAPI type_glCreateProgram(void);
@@ -172,7 +173,8 @@ typedef void WINAPI type_glValidateProgram(GLuint program);
 typedef void WINAPI type_glGetProgramiv(GLuint program, GLenum pname, GLint *params);
 typedef GLint WINAPI type_glGetUniformLocation(GLuint program, const GLchar *name);
 typedef void WINAPI type_glUniform4fv(GLint location, GLsizei count, const GLfloat *value);
-typedef void WINAPI type_glUniformMatrix4fv(GLint location, GLsizei count, GLboolean transpose, const GLfloat *value);
+typedef void WINAPI type_glUniformMatrix4fv(GLint location, GLsizei count, GLboolean transpose,
+                                            const GLfloat *value);
 typedef void WINAPI type_glUniform1i(GLint location, GLint v0);
 typedef void WINAPI type_glUniform1f(GLint location, GLfloat v0);
 typedef void WINAPI type_glUniform2fv(GLint location, GLsizei count, const GLfloat *value);
@@ -194,14 +196,18 @@ typedef void WINAPI type_glDeleteProgram(GLuint program);
 typedef void WINAPI type_glDeleteShader(GLuint shader);
 typedef void WINAPI type_glDeleteFramebuffers(GLsizei n, const GLuint *framebuffers);
 typedef void WINAPI type_glDrawBuffers(GLsizei n, const GLenum *bufs);
-typedef void WINAPI type_glTexImage3D(GLenum target, GLint level, GLint internalformat, GLsizei width, GLsizei height,
-                                      GLsizei depth, GLint border, GLenum format, GLenum type, const void *pixels);
+typedef void WINAPI type_glTexImage3D(GLenum target, GLint level, GLint internalformat, GLsizei width,
+                                      GLsizei height, GLsizei depth, GLint border, GLenum format, GLenum type,
+                                      const void *pixels);
 typedef void WINAPI type_glTexSubImage3D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint zoffset,
                                          GLsizei width, GLsizei height, GLsizei depth, GLenum format, GLenum type,
                                          const void *pixels);
 typedef void WINAPI type_glDrawElementsBaseVertex(GLenum mode, GLsizei count, GLenum type, const void *indices,
                                                   GLint basevertex);
 typedef void WINAPI type_glUniform4f(GLint location, GLfloat v0, GLfloat v1, GLfloat v2, GLfloat v3);
+typedef BOOL WINAPI wgl_swap_interval_ext(int interval);
+    typedef const GLubyte * WINAPI type_glGetStringi(GLenum name, GLuint index);
+
 
 #define Win32GetOpenGLFunction(name) openGL->name = (type_##name *)wglGetProcAddress(#name)
 
@@ -282,9 +288,9 @@ struct OpenGL
     OpenGLFunction(glVertexAttribIPointer);
     OpenGLFunction(glUniform1i);
     OpenGLFunction(glDeleteProgram);
-
+    OpenGLFunction(glGetStringi);
     // RenderGroup group;
 };
 
 global OpenGL _openGL;
-global OpenGL* openGL = &_openGL;
+global OpenGL *openGL = &_openGL;

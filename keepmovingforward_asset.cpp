@@ -718,8 +718,9 @@ internal Model ReadModelFromFile(Arena *arena, string filename)
 {
     string data = ReadEntireFile(filename);
 
-    u32 vertexCount = GetU32(&data);
-    u32 indexCount  = GetU32(&data);
+    u32 vertexCount, indexCount;
+    GetPointer(&data, &vertexCount);
+    GetPointer(&data, &indexCount);
     Model model;
     ArrayInit(arena, model.vertices, MeshVertex, vertexCount);
     ArrayInit(arena, model.indices, u32, indexCount);
