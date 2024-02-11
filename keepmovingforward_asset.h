@@ -121,10 +121,6 @@ struct BoneChannel
     string name;
     AnimationTransform transforms[MAX_FRAMES];
 };
-struct Keyframe
-{
-    AnimationTransform transforms[MAX_BONES];
-};
 
 struct KeyframedAnimation
 {

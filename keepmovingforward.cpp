@@ -623,23 +623,22 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     {
         scratchArena = ArenaAlloc(megabytes(64));
 
-        // gameState->bmpTest = DebugLoadBMP(memory->DebugPlatformReadFile, "test/tile.bmp");
         gameState->worldArena = ArenaAlloc((void *)((u8 *)(memory->PersistentStorageMemory) + sizeof(GameState)),
                                            memory->PersistentStorageSize - sizeof(GameState));
-        ModelOutput output    = AssimpDebugLoadModel(gameState->worldArena, Str8Lit("data/dragon/scene.gltf"));
-        gameState->model      = output.model;
 
-        // ArrayPush(&renderState->commands, output.model.meshes[0]);
-        // ArrayPush(&renderState->commands, output.model.meshes[0]);
-        // openGL->group.model = output.model;
+        // Load assets
+        //
+        // ASSIMP
+        //
+        // ModelOutput output = AssimpDebugLoadModel(gameState->worldArena, Str8Lit("data/dragon/scene.gltf"));
+        // gameState->model   = output.model;
+        // WriteModelToFile(&gameState->model, Str8Lit("data/dragon.model"));
+        // WriteSkeletonToFile(&gameState->model.skeleton, Str8Lit("data/dragon.skel"));
 
-        // DebugLoadGLTF(gameState->worldArena, memory->DebugPlatformReadFile, memory->DebugPlatformFreeFile,
-        //               "scene.gltf", "scene.bin");
-
-        // openGL->group.model = DebugLoadOBJModel(gameState->worldArena, memory->DebugPlatformReadFile,
-        //                                         memory->DebugPlatformFreeFile, "diablo3_pose.obj");
-        // TGAResult result = DebugLoainput->dTGA(gameState->worldArena, memory->DebugPlatformReadFile,
-        //                                 memory->DebugPlatformFreeFile, "diablo3_pose_diffuse.tga");
+        ReadModelFromFile(gameState->worldArena, &gameState->model, Str8Lit("data/dragon.model"));
+        ReadSkeletonFromFile(gameState->worldArena, &gameState->model.skeleton, Str8Lit("data/dragon.skel"));
+        KeyframedAnimation *animation = PushStruct(gameState->worldArena, KeyframedAnimation);
+        AssimpLoadAnimation(gameState->worldArena, Str8Lit("data/dragon/scene.gltf"), animation);
 
         int width, height, nChannels;
         // stbi_set_flip_vertically_on_load(true);
@@ -711,19 +710,15 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         AddFlag(swap, Entity_Valid | Entity_Collidable | Entity_Swappable);
 
         renderState->camera.position = gameState->player.pos - V3{0, 10, 0};
-        renderState->camera.pitch = -PI / 4;
-        renderState->camera.yaw   = 0; //PI / 2;
-        memory->isInitialized     = true;
+        renderState->camera.pitch    = -PI / 4;
+        renderState->camera.yaw      = 0; // PI / 2;
+        memory->isInitialized        = true;
 
         AnimationPlayer *aPlayer = &gameState->animPlayer;
-        StartLoopedAnimation(aPlayer, output.animation);
+        StartLoopedAnimation(aPlayer, animation);
 
-        gameState->tforms =
-            PushArray(gameState->worldArena, AnimationTransform, output.model.skeleton.names.count);
-        gameState->finalTransforms = PushArray(gameState->worldArena, Mat4, output.model.skeleton.names.count);
-
-        WriteModelToFile(&gameState->model, Str8Lit("data/dragon.model"));
-        ReadModelFromFile(gameState->worldArena, Str8Lit("data/dragon.model"));
+        gameState->tforms = PushArray(gameState->worldArena, AnimationTransform, gameState->model.skeleton.count);
+        gameState->finalTransforms = PushArray(gameState->worldArena, Mat4, gameState->model.skeleton.count);
     }
     Level *level                = gameState->level;
     GameInput *playerController = input;

@@ -208,6 +208,44 @@ struct StringBuilder
     TempArena scratch;
 };
 
+struct Tokenizer
+{
+    string input;
+    u8 *cursor;
+};
+
+inline void Advance(Tokenizer *tokenizer, u32 size)
+{
+    if (tokenizer->cursor + size <= tokenizer->input.str + tokenizer->input.size)
+    {
+        tokenizer->cursor += size;
+    }
+    else
+    {
+        tokenizer->cursor = tokenizer->input.str + tokenizer->input.size;
+    }
+}
+
+inline b32 EndOfBuffer(Tokenizer *tokenizer)
+{
+    b32 result = tokenizer->cursor >= tokenizer->input.str + tokenizer->input.size;
+    return result;
+}
+
+// TODO: maybe I don't want to advance if the end of the buffer is reached
+internal string ReadLine(Tokenizer *tokenizer)
+{
+    string result;
+    result.str  = tokenizer->cursor;
+    result.size = 0;
+
+    while (*tokenizer->cursor++ != '\n' && !EndOfBuffer(tokenizer))
+    {
+        result.size++;
+    }
+    return result;
+}
+
 internal void Put(StringBuilder *builder, void *data, u32 size)
 {
     StringBuilderNode *node = PushStruct(builder->scratch.arena, StringBuilderNode);
@@ -250,7 +288,7 @@ internal b32 WriteEntireFile(StringBuilder *builder, string filename)
 
     StringBuilderNode *node = builder->first;
     u8 *cursor              = result.str;
-    while (node->next)
+    while (node)
     {
         MemoryCopy(cursor, node->str.str, node->str.size);
         cursor += node->str.size;
@@ -260,19 +298,18 @@ internal b32 WriteEntireFile(StringBuilder *builder, string filename)
     return success;
 }
 
-inline void Advance(string *fileData, u32 size)
+internal void Get(Tokenizer *tokenizer, void *ptr, u32 size)
 {
-    Assert(size <= fileData->size);
-    fileData->str += size;
-    fileData->size -= size;
+    Assert(tokenizer->cursor + size <= tokenizer->input.str + tokenizer->input.size);
+    MemoryCopy(ptr, tokenizer->cursor, size);
+    Advance(tokenizer, size);
 }
 
-internal void Get(string *fileData, void *ptr, u32 size)
-{
-    MemoryCopy(ptr, fileData->str, size);
-    Advance(fileData, size);
-}
-
-#define GetPointer(data, ptr) Get(data, ptr, sizeof(*ptr))
-#define PutArray(builder, array) Put(builder, array.items, sizeof(array.items[0]) * array.count)
-#define GetArray(data, array) Get(data, array.items, sizeof(array.items[0]) * array.count)
+#define GetPointer(tokenizer, ptr) Get(tokenizer, ptr, sizeof(*ptr))
+#define PutArray(builder, array)   Put(builder, array.items, sizeof(array.items[0]) * array.count)
+#define GetArray(tokenizer, array, count_)                                                                        \
+    do                                                                                                            \
+    {                                                                                                             \
+        array.count = count_;                                                                                     \
+        Get(tokenizer, array.items, sizeof(array.items[0]) * count_);                                             \
+    } while (0)

@@ -451,7 +451,7 @@ internal i32 FindNodeIndex(Skeleton *skeleton, string name)
 {
     i32 parentId = -1;
     string *ptrName;
-    foreach_index(&skeleton->names, ptrName, i)
+    foreach_index (&skeleton->names, ptrName, i)
     {
         if (*ptrName == name)
         {
@@ -465,7 +465,7 @@ internal i32 FindMeshNodeInfo(MeshNodeInfoArray *array, string name)
 {
     i32 id = -1;
     MeshNodeInfo *info;
-    foreach_index(array, info, i)
+    foreach_index (array, info, i)
     {
         if (info->name == name)
         {
@@ -491,7 +491,6 @@ internal ModelOutput AssimpDebugLoadModel(Arena *arena, string filename)
         return result;
     }
 
-    // NOTE LEAK: we're probably leaking memory when processing assimp nodes
     aiMatrix4x4t<f32> transform = scene->mRootNode->mTransformation;
     model                       = LoadAllMeshes(arena, scene);
     ArrayInit(arena, model.skeleton.parents, i32, scene->mMeshes[0]->mNumBones);
@@ -558,6 +557,21 @@ internal ModelOutput AssimpDebugLoadModel(Arena *arena, string filename)
     ScratchEnd(scratch);
 
     return result;
+}
+
+internal void AssimpLoadAnimation(Arena *arena, string filename, KeyframedAnimation *animation)
+{
+    Assimp::Importer importer;
+    const char *file = (const char *)filename.str;
+    const aiScene *scene =
+        importer.ReadFile(file, aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_CalcTangentSpace);
+
+    if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode)
+    {
+        return;
+    }
+
+    ProcessAnimations(arena, scene, animation);
 }
 
 // TODO: load all the other animations
@@ -706,6 +720,7 @@ internal void WriteModelToFile(Model *model, string filename)
     Put(&builder, model->indices.count);
     PutArray(&builder, model->vertices);
     PutArray(&builder, model->indices);
+
     b32 success = WriteEntireFile(&builder, filename);
     if (!success)
     {
@@ -714,26 +729,85 @@ internal void WriteModelToFile(Model *model, string filename)
     ScratchEnd(temp);
 }
 
-internal Model ReadModelFromFile(Arena *arena, string filename)
+internal void ReadModelFromFile(Arena *arena, Model *model, string filename)
 {
-    string data = ReadEntireFile(filename);
+    Tokenizer tokenizer;
+    tokenizer.input  = ReadEntireFile(filename);
+    tokenizer.cursor = tokenizer.input.str;
 
     u32 vertexCount, indexCount;
-    GetPointer(&data, &vertexCount);
-    GetPointer(&data, &indexCount);
-    Model model;
-    ArrayInit(arena, model.vertices, MeshVertex, vertexCount);
-    ArrayInit(arena, model.indices, u32, indexCount);
-    model.vertices.count = vertexCount;
-    model.indices.count  = indexCount;
+    GetPointer(&tokenizer, &vertexCount);
+    GetPointer(&tokenizer, &indexCount);
+    ArrayInit(arena, model->vertices, MeshVertex, vertexCount);
+    ArrayInit(arena, model->indices, u32, indexCount);
 
-    GetArray(&data, model.vertices);
-    GetArray(&data, model.indices);
+    GetArray(&tokenizer, model->vertices, vertexCount);
+    GetArray(&tokenizer, model->indices, indexCount);
 
-    Assert(data.size == 0);
+    Assert(EndOfBuffer(&tokenizer));
 
-    FreeFileMemory(data.str);
-    return model;
+    FreeFileMemory(tokenizer.input.str);
+}
+
+global u32 skeletonVersionNumber = 1;
+internal void WriteSkeletonToFile(Skeleton *skeleton, string filename)
+{
+    StringBuilder builder = {};
+    TempArena temp        = ScratchBegin(scratchArena);
+    builder.scratch       = temp;
+    Put(&builder, skeletonVersionNumber);
+    Put(&builder, skeleton->count);
+
+    // TODO: maybe get rid of names entirely for bones
+    string *name;
+    foreach (&skeleton->names, name)
+    {
+        string output = PushStr8F(temp.arena, "%S\n", *name);
+        Put(&builder, output);
+    }
+    PutArray(&builder, skeleton->parents);
+    PutArray(&builder, skeleton->inverseBindPoses);
+    PutArray(&builder, skeleton->transformsToParent);
+
+    b32 success = WriteEntireFile(&builder, filename);
+    if (!success)
+    {
+        Printf("Failed to write file %S\n", filename);
+    }
+    ScratchEnd(temp);
+}
+
+internal void ReadSkeletonFromFile(Arena *arena, Skeleton *skeleton, string filename)
+{
+    Tokenizer tokenizer;
+    tokenizer.input  = ReadEntireFile(filename);
+    tokenizer.cursor = tokenizer.input.str;
+
+    u32 version;
+    u32 count;
+    GetPointer(&tokenizer, &version);
+    GetPointer(&tokenizer, &count);
+    skeleton->count = count;
+    if (version == 1)
+    {
+        // TODO: is it weird that these names are a string pointer? who knows
+        ArrayInit(arena, skeleton->names, string, count);
+        ArrayInit(arena, skeleton->parents, i32, count);
+        ArrayInit(arena, skeleton->inverseBindPoses, Mat4, count);
+        ArrayInit(arena, skeleton->transformsToParent, Mat4, count);
+        loopi(0, count)
+        {
+            string output            = ReadLine(&tokenizer);
+            skeleton->names.items[i] = PushStr8Copy(arena, output);
+        }
+        skeleton->names.count = count;
+        GetArray(&tokenizer, skeleton->parents, count);
+        GetArray(&tokenizer, skeleton->inverseBindPoses, count);
+        GetArray(&tokenizer, skeleton->transformsToParent, count);
+
+        Assert(EndOfBuffer(&tokenizer));
+    }
+    FreeFileMemory(tokenizer.input.str);
 }
 
 #if 0

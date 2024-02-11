@@ -83,7 +83,7 @@ internal void LoadTexture(Texture *texture)
             case TextureType_Diffuse:
             {
                 // TODO: NOT SAFE!
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_SRGB, texture->width, texture->height, 0, GL_RGB,
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_SRGB8_ALPHA8, texture->width, texture->height, 0, GL_RGB,
                              GL_UNSIGNED_BYTE, texture->contents);
             }
             case TextureType_Normal:
