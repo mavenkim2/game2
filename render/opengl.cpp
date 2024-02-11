@@ -6,10 +6,6 @@ global char *globalHeaderCode = R"(
 #define V4 vec4
 #define Mat4 mat4)";
 
-#if WINDOWS
-global wgl_swap_interval_ext *wglSwapIntervalEXT;
-#endif
-
 internal void VSyncToggle(b32 enable)
 {
 #if WINDOWS
@@ -87,7 +83,7 @@ internal void LoadTexture(Texture *texture)
             case TextureType_Diffuse:
             {
                 // TODO: NOT SAFE!
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_SRGB8, texture->width, texture->height, 0, GL_RGB,
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_SRGB, texture->width, texture->height, 0, GL_RGB,
                              GL_UNSIGNED_BYTE, texture->contents);
             }
             case TextureType_Normal:
@@ -253,6 +249,8 @@ internal void OpenGLInit()
 
 struct OpenGLInfo
 {
+    char *version;
+    char *shaderVersion;
     b32 framebufferArb;
 };
 
@@ -263,18 +261,20 @@ internal void OpenGLGetInfo()
     // TODO: I think you have to check wgl get extension string first? who even knows let's just use vulkan
     if (openGL->glGetStringi)
     {
-        GLint numExtensions = 0;
+        openGLInfo.version       = (char *)glGetString(GL_VERSION);
+        openGLInfo.shaderVersion = (char *)glGetString(GL_SHADING_LANGUAGE_VERSION);
+        GLint numExtensions      = 0;
         glGetIntegerv(GL_NUM_EXTENSIONS, &numExtensions);
         loopi(0, (u32)numExtensions)
         {
             char *extension = (char *)openGL->glGetStringi(GL_EXTENSIONS, i);
-            if (Str8C(extension) == Str8Lit("GL_EXT_framebuffer_sRGB"))
-                openGLInfo.framebufferArb = true;
-            else if (Str8C(extension) == Str8Lit("GL_ARB_framebuffer_sRGB"))
-                openGLInfo.framebufferArb = true;
+            if (Str8C(extension) == Str8Lit("GL_EXT_framebuffer_sRGB")) openGLInfo.framebufferArb = true;
+            else if (Str8C(extension) == Str8Lit("GL_ARB_framebuffer_sRGB")) openGLInfo.framebufferArb = true;
         }
     }
 };
+
+internal void Win32GetOpenGLExtensions() {}
 
 internal void Win32InitOpenGL(HWND window)
 {
@@ -297,6 +297,32 @@ internal void Win32InitOpenGL(HWND window)
     HGLRC rc = wglCreateContext(dc);
     if (wglMakeCurrent(dc, rc))
     {
+        wglCreateContextAttribsARB =
+            (wgl_create_context_attribs_arb *)wglGetProcAddress("wglCreateContextAttribsARB");
+        if (wglCreateContextAttribsARB)
+        {
+            i32 attribs[] = {
+                WGL_CONTEXT_MAJOR_VERSION_ARB,
+                3,
+                WGL_CONTEXT_MINOR_VERSION_ARB,
+                3,
+                WGL_CONTEXT_FLAGS_ARB,
+                WGL_CONTEXT_DEBUG_BIT_ARB,
+                WGL_CONTEXT_PROFILE_MASK_ARB,
+                WGL_CONTEXT_CORE_PROFILE_BIT_ARB,
+                0,
+            };
+            HGLRC shareContext = 0;
+            HGLRC modernGLRC   = wglCreateContextAttribsARB(dc, shareContext, attribs);
+            if (modernGLRC)
+            {
+                if (wglMakeCurrent(dc, modernGLRC))
+                {
+                    wglDeleteContext(rc);
+                    rc = modernGLRC;
+                }
+            }
+        }
         Win32GetOpenGLFunction(glGenBuffers);
         Win32GetOpenGLFunction(glBindBuffer);
         Win32GetOpenGLFunction(glBufferData);
