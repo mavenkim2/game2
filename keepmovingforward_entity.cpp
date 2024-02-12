@@ -50,3 +50,7 @@ internal b32 IncrementEntity(Level *level, Entity **entityPtr)
     *entityPtr = entity;
     return !!entity;
 }
+
+internal void CreatePlayer(Entity* entity) {
+
+}

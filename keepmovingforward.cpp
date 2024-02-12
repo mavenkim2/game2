@@ -9,6 +9,7 @@
 #include "keepmovingforward_camera.cpp"
 #include "keepmovingforward_entity.cpp"
 #include "keepmovingforward_asset.cpp"
+#include "render/debugdraw.cpp"
 #include "render/renderer.cpp"
 
 const f32 GRAVITY = 49.f;
@@ -236,159 +237,6 @@ internal void GenerateLevel(GameState *gameState, i32 tileWidth, i32 tileHeight)
         }
     }
 }
-
-/* GJK
-struct Polygon
-{
-    // V2 *points;
-    // TODO: actually support all polygons
-    V2 points[4];
-    int numPoints;
-};
-
-// TODO: probably needs to store more info to actually get the distance/closest point
-struct Simplex
-{
-    V2 vertexA;
-    V2 vertexB;
-    V2 vertexC;
-
-    V2 vertexD;
-
-    int count;
-};
-
-// TODO: define different support function for different shapes (e.g circle)
-static int GetSupport(const Polygon *polygon, const V2 d)
-{
-    int index = 0;
-    f32 bestValue = Dot(polygon->points[0], d);
-    for (int i = 1; i < polygon->numPoints; i++)
-    {
-        f32 tempValue = Dot(polygon->points[i], d);
-        if (tempValue > bestValue)
-        {
-            index = i;
-            bestValue = tempValue;
-        }
-    }
-    return index;
-}
-
-internal b32 lineCase(Simplex *simplex, V2 *d);
-internal b32 triangleCase(Simplex *simplex, V2 *d);
-// NOTE: implement this once you use something other than boxes for collision, not before
-
-struct GJKResult
-{
-    b32 hit;
-    Simplex simplex;
-};
-
-static GJKResult GJKMainLoop(Polygon *p1, Polygon *p2)
-{
-    GJKResult result = {};
-
-    V2 d = Normalize(p2->points[0] - p1->points[0]);
-    Simplex simplex = {};
-
-    simplex.vertexA = p2->points[GetSupport(p2, d)] - p1->points[GetSupport(p1, -d)];
-    d = -simplex.vertexA;
-    simplex.count = 1;
-
-    while (1)
-    {
-        if (Dot(d, d) == 0)
-        {
-            return result;
-        }
-
-        simplex.vertexC = simplex.vertexB;
-        simplex.vertexB = simplex.vertexA;
-
-        V2 a = p2->points[GetSupport(p2, d)] - p1->points[GetSupport(p1, -d)];
-        // Didn't cross origin
-        if (Dot(a, d) < 0)
-        {
-            return result;
-        }
-        simplex.vertexA = a;
-        simplex.count += 1;
-
-        b32 hit = false;
-        switch (simplex.count)
-        {
-        case 1:
-            break;
-        case 2:
-            hit = lineCase(&simplex, &d);
-            break;
-        case 3:
-            hit = triangleCase(&simplex, &d);
-            break;
-        default:
-            Assert(false);
-        }
-        if (hit)
-        {
-            result.hit = true;
-            result.simplex = simplex;
-            return result;
-        }
-    }
-}
-
-internal b32 lineCase(Simplex *simplex, V2 *d)
-{
-    V2 a = simplex->vertexA;
-    V2 b = simplex->vertexB;
-    // Don't need to check voronoi regions, since A is the most recently added point,
-    // it is past origin with respect to B.
-    V2 ab = b - a;
-    V2 ao = -a;
-
-    V2 abperp = Cross(Cross(ab, ao), ab);
-    // case where it's on line
-    if (Dot(abperp, ao) == 0)
-    {
-        return true;
-    }
-
-    *d = abperp;
-    return false;
-}
-
-internal b32 triangleCase(Simplex *simplex, V2 *d)
-{
-    V2 a = simplex->vertexA;
-    V2 b = simplex->vertexB;
-    V2 c = simplex->vertexC;
-
-    V2 ab = b - a;
-    V2 ac = c - a;
-    V2 ao = -a;
-
-    V2 abperp = Cross(Cross(ac, ab), ab);
-    V2 acperp = Cross(Cross(ab, ac), ac);
-
-    if (Dot(abperp, ao) > 0)
-    {
-        simplex->vertexC = {};
-        simplex->count -= 1;
-        *d = abperp;
-        return false;
-    }
-    else if (Dot(acperp, ao) > 0)
-    {
-        simplex->vertexB = simplex->vertexC;
-        simplex->vertexC = {};
-        simplex->count -= 1;
-        *d = acperp;
-        return false;
-    }
-    return true;
-}
-*/
 
 #if 0
 internal b32 TestWallCollision(f32 wallLocation, f32 playerRelWall, f32 playerRelWallParallel, f32 playerDelta,
@@ -1022,6 +870,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
     // Render
     {
+        BeginRenderFrame(renderState);
         renderState->commands.count = 0;
         // for (Entity *entity = 0; IncrementEntity(level, &entity);)
         // {
@@ -1033,16 +882,10 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         // ANIMATION
         PlayCurrentAnimation(&gameState->animPlayer, input->dT, gameState->tforms);
 
-#if 1
-
         SkinModelToAnimation(&gameState->animPlayer, &gameState->model, gameState->tforms,
                              gameState->finalTransforms);
-
         PushModel(renderState, &gameState->model, gameState->finalTransforms);
-#else
-        PushMesh(renderState, &gameState->model.meshes[0]);
-        PushMesh(renderState, &gameState->model.meshes[1]);
-#endif
+        DrawLine(&renderState->debugRenderer, {0, 0, 0}, {0, 0, 5}, {1, 0, 0, 1});
     }
     // GameOutputSound(soundBuffer, gameState->toneHz);
 }

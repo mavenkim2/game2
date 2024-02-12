@@ -582,6 +582,18 @@ inline V3 Normalize(V3 a)
     return result;
 }
 
+inline V3 NormalizeOrZero(V3 a)
+{
+    V3 result  = {};
+    f32 length = Length(a);
+    if (length == 0)
+    {
+        return result;
+    }
+    result = a * (1.f / length);
+    return result;
+}
+
 inline V3 Hadamard(V3 a, V3 b)
 {
     V3 result;
@@ -858,8 +870,8 @@ inline Quat MatrixToQuat(Mat4 m)
     Quat result;
     if (m.a1 + m.b2 + m.c3 > 0.f)
     {
-        f64 t  = m.a1 + m.b2 + m.c3 + 1.;
-        f64 s  = SquareRoot(t) * .5;
+        f64 t    = m.a1 + m.b2 + m.c3 + 1.;
+        f64 s    = SquareRoot(t) * .5;
         result.w = (f32)(s * t);
         result.z = (f32)((m.a2 - m.b1) * s);
         result.y = (f32)((m.c1 - m.a3) * s);
@@ -867,8 +879,8 @@ inline Quat MatrixToQuat(Mat4 m)
     }
     else if (m.a1 > m.b2 && m.a1 > m.c3)
     {
-        f64 t  = m.a1 - m.b2 - m.c3 + 1.;
-        f64 s  = SquareRoot(t) * 0.5;
+        f64 t    = m.a1 - m.b2 - m.c3 + 1.;
+        f64 s    = SquareRoot(t) * 0.5;
         result.x = (f32)(s * t);
         result.y = (f32)((m.a2 + m.b1) * s);
         result.z = (f32)((m.c1 + m.a3) * s);
@@ -876,17 +888,17 @@ inline Quat MatrixToQuat(Mat4 m)
     }
     else if (m.b2 > m.c3)
     {
-        f64 t  = -m.a1 + m.b2 - m.c3 + 1.;
-        f64 s  = SquareRoot(t) * 0.5;
+        f64 t    = -m.a1 + m.b2 - m.c3 + 1.;
+        f64 s    = SquareRoot(t) * 0.5;
         result.y = (f32)(s * t);
         result.x = (f32)((m.a2 + m.b1) * s);
-        result.w = (f32)( (m.c1 - m.a3) * s);
+        result.w = (f32)((m.c1 - m.a3) * s);
         result.z = (f32)((m.b3 + m.c2) * s);
     }
     else
     {
-        f64 t  = -m.a1 - m.b2 + m.c3 + 1.;
-        f64 s  = SquareRoot(t) * .5;
+        f64 t    = -m.a1 - m.b2 + m.c3 + 1.;
+        f64 s    = SquareRoot(t) * .5;
         result.z = (f32)(s * t);
         result.w = (f32)((m.a2 - m.b1) * s);
         result.x = (f32)((m.c1 + m.a3) * s);

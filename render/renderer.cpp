@@ -90,6 +90,12 @@
 //     group->quadCount += 1;
 // }
 
+internal void BeginRenderFrame(RenderState *state)
+{
+    state->commands.count           = 0;
+    state->debugRenderer.vertices.count = 0;
+}
+
 internal void PushTexture(Texture texture, Model *model)
 {
     ArrayPush(&model->textures, texture);
@@ -98,7 +104,7 @@ internal void PushTexture(Texture texture, Model *model)
 internal void PushModel(RenderState *state, Model *model, Mat4 *finalTransforms = 0)
 {
     RenderCommand command;
-    command.model      = model;
+    command.model     = model;
     command.transform = Identity();
     if (finalTransforms)
     {

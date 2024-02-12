@@ -729,6 +729,7 @@ internal void WriteModelToFile(Model *model, string filename)
     ScratchEnd(temp);
 }
 
+// TODO IMPORTANT: the arrays should point directly to the data from the file, instead of copying
 internal void ReadModelFromFile(Arena *arena, Model *model, string filename)
 {
     Tokenizer tokenizer;

@@ -9,9 +9,9 @@
 #include "render/opengl.h"
 #include "keepmovingforward_camera.h"
 #include "keepmovingforward_asset.h"
+#include "render/debugdraw.h"
 #include "render/renderer.h"
 #include "keepmovingforward_platform.h"
-
 #include "win32_keepmovingforward.h"
 
 #include "win32.cpp"
@@ -457,8 +457,7 @@ internal void PlaySineWave(IXAudio2SourceVoice *sourceVoice, int32 samplesPerSec
 
 internal void Win32InitializeXAudio2(int samplesPerSecond)
 {
-    if (FAILED(CoInitializeEx(nullptr, COINIT_MULTITHREADED)))
-        return;
+    if (FAILED(CoInitializeEx(nullptr, COINIT_MULTITHREADED))) return;
     HMODULE xAudio2Library = LoadLibraryA("xaudio2_9.dll");
     if (!xAudio2Library)
     {
@@ -551,23 +550,34 @@ internal void Win32ProcessKeyboardMessages(GameButtonState *buttonState, b32 isD
     }
 }
 
-internal void Win32ProcessPendingMessages(Win32State *state, GameInput *keyboardController)
+internal void Win32ProcessPendingMessages(HWND window, Win32State *state, GameInput *keyboardController)
 {
     MSG message;
+    b32 isRelease = 0;
     while (PeekMessageW(&message, 0, 0, 0, PM_REMOVE))
     {
         switch (message.message)
         {
             case WM_LBUTTONUP:
+            {
+                ReleaseCapture();
+                isRelease = 1;
+            }
             case WM_LBUTTONDOWN:
             {
+                if (isRelease == 0) SetCapture(window);
                 b32 isDown = message.wParam & 1;
                 Win32ProcessKeyboardMessages(&keyboardController->leftClick, isDown);
                 break;
             }
             case WM_RBUTTONUP:
+            {
+                ReleaseCapture();
+                isRelease = 1;
+            }
             case WM_RBUTTONDOWN:
             {
+                if (isRelease == 0) SetCapture(window);
                 b32 isDown = message.wParam & (1 << 1);
                 Win32ProcessKeyboardMessages(&keyboardController->rightClick, isDown);
                 break;
@@ -667,6 +677,10 @@ LRESULT WindowsCallback(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
         {
             break;
         }
+        case WM_KILLFOCUS:
+        {
+            ReleaseCapture();
+        }
         case WM_SETCURSOR:
         {
             if (GLOBAL_SHOW_CURSOR)
@@ -741,42 +755,18 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     int gameUpdateHz            = 144;
     f32 expectedSecondsPerFrame = 1.f / (f32)gameUpdateHz;
 
-    // AUDIO
-    // for 1 sec buffer, samplesPerSecond = samplesPerBuffer
-    int samplesPerSecond = 48000;
-    int bytesPerSample   = sizeof(i16) * 2;
-    // 2 frames of audio data
-    int bufferSize = (int)(2 * samplesPerSecond * bytesPerSample / (f32)gameUpdateHz);
-    Win32InitializeXAudio2(samplesPerSecond);
-
-    // GRAPHICS
     //
-    // INIT RENDER STATE
+    // GAME MEMORY
     //
-    RenderState renderState;
-    // TODO: maybe this won't work idk how C++11 works
-    renderState.commands.cap   = 10;
-    renderState.commands.items = (RenderCommand *)VirtualAlloc(
-        0, renderState.commands.cap * sizeof(renderState.commands.items[0]), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-    renderState.commands.count = 0;
-    Win32InitOpenGL(windowHandle);
 
 #if INTERNAL
     LPVOID sampleBaseAddress = (LPVOID)terabytes(4);
+    LPVOID baseAddress       = (LPVOID)terabytes(5);
 #else
+    LPVOID baseAddress       = 0;
     LPVOID sampleBaseAddress = 0;
 #endif
 
-    // 3 sound buffers
-    i16 *samples = (i16 *)VirtualAlloc(sampleBaseAddress, bufferSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-
-#if INTERNAL
-    LPVOID baseAddress = (LPVOID)terabytes(5);
-#else
-    LPVOID baseAddress = 0;
-#endif
-
-    // GAME MEMORY
     GameMemory gameMemory            = {};
     gameMemory.PersistentStorageSize = megabytes(64);
     gameMemory.TransientStorageSize  = gigabytes(1);
@@ -786,13 +776,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     gameMemory.TransientStorageMemory =
         (u8 *)gameMemory.PersistentStorageMemory + gameMemory.PersistentStorageSize;
 
-    if (!samples || !gameMemory.PersistentStorageMemory || !gameMemory.TransientStorageMemory)
-    {
-        OutputDebugStringA("Memory allocation failed.");
-        return 1;
-    }
-
-    // TODO: this is shit, figure this out.
+    // TODO: this is bad, figure this out.
     void *win32Memory = VirtualAlloc(0, kilobytes(64), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     Arena *win32Arena = ArenaAlloc(win32Memory, kilobytes(64));
 
@@ -808,9 +792,36 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     gameMemory.handle = handle;
 #endif
 
-    // GameInput input[2] = {};
-    // GameInput *oldInput = &input[0];
-    // GameInput *newInput = &input[1];
+    //
+    // AUDIO
+    //
+    // for 1 sec buffer, samplesPerSecond = samplesPerBuffer
+    int samplesPerSecond = 48000;
+    int bytesPerSample   = sizeof(i16) * 2;
+    // 2 frames of audio data
+    int bufferSize = (int)(2 * samplesPerSecond * bytesPerSample / (f32)gameUpdateHz);
+    Win32InitializeXAudio2(samplesPerSecond);
+    // 3 sound buffers
+    i16 *samples = (i16 *)VirtualAlloc(sampleBaseAddress, bufferSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+
+    //
+    // GRAPHICS
+    //
+    // INIT RENDER STATE
+    //
+    // TODO: move this somewhere else
+    RenderState renderState;
+    renderState.commands.cap = 10;
+    renderState.commands.items =
+        (RenderCommand *)VirtualAlloc(0, renderState.commands.cap * sizeof(renderState.commands.items[0]),
+                                      MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    renderState.commands.count = 0;
+    ArrayInit(win32Arena, renderState.debugRenderer.vertices, DebugVertex, 100);
+    Win32InitOpenGL(windowHandle);
+
+    //
+    // INPUT
+    //
     GameInput oldInput = {};
     GameInput newInput = {};
 
@@ -911,7 +922,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
             SetCursorPos((i32)center.x, (i32)center.y);
         }
 
-        Win32ProcessPendingMessages(&win32State, &newInput);
+        Win32ProcessPendingMessages(windowHandle, &win32State, &newInput);
 
         GameOffscreenBuffer backBuffer = {};
         backBuffer.memory              = GLOBAL_BACK_BUFFER.memory;

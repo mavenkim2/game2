@@ -376,6 +376,17 @@ internal void OpenGLBeginFrame(i32 width, i32 height)
     // group->quadCount   = 0;
 }
 
+// internal void OpenGLDebugDraw(DebugRenderer *renderer)
+// {
+//     DebugVertex *vertex;
+//     foreach (renderer->vertices, vertex)
+//     {
+//         glColor4f(vertex->color.r, vertex->color.g, vertex->color.b, vertex->color.a);
+//
+//         glVertex3f(vertex->
+//     }
+// }
+
 internal void OpenGLEndFrame(RenderState *renderState, HDC deviceContext, int clientWidth, int clientHeight)
 {
     // INITIALIZE
@@ -458,8 +469,6 @@ internal void OpenGLEndFrame(RenderState *renderState, HDC deviceContext, int cl
             {
                 LoadModel(model);
             }
-            // TODO: hardcode
-
             Texture *texture;
             foreach (&model->textures, texture)
             {
@@ -491,11 +500,7 @@ internal void OpenGLEndFrame(RenderState *renderState, HDC deviceContext, int cl
             openGL->glActiveTexture(GL_TEXTURE0);
 
             openGL->glBindBuffer(GL_ARRAY_BUFFER, model->vbo);
-            openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(model->vertices.items[0]) * model->vertices.count,
-                                 model->vertices.items, GL_STREAM_DRAW);
             openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, model->ebo);
-            openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(model->indices.items[0]) * model->indices.count,
-                                 model->indices.items, GL_STREAM_DRAW);
 
             openGL->glEnableVertexAttribArray(positionId);
             openGL->glVertexAttribPointer(positionId, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),

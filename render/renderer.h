@@ -42,10 +42,12 @@ struct RenderState
     i32 width;
     i32 height;
 
-    // TODO: switch to push buffer w/ headers instead of array, to allow for different types of 
+    // TODO: switch to push buffer w/ headers instead of array, to allow for different types of
     // commands
     // u8 commands[65536];
     ArrayDef(RenderCommand) commands;
+
+    DebugRenderer debugRenderer;
 };
 
 internal void PushTexture(Texture texture, Model *model);

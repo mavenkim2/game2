@@ -151,6 +151,9 @@ struct Model
     Skeleton skeleton;
 
     ArrayDef(Texture) textures;
+    // TODO: maybe the model shouldn't own a vbo and ebo. maybe it can have an id or something 
+    // that the render state can map to a vbo. this could be useful for packing multiple models 
+    // into one buffer, to reduce the number of draw calls, but doing this now would be premature. 2/12/24
     u32 vbo;
     u32 ebo;
 };

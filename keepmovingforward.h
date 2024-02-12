@@ -5,6 +5,7 @@
 #include "keepmovingforward_math.h"
 #include "keepmovingforward_camera.h"
 #include "keepmovingforward_asset.h"
+#include "render/debugdraw.h"
 #include "render/renderer.h"
 
 #include "keepmovingforward_platform.h"
