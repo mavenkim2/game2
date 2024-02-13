@@ -346,15 +346,15 @@ internal void OpenGLDebugDraw(RenderState *state)
 {
     DebugRenderer *renderer = &state->debugRenderer;
     openGL->glUseProgram(openGL->cubeShader.base.id);
-    glLineWidth(4.f);
     if (!renderer->vbo)
     {
         openGL->glGenBuffers(1, &renderer->vbo);
     }
 
+    glLineWidth(4.f);
     openGL->glBindBuffer(GL_ARRAY_BUFFER, renderer->vbo);
-    openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(renderer->vertices.items[0]) * renderer->vertices.count,
-                         renderer->vertices.items, GL_DYNAMIC_DRAW);
+    openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(renderer->lines.items[0]) * renderer->lines.count,
+                         renderer->lines.items, GL_DYNAMIC_DRAW);
     openGL->glEnableVertexAttribArray(0);
     openGL->glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(DebugVertex), (void *)Offset(DebugVertex, pos));
     openGL->glEnableVertexAttribArray(1);
@@ -364,7 +364,13 @@ internal void OpenGLDebugDraw(RenderState *state)
     GLint transformLocation = openGL->glGetUniformLocation(openGL->cubeShader.base.id, "transform");
     openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, state->transform.elements[0]);
 
-    glDrawArrays(GL_LINES, 0, renderer->vertices.count);
+    glDrawArrays(GL_LINES, 0, renderer->lines.count);
+
+    glPointSize(4.f);
+    openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(renderer->points.items[0]) * renderer->points.count,
+                         renderer->points.items, GL_DYNAMIC_DRAW);
+    glDrawArrays(GL_LINE_STRIP, 0, renderer->points.count);
+
     openGL->glUseProgram(0);
     openGL->glDisableVertexAttribArray(0);
     openGL->glDisableVertexAttribArray(1);
@@ -387,8 +393,8 @@ internal void OpenGLEndFrame(RenderState *renderState, HDC deviceContext, int cl
         glCullFace(GL_BACK);
         glClearColor(0.5f, 0.5f, 0.5f, 1.f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        // glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+        // glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     }
 
     // RENDER CUBES
@@ -512,12 +518,7 @@ internal void OpenGLEndFrame(RenderState *renderState, HDC deviceContext, int cl
                                               (void *)Offset(MeshVertex, boneWeights));
             }
 
-            Mat4 translate = Translate4(V3{0, 0, 5});
-            Mat4 scale     = Scale4(V3{0.5f, 0.5f, 0.5f});
-            Mat4 rotate    = Rotate4(MakeV3(1, 0, 0), PI / 2);
-
-            Mat4 modelMat           = translate * rotate * scale;
-            Mat4 newTransform       = renderState->transform * modelMat;
+            Mat4 newTransform       = renderState->transform * model->transform;
             GLint transformLocation = openGL->glGetUniformLocation(openGL->modelShader.base.id, "transform");
             openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, newTransform.elements[0]);
 
@@ -530,7 +531,7 @@ internal void OpenGLEndFrame(RenderState *renderState, HDC deviceContext, int cl
             }
 
             GLint modelLoc = openGL->glGetUniformLocation(openGL->modelShader.base.id, "model");
-            openGL->glUniformMatrix4fv(modelLoc, 1, GL_FALSE, modelMat.elements[0]);
+            openGL->glUniformMatrix4fv(modelLoc, 1, GL_FALSE, model->transform.elements[0]);
 
             V3 lightPosition  = MakeV3(5, 5, 0);
             GLint lightPosLoc = openGL->glGetUniformLocation(openGL->modelShader.base.id, "lightPos");

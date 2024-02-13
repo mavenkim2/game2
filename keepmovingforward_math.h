@@ -1233,6 +1233,11 @@ internal Mat4 Inverse(Mat4 a)
     return res;
 }
 
+inline V3 GetTranslation(Mat4 m) {
+    V3 result = m.columns[3].xyz;
+    return result;
+}
+
 /*
  * RECTANGLE 2
  */

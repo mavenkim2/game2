@@ -6,6 +6,8 @@ struct DebugVertex
 
 struct DebugRenderer
 {
-    ArrayDef(DebugVertex) vertices;
+    ArrayDef(DebugVertex) lines;
+    ArrayDef(DebugVertex) points;
+
     u32 vbo;
 };

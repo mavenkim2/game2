@@ -263,19 +263,12 @@ struct ModelShader
 
 struct OpenGL
 {
-    // Camera camera;
-    // Mat4 transform;
-    // i32 width;
-    // i32 height;
-    //
     GLuint vao;
 
     GLuint vertexBufferId;
     GLuint indexBufferId;
     CubeShader cubeShader;
     ModelShader modelShader;
-    // CubeShader debugShader;
-    // GLuint textureIds[2];
 
     OpenGLFunction(glGenBuffers);
     OpenGLFunction(glBindBuffer);
@@ -308,7 +301,6 @@ struct OpenGL
     OpenGLFunction(glUniform1i);
     OpenGLFunction(glDeleteProgram);
     OpenGLFunction(glGetStringi);
-    // RenderGroup group;
 };
 
 global OpenGL _openGL;

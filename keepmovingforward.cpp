@@ -487,6 +487,11 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         ReadSkeletonFromFile(gameState->worldArena, &gameState->model.skeleton, Str8Lit("data/dragon.skel"));
         KeyframedAnimation *animation = PushStruct(gameState->worldArena, KeyframedAnimation);
 
+        Mat4 translate             = Translate4(V3{0, 0, 5});
+        Mat4 scale                 = Scale4(V3{0.5f, 0.5f, 0.5f});
+        Mat4 rotate                = Rotate4(MakeV3(1, 0, 0), PI / 2);
+        gameState->model.transform = translate * rotate * scale;
+
         // AssimpLoadAnimation(gameState->worldArena, Str8Lit("data/dragon/scene.gltf"), animation);
         // WriteAnimationToFile(animation, Str8Lit("data/dragon_attack_01.anim"));
 
@@ -884,10 +889,10 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         SkinModelToAnimation(&gameState->animPlayer, &gameState->model, gameState->tforms,
                              gameState->finalTransforms);
         PushModel(renderState, &gameState->model, gameState->finalTransforms);
-        // DrawLine(&renderState->debugRenderer, {0, 0, 0}, {0, 0, 5}, {1, 0, 0, 1});
         DrawArrow(&renderState->debugRenderer, {0, 0, 0}, {5, 0, 0}, {1, 0, 0, 1}, 1.f);
         DrawArrow(&renderState->debugRenderer, {0, 0, 0}, {0, 5, 0}, {0, 1, 0, 1}, 1.f);
         DrawArrow(&renderState->debugRenderer, {0, 0, 0}, {0, 0, 5}, {0, 0, 1, 1}, 1.f);
+        DebugDrawSkeleton(&renderState->debugRenderer, &gameState->model, gameState->finalTransforms);
     }
     // GameOutputSound(soundBuffer, gameState->toneHz);
 }

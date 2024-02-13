@@ -816,7 +816,8 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
         (RenderCommand *)VirtualAlloc(0, renderState.commands.cap * sizeof(renderState.commands.items[0]),
                                       MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
     renderState.commands.count = 0;
-    ArrayInit(win32Arena, renderState.debugRenderer.vertices, DebugVertex, 100);
+    ArrayInit(win32Arena, renderState.debugRenderer.lines, DebugVertex, 1000);
+    ArrayInit(win32Arena, renderState.debugRenderer.points, DebugVertex, 1000);
     Win32InitOpenGL(windowHandle);
 
     //

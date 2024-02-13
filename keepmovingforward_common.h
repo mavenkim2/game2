@@ -78,6 +78,10 @@ typedef i64 b64;
     for (u32 STRING_JOIN(i, __LINE__) = 0; STRING_JOIN(i, __LINE__) < (array)->count; STRING_JOIN(i, __LINE__)++) \
         if ((ptr = (array)->items + STRING_JOIN(i, __LINE__)) != 0)
 
+#define foreach_value(array, val) \
+    for (u32 STRING_JOIN(i, __LINE__) = 0; STRING_JOIN(i, __LINE__) < (array)->count; STRING_JOIN(i, __LINE__)++) \
+        if ((val = (array)->items[STRING_JOIN(i, __LINE__)]), 1)
+
 #define foreach_index(array, ptr, index) \
     for (u32 index = 0; index < (array)->count; index++) \
         if ((ptr = (array)->items + index) != 0)
