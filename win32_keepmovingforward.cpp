@@ -810,7 +810,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     // INIT RENDER STATE
     //
     // TODO: move this somewhere else
-    RenderState renderState;
+    RenderState renderState = {};
     renderState.commands.cap = 10;
     renderState.commands.items =
         (RenderCommand *)VirtualAlloc(0, renderState.commands.cap * sizeof(renderState.commands.items[0]),

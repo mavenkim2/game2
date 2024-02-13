@@ -871,7 +871,6 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     // Render
     {
         BeginRenderFrame(renderState);
-        renderState->commands.count = 0;
         // for (Entity *entity = 0; IncrementEntity(level, &entity);)
         // {
         //     PushCube(&openGL->group, entity->pos, entity->size, entity->color);
@@ -885,7 +884,10 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         SkinModelToAnimation(&gameState->animPlayer, &gameState->model, gameState->tforms,
                              gameState->finalTransforms);
         PushModel(renderState, &gameState->model, gameState->finalTransforms);
-        DrawLine(&renderState->debugRenderer, {0, 0, 0}, {0, 0, 5}, {1, 0, 0, 1});
+        // DrawLine(&renderState->debugRenderer, {0, 0, 0}, {0, 0, 5}, {1, 0, 0, 1});
+        DrawArrow(&renderState->debugRenderer, {0, 0, 0}, {5, 0, 0}, {1, 0, 0, 1}, 1.f);
+        DrawArrow(&renderState->debugRenderer, {0, 0, 0}, {0, 5, 0}, {0, 1, 0, 1}, 1.f);
+        DrawArrow(&renderState->debugRenderer, {0, 0, 0}, {0, 0, 5}, {0, 0, 1, 1}, 1.f);
     }
     // GameOutputSound(soundBuffer, gameState->toneHz);
 }

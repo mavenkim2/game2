@@ -58,8 +58,8 @@ internal OpenGLShader OpenGLCreateProgram(char *defines, char *vertexCode, char 
         openGL->glGetProgramInfoLog(shaderProgramId, 4096, 0, programErrors);
 
         Printf("Vertex shader errors: %s\n", vertexShaderErrors);
-        Printf("Fragment shader errors: %s\n", vertexShaderErrors);
-        Printf("Program errors: %s\n", vertexShaderErrors);
+        Printf("Fragment shader errors: %s\n", fragmentShaderErrors);
+        Printf("Program errors: %s\n", programErrors);
     }
 
     openGL->glDeleteShader(vertexShaderId);
@@ -125,63 +125,28 @@ internal void LoadModel(Model *model)
 
 internal void CompileCubeProgram()
 {
-    char *vertexCode = R"(
-                                    in V4 pos;
-                                    in V3 colorIn;
-                                    in V3 n;
+    string globalFilename = Str8Lit("src/shaders/global.glsl");
+    string vsFilename     = Str8Lit("src/shaders/basic_3d.vs");
+    string fsFilename     = Str8Lit("src/shaders/basic_3d.fs");
 
-                                    out V3 color;
-                                    out V3 worldPosition;
-                                    out V3 worldN;
-
-                                    uniform mat4 transform; 
-
-                                    void main()
-                                    { 
-                                        gl_Position = transform * pos;
-                                        color = colorIn;
-                                        worldPosition = pos.xyz;
-                                        worldN = n;
-                                    })";
-
-    char *fragmentCode = R"(
-                                    in V3 color;
-                                    in V3 worldPosition;
-                                    in V3 worldN;
-
-                                    out V4 FragColor;
-
-                                    uniform V3 cameraPosition;
-
-                                    void main()
-                                    {
-                                        V3 lightPosition = vec3(0, 0, 5);
-                                        f32 lightCoefficient = 50.f;
-                                        V3 toLight = normalize(lightPosition - worldPosition);
-                                        f32 lightDistance = distance(lightPosition, worldPosition);
-                                        f32 lightStrength = lightCoefficient / (lightDistance * lightDistance); 
-
-                                        //AMBIENT
-                                        f32 ambient = 0.1f;
-                                        //DIFFUSE
-                                        f32 diffuseCoefficient = 0.1f;
-                                        f32 diffuseCosAngle = max(dot(worldN, lightPosition), 0.f);
-                                        f32 diffuse = diffuseCoefficient * diffuseCosAngle * lightStrength;
-                                        //SPECULAR
-                                        f32 specularCoefficient = 2.f;
-                                        V3 toViewPosition = normalize(cameraPosition - worldPosition);
-                                        // V3 reflectVector = -toLight + 2 * dot(worldN, toLight) * worldN;
-                                        V3 reflectVector = -toViewPosition + 2 * dot(worldN, toViewPosition) * worldN;
-                                        f32 specularStrength = pow(max(dot(reflectVector, toLight), 0.f), 64);
-                                        // f32 specularStrength = pow(max(dot(reflectVector, toViewPosition), 0.f), 64);
-                                        f32 specular = specularCoefficient * specularStrength * lightStrength;
-
-                                        FragColor = (ambient + diffuse + specular) * V4(color, 1.f);
-                                    })";
+    string globals = ReadEntireFile(globalFilename);
+    string vs      = ReadEntireFile(vsFilename);
+    string fs      = ReadEntireFile(fsFilename);
 
     CubeShader *cubeShader = &openGL->cubeShader;
-    cubeShader->base       = OpenGLCreateProgram(globalHeaderCode, vertexCode, fragmentCode);
+    cubeShader->base       = OpenGLCreateProgram((char *)globals.str, (char *)vs.str, (char *)fs.str);
     cubeShader->colorId    = openGL->glGetAttribLocation(cubeShader->base.id, "colorIn");
+
+    cubeShader->base.globalsFile      = globalFilename;
+    cubeShader->base.vsFile           = vsFilename;
+    cubeShader->base.fsFile           = fsFilename;
+    cubeShader->base.globalsWriteTime = GetLastWriteTime(globalFilename);
+    cubeShader->base.vsWriteTime      = GetLastWriteTime(vsFilename);
+    cubeShader->base.fsWriteTime      = GetLastWriteTime(fsFilename);
+
+    FreeFileMemory(globals.str);
+    FreeFileMemory(vs.str);
+    FreeFileMemory(fs.str);
 }
 
 internal void CompileModelProgram()
@@ -376,16 +341,34 @@ internal void OpenGLBeginFrame(i32 width, i32 height)
     // group->quadCount   = 0;
 }
 
-// internal void OpenGLDebugDraw(DebugRenderer *renderer)
-// {
-//     DebugVertex *vertex;
-//     foreach (renderer->vertices, vertex)
-//     {
-//         glColor4f(vertex->color.r, vertex->color.g, vertex->color.b, vertex->color.a);
-//
-//         glVertex3f(vertex->
-//     }
-// }
+// TODO: not having to hardcode shaders and vertex attribs would be nice
+internal void OpenGLDebugDraw(RenderState *state)
+{
+    DebugRenderer *renderer = &state->debugRenderer;
+    openGL->glUseProgram(openGL->cubeShader.base.id);
+    glLineWidth(4.f);
+    if (!renderer->vbo)
+    {
+        openGL->glGenBuffers(1, &renderer->vbo);
+    }
+
+    openGL->glBindBuffer(GL_ARRAY_BUFFER, renderer->vbo);
+    openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(renderer->vertices.items[0]) * renderer->vertices.count,
+                         renderer->vertices.items, GL_DYNAMIC_DRAW);
+    openGL->glEnableVertexAttribArray(0);
+    openGL->glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(DebugVertex), (void *)Offset(DebugVertex, pos));
+    openGL->glEnableVertexAttribArray(1);
+    openGL->glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(DebugVertex),
+                                  (void *)Offset(DebugVertex, color));
+
+    GLint transformLocation = openGL->glGetUniformLocation(openGL->cubeShader.base.id, "transform");
+    openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, state->transform.elements[0]);
+
+    glDrawArrays(GL_LINES, 0, renderer->vertices.count);
+    openGL->glUseProgram(0);
+    openGL->glDisableVertexAttribArray(0);
+    openGL->glDisableVertexAttribArray(1);
+}
 
 internal void OpenGLEndFrame(RenderState *renderState, HDC deviceContext, int clientWidth, int clientHeight)
 {
@@ -565,16 +548,22 @@ internal void OpenGLEndFrame(RenderState *renderState, HDC deviceContext, int cl
             openGL->glUniform1i(nmapLoc, 1);
 
             glDrawElements(GL_TRIANGLES, model->indices.count, GL_UNSIGNED_INT, 0);
-        }
 
-        openGL->glUseProgram(0);
-        // glBindTexture(GL_TEXTURE_2D, 0);
-        openGL->glDisableVertexAttribArray(positionId);
-        openGL->glDisableVertexAttribArray(normalId);
-        openGL->glDisableVertexAttribArray(uvId);
-        openGL->glDisableVertexAttribArray(tangentId);
-        openGL->glDisableVertexAttribArray(boneIdId);
-        openGL->glDisableVertexAttribArray(boneWeightId);
+            // UNBIND
+            openGL->glUseProgram(0);
+            glBindTexture(GL_TEXTURE_2D, 0);
+            openGL->glBindBuffer(GL_ARRAY_BUFFER, 0);
+            openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+            openGL->glDisableVertexAttribArray(positionId);
+            openGL->glDisableVertexAttribArray(normalId);
+            openGL->glDisableVertexAttribArray(uvId);
+            openGL->glDisableVertexAttribArray(tangentId);
+            openGL->glDisableVertexAttribArray(boneIdId);
+            openGL->glDisableVertexAttribArray(boneWeightId);
+        }
+        OpenGLDebugDraw(renderState);
+        openGL->glBindBuffer(GL_ARRAY_BUFFER, 0);
+        openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 
         // HOT RELOAD! this probably shouldnt' be here
         HotloadShaders(&openGL->modelShader.base);

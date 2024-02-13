@@ -274,6 +274,7 @@ struct OpenGL
     GLuint indexBufferId;
     CubeShader cubeShader;
     ModelShader modelShader;
+    // CubeShader debugShader;
     // GLuint textureIds[2];
 
     OpenGLFunction(glGenBuffers);
