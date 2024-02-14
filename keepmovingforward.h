@@ -3,6 +3,7 @@
 #include "keepmovingforward_string.h"
 #include "platform.h"
 #include "keepmovingforward_math.h"
+#include "physics.h"
 #include "keepmovingforward_camera.h"
 #include "keepmovingforward_asset.h"
 #include "render/debugdraw.h"

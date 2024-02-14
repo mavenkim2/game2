@@ -4,6 +4,7 @@
 #include "win32.cpp"
 #endif
 
+#include "physics.cpp"
 #include "keepmovingforward_memory.cpp"
 #include "keepmovingforward_string.cpp"
 #include "keepmovingforward_camera.cpp"
