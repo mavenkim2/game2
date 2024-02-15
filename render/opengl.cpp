@@ -369,7 +369,7 @@ internal void OpenGLDebugDraw(RenderState *state)
     glPointSize(4.f);
     openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(renderer->points.items[0]) * renderer->points.count,
                          renderer->points.items, GL_DYNAMIC_DRAW);
-    glDrawArrays(GL_LINE_STRIP, 0, renderer->points.count);
+    glDrawArrays(GL_POINTS, 0, renderer->points.count);
 
     openGL->glUseProgram(0);
     openGL->glDisableVertexAttribArray(0);

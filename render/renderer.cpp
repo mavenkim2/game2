@@ -92,8 +92,8 @@
 
 internal void BeginRenderFrame(RenderState *state)
 {
-    state->commands.count               = 0;
-    state->debugRenderer.lines.count = 0;
+    state->commands.count             = 0;
+    state->debugRenderer.lines.count  = 0;
     state->debugRenderer.points.count = 0;
 }
 

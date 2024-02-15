@@ -11,6 +11,15 @@ struct ConvexShape
     V3 GetSupport(V3 dir);
 };
 
+struct Sphere
+{
+    V3 center;
+    f32 radius;
+
+    Sphere(V3 c, f32 r) : center(c), radius(r) {}
+    V3 GetSupport(V3 dir);
+};
+
 struct GJKState
 {
     V3 supportA[4];
@@ -18,4 +27,3 @@ struct GJKState
     V3 simplex[4];
     u32 numPoints;
 };
-

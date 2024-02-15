@@ -874,9 +874,44 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
 #endif
 
+    BeginRenderFrame(renderState);
+    // Physics
+    {
+        // ConvexShape a;
+        // f32 p = 1;
+        //
+        // V3 points[8] = {MakeV3(-p, -p, -p), MakeV3(p, -p, -p), MakeV3(p, p, -p), MakeV3(-p, p, -p),
+        //                 MakeV3(-p, -p, p),  MakeV3(p, -p, p),  MakeV3(p, p, p),  MakeV3(-p, p, p)};
+        // a.points     = points;
+        // a.numPoints  = ArrayLength(points);
+        // loopi(0, a.numPoints - 1)
+        // {
+        //     DrawLine(&renderState->debugRenderer, a.points[i], a.points[i + 1], Color_Red);
+        // }
+
+        // ConvexShape b;
+        // V3 points2[8] = {MakeV3(-p, -p, -p+1), MakeV3(p, -p, -p+1),
+        //                  MakeV3(p, p, -p+1),   MakeV3(-p, p, -p+1),
+        //                  MakeV3(-p + 1, -p + 1, p + 2),  MakeV3(p + 1, -p + 1, p + 2),
+        //                  MakeV3(p + 1, p + 1, p + 2),    MakeV3(-p + 1, p + 1, p + 2)};
+        // b.points      = points2;
+        // b.numPoints   = ArrayLength(points2);
+        // loopi(0, b.numPoints)
+        // {
+        //     DrawPoint(&renderState->debugRenderer, b.points[i], Color_Blue);
+        // }
+        Sphere sphereA(MakeV3(5, 0, 0), 1.f);
+        DrawPoint(&renderState->debugRenderer, sphereA.center, Color_Blue);
+
+        Sphere sphereB(MakeV3(8.f, 1, 1), 1.f);
+        DrawPoint(&renderState->debugRenderer, sphereB.center, Color_Blue);
+
+        b32 result = Intersects(&sphereA, &sphereB, MakeV3(0, 0, 0));
+        Printf("%b", result);
+    }
+
     // Render
     {
-        BeginRenderFrame(renderState);
         // for (Entity *entity = 0; IncrementEntity(level, &entity);)
         // {
         //     PushCube(&openGL->group, entity->pos, entity->size, entity->color);

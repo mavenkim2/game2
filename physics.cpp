@@ -14,6 +14,12 @@ V3 ConvexShape::GetSupport(V3 dir)
     return bestPoint;
 }
 
+V3 Sphere::GetSupport(V3 dir)
+{
+    f32 length = Length(dir);
+    return length > 0.0f ? center + radius / length * dir : center;
+}
+
 internal V3 GetClosestPointOnLine(GJKState *state)
 {
     Assert(state->numPoints == 2);
@@ -24,6 +30,9 @@ internal V3 GetClosestPointOnLine(GJKState *state)
     V3 ao = -a;
 
     V3 abperp = Cross(Cross(ab, ao), ab);
+    if (Dot(abperp, ao) < FLT_EPSILON)
+    {
+    }
     return abperp;
 }
 
@@ -195,15 +204,17 @@ internal V3 GetClosestPointOnTetrahedron(GJKState *state, u32 *set)
     *set = closestSet;
     return dir;
 }
-// TODO: generalize to other shapes
-internal b32 Intersects(ConvexShape *a, ConvexShape *b, V3 dir)
+
+template <typename A, typename B> internal b32 Intersects(A *a, B *b, V3 dir)
 {
-    GJKState state = {};
+    GJKState state;
+    state.numPoints = 0;
     for (;;)
     {
         V3 supportA = a->GetSupport(dir);
         V3 supportB = b->GetSupport(-dir);
         V3 p        = supportA - supportB;
+
         if (Dot(p, dir) < 0.f)
         {
             return false;
@@ -246,6 +257,11 @@ internal b32 Intersects(ConvexShape *a, ConvexShape *b, V3 dir)
             default:
                 Assert(!"Invalid GJK state");
                 return false;
+        }
+        // If direction vector is 0.
+        if (dir.x == 0 && dir.y == 0 && dir.z == 0)
+        {
+            return true;
         }
     }
 }

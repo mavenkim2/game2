@@ -1,4 +1,6 @@
+global V4 Color_Red   = {1, 0, 0, 1};
 global V4 Color_Green = {0, 1, 0, 1};
+global V4 Color_Blue  = {0, 0, 1, 1};
 
 internal void DrawLine(DebugRenderer *debug, V3 from, V3 to, V4 color)
 {
@@ -41,6 +43,10 @@ internal void DrawArrow(DebugRenderer *debug, V3 from, V3 to, V4 color, f32 size
         DrawLine(debug, to - dir + perp, to, color);
         DrawLine(debug, to - dir - perp, to, color);
     }
+}
+
+internal void DrawSphere(DebugRenderer *debug, Sphere* sphere) {
+    
 }
 
 internal void DebugDrawSkeleton(DebugRenderer *debug, Model *model, Mat4 *finalTransform)
