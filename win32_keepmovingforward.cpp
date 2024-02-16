@@ -1,3 +1,4 @@
+#include <atomic>
 #include <windows.h>
 #include <gl/GL.h>
 #include <xaudio2.h>
@@ -638,8 +639,86 @@ LRESULT WindowsCallback(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
     return result;
 }
 
+struct WorkQueueEntry
+{
+    char *str;
+};
+
+struct PlatformWorkQueue
+{
+    WorkQueueEntry entries[16];
+    i32 volatile nextEntryToWrite;
+    i32 volatile nextEntryToRead;
+
+    // TODO: void* or u64?
+    HANDLE semaphore;
+};
+
+struct Win32ThreadInfo
+{
+    PlatformWorkQueue *queue;
+};
+
+internal void PushString(PlatformWorkQueue *queue, char *str)
+{
+    Assert(queue->nextEntryToWrite < ArrayLength(queue->entries));
+    WorkQueueEntry *entry = &queue->entries[queue->nextEntryToWrite];
+    entry->str            = str;
+    // NOTE: This fence prevents the compiler from reordering the write before the barier (need to do for cpu too?)
+    std::atomic_thread_fence(std::memory_order_release);
+    queue->nextEntryToWrite++;
+    ReleaseSemaphore(queue->semaphore, 1, 0);
+}
+
+global i32 entryCompletionCount;
+internal DWORD ThreadProc(void *param)
+{
+    Win32ThreadInfo *info    = (Win32ThreadInfo *)param;
+    PlatformWorkQueue *queue = info->queue;
+    for (;;)
+    {
+        if (queue->nextEntryToRead < queue->nextEntryToWrite)
+        {
+            i32 index = InterlockedIncrement((LONG volatile *)&(queue->nextEntryToRead)) - 1;
+            /// sigh...
+            std::atomic_thread_fence(std::memory_order_acquire);
+            WorkQueueEntry *entry = &queue->entries[index];
+            Printf("Thread %u: %s\n", GetCurrentThreadId(), entry->str);
+            InterlockedIncrement((LONG volatile *)&entryCompletionCount);
+        }
+        else
+        {
+            WaitForSingleObjectEx(queue->semaphore, INFINITE, FALSE);
+        }
+    }
+}
+
 int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd)
 {
+    Win32ThreadInfo threadInfo[6] = {};
+    PlatformWorkQueue queue       = {};
+
+    queue.semaphore = CreateSemaphoreEx(0, 0, ArrayLength(threadInfo), 0, 0, SEMAPHORE_ALL_ACCESS);
+    for (u32 threadIndex = 0; threadIndex < ArrayLength(threadInfo); threadIndex++)
+    {
+        Win32ThreadInfo *info = threadInfo + threadIndex;
+        info->queue           = &queue;
+        HANDLE threadHandle   = CreateThread(0, 0, ThreadProc, info, 0, 0);
+        CloseHandle(threadHandle);
+    }
+
+    PushString(&queue, "String 0");
+    PushString(&queue, "String 1");
+    PushString(&queue, "String 2");
+    PushString(&queue, "String 3");
+    PushString(&queue, "String 4");
+    PushString(&queue, "String 5");
+    PushString(&queue, "String 6");
+    PushString(&queue, "String 7");
+
+    while (entryCompletionCount != queue.nextEntryToRead)
+        ;
+
     LARGE_INTEGER performanceFrequencyUnion;
     QueryPerformanceFrequency(&performanceFrequencyUnion);
     GLOBAL_PERFORMANCE_COUNT_FREQUENCY = performanceFrequencyUnion.QuadPart;
@@ -734,16 +813,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     //
     // TODO: move this somewhere else
     // SOON! IMPORTANT probably just to isinitialized memory
-    RenderState renderState  = {};
-    renderState.commands.cap = 10;
-    renderState.commands.items =
-        (RenderCommand *)VirtualAlloc(0, renderState.commands.cap * sizeof(renderState.commands.items[0]),
-                                      MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-    renderState.commands.count = 0;
-    ArrayInit(win32Arena, renderState.debugRenderer.lines, DebugVertex, 1000);
-    ArrayInit(win32Arena, renderState.debugRenderer.points, DebugVertex, 1000);
-    ArrayInit(win32Arena, renderState.debugRenderer.indexLines, DebugVertex, 1000);
-    ArrayInit(win32Arena, renderState.debugRenderer.indices, u32, 5000);
+    RenderState renderState = {};
     Win32InitOpenGL(windowHandle);
 
     //
