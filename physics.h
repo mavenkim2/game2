@@ -1,22 +1,24 @@
 #define FLT_EPSILON 1.192092896e-07F
 
+enum ShapeType
+{
+    Shape_Sphere,
+    Shape_Box,
+};
+// NOTE: trying out a mega struct of shapes
 struct ConvexShape
 {
-    // V2 *points;
-    // TODO: actually support all polygons
+    ShapeType type;
+
     V3 *points;
     u32 numPoints;
 
-    // TODO: trying something
-    V3 GetSupport(V3 dir);
-};
-
-struct Sphere
-{
     V3 center;
     f32 radius;
 
-    Sphere(V3 c, f32 r) : center(c), radius(r) {}
+    // AABB
+    V3 min;
+    V3 max;
     V3 GetSupport(V3 dir);
 };
 

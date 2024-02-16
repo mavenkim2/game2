@@ -349,6 +349,7 @@ internal void OpenGLDebugDraw(RenderState *state)
     if (!renderer->vbo)
     {
         openGL->glGenBuffers(1, &renderer->vbo);
+        openGL->glGenBuffers(1, &renderer->ebo);
     }
 
     glLineWidth(4.f);
@@ -364,8 +365,19 @@ internal void OpenGLDebugDraw(RenderState *state)
     GLint transformLocation = openGL->glGetUniformLocation(openGL->cubeShader.base.id, "transform");
     openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, state->transform.elements[0]);
 
+    // Lines
     glDrawArrays(GL_LINES, 0, renderer->lines.count);
 
+    // Indexed lines
+    openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, renderer->ebo);
+    openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(renderer->indexLines.items[0]) * renderer->indexLines.count,
+                         renderer->indexLines.items, GL_DYNAMIC_DRAW);
+    openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(u32) * renderer->indices.count, renderer->indices.items,
+                         GL_DYNAMIC_DRAW);
+    glDrawElements(GL_LINES, renderer->indices.count, GL_UNSIGNED_INT, 0);
+    openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+
+    // Points
     glPointSize(4.f);
     openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(renderer->points.items[0]) * renderer->points.count,
                          renderer->points.items, GL_DYNAMIC_DRAW);

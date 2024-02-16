@@ -1,23 +1,39 @@
-V3 ConvexShape::GetSupport(V3 dir)
+internal ConvexShape MakeSphere(V3 center, f32 radius)
 {
-    V3 bestPoint  = points[0];
-    f32 bestValue = Dot(points[0], dir);
-    loopi(1, numPoints)
-    {
-        f32 tempValue = Dot(points[i], dir);
-        if (tempValue > bestValue)
-        {
-            bestPoint = points[i];
-            bestValue = tempValue;
-        }
-    }
-    return bestPoint;
+    ConvexShape result;
+    result.center = center;
+    result.radius = radius;
+    result.type = Shape_Sphere;
+    result.numPoints = 0;
+    return result;
 }
 
-V3 Sphere::GetSupport(V3 dir)
+V3 ConvexShape::GetSupport(V3 dir)
 {
-    f32 length = Length(dir);
-    return length > 0.0f ? center + radius / length * dir : center;
+    switch (type)
+    {
+        case Shape_Sphere:
+        {
+            f32 length = Length(dir);
+            return length > 0.0f ? center + radius / length * dir : center;
+        }
+        default:
+        {
+            Assert(numPoints > 0);
+            V3 bestPoint  = points[0];
+            f32 bestValue = Dot(points[0], dir);
+            loopi(1, numPoints)
+            {
+                f32 tempValue = Dot(points[i], dir);
+                if (tempValue > bestValue)
+                {
+                    bestPoint = points[i];
+                    bestValue = tempValue;
+                }
+            }
+            return bestPoint;
+        }
+    }
 }
 
 internal V3 GetClosestPointOnLine(GJKState *state)
@@ -30,9 +46,6 @@ internal V3 GetClosestPointOnLine(GJKState *state)
     V3 ao = -a;
 
     V3 abperp = Cross(Cross(ab, ao), ab);
-    if (Dot(abperp, ao) < FLT_EPSILON)
-    {
-    }
     return abperp;
 }
 
@@ -205,7 +218,7 @@ internal V3 GetClosestPointOnTetrahedron(GJKState *state, u32 *set)
     return dir;
 }
 
-template <typename A, typename B> internal b32 Intersects(A *a, B *b, V3 dir)
+internal b32 Intersects(ConvexShape *a, ConvexShape *b, V3 dir)
 {
     GJKState state;
     state.numPoints = 0;

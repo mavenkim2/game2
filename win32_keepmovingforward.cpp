@@ -45,83 +45,6 @@ void PlatformToggleCursor(b32 value)
 // DEBUG START
 //*******************************************
 
-#if INTERNAL
-DEBUG_PLATFORM_GET_RESOLUTION(DebugPlatformGetResolution)
-{
-    V2 dimension = Win32GetWindowDimension((HWND)handle.handle);
-    return dimension;
-}
-
-DEBUG_PLATFORM_FREE_FILE(DebugPlatformFreeFile)
-{
-    if (fileMemory)
-    {
-        VirtualFree(fileMemory, 0, MEM_RELEASE);
-    }
-}
-DEBUG_PLATFORM_READ_FILE(DebugPlatformReadFile)
-{
-    DebugReadFileOutput readFileOutput = {};
-    HANDLE fileHandle =
-        CreateFileA(fileName, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (fileHandle != INVALID_HANDLE_VALUE)
-    {
-        LARGE_INTEGER fileSizeLargeInteger;
-        if (GetFileSizeEx(fileHandle, &fileSizeLargeInteger))
-        {
-            u32 fileSize            = (u32)fileSizeLargeInteger.QuadPart;
-            readFileOutput.contents = VirtualAlloc(NULL, fileSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
-            if (readFileOutput.contents)
-            {
-                DWORD bytesToRead;
-                if (ReadFile(fileHandle, readFileOutput.contents, fileSize, &bytesToRead, NULL))
-                {
-                    readFileOutput.fileSize = fileSize;
-                }
-                else
-                {
-                    DebugPlatformFreeFile(&readFileOutput);
-                    readFileOutput.contents = NULL;
-                }
-            }
-            else
-            {
-            }
-        }
-        else
-        {
-        }
-        CloseHandle(fileHandle);
-    }
-    else
-    {
-    }
-    return readFileOutput;
-}
-
-DEBUG_PLATFORM_WRITE_FILE(DebugPlatformWriteFile)
-{
-    b32 result        = false;
-    HANDLE fileHandle = CreateFileA(fileName, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (fileHandle != INVALID_HANDLE_VALUE)
-    {
-        DWORD bytesToWrite;
-        if (WriteFile(fileHandle, fileMemory, fileSize, &bytesToWrite, NULL))
-        {
-            result = (fileSize == bytesToWrite);
-        }
-        else
-        {
-        }
-        CloseHandle(fileHandle);
-    }
-    else
-    {
-    }
-    return result;
-}
-#endif
-
 internal string Win32GetBinaryDirectory(Win32State *win32State)
 {
     DWORD size   = kilobytes(4);
@@ -777,8 +700,8 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
         (u8 *)gameMemory.PersistentStorageMemory + gameMemory.PersistentStorageSize;
 
     // TODO: this is bad, figure this out.
-    void *win32Memory = VirtualAlloc(0, kilobytes(64), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-    Arena *win32Arena = ArenaAlloc(win32Memory, kilobytes(64));
+    void *win32Memory = VirtualAlloc(0, kilobytes(256), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    Arena *win32Arena = ArenaAlloc(win32Memory, kilobytes(256));
 
     gameMemory.PlatformToggleCursor = PlatformToggleCursor;
 #if 0
@@ -810,7 +733,8 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     // INIT RENDER STATE
     //
     // TODO: move this somewhere else
-    RenderState renderState = {};
+    // SOON! IMPORTANT probably just to isinitialized memory
+    RenderState renderState  = {};
     renderState.commands.cap = 10;
     renderState.commands.items =
         (RenderCommand *)VirtualAlloc(0, renderState.commands.cap * sizeof(renderState.commands.items[0]),
@@ -818,6 +742,8 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     renderState.commands.count = 0;
     ArrayInit(win32Arena, renderState.debugRenderer.lines, DebugVertex, 1000);
     ArrayInit(win32Arena, renderState.debugRenderer.points, DebugVertex, 1000);
+    ArrayInit(win32Arena, renderState.debugRenderer.indexLines, DebugVertex, 1000);
+    ArrayInit(win32Arena, renderState.debugRenderer.indices, u32, 5000);
     Win32InitOpenGL(windowHandle);
 
     //

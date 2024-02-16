@@ -2,24 +2,10 @@
 #define KEEPMOVINGFORWARD_PLATFORM_H
 
 #if INTERNAL
-struct DebugReadFileOutput
-{
-    u32 fileSize;
-    void *contents;
-};
 struct DebugPlatformHandle
 {
     void *handle;
 };
-
-#define DEBUG_PLATFORM_FREE_FILE(name) void name(void *fileMemory)
-typedef DEBUG_PLATFORM_FREE_FILE(DebugPlatformFreeFileFunctionType);
-
-#define DEBUG_PLATFORM_READ_FILE(name) DebugReadFileOutput name(const char *fileName)
-typedef DEBUG_PLATFORM_READ_FILE(DebugPlatformReadFileFunctionType);
-
-#define DEBUG_PLATFORM_WRITE_FILE(name) b32 name(const char *fileName, u32 fileSize, void *fileMemory)
-typedef DEBUG_PLATFORM_WRITE_FILE(DebugPlatformWriteFileFunctionType);
 
 #define DEBUG_PLATFORM_GET_RESOLUTION(name) V2 name(DebugPlatformHandle handle)
 typedef DEBUG_PLATFORM_GET_RESOLUTION(DebugPlatformGetResolutionFunctionType);
@@ -40,13 +26,6 @@ struct GameMemory
     void *TransientStorageMemory;
 
     PlatformToggleCursorFunctionType *PlatformToggleCursor;
-#if 0
-    DebugPlatformFreeFileFunctionType *DebugPlatformFreeFile;
-    DebugPlatformReadFileFunctionType *DebugPlatformReadFile;
-    DebugPlatformWriteFileFunctionType *DebugPlatformWriteFile;
-    DebugPlatformGetResolutionFunctionType *DebugPlatformGetResolution;
-    DebugPlatformHandle handle;
-#endif
 };
 
 struct GameOffscreenBuffer

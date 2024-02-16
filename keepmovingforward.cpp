@@ -147,21 +147,21 @@ void DrawBitmap(GameOffscreenBuffer *buffer, DebugBmpResult *bmp, const V2 min)
     }
 }
 
-internal DebugBmpResult DebugLoadBMP(DebugPlatformReadFileFunctionType *PlatformReadFile, const char *filename)
-{
-    DebugBmpResult result      = {};
-    DebugReadFileOutput output = PlatformReadFile(filename);
-    if (output.fileSize != 0)
-    {
-        BmpHeader *header = (BmpHeader *)output.contents;
-        u32 *pixels       = (u32 *)((u8 *)output.contents + header->offset);
-        result.pixels     = pixels;
-
-        result.width  = header->width;
-        result.height = header->height;
-    }
-    return result;
-}
+// internal DebugBmpResult DebugLoadBMP(DebugPlatformReadFileFunctionType *PlatformReadFile, const char *filename)
+// {
+//     DebugBmpResult result      = {};
+//     DebugReadFileOutput output = PlatformReadFile(filename);
+//     if (output.fileSize != 0)
+//     {
+//         BmpHeader *header = (BmpHeader *)output.contents;
+//         u32 *pixels       = (u32 *)((u8 *)output.contents + header->offset);
+//         result.pixels     = pixels;
+//
+//         result.width  = header->width;
+//         result.height = header->height;
+//     }
+//     return result;
+// }
 
 inline Entity *GetEntity(Level *level, int handle)
 {
@@ -900,11 +900,11 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         // {
         //     DrawPoint(&renderState->debugRenderer, b.points[i], Color_Blue);
         // }
-        Sphere sphereA(MakeV3(5, 0, 0), 1.f);
-        DrawPoint(&renderState->debugRenderer, sphereA.center, Color_Blue);
+        ConvexShape sphereA = MakeSphere(MakeV3(5, 0, 0), 1.f);
+        DrawSphere(&renderState->debugRenderer, &sphereA, Color_Blue);
 
-        Sphere sphereB(MakeV3(8.f, 1, 1), 1.f);
-        DrawPoint(&renderState->debugRenderer, sphereB.center, Color_Blue);
+        ConvexShape sphereB = MakeSphere(MakeV3(8.f, 1, 1), 1.f);
+        // DrawSphere(&renderState->debugRenderer, &sphereB, Color_Red);
 
         b32 result = Intersects(&sphereA, &sphereB, MakeV3(0, 0, 0));
         Printf("%b", result);

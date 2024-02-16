@@ -45,8 +45,61 @@ internal void DrawArrow(DebugRenderer *debug, V3 from, V3 to, V4 color, f32 size
     }
 }
 
-internal void DrawSphere(DebugRenderer *debug, Sphere* sphere) {
-    
+// TODO: generate unit sphere once then transform. next level is copying vertices w/ new translation,
+// next next level (probably overkill for debug) is instancing
+// Also LOD. the spheres look trippy when you get far enough from them
+internal void DrawSphere(DebugRenderer *debug, ConvexShape *sphere, u32 sectors, u32 stacks, V4 color)
+{
+    f32 x, y, z;
+    f32 sectorStep = 2 * PI / sectors;
+    f32 stackStep  = PI / stacks;
+    f32 radius     = sphere->radius;
+
+    f32 theta = 0;
+
+    // Vertices
+    loopi(0, sectors + 1)
+    {
+        f32 phi = -PI / 2;
+        loopj(0, stacks + 1)
+        {
+            x = sphere->radius * Cos(phi) * Cos(theta);
+            y = sphere->radius * Cos(phi) * Sin(theta);
+            z = sphere->radius * Sin(phi);
+            DebugVertex vertex;
+            vertex.pos   = sphere->center + MakeV3(x, y, z);
+            vertex.color = color;
+
+            ArrayPush(&debug->indexLines, vertex);
+
+            phi += stackStep;
+        }
+        theta += sectorStep;
+    }
+
+    // Indices
+    loopi(0, sectors + 1)
+    {
+        u32 i1 = i * sectors;
+        u32 i2 = i1 + stacks + 1;
+        loopj(0, stacks + 1)
+        {
+            ArrayPush(&debug->indices, i1);
+            ArrayPush(&debug->indices, i2);
+            if (j != stacks)
+            {
+                ArrayPush(&debug->indices, i1);
+                ArrayPush(&debug->indices, i1 + 1);
+            }
+            i1++;
+            i2++;
+        }
+    }
+}
+
+internal void DrawSphere(DebugRenderer *debug, ConvexShape *sphere, V4 color)
+{
+    DrawSphere(debug, sphere, 12, 12, color);
 }
 
 internal void DebugDrawSkeleton(DebugRenderer *debug, Model *model, Mat4 *finalTransform)
