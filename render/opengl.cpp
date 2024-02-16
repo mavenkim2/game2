@@ -369,6 +369,7 @@ internal void OpenGLDebugDraw(RenderState *state)
     glDrawArrays(GL_LINES, 0, renderer->lines.count);
 
     // Indexed lines
+    glLineWidth(1.f);
     openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, renderer->ebo);
     openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(renderer->indexLines.items[0]) * renderer->indexLines.count,
                          renderer->indexLines.items, GL_DYNAMIC_DRAW);

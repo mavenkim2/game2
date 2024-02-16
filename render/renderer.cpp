@@ -90,6 +90,15 @@
 //     group->quadCount += 1;
 // }
 
+internal void InitializeRenderer(Arena *arena, RenderState *state)
+{
+    ArrayInit(arena, state->commands, RenderCommand, MAX_COMMANDS);
+    ArrayInit(arena, state->debugRenderer.lines, DebugVertex, MAX_DEBUG_VERTICES);
+    ArrayInit(arena, state->debugRenderer.points, DebugVertex, MAX_DEBUG_VERTICES);
+    ArrayInit(arena, state->debugRenderer.indexLines, DebugVertex, MAX_DEBUG_VERTICES);
+    ArrayInit(arena, state->debugRenderer.indices, u32, MAX_DEBUG_VERTICES * 5);
+}
+
 internal void BeginRenderFrame(RenderState *state)
 {
     state->commands.count                 = 0;

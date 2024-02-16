@@ -78,19 +78,16 @@ internal void DrawSphere(DebugRenderer *debug, ConvexShape *sphere, u32 sectors,
     }
 
     // Indices
-    loopi(0, sectors + 1)
+    loopi(0, sectors)
     {
-        u32 i1 = i * sectors;
-        u32 i2 = i1 + stacks + 1;
-        loopj(0, stacks + 1)
+        u32 i1 = i * (stacks + 1);
+        u32 i2 = i1 + (stacks + 1);
+        loopj(0, stacks)
         {
             ArrayPush(&debug->indices, i1);
             ArrayPush(&debug->indices, i2);
-            if (j != stacks)
-            {
-                ArrayPush(&debug->indices, i1);
-                ArrayPush(&debug->indices, i1 + 1);
-            }
+            ArrayPush(&debug->indices, i1);
+            ArrayPush(&debug->indices, i1 + 1);
             i1++;
             i2++;
         }

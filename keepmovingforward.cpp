@@ -465,15 +465,15 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     // Initialization
     GameState *gameState = (GameState *)memory->PersistentStorageMemory;
 
-    f32 screenCenterX = renderState->width * .5f;
-    f32 screenCenterY = renderState->height * .5f;
-
     if (!memory->isInitialized)
     {
         scratchArena = ArenaAlloc(megabytes(64));
 
         gameState->worldArena = ArenaAlloc((void *)((u8 *)(memory->PersistentStorageMemory) + sizeof(GameState)),
                                            memory->PersistentStorageSize - sizeof(GameState));
+        InitializeRenderer(gameState->worldArena, renderState);
+
+
 
         // Load assets
         //

@@ -9,8 +9,6 @@
  * speaking of which, it seems like the material used determines the shader used. or maybe I can just go for the
  * uber shader??? or maybe you sort by shader type. who knows.
  *
- * get rid of render group
- *
  * general flow:
  * begin render frame
  * push meshes/materials/texxures onto render commands list (in game update and render)
@@ -19,6 +17,9 @@
  * when meshes are loaded though, textures are also loaded (eventually async). when they are finished
  * loading, they are sent to the gpu then freed
  */
+
+#define MAX_COMMANDS       10
+#define MAX_DEBUG_VERTICES 1000
 
 struct RenderVertex
 {
