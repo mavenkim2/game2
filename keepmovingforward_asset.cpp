@@ -595,7 +595,7 @@ inline V3 CalculateTangents(const MeshVertex *vertex1, const MeshVertex *vertex2
 internal Mat4 ConvertToMatrix(const AnimationTransform *transform)
 {
     Mat4 result =
-        Translate4(transform->translation) * QuatToMatrix(transform->rotation) * Scale4(transform->scale);
+        Translate4(transform->translation) * QuatToMatrix(transform->rotation) * Scale(transform->scale);
     return result;
 }
 

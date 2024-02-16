@@ -473,8 +473,6 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
                                            memory->PersistentStorageSize - sizeof(GameState));
         InitializeRenderer(gameState->worldArena, renderState);
 
-
-
         // Load assets
         //
         // ASSIMP
@@ -489,7 +487,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         KeyframedAnimation *animation = PushStruct(gameState->worldArena, KeyframedAnimation);
 
         Mat4 translate             = Translate4(V3{0, 0, 5});
-        Mat4 scale                 = Scale4(V3{0.5f, 0.5f, 0.5f});
+        Mat4 scale                 = Scale(V3{0.5f, 0.5f, 0.5f});
         Mat4 rotate                = Rotate4(MakeV3(1, 0, 0), PI / 2);
         gameState->model.transform = translate * rotate * scale;
 
@@ -901,13 +899,21 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         //     DrawPoint(&renderState->debugRenderer, b.points[i], Color_Blue);
         // }
         ConvexShape sphereA = MakeSphere(MakeV3(5, 0, 0), 1.f);
-        DrawSphere(&renderState->debugRenderer, &sphereA, Color_Blue);
-
         ConvexShape sphereB = MakeSphere(MakeV3(8.f, 1, 1), 1.f);
-        // DrawSphere(&renderState->debugRenderer, &sphereB, Color_Red);
 
         b32 result = Intersects(&sphereA, &sphereB, MakeV3(0, 0, 0));
-        Printf("%b", result);
+        V4 color;
+        if (result)
+        {
+            color = Color_Black;
+        }
+        else
+        {
+            color = Color_Blue;
+        }
+        
+        DrawSphere(&renderState->debugRenderer, &sphereB, color);
+        DrawSphere(&renderState->debugRenderer, &sphereB, Color_Red);
     }
 
     // Render

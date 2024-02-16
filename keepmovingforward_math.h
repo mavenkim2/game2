@@ -1047,12 +1047,21 @@ inline Mat4 operator*(Mat4 a, float b)
     return result;
 }
 
-inline Mat4 Scale4(V3 value)
+inline Mat4 Scale(V3 value)
 {
     Mat4 result           = MakeMat4(1.f);
     result.elements[0][0] = value.x;
     result.elements[1][1] = value.y;
     result.elements[2][2] = value.z;
+    return result;
+}
+
+inline Mat4 Scale(f32 value)
+{
+    Mat4 result;
+    result.elements[0][0] = value;
+    result.elements[1][1] = value;
+    result.elements[2][2] = value;
     return result;
 }
 
@@ -1073,6 +1082,12 @@ inline Mat4 Rotate4(V3 axis, f32 theta)
     result.elements[2][1] = (axis.z * axis.y * cosValue) - (axis.x * sinTheta);
     result.elements[2][2] = (axis.z * axis.z * cosValue) + cosTheta;
     return result;
+}
+
+inline Mat4 Translate(Mat4 m, V3 value)
+{
+    m.columns[3].xyz = value;
+    return m;
 }
 
 inline Mat4 Translate4(V3 value)

@@ -46,7 +46,7 @@ struct RenderState
     // TODO: switch to push buffer w/ headers instead of array, to allow for different types of
     // commands
     // u8 commands[65536];
-    ArrayDef(RenderCommand) commands;
+    Array(RenderCommand) commands;
 
     DebugRenderer debugRenderer;
 };

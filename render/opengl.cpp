@@ -319,6 +319,7 @@ internal void Win32InitOpenGL(HWND window)
         Win32GetOpenGLFunction(glUniform1i);
         Win32GetOpenGLFunction(glDeleteProgram);
         Win32GetOpenGLFunction(glGetStringi);
+        Win32GetOpenGLFunction(glDrawElementsInstancedBaseVertex);
 
         OpenGLGetInfo();
     }
@@ -370,13 +371,30 @@ internal void OpenGLDebugDraw(RenderState *state)
 
     // Indexed lines
     glLineWidth(1.f);
+
     openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, renderer->ebo);
+
     openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(renderer->indexLines.items[0]) * renderer->indexLines.count,
                          renderer->indexLines.items, GL_DYNAMIC_DRAW);
     openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(u32) * renderer->indices.count, renderer->indices.items,
                          GL_DYNAMIC_DRAW);
-    glDrawElements(GL_LINES, renderer->indices.count, GL_UNSIGNED_INT, 0);
-    openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+
+    u32 vertexCount = 0;
+    u32 indexCount  = 0;
+    Primitive *primitive;
+    forEach(renderer->primitives, primitive)
+    {
+        // TODO: set up instancing in the shader and enable vertex attrib arrays to take the primitive transforms
+        // why am I doing it this way? how else would I do it though?
+        // openGL->glEnableVertexAttribArray();
+        openGL->glDrawElementsInstancedBaseVertex(GL_LINES, primitive->indexCount, GL_UNSIGNED_INT,
+                                                  (GLvoid *)(indexCount * sizeof(u32)),
+                                                  ArrayLen(primitive->transforms), vertexCount);
+        vertexCount += primitive->vertexCount;
+        indexCount += primitive->indexCount;
+        openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+    }
+    // TODO: Draw the rest
 
     // Points
     glPointSize(4.f);

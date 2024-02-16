@@ -92,11 +92,8 @@
 
 internal void InitializeRenderer(Arena *arena, RenderState *state)
 {
+    InitializeDebug(arena, &state->debugRenderer);
     ArrayInit(arena, state->commands, RenderCommand, MAX_COMMANDS);
-    ArrayInit(arena, state->debugRenderer.lines, DebugVertex, MAX_DEBUG_VERTICES);
-    ArrayInit(arena, state->debugRenderer.points, DebugVertex, MAX_DEBUG_VERTICES);
-    ArrayInit(arena, state->debugRenderer.indexLines, DebugVertex, MAX_DEBUG_VERTICES);
-    ArrayInit(arena, state->debugRenderer.indices, u32, MAX_DEBUG_VERTICES * 5);
 }
 
 internal void BeginRenderFrame(RenderState *state)
@@ -106,6 +103,7 @@ internal void BeginRenderFrame(RenderState *state)
     state->debugRenderer.points.count     = 0;
     state->debugRenderer.indexLines.count = 0;
     state->debugRenderer.indices.count    = 0;
+    ArraySetLen(state->debugRenderer.primitives, 0);
 }
 
 internal void PushTexture(Texture texture, Model *model)

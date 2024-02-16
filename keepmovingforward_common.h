@@ -1,3 +1,4 @@
+#include <cstdlib>
 #include <stdint.h>
 
 #if _MSC_VER
@@ -15,12 +16,12 @@
 #endif
 
 // NOTE: so LSP doesn't grey out preproc directives, remove this when shippin
-#define INTERNAL 1
+#define INTERNAL    1
 #define UNOPTIMIZED 1
 
 #define PI 3.14159265359f
 
-#define global static
+#define global   static
 #define internal static
 
 typedef int8_t i8;
@@ -67,11 +68,12 @@ typedef i64 b64;
 #define MemoryZero(ptr, size) MemorySet((ptr), 0, (size))
 
 #define ArrayInit(arena, array, type, _cap) \
-    do { array.cap = _cap; array.items = PushArray(arena, type, _cap); array.count = 0; } while (0)
+    do { array.cap = _cap; array.items = PushArray(arena, type, _cap); } while (0)
 
-#define ArrayDef(type) struct { type* items; u32 count; u32 cap; }
+#define Array(type) struct { type* items = 0; u32 count = 0; u32 cap = 0; }
 #define ArrayPush(array, item) (Assert((array)->count < (array)->cap), (array)->items[(array)->count++] = item) 
 
+// Loops
 #define DO_STRING_JOIN(arg1, arg2) arg1 ## arg2
 #define STRING_JOIN(arg1, arg2) DO_STRING_JOIN(arg1, arg2)
 #define foreach(array, ptr) \
@@ -99,5 +101,54 @@ typedef i64 b64;
 ((l)->next=(n),(l)=(n),zset((n)->next)))
 
 #define QueuePush(f,l,n) QueuePush_NZ(f,l,n,next,CheckNull,SetNull)
-
 // clang-format on
+
+// Array List
+struct AHeader
+{
+    u32 count;
+    u32 cap;
+};
+
+inline void *ArrayGrow(void *a, u32 size, u32 length, u32 minCap);
+
+#define ArrayHeader(a)      ((AHeader *)(a)-1)
+#define ArrayPush2(a, item) (ArrayMayGrow((a), 1), (a)[ArrayHeader(a)->count++] = item)
+#define ArrayLen(a)         ((a) ? ArrayHeader(a)->count : 0)
+#define ArrayCap(a)         ((a) ? ArrayHeader(a)->cap : 0)
+#define ArraySetCap(a, cap) (ArrayGrowWrap(a, 0, cap))
+#define ArraySetLen(a, len)                                                                                       \
+    ((ArrayCap(a) < (len) ? ArraySetCap((a), (len)), 0 : 0), (a) ? (ArrayHeader(a)->count = (len)) : 0)
+
+#define ArrayMayGrow(a, n)                                                                                        \
+    ((!(a) || (ArrayHeader(a)->count) + (n) > ArrayHeader(a)->cap) ? (ArrayGrowWrap((a), (n), 0), 0) : 0)
+#define ArrayGrowWrap(a, b, c) ((a) = ArrayGrowWrapper((a), (sizeof(*a)), (b), (c)))
+
+template<class T> internal T* ArrayGrowWrapper(T* a, u32 size, u32 length, u32 minCap) {
+    return (T*)ArrayGrow(a, size, length, minCap);
+}
+
+inline void *ArrayGrow(void *a, u32 size, u32 length, u32 minCap)
+{
+    void *b;
+    u32 minCount = ArrayLen(a) + length;
+    if (minCap < minCount)
+    {
+        minCap = minCount;
+    }
+    if (minCap < 2 * ArrayCap(a)) minCap = 2 * ArrayCap(a);
+    else if (minCap < 4) minCap = 4;
+
+    b = realloc((a) ? ArrayHeader(a) : 0, size * minCap + sizeof(AHeader));
+    b = (u8 *)b + sizeof(AHeader);
+    if (a == 0)
+    {
+        ArrayHeader(b)->count = 0;
+    }
+    ArrayHeader(b)->cap = minCap;
+    return b;
+}
+
+#define forEach(array, ptr) \
+    for (u32 STRING_JOIN(i, __LINE__) = 0; STRING_JOIN(i, __LINE__) < ArrayLen(array); STRING_JOIN(i, __LINE__)++) \
+        if ((ptr = (array) + STRING_JOIN(i, __LINE__)) != 0)

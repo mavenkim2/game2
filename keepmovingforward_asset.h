@@ -71,10 +71,10 @@ struct VertexBoneInfo
 struct Skeleton
 {
     u32 count;
-    ArrayDef(string) names;
-    ArrayDef(i32) parents;
-    ArrayDef(Mat4) inverseBindPoses;
-    ArrayDef(Mat4) transformsToParent;
+    Array(string) names;
+    Array(i32) parents;
+    Array(Mat4) inverseBindPoses;
+    Array(Mat4) transformsToParent;
 };
 
 struct AnimationTransform
@@ -145,12 +145,12 @@ struct AnimationPlayer
 
 struct Model
 {
-    ArrayDef(MeshVertex) vertices;
-    ArrayDef(u32) indices;
+    Array(MeshVertex) vertices;
+    Array(u32) indices;
 
     Skeleton skeleton;
 
-    ArrayDef(Texture) textures;
+    Array(Texture) textures;
 
     Mat4 transform;
 
@@ -204,8 +204,8 @@ struct ModelOutput
 struct AssimpSkeletonAsset
 {
     u32 count;
-    ArrayDef(string) names;
-    ArrayDef(i32) parents;
-    ArrayDef(Mat4) inverseBindPoses;
-    ArrayDef(VertexBoneInfo) vertexBoneInfo;
+    Array(string) names;
+    Array(i32) parents;
+    Array(Mat4) inverseBindPoses;
+    Array(VertexBoneInfo) vertexBoneInfo;
 };

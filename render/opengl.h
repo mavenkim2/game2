@@ -218,6 +218,8 @@ typedef void WINAPI type_glTexSubImage3D(GLenum target, GLint level, GLint xoffs
                                          const void *pixels);
 typedef void WINAPI type_glDrawElementsBaseVertex(GLenum mode, GLsizei count, GLenum type, const void *indices,
                                                   GLint basevertex);
+typedef void WINAPI type_glDrawElementsInstancedBaseVertex(GLenum mode, GLsizei count, GLenum type,
+                                                           GLvoid *indices, GLsizei primcount, GLint basevertex);
 typedef void WINAPI type_glUniform4f(GLint location, GLfloat v0, GLfloat v1, GLfloat v2, GLfloat v3);
 typedef const GLubyte *WINAPI type_glGetStringi(GLenum name, GLuint index);
 
@@ -301,6 +303,7 @@ struct OpenGL
     OpenGLFunction(glUniform1i);
     OpenGLFunction(glDeleteProgram);
     OpenGLFunction(glGetStringi);
+    OpenGLFunction(glDrawElementsInstancedBaseVertex);
 };
 
 global OpenGL _openGL;

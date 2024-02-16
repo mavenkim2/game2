@@ -4,13 +4,23 @@ struct DebugVertex
     V4 color;
 };
 
+struct Primitive
+{
+    u32 vertexCount;
+    u32 indexCount;
+    // For instancing
+    Mat4 *transforms = 0;
+};
+
 struct DebugRenderer
 {
-    ArrayDef(DebugVertex) lines;
-    ArrayDef(DebugVertex) points;
+    Array(DebugVertex) lines;
+    Array(DebugVertex) points;
 
-    ArrayDef(DebugVertex) indexLines;
-    ArrayDef(u32) indices;
+    Array(DebugVertex) indexLines;
+    Array(u32) indices;
+
+    Primitive* primitives = 0;
 
     u32 vbo;
     u32 ebo;
