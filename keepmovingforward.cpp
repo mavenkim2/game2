@@ -10,7 +10,7 @@
 #include "keepmovingforward_camera.cpp"
 #include "keepmovingforward_entity.cpp"
 #include "keepmovingforward_asset.cpp"
-#include "render/renderer.cpp"
+#include "render/render.cpp"
 
 const f32 GRAVITY = 49.f;
 
@@ -910,10 +910,12 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         {
             color = Color_Green;
         }
-        Printf("%u\n", result);
 
-        DrawSphere(&renderState->debugRenderer, &sphereA, color);
-        DrawSphere(&renderState->debugRenderer, &sphereB, color);
+        DrawSphere(&renderState->debugRenderer, sphereA.center, sphereA.radius, color);
+        DrawSphere(&renderState->debugRenderer, sphereB.center, sphereB.radius, color);
+
+        DrawBox(&renderState->debugRenderer, {5, 1, 1}, {2, 1, 1}, Color_Black);
+        DrawBox(&renderState->debugRenderer, {8, 3, 3}, {1, 4, 2}, Color_Green);
     }
 
     // Render

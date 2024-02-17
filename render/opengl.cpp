@@ -386,104 +386,7 @@ internal void OpenGLBeginFrame(i32 width, i32 height)
 }
 
 // TODO: not having to hardcode shaders and vertex attribs would be nice
-internal void OpenGLDebugDraw(RenderState *state)
-{
-    DebugRenderer *renderer = &state->debugRenderer;
-    openGL->glUseProgram(openGL->cubeShader.base.id);
-    if (!renderer->vbo)
-    {
-        openGL->glGenBuffers(1, &renderer->vbo);
-        openGL->glGenBuffers(1, &renderer->instanceVbo);
-        openGL->glGenBuffers(1, &renderer->instanceVbo2);
-        openGL->glGenBuffers(1, &renderer->ebo);
-    }
-
-    glLineWidth(4.f);
-    openGL->glBindBuffer(GL_ARRAY_BUFFER, renderer->vbo);
-    openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(renderer->lines.items[0]) * renderer->lines.count,
-                         renderer->lines.items, GL_DYNAMIC_DRAW);
-    openGL->glEnableVertexAttribArray(0);
-    openGL->glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(DebugVertex), (void *)Offset(DebugVertex, pos));
-    openGL->glEnableVertexAttribArray(1);
-    openGL->glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(DebugVertex),
-                                  (void *)Offset(DebugVertex, color));
-
-    GLint transformLocation = openGL->glGetUniformLocation(openGL->cubeShader.base.id, "transform");
-    openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, state->transform.elements[0]);
-
-    // Lines
-    glDrawArrays(GL_LINES, 0, renderer->lines.count);
-
-    // Points
-    glPointSize(4.f);
-    openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(renderer->points.items[0]) * renderer->points.count,
-                         renderer->points.items, GL_DYNAMIC_DRAW);
-    glDrawArrays(GL_POINTS, 0, renderer->points.count);
-
-    // Indexed lines
-    openGL->glUseProgram(openGL->instancedBasicShader.base.id);
-    transformLocation = openGL->glGetUniformLocation(openGL->instancedBasicShader.base.id, "transform");
-    openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, state->transform.elements[0]);
-    glLineWidth(1.f);
-
-    openGL->glBindBuffer(GL_ARRAY_BUFFER, renderer->vbo);
-    openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(renderer->indexLines.items[0]) * renderer->indexLines.count,
-                         renderer->indexLines.items, GL_DYNAMIC_DRAW);
-    openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, renderer->ebo);
-
-    openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(u32) * renderer->indices.count, renderer->indices.items,
-                         GL_DYNAMIC_DRAW);
-
-    u32 vertexCount = 0;
-    u32 indexCount  = 0;
-    Primitive *primitive;
-    forEach(renderer->primitives, primitive)
-    {
-        // Set color of primitive
-        openGL->glBindBuffer(GL_ARRAY_BUFFER, renderer->instanceVbo2);
-        openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(V4) * ArrayLen(primitive->colors), primitive->colors,
-                             GL_STATIC_DRAW);
-        openGL->glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(V4), 0);
-        openGL->glVertexAttribDivisor(1, 1);
-
-        // Set transform of primitive
-        openGL->glBindBuffer(GL_ARRAY_BUFFER, renderer->instanceVbo);
-        openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(Mat4) * ArrayLen(primitive->transforms),
-                             primitive->transforms, GL_STATIC_DRAW);
-
-        loopi(0, 4)
-        {
-            openGL->glEnableVertexAttribArray(2 + i);
-            openGL->glVertexAttribPointer(2 + i, 4, GL_FLOAT, GL_FALSE, sizeof(Mat4), (void *)(sizeof(V4) * i));
-            openGL->glVertexAttribDivisor(2 + i, 1);
-        }
-        // Draw
-        openGL->glDrawElementsInstancedBaseVertex(GL_LINES, primitive->indexCount, GL_UNSIGNED_INT,
-                                                  (GLvoid *)(indexCount * sizeof(u32)),
-                                                  ArrayLen(primitive->transforms), vertexCount);
-        // Prep for next primitive draw
-        vertexCount += primitive->vertexCount;
-        indexCount += primitive->indexCount;
-    }
-    // TODO: Draw the rest of the indexed lines?
-    openGL->glBindBuffer(GL_ARRAY_BUFFER, 0);
-    openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-
-    openGL->glUseProgram(0);
-    openGL->glDisableVertexAttribArray(0);
-    openGL->glDisableVertexAttribArray(1);
-    openGL->glDisableVertexAttribArray(2);
-    openGL->glDisableVertexAttribArray(3);
-    openGL->glDisableVertexAttribArray(4);
-    openGL->glDisableVertexAttribArray(5);
-        openGL->glVertexAttribDivisor(1, 0);
-    openGL->glVertexAttribDivisor(2, 0);
-    openGL->glVertexAttribDivisor(3, 0);
-    openGL->glVertexAttribDivisor(4, 0);
-    openGL->glVertexAttribDivisor(5, 0);
-}
-
-internal void OpenGLEndFrame(RenderState *renderState, HDC deviceContext, int clientWidth, int clientHeight)
+internal void OpenGLEndFrame(RenderState *state, HDC deviceContext, int clientWidth, int clientHeight)
 {
     // INITIALIZE
     {
@@ -557,7 +460,7 @@ internal void OpenGLEndFrame(RenderState *renderState, HDC deviceContext, int cl
         GLuint tangentId    = openGL->modelShader.tangentId;
 
         RenderCommand *command;
-        foreach (&renderState->commands, command)
+        foreach (&state->commands, command)
         {
             Model *model       = command->model;
             Skeleton *skeleton = &model->skeleton;
@@ -625,7 +528,7 @@ internal void OpenGLEndFrame(RenderState *renderState, HDC deviceContext, int cl
                                               (void *)Offset(MeshVertex, boneWeights));
             }
 
-            Mat4 newTransform       = renderState->transform * model->transform;
+            Mat4 newTransform       = state->transform * model->transform;
             GLint transformLocation = openGL->glGetUniformLocation(openGL->modelShader.base.id, "transform");
             openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, newTransform.elements[0]);
 
@@ -645,7 +548,7 @@ internal void OpenGLEndFrame(RenderState *renderState, HDC deviceContext, int cl
             openGL->glUniform3fv(lightPosLoc, 1, lightPosition.elements);
 
             GLint viewPosLoc = openGL->glGetUniformLocation(openGL->modelShader.base.id, "viewPos");
-            openGL->glUniform3fv(viewPosLoc, 1, renderState->camera.position.elements);
+            openGL->glUniform3fv(viewPosLoc, 1, state->camera.position.elements);
 
             // TEXTURE MAP
             GLint textureLoc = openGL->glGetUniformLocation(openGL->modelShader.base.id, "diffuseMap");
@@ -669,8 +572,104 @@ internal void OpenGLEndFrame(RenderState *renderState, HDC deviceContext, int cl
             openGL->glDisableVertexAttribArray(boneIdId);
             openGL->glDisableVertexAttribArray(boneWeightId);
         }
-        // TODO: this should just be another pass, located in this same method
-        OpenGLDebugDraw(renderState);
+
+        // DEBUG PASS
+        DebugRenderer *renderer = &state->debugRenderer;
+        openGL->glUseProgram(openGL->cubeShader.base.id);
+        if (!renderer->vbo)
+        {
+            openGL->glGenBuffers(1, &renderer->vbo);
+            openGL->glGenBuffers(1, &renderer->instanceVbo);
+            openGL->glGenBuffers(1, &renderer->instanceVbo2);
+            openGL->glGenBuffers(1, &renderer->ebo);
+        }
+
+        glLineWidth(4.f);
+        openGL->glBindBuffer(GL_ARRAY_BUFFER, renderer->vbo);
+        openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(renderer->lines.items[0]) * renderer->lines.count,
+                             renderer->lines.items, GL_DYNAMIC_DRAW);
+        openGL->glEnableVertexAttribArray(0);
+        openGL->glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(DebugVertex),
+                                      (void *)Offset(DebugVertex, pos));
+        openGL->glEnableVertexAttribArray(1);
+        openGL->glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(DebugVertex),
+                                      (void *)Offset(DebugVertex, color));
+
+        GLint transformLocation = openGL->glGetUniformLocation(openGL->cubeShader.base.id, "transform");
+        openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, state->transform.elements[0]);
+
+        // Lines
+        glDrawArrays(GL_LINES, 0, renderer->lines.count);
+
+        // Points
+        glPointSize(4.f);
+        openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(renderer->points.items[0]) * renderer->points.count,
+                             renderer->points.items, GL_DYNAMIC_DRAW);
+        glDrawArrays(GL_POINTS, 0, renderer->points.count);
+
+        // Indexed lines
+        openGL->glUseProgram(openGL->instancedBasicShader.base.id);
+        transformLocation = openGL->glGetUniformLocation(openGL->instancedBasicShader.base.id, "transform");
+        openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, state->transform.elements[0]);
+        glLineWidth(4.f);
+
+        openGL->glBindBuffer(GL_ARRAY_BUFFER, renderer->vbo);
+        openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(renderer->indexLines.items[0]) * renderer->indexLines.count,
+                             renderer->indexLines.items, GL_DYNAMIC_DRAW);
+        openGL->glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(V3), 0);
+        openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, renderer->ebo);
+
+        openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(u32) * renderer->indices.count,
+                             renderer->indices.items, GL_DYNAMIC_DRAW);
+
+        u32 vertexCount = 0;
+        u32 indexCount  = 0;
+        Primitive *primitive;
+        forEach(renderer->primitives, primitive)
+        {
+            // Set color of primitive
+            openGL->glBindBuffer(GL_ARRAY_BUFFER, renderer->instanceVbo2);
+            openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(V4) * ArrayLen(primitive->colors), primitive->colors,
+                                 GL_STATIC_DRAW);
+            openGL->glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(V4), 0);
+            openGL->glVertexAttribDivisor(1, 1);
+
+            // Set transform of primitive
+            openGL->glBindBuffer(GL_ARRAY_BUFFER, renderer->instanceVbo);
+            openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(Mat4) * ArrayLen(primitive->transforms),
+                                 primitive->transforms, GL_STATIC_DRAW);
+
+            loopi(0, 4)
+            {
+                openGL->glEnableVertexAttribArray(2 + i);
+                openGL->glVertexAttribPointer(2 + i, 4, GL_FLOAT, GL_FALSE, sizeof(Mat4),
+                                              (void *)(sizeof(V4) * i));
+                openGL->glVertexAttribDivisor(2 + i, 1);
+            }
+            // Draw
+            openGL->glDrawElementsInstancedBaseVertex(GL_LINES, primitive->indexCount, GL_UNSIGNED_INT,
+                                                      (GLvoid *)(indexCount * sizeof(u32)),
+                                                      ArrayLen(primitive->transforms), vertexCount);
+            // Prep for next primitive draw
+            vertexCount += primitive->vertexCount;
+            indexCount += primitive->indexCount;
+        }
+        // TODO: Draw the rest of the indexed lines?
+        openGL->glBindBuffer(GL_ARRAY_BUFFER, 0);
+        openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+
+        openGL->glUseProgram(0);
+        openGL->glDisableVertexAttribArray(0);
+        openGL->glDisableVertexAttribArray(1);
+        openGL->glDisableVertexAttribArray(2);
+        openGL->glDisableVertexAttribArray(3);
+        openGL->glDisableVertexAttribArray(4);
+        openGL->glDisableVertexAttribArray(5);
+        openGL->glVertexAttribDivisor(1, 0);
+        openGL->glVertexAttribDivisor(2, 0);
+        openGL->glVertexAttribDivisor(3, 0);
+        openGL->glVertexAttribDivisor(4, 0);
+        openGL->glVertexAttribDivisor(5, 0);
 
         // HOT RELOAD! this probably shouldnt' be here
         HotloadShaders(&openGL->modelShader.base);

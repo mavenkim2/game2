@@ -113,7 +113,7 @@ struct AHeader
 inline void *ArrayGrow(void *a, u32 size, u32 length, u32 minCap);
 
 #define ArrayHeader(a)      ((AHeader *)(a)-1)
-#define ArrayPush2(a, item) (ArrayMayGrow((a), 1), (a)[ArrayHeader(a)->count++] = item)
+#define ArrayPut(a, item) (ArrayMayGrow((a), 1), (a)[ArrayHeader(a)->count++] = item)
 #define ArrayLen(a)         ((a) ? ArrayHeader(a)->count : 0)
 #define ArrayCap(a)         ((a) ? ArrayHeader(a)->cap : 0)
 #define ArraySetCap(a, cap) (ArrayGrowWrap(a, 0, cap))
