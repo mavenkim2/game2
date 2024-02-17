@@ -225,6 +225,7 @@ typedef void WINAPI type_glDrawElementsInstancedBaseVertex(GLenum mode, GLsizei 
 typedef void WINAPI type_glUniform4f(GLint location, GLfloat v0, GLfloat v1, GLfloat v2, GLfloat v3);
 typedef const GLubyte *WINAPI type_glGetStringi(GLenum name, GLuint index);
 typedef void WINAPI type_glVertexAttribDivisor(GLuint index, GLuint divisor);
+typedef void WINAPI type_glBufferSubData(GLenum target, GLintptr offset, GLsizeiptr size, const GLvoid *data);
 
 typedef BOOL WINAPI wgl_swap_interval_ext(int interval);
 global wgl_swap_interval_ext *wglSwapIntervalEXT;
@@ -311,6 +312,7 @@ struct OpenGL
     OpenGLFunction(glDrawElementsInstancedBaseVertex);
     OpenGLFunction(glDrawElementsInstanced);
     OpenGLFunction(glVertexAttribDivisor);
+    OpenGLFunction(glBufferSubData);
 };
 
 global OpenGL _openGL;

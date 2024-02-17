@@ -363,6 +363,7 @@ internal void Win32InitOpenGL(HWND window)
         Win32GetOpenGLFunction(glDrawElementsInstancedBaseVertex);
         Win32GetOpenGLFunction(glVertexAttribDivisor);
         Win32GetOpenGLFunction(glDrawElementsInstanced);
+        Win32GetOpenGLFunction(glBufferSubData);
 
         OpenGLGetInfo();
     }
@@ -627,23 +628,30 @@ internal void OpenGLEndFrame(RenderState *state, HDC deviceContext, int clientWi
         Primitive *primitive;
         forEach(renderer->primitives, primitive)
         {
+            u64 totalSize = sizeof(primitive->colors[0]) * ArrayLen(primitive->colors) +
+                            sizeof(primitive->transforms[0]) * ArrayLen(primitive->transforms);
+
+            openGL->glBindBuffer(GL_ARRAY_BUFFER, renderer->instanceVbo);
+            openGL->glBufferData(GL_ARRAY_BUFFER, totalSize, 0, GL_DYNAMIC_DRAW);
+
+            u64 totalOffset = 0;
             // Set color of primitive
-            openGL->glBindBuffer(GL_ARRAY_BUFFER, renderer->instanceVbo2);
-            openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(V4) * ArrayLen(primitive->colors), primitive->colors,
-                                 GL_STATIC_DRAW);
+            openGL->glBufferSubData(GL_ARRAY_BUFFER, totalOffset, sizeof(V4) * ArrayLen(primitive->colors),
+                                    primitive->colors);
+            totalOffset += sizeof(V4) * ArrayLen(primitive->colors);
+            openGL->glBufferSubData(GL_ARRAY_BUFFER, totalOffset, sizeof(Mat4) * ArrayLen(primitive->transforms),
+                                    primitive->transforms);
             openGL->glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(V4), 0);
             openGL->glVertexAttribDivisor(1, 1);
 
             // Set transform of primitive
-            openGL->glBindBuffer(GL_ARRAY_BUFFER, renderer->instanceVbo);
-            openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(Mat4) * ArrayLen(primitive->transforms),
-                                 primitive->transforms, GL_STATIC_DRAW);
+            // openGL->glBindBuffer(GL_ARRAY_BUFFER, renderer->instanceVbo);
 
             loopi(0, 4)
             {
                 openGL->glEnableVertexAttribArray(2 + i);
                 openGL->glVertexAttribPointer(2 + i, 4, GL_FLOAT, GL_FALSE, sizeof(Mat4),
-                                              (void *)(sizeof(V4) * i));
+                                              (void *)(totalOffset + sizeof(V4) * i));
                 openGL->glVertexAttribDivisor(2 + i, 1);
             }
             // Draw
