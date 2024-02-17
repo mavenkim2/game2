@@ -21,6 +21,38 @@
 #define MAX_COMMANDS       10
 #define MAX_DEBUG_VERTICES 1000
 
+struct DebugVertex
+{
+    V3 pos;
+    V4 color;
+};
+
+struct Primitive
+{
+    u32 vertexCount;
+    u32 indexCount;
+    // For instancing
+    Mat4 *transforms = 0;
+    V4 *colors = 0;
+};
+
+struct DebugRenderer
+{
+    Array(DebugVertex) lines;
+    Array(DebugVertex) points;
+
+    Array(DebugVertex) indexLines;
+    Array(u32) indices;
+
+    Primitive *primitives = 0;
+
+    u32 vbo;
+    u32 ebo;
+
+    u32 instanceVao;
+    u32 instanceVbo;
+    u32 instanceVbo2;
+};
 struct RenderVertex
 {
     V4 p;

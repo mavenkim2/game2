@@ -6,14 +6,13 @@
 #include "physics.h"
 #include "keepmovingforward_camera.h"
 #include "keepmovingforward_asset.h"
-#include "render/debugdraw.h"
 #include "render/renderer.h"
 
 #include "keepmovingforward_platform.h"
 #include "keepmovingforward_entity.h"
 #include "keepmovingforward_level.h"
 
-global Arena* scratchArena;
+global Arena *scratchArena;
 
 struct DebugBmpResult
 {
@@ -71,7 +70,7 @@ struct GameState
     CameraMode cameraMode;
 
     // TODO IMPORTANT: TEMPORARY, move transforms into animation related struct
-    // also mesh node hierarchy should use id's for parent name. 
+    // also mesh node hierarchy should use id's for parent name.
     // also need to use the same hierarchy for animation/skeleton/mesh
     AnimationPlayer animPlayer;
     AnimationTransform *tforms;

@@ -79,7 +79,7 @@ struct GameSoundOutput
 
 inline void CopyString_(char *destination, const char *source)
 {
-    char *scanDest = destination;
+    char *scanDest         = destination;
     const char *scanSource = source;
     while (*scanSource)
     {
@@ -104,8 +104,8 @@ inline void AddStrings_(char *destination, const char *source)
     }
 };
 
-#define GAME_UPDATE_AND_RENDER(name)                                                                                   \
-    void name(GameMemory *memory, RenderState* renderState, GameSoundOutput *soundBuffer, GameInput *input, f32 dT)
+#define GAME_UPDATE_AND_RENDER(name)                                                                              \
+    void name(GameMemory *memory, RenderState *renderState, GameSoundOutput *soundBuffer, GameInput *input, f32 dT)
 
 typedef GAME_UPDATE_AND_RENDER(GameUpdateAndRenderFunctionType);
 

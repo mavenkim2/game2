@@ -10,7 +10,6 @@
 #include "keepmovingforward_camera.cpp"
 #include "keepmovingforward_entity.cpp"
 #include "keepmovingforward_asset.cpp"
-#include "render/debugdraw.cpp"
 #include "render/renderer.cpp"
 
 const f32 GRAVITY = 49.f;
@@ -899,21 +898,22 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         //     DrawPoint(&renderState->debugRenderer, b.points[i], Color_Blue);
         // }
         ConvexShape sphereA = MakeSphere(MakeV3(5, 0, 0), 1.f);
-        ConvexShape sphereB = MakeSphere(MakeV3(8.f, 1, 1), 1.f);
+        ConvexShape sphereB = MakeSphere(MakeV3(7.f, 0, 0), 1.f);
 
         b32 result = Intersects(&sphereA, &sphereB, MakeV3(0, 0, 0));
         V4 color;
         if (result)
         {
-            color = Color_Black;
+            color = Color_Red;
         }
         else
         {
-            color = Color_Blue;
+            color = Color_Green;
         }
-        
+        Printf("%u\n", result);
+
+        DrawSphere(&renderState->debugRenderer, &sphereA, color);
         DrawSphere(&renderState->debugRenderer, &sphereB, color);
-        DrawSphere(&renderState->debugRenderer, &sphereB, Color_Red);
     }
 
     // Render

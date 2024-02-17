@@ -17,6 +17,12 @@ internal Arena *ArenaAlloc(u64 size)
     }
     return arena;
 }
+
+internal Arena *ArenaAllocDefault()
+{
+    Arena *result = ArenaAlloc(kilobytes(64));
+    return result;
+}
 internal Arena *ArenaAlloc(void *base, u64 size)
 {
     Arena *arena = (Arena *)base;
@@ -29,11 +35,11 @@ internal Arena *ArenaAlloc(void *base, u64 size)
 internal void *ArenaPushNoZero(Arena *arena, u64 size)
 {
     Assert(arena->pos + size <= arena->size);
-    void* result = 0;
-    u8* base = (u8*)arena;
-    
+    void *result = 0;
+    u8 *base     = (u8 *)arena;
+
     u64 alignPos = AlignPow2(arena->pos, arena->align);
-    u64 align = alignPos - arena->pos;
+    u64 align    = alignPos - arena->pos;
 
     result = (void *)(base + alignPos);
     arena->pos += size + align;

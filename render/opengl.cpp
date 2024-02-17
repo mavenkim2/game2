@@ -1,11 +1,3 @@
-global char *globalHeaderCode = R"(
-#version 330 core
-#define f32 float
-#define V2 vec2
-#define V3 vec3
-#define V4 vec4
-#define Mat4 mat4)";
-
 internal void VSyncToggle(b32 enable)
 {
 #if WINDOWS
@@ -123,30 +115,44 @@ internal void LoadModel(Model *model)
     }
 }
 
-internal void CompileCubeProgram()
+internal void CompileCubeProgram(b32 instanced = false)
 {
+    TempArena scratch     = ScratchBegin(openGL->arena);
     string globalFilename = Str8Lit("src/shaders/global.glsl");
     string vsFilename     = Str8Lit("src/shaders/basic_3d.vs");
     string fsFilename     = Str8Lit("src/shaders/basic_3d.fs");
 
-    string globals = ReadEntireFile(globalFilename);
-    string vs      = ReadEntireFile(vsFilename);
-    string fs      = ReadEntireFile(fsFilename);
+    string g  = ReadEntireFile(globalFilename);
+    string vs = ReadEntireFile(vsFilename);
+    string fs = ReadEntireFile(fsFilename);
 
-    CubeShader *cubeShader = &openGL->cubeShader;
-    cubeShader->base       = OpenGLCreateProgram((char *)globals.str, (char *)vs.str, (char *)fs.str);
-    cubeShader->colorId    = openGL->glGetAttribLocation(cubeShader->base.id, "colorIn");
+    CubeShader *shader = &openGL->cubeShader;
 
-    cubeShader->base.globalsFile      = globalFilename;
-    cubeShader->base.vsFile           = vsFilename;
-    cubeShader->base.fsFile           = fsFilename;
-    cubeShader->base.globalsWriteTime = GetLastWriteTime(globalFilename);
-    cubeShader->base.vsWriteTime      = GetLastWriteTime(vsFilename);
-    cubeShader->base.fsWriteTime      = GetLastWriteTime(fsFilename);
+    string globals;
+    if (instanced)
+    {
+        globals = PushStr8F(scratch.arena, "%S#define INSTANCED 1\n", g);
+        shader  = &openGL->instancedBasicShader;
+    }
+    else
+    {
+        globals = g;
+    }
 
-    FreeFileMemory(globals.str);
+    shader->base    = OpenGLCreateProgram((char *)globals.str, (char *)vs.str, (char *)fs.str);
+    shader->colorId = openGL->glGetAttribLocation(shader->base.id, "colorIn");
+
+    shader->base.globalsFile      = globalFilename;
+    shader->base.vsFile           = vsFilename;
+    shader->base.fsFile           = fsFilename;
+    shader->base.globalsWriteTime = GetLastWriteTime(globalFilename);
+    shader->base.vsWriteTime      = GetLastWriteTime(vsFilename);
+    shader->base.fsWriteTime      = GetLastWriteTime(fsFilename);
+
     FreeFileMemory(vs.str);
     FreeFileMemory(fs.str);
+    FreeFileMemory(g.str);
+    ScratchEnd(scratch);
 }
 
 internal void CompileModelProgram()
@@ -178,14 +184,47 @@ internal void CompileModelProgram()
     FreeFileMemory(fs.str);
 }
 
-internal void ReloadModelProgram()
+enum ShaderType
 {
-    // HOT RELOAD!
-    if (openGL->modelShader.base.id)
+    OGL_Shader_Basic,
+    OGL_Shader_Instanced,
+    OGL_Shader_Model,
+};
+
+internal void ReloadShader(OpenGLShader *shader)
+{
+    i32 type = -1;
+    if (shader->id == openGL->cubeShader.base.id)
     {
-        openGL->glDeleteProgram(openGL->modelShader.base.id);
+        type = OGL_Shader_Basic;
     }
-    CompileModelProgram();
+    else if (shader->id == openGL->modelShader.base.id)
+    {
+        type = OGL_Shader_Model;
+    }
+    else if (shader->id == openGL->instancedBasicShader.base.id)
+    {
+        type = OGL_Shader_Instanced;
+    }
+
+    if (shader->id)
+    {
+        openGL->glDeleteProgram(shader->id);
+    }
+    switch (type)
+    {
+        case OGL_Shader_Basic:
+            CompileCubeProgram();
+            break;
+        case OGL_Shader_Instanced:
+            CompileCubeProgram(true);
+            break;
+        case OGL_Shader_Model:
+            CompileModelProgram();
+            break;
+        default:
+            break;
+    }
 }
 
 internal void HotloadShaders(OpenGLShader *shader)
@@ -194,12 +233,13 @@ internal void HotloadShaders(OpenGLShader *shader)
         GetLastWriteTime(shader->vsFile) != shader->vsWriteTime ||
         GetLastWriteTime(shader->fsFile) != shader->fsWriteTime)
     {
-        ReloadModelProgram();
+        ReloadShader(shader);
     }
 }
 
 internal void OpenGLInit()
 {
+    openGL->arena = ArenaAllocDefault();
     openGL->glGenVertexArrays(1, &openGL->vao);
     openGL->glBindVertexArray(openGL->vao);
 
@@ -209,6 +249,7 @@ internal void OpenGLInit()
     VSyncToggle(1);
 
     CompileCubeProgram();
+    CompileCubeProgram(true);
     CompileModelProgram();
 }
 
@@ -320,6 +361,8 @@ internal void Win32InitOpenGL(HWND window)
         Win32GetOpenGLFunction(glDeleteProgram);
         Win32GetOpenGLFunction(glGetStringi);
         Win32GetOpenGLFunction(glDrawElementsInstancedBaseVertex);
+        Win32GetOpenGLFunction(glVertexAttribDivisor);
+        Win32GetOpenGLFunction(glDrawElementsInstanced);
 
         OpenGLGetInfo();
     }
@@ -350,6 +393,8 @@ internal void OpenGLDebugDraw(RenderState *state)
     if (!renderer->vbo)
     {
         openGL->glGenBuffers(1, &renderer->vbo);
+        openGL->glGenBuffers(1, &renderer->instanceVbo);
+        openGL->glGenBuffers(1, &renderer->instanceVbo2);
         openGL->glGenBuffers(1, &renderer->ebo);
     }
 
@@ -369,13 +414,23 @@ internal void OpenGLDebugDraw(RenderState *state)
     // Lines
     glDrawArrays(GL_LINES, 0, renderer->lines.count);
 
+    // Points
+    glPointSize(4.f);
+    openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(renderer->points.items[0]) * renderer->points.count,
+                         renderer->points.items, GL_DYNAMIC_DRAW);
+    glDrawArrays(GL_POINTS, 0, renderer->points.count);
+
     // Indexed lines
+    openGL->glUseProgram(openGL->instancedBasicShader.base.id);
+    transformLocation = openGL->glGetUniformLocation(openGL->instancedBasicShader.base.id, "transform");
+    openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, state->transform.elements[0]);
     glLineWidth(1.f);
 
-    openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, renderer->ebo);
-
+    openGL->glBindBuffer(GL_ARRAY_BUFFER, renderer->vbo);
     openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(renderer->indexLines.items[0]) * renderer->indexLines.count,
                          renderer->indexLines.items, GL_DYNAMIC_DRAW);
+    openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, renderer->ebo);
+
     openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(u32) * renderer->indices.count, renderer->indices.items,
                          GL_DYNAMIC_DRAW);
 
@@ -384,27 +439,48 @@ internal void OpenGLDebugDraw(RenderState *state)
     Primitive *primitive;
     forEach(renderer->primitives, primitive)
     {
-        // TODO: set up instancing in the shader and enable vertex attrib arrays to take the primitive transforms
-        // why am I doing it this way? how else would I do it though?
-        // openGL->glEnableVertexAttribArray();
+        // Set color of primitive
+        openGL->glBindBuffer(GL_ARRAY_BUFFER, renderer->instanceVbo2);
+        openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(V4) * ArrayLen(primitive->colors), primitive->colors,
+                             GL_STATIC_DRAW);
+        openGL->glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(V4), 0);
+        openGL->glVertexAttribDivisor(1, 1);
+
+        // Set transform of primitive
+        openGL->glBindBuffer(GL_ARRAY_BUFFER, renderer->instanceVbo);
+        openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(Mat4) * ArrayLen(primitive->transforms),
+                             primitive->transforms, GL_STATIC_DRAW);
+
+        loopi(0, 4)
+        {
+            openGL->glEnableVertexAttribArray(2 + i);
+            openGL->glVertexAttribPointer(2 + i, 4, GL_FLOAT, GL_FALSE, sizeof(Mat4), (void *)(sizeof(V4) * i));
+            openGL->glVertexAttribDivisor(2 + i, 1);
+        }
+        // Draw
         openGL->glDrawElementsInstancedBaseVertex(GL_LINES, primitive->indexCount, GL_UNSIGNED_INT,
                                                   (GLvoid *)(indexCount * sizeof(u32)),
                                                   ArrayLen(primitive->transforms), vertexCount);
+        // Prep for next primitive draw
         vertexCount += primitive->vertexCount;
         indexCount += primitive->indexCount;
-        openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
     }
-    // TODO: Draw the rest
-
-    // Points
-    glPointSize(4.f);
-    openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(renderer->points.items[0]) * renderer->points.count,
-                         renderer->points.items, GL_DYNAMIC_DRAW);
-    glDrawArrays(GL_POINTS, 0, renderer->points.count);
+    // TODO: Draw the rest of the indexed lines?
+    openGL->glBindBuffer(GL_ARRAY_BUFFER, 0);
+    openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 
     openGL->glUseProgram(0);
     openGL->glDisableVertexAttribArray(0);
     openGL->glDisableVertexAttribArray(1);
+    openGL->glDisableVertexAttribArray(2);
+    openGL->glDisableVertexAttribArray(3);
+    openGL->glDisableVertexAttribArray(4);
+    openGL->glDisableVertexAttribArray(5);
+        openGL->glVertexAttribDivisor(1, 0);
+    openGL->glVertexAttribDivisor(2, 0);
+    openGL->glVertexAttribDivisor(3, 0);
+    openGL->glVertexAttribDivisor(4, 0);
+    openGL->glVertexAttribDivisor(5, 0);
 }
 
 internal void OpenGLEndFrame(RenderState *renderState, HDC deviceContext, int clientWidth, int clientHeight)
@@ -593,12 +669,13 @@ internal void OpenGLEndFrame(RenderState *renderState, HDC deviceContext, int cl
             openGL->glDisableVertexAttribArray(boneIdId);
             openGL->glDisableVertexAttribArray(boneWeightId);
         }
+        // TODO: this should just be another pass, located in this same method
         OpenGLDebugDraw(renderState);
-        openGL->glBindBuffer(GL_ARRAY_BUFFER, 0);
-        openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 
         // HOT RELOAD! this probably shouldnt' be here
         HotloadShaders(&openGL->modelShader.base);
+        HotloadShaders(&openGL->cubeShader.base);
+        HotloadShaders(&openGL->instancedBasicShader.base);
     }
 
     // DOUBLE BUFFER SWAP

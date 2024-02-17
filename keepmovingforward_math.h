@@ -1058,7 +1058,7 @@ inline Mat4 Scale(V3 value)
 
 inline Mat4 Scale(f32 value)
 {
-    Mat4 result;
+    Mat4 result = Identity();
     result.elements[0][0] = value;
     result.elements[1][1] = value;
     result.elements[2][2] = value;
