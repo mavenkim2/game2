@@ -11,6 +11,7 @@
 #if COMPILER_MSVC
 #pragma section(".roglob", read)
 #define readonly __declspec(allocate(".roglob"))
+#include <intrin.h>
 #else
 #define readonly
 #endif
@@ -104,6 +105,7 @@ typedef i64 b64;
 // clang-format on
 
 // Array List
+// TODO: probably going to get rid of this
 struct AHeader
 {
     u32 count;
@@ -113,7 +115,7 @@ struct AHeader
 inline void *ArrayGrow(void *a, u32 size, u32 length, u32 minCap);
 
 #define ArrayHeader(a)      ((AHeader *)(a)-1)
-#define ArrayPut(a, item) (ArrayMayGrow((a), 1), (a)[ArrayHeader(a)->count++] = item)
+#define ArrayPut(a, item)   (ArrayMayGrow((a), 1), (a)[ArrayHeader(a)->count++] = item)
 #define ArrayLen(a)         ((a) ? ArrayHeader(a)->count : 0)
 #define ArrayCap(a)         ((a) ? ArrayHeader(a)->cap : 0)
 #define ArraySetCap(a, cap) (ArrayGrowWrap(a, 0, cap))
@@ -124,8 +126,9 @@ inline void *ArrayGrow(void *a, u32 size, u32 length, u32 minCap);
     ((!(a) || (ArrayHeader(a)->count) + (n) > ArrayHeader(a)->cap) ? (ArrayGrowWrap((a), (n), 0), 0) : 0)
 #define ArrayGrowWrap(a, b, c) ((a) = ArrayGrowWrapper((a), (sizeof(*a)), (b), (c)))
 
-template<class T> internal T* ArrayGrowWrapper(T* a, u32 size, u32 length, u32 minCap) {
-    return (T*)ArrayGrow(a, size, length, minCap);
+template <class T> internal T *ArrayGrowWrapper(T *a, u32 size, u32 length, u32 minCap)
+{
+    return (T *)ArrayGrow(a, size, length, minCap);
 }
 
 inline void *ArrayGrow(void *a, u32 size, u32 length, u32 minCap)
@@ -149,6 +152,24 @@ inline void *ArrayGrow(void *a, u32 size, u32 length, u32 minCap)
     return b;
 }
 
-#define forEach(array, ptr) \
-    for (u32 STRING_JOIN(i, __LINE__) = 0; STRING_JOIN(i, __LINE__) < ArrayLen(array); STRING_JOIN(i, __LINE__)++) \
+#define forEach(array, ptr)                                                                                       \
+    for (u32 STRING_JOIN(i, __LINE__) = 0; STRING_JOIN(i, __LINE__) < ArrayLen(array);                            \
+         STRING_JOIN(i, __LINE__)++)                                                                              \
         if ((ptr = (array) + STRING_JOIN(i, __LINE__)) != 0)
+
+// Compiler stuff
+#if COMPILER_MSVC
+inline u32 AtomicCompareExchangeU32(u32 volatile *dest, u32 src, u32 expected)
+{
+    u32 result = _InterlockedCompareExchange((long volatile *)dest, src, expected);
+    return result;
+}
+inline u32 AtomicIncrementU32(u32 volatile *dest)
+{
+    u32 result = _InterlockedIncrement((long volatile *)dest);
+    return result;
+}
+
+#else
+#error Atomics not supported
+#endif

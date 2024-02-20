@@ -1,5 +1,6 @@
 #define STB_IMAGE_IMPLEMENTATION
 // #define STBI_ONLY_TGA
+#define STBI_ONLY_PNG
 #include "third_party/stb_image.h"
 
 #if INTERNAL
@@ -594,8 +595,7 @@ inline V3 CalculateTangents(const MeshVertex *vertex1, const MeshVertex *vertex2
 
 internal Mat4 ConvertToMatrix(const AnimationTransform *transform)
 {
-    Mat4 result =
-        Translate4(transform->translation) * QuatToMatrix(transform->rotation) * Scale(transform->scale);
+    Mat4 result = Translate4(transform->translation) * QuatToMatrix(transform->rotation) * Scale(transform->scale);
     return result;
 }
 
@@ -864,6 +864,54 @@ internal void ReadAnimationFile(Arena *arena, KeyframedAnimation *animation, str
         Assert(EndOfBuffer(&tokenizer));
     }
     FreeFileMemory(tokenizer.input.str);
+}
+
+struct AssetJobData
+{
+    TempArena temp;
+    AssetState *state;
+    string filename;
+    TextureType type;
+    u32 handle;
+};
+
+internal void LoadAssetCallback(void *data)
+{
+    AssetJobData *jobData = (AssetJobData *)data;
+    // string fileData       = ReadEntireFile(jobData->filename);
+
+    i32 width, height, nChannels;
+    // void *textureData = stbi_load_from_memory(fileData.str, (i32)fileData.size, &width, &height, &nChannels, 4);
+    // stbi_set_flip_vertically_on_load(true);
+    u8 *textureData = (u8 *)stbi_load((char *)jobData->filename.str, &width, &height, &nChannels, 0);
+
+    Texture result;
+    result.id       = 0;
+    result.width    = width;
+    result.height   = height;
+    result.type     = jobData->type;
+    result.loaded   = true;
+    result.contents = textureData;
+
+    AssetState *state = jobData->state;
+
+    AtomicIncrementU32(&state->textureCount);
+    state->textures[jobData->handle] = result;
+
+    ScratchEnd(jobData->temp);
+}
+
+internal void LoadTexture(AssetState *state, string filename, TextureType type, u32 handle)
+{
+    // TODO: have thread specific scratch arenas
+    TempArena temp     = ScratchBegin(state->arena);
+    AssetJobData *data = PushStruct(temp.arena, AssetJobData);
+    data->temp         = temp;
+    data->state        = state;
+    data->filename     = PushStr8Copy(temp.arena, filename);
+    data->type         = type;
+    data->handle       = handle;
+    OS_QueueJob(state->queue, LoadAssetCallback, data);
 }
 
 #if 0

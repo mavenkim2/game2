@@ -134,9 +134,14 @@ internal void BeginRenderFrame(RenderState *state)
     }
 }
 
-internal void PushTexture(Texture texture, Model *model)
+// internal void PushTexture(Texture texture, Model *model)
+// {
+//     ArrayPush(&model->textures, texture);
+// }
+
+internal void PushTexture(Model *model, u32 id)
 {
-    ArrayPush(&model->textures, texture);
+    ArrayPush(&model->textureHandles, id);
 }
 
 internal void PushModel(RenderState *state, Model *model, Mat4 *finalTransforms = 0)

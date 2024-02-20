@@ -21,6 +21,8 @@
 #define MAX_COMMANDS       10
 #define MAX_DEBUG_VERTICES 1000
 
+struct Model;
+
 struct DebugVertex
 {
     V3 pos;
@@ -81,7 +83,8 @@ struct RenderState
     Array(RenderCommand) commands;
 
     DebugRenderer debugRenderer;
+    struct AssetState *assetState;
 };
 
-internal void PushTexture(Texture texture, Model *model);
+internal void PushTexture(Model *model, u32 id);
 internal void PushModel(RenderState *state, Model *model, Mat4 *finalTransforms);

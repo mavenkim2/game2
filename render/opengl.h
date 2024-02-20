@@ -278,6 +278,8 @@ struct OpenGL
     CubeShader instancedBasicShader;
     ModelShader modelShader;
 
+    u32 whiteTextureId;
+
     OpenGLFunction(glGenBuffers);
     OpenGLFunction(glBindBuffer);
     OpenGLFunction(glBufferData);

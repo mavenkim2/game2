@@ -1,17 +1,16 @@
-#include <atomic>
 #include <windows.h>
 #include <gl/GL.h>
 #include <xaudio2.h>
 
 #include "keepmovingforward_common.h"
 #include "keepmovingforward_math.h"
+#include "keepmovingforward_platform.h"
 #include "keepmovingforward_memory.h"
 #include "keepmovingforward_string.h"
 #include "render/opengl.h"
 #include "keepmovingforward_camera.h"
-#include "keepmovingforward_asset.h"
 #include "render/render.h"
-#include "keepmovingforward_platform.h"
+#include "asset.h"
 #include "win32_keepmovingforward.h"
 
 #include "win32.cpp"
@@ -638,54 +637,95 @@ LRESULT WindowsCallback(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
     return result;
 }
 
-struct WorkQueueEntry
+struct OS_JobQueue;
+
+struct Job
 {
-    char *str;
+    OS_JobCallback *callback;
+    void *data;
 };
 
-struct PlatformWorkQueue
+struct OS_JobQueue
 {
-    WorkQueueEntry entries[16];
     i32 volatile nextEntryToWrite;
     i32 volatile nextEntryToRead;
+    i32 volatile completionCount;
+    i32 volatile completionGoal;
 
-    // TODO: void* or u64?
     HANDLE semaphore;
+    Job jobs[256];
 };
 
 struct Win32ThreadInfo
 {
-    PlatformWorkQueue *queue;
+    OS_JobQueue *queue;
 };
 
-internal void PushString(PlatformWorkQueue *queue, char *str)
+// NOTE: other threads cannot add jobs
+internal void Win32QueueJob(OS_JobQueue *queue, OS_JobCallback *callback, void *data)
 {
-    Assert(queue->nextEntryToWrite < ArrayLength(queue->entries));
-    WorkQueueEntry *entry = &queue->entries[queue->nextEntryToWrite];
-    entry->str            = str;
-    // NOTE: This fence prevents the compiler from reordering the write before the barier (need to do for cpu too?)
-    std::atomic_thread_fence(std::memory_order_release);
-    queue->nextEntryToWrite++;
+    // Power of 2
+    Assert((ArrayLength(queue->jobs) & (ArrayLength(queue->jobs) - 1)) == 0);
+
+    i32 newNextEntry = (queue->nextEntryToWrite + 1) & (ArrayLength(queue->jobs) - 1);
+    Assert(newNextEntry != queue->nextEntryToRead);
+    Job *job      = queue->jobs + queue->nextEntryToWrite;
+    job->data     = data;
+    job->callback = callback;
+    queue->completionGoal++;
+    _mm_sfence();
+    queue->nextEntryToWrite = newNextEntry;
     ReleaseSemaphore(queue->semaphore, 1, 0);
 }
 
-global i32 entryCompletionCount;
+internal b32 Win32ExecuteJob(OS_JobQueue *queue)
+{
+    b32 sleep               = false;
+    i32 originalEntryToRead = queue->nextEntryToRead;
+    i32 newNextEntryToRead  = (originalEntryToRead + 1) & (ArrayLength(queue->jobs) - 1);
+    if (originalEntryToRead != queue->nextEntryToWrite)
+    {
+        i32 index = InterlockedCompareExchange((LONG volatile *)&queue->nextEntryToRead, newNextEntryToRead,
+                                               originalEntryToRead);
+        if (index == originalEntryToRead)
+        {
+            Job *job = &queue->jobs[index];
+            job->callback(job->data);
+            InterlockedIncrement((LONG volatile *)&queue->completionCount);
+        }
+    }
+    else
+    {
+        sleep = true;
+    }
+    return sleep;
+}
+
+internal void Win32CompleteJobs(OS_JobQueue *queue)
+{
+    while (queue->completionCount != queue->completionGoal)
+    {
+        if (Win32ExecuteJob(queue))
+        {
+            WaitForSingleObjectEx(queue->semaphore, INFINITE, FALSE);
+        }
+    }
+    queue->completionCount = 0;
+    queue->completionGoal  = 0;
+}
+
+internal void TestJobCallback(void *data)
+{
+    Printf("Thread %u: %s\n", GetCurrentThreadId(), (char *)data);
+}
+
 internal DWORD ThreadProc(void *param)
 {
-    Win32ThreadInfo *info    = (Win32ThreadInfo *)param;
-    PlatformWorkQueue *queue = info->queue;
+    Win32ThreadInfo *info = (Win32ThreadInfo *)param;
+    OS_JobQueue *queue    = info->queue;
     for (;;)
     {
-        if (queue->nextEntryToRead < queue->nextEntryToWrite)
-        {
-            i32 index = InterlockedIncrement((LONG volatile *)&(queue->nextEntryToRead)) - 1;
-            /// sigh...
-            std::atomic_thread_fence(std::memory_order_acquire);
-            WorkQueueEntry *entry = &queue->entries[index];
-            Printf("Thread %u: %s\n", GetCurrentThreadId(), entry->str);
-            InterlockedIncrement((LONG volatile *)&entryCompletionCount);
-        }
-        else
+        if (Win32ExecuteJob(queue))
         {
             WaitForSingleObjectEx(queue->semaphore, INFINITE, FALSE);
         }
@@ -695,7 +735,7 @@ internal DWORD ThreadProc(void *param)
 int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd)
 {
     Win32ThreadInfo threadInfo[6] = {};
-    PlatformWorkQueue queue       = {};
+    OS_JobQueue queue             = {};
 
     queue.semaphore = CreateSemaphoreEx(0, 0, ArrayLength(threadInfo), 0, 0, SEMAPHORE_ALL_ACCESS);
     for (u32 threadIndex = 0; threadIndex < ArrayLength(threadInfo); threadIndex++)
@@ -706,17 +746,17 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
         CloseHandle(threadHandle);
     }
 
-    PushString(&queue, "String 0");
-    PushString(&queue, "String 1");
-    PushString(&queue, "String 2");
-    PushString(&queue, "String 3");
-    PushString(&queue, "String 4");
-    PushString(&queue, "String 5");
-    PushString(&queue, "String 6");
-    PushString(&queue, "String 7");
+    Win32QueueJob(&queue, TestJobCallback, "String 0");
+    Win32QueueJob(&queue, TestJobCallback, "String 1");
+    Win32QueueJob(&queue, TestJobCallback, "String 2");
+    Win32QueueJob(&queue, TestJobCallback, "String 3");
+    Win32QueueJob(&queue, TestJobCallback, "String 4");
+    Win32QueueJob(&queue, TestJobCallback, "String 5");
+    Win32QueueJob(&queue, TestJobCallback, "String 6");
+    Win32QueueJob(&queue, TestJobCallback, "String 7");
+    Win32QueueJob(&queue, TestJobCallback, "String 8");
 
-    while (entryCompletionCount != queue.nextEntryToRead)
-        ;
+    Win32CompleteJobs(&queue);
 
     LARGE_INTEGER performanceFrequencyUnion;
     QueryPerformanceFrequency(&performanceFrequencyUnion);
@@ -782,6 +822,8 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     Arena *win32Arena = ArenaAlloc(win32Memory, kilobytes(256));
 
     gameMemory.PlatformToggleCursor = PlatformToggleCursor;
+    gameMemory.OS_QueueJob          = Win32QueueJob;
+    gameMemory.highPriorityQueue    = &queue;
 #if 0
     gameMemory.DebugPlatformFreeFile      = DebugPlatformFreeFile;
     gameMemory.DebugPlatformReadFile      = DebugPlatformReadFile;

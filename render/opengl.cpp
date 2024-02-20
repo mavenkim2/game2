@@ -64,37 +64,36 @@ internal OpenGLShader OpenGLCreateProgram(char *defines, char *vertexCode, char 
     return result;
 }
 
-internal void LoadTexture(Texture *texture)
+internal u32 OpenGLLoadTexture(Texture *texture)
 {
-    if (!texture->id)
+    glGenTextures(1, &texture->id);
+    glBindTexture(GL_TEXTURE_2D, texture->id);
+    switch (texture->type)
     {
-        glGenTextures(1, &texture->id);
-        glBindTexture(GL_TEXTURE_2D, texture->id);
-        switch (texture->type)
+        case TextureType_Diffuse:
         {
-            case TextureType_Diffuse:
-            {
-                // TODO: NOT SAFE!
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_SRGB8_ALPHA8, texture->width, texture->height, 0, GL_RGB,
-                             GL_UNSIGNED_BYTE, texture->contents);
-            }
-            case TextureType_Normal:
-            {
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, texture->width, texture->height, 0, GL_RGB,
-                             GL_UNSIGNED_BYTE, texture->contents);
-            }
+            // TODO: NOT SAFE!
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_SRGB8_ALPHA8, texture->width, texture->height, 0, GL_RGB,
+                         GL_UNSIGNED_BYTE, texture->contents);
         }
-
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-        glBindTexture(GL_TEXTURE_2D, 0);
-
-        // TODO: Memory management
-        free(texture->contents);
-        texture->loaded = true;
+        case TextureType_Normal:
+        {
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, texture->width, texture->height, 0, GL_RGB, GL_UNSIGNED_BYTE,
+                         texture->contents);
+        }
+        default:
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, texture->width, texture->height, 0, GL_RGB, GL_UNSIGNED_BYTE,
+                         texture->contents);
+            break;
     }
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    return texture->id;
 }
 
 internal void LoadModel(Model *model)
@@ -237,6 +236,12 @@ internal void HotloadShaders(OpenGLShader *shader)
     }
 }
 
+inline Texture *OpenGLGetTexFromHandle(RenderState *state, u32 handle)
+{
+    Texture *result = state->assetState->textures + handle;
+    return result;
+}
+
 internal void OpenGLInit()
 {
     openGL->arena = ArenaAllocDefault();
@@ -245,6 +250,15 @@ internal void OpenGLInit()
 
     openGL->glGenBuffers(1, &openGL->vertexBufferId);
     openGL->glGenBuffers(1, &openGL->indexBufferId);
+
+    Texture whiteTexture   = {};
+    whiteTexture.width     = 1;
+    whiteTexture.height    = 1;
+    whiteTexture.type      = TextureType_Nil;
+    whiteTexture.loaded    = true;
+    u32 data               = 0xffffffff;
+    whiteTexture.contents  = (u8 *)&data;
+    openGL->whiteTextureId = OpenGLLoadTexture(&whiteTexture);
 
     VSyncToggle(1);
 
@@ -404,8 +418,8 @@ internal void OpenGLEndFrame(RenderState *state, HDC deviceContext, int clientWi
         glCullFace(GL_BACK);
         glClearColor(0.5f, 0.5f, 0.5f, 1.f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-        // glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        // glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     }
 
     // RENDER CUBES
@@ -469,25 +483,38 @@ internal void OpenGLEndFrame(RenderState *state, HDC deviceContext, int clientWi
             {
                 LoadModel(model);
             }
-            Texture *texture;
-            foreach (&model->textures, texture)
+            loopi(0, model->textureHandles.count)
             {
-                if (!texture->id)
+                Texture *texture = OpenGLGetTexFromHandle(state, model->textureHandles.items[i]);
+
+                // TODO: make the texture loading code more streamlined and less bug prone
+                u32 textureId = texture->id;
+                if (texture->loaded == false)
                 {
-                    LoadTexture(texture);
+                    textureId = openGL->whiteTextureId;
+                }
+                else if (texture->loaded && textureId == 0)
+                {
+                    textureId = OpenGLLoadTexture(texture);
                 }
                 switch (texture->type)
                 {
                     case TextureType_Diffuse:
                     {
                         openGL->glActiveTexture(GL_TEXTURE0);
-                        glBindTexture(GL_TEXTURE_2D, texture->id);
+                        glBindTexture(GL_TEXTURE_2D, textureId);
                         break;
                     }
                     case TextureType_Normal:
                     {
                         openGL->glActiveTexture(GL_TEXTURE0 + 1);
-                        glBindTexture(GL_TEXTURE_2D, texture->id);
+                        glBindTexture(GL_TEXTURE_2D, textureId);
+                        break;
+                    }
+                    case TextureType_Nil:
+                    {
+                        openGL->glActiveTexture(GL_TEXTURE0);
+                        glBindTexture(GL_TEXTURE_2D, textureId);
                         break;
                     }
                     default:
@@ -626,6 +653,7 @@ internal void OpenGLEndFrame(RenderState *state, HDC deviceContext, int clientWi
         u32 vertexCount = 0;
         u32 indexCount  = 0;
         Primitive *primitive;
+        // TODO: shouldn't have to blit every frame, only need to upload the instance data
         forEach(renderer->primitives, primitive)
         {
             u64 totalSize = sizeof(primitive->colors[0]) * ArrayLen(primitive->colors) +
@@ -645,8 +673,6 @@ internal void OpenGLEndFrame(RenderState *state, HDC deviceContext, int clientWi
             openGL->glVertexAttribDivisor(1, 1);
 
             // Set transform of primitive
-            // openGL->glBindBuffer(GL_ARRAY_BUFFER, renderer->instanceVbo);
-
             loopi(0, 4)
             {
                 openGL->glEnableVertexAttribArray(2 + i);

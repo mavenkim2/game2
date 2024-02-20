@@ -1,8 +1,36 @@
-#include <vector>
 #define MAX_MATRICES_PER_VERTEX 4
 #define MAX_BONES               200
-#define MAX_VERTEX_COUNT        100000
 #define MAX_FRAMES              200
+
+#define MAX_TEXTURES 10
+
+enum TextureType
+{
+    TextureType_Nil,
+    TextureType_Diffuse,
+    TextureType_Specular,
+    TextureType_Normal,
+    TextureType_Height,
+    TextureType_Count,
+};
+
+struct Texture
+{
+    u32 id;
+    u32 width;
+    u32 height;
+    u32 type;
+    b32 loaded;
+    u8 *contents;
+};
+struct AssetState
+{
+    Arena *arena;
+    Texture textures[MAX_TEXTURES];
+    u32 textureCount = 0;
+
+    OS_JobQueue *queue;
+};
 
 struct Iter
 {
@@ -29,24 +57,6 @@ struct MeshVertex
 
     u32 boneIds[MAX_MATRICES_PER_VERTEX];
     f32 boneWeights[MAX_MATRICES_PER_VERTEX];
-};
-
-enum TextureType
-{
-    TextureType_Diffuse,
-    TextureType_Specular,
-    TextureType_Normal,
-    TextureType_Height
-};
-
-struct Texture
-{
-    u32 id;
-    u32 width;
-    u32 height;
-    u32 type;
-    b32 loaded;
-    u8 *contents;
 };
 
 struct BoneInfo
@@ -150,12 +160,12 @@ struct Model
 
     Skeleton skeleton;
 
-    Array(Texture) textures;
+    Array(u32) textureHandles;
 
     Mat4 transform;
 
-    // TODO: maybe the model shouldn't own a vbo and ebo. maybe it can have an id or something 
-    // that the render state can map to a vbo. this could be useful for packing multiple models 
+    // TODO: maybe the model shouldn't own a vbo and ebo. maybe it can have an id or something
+    // that the render state can map to a vbo. this could be useful for packing multiple models
     // into one buffer, to reduce the number of draw calls, but doing this now would be premature. 2/12/24
     u32 vbo;
     u32 ebo;

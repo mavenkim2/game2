@@ -232,7 +232,9 @@ internal b32 Intersects(ConvexShape *a, ConvexShape *b, V3 dir)
         {
             return false;
         }
-        state.simplex[state.numPoints++] = p;
+        state.simplex[state.numPoints] = p;
+        state.supportA[state.numPoints] = supportA;
+        state.numPoints++;
         switch (state.numPoints)
         {
             case 1:

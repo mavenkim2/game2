@@ -9,7 +9,7 @@
 #include "keepmovingforward_string.cpp"
 #include "keepmovingforward_camera.cpp"
 #include "keepmovingforward_entity.cpp"
-#include "keepmovingforward_asset.cpp"
+#include "asset.cpp"
 #include "render/render.cpp"
 
 const f32 GRAVITY = 49.f;
@@ -470,6 +470,9 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
         gameState->worldArena = ArenaAlloc((void *)((u8 *)(memory->PersistentStorageMemory) + sizeof(GameState)),
                                            memory->PersistentStorageSize - sizeof(GameState));
+        gameState->highPriorityQueue = memory->highPriorityQueue;
+        OS_QueueJob                  = memory->OS_QueueJob;
+
         InitializeRenderer(gameState->worldArena, renderState);
 
         // Load assets
@@ -495,54 +498,33 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
         ReadAnimationFile(gameState->worldArena, animation, Str8Lit("data/dragon_attack_01.anim"));
 
-        int width, height, nChannels;
-        // stbi_set_flip_vertically_on_load(true);
+        ArrayInit(gameState->worldArena, gameState->model.textureHandles, u32, MAX_TEXTURES);
 
-        // TODO: it's annoying that for every array I have to manually initialize the memory. maybe use
-        // stb arrays
-        ArrayInit(gameState->worldArena, gameState->model.textures, Texture, 4);
+        AssetState *assetState  = &gameState->assetState;
+        assetState->arena       = ArenaAllocDefault();
+        assetState->queue       = memory->highPriorityQueue;
+        renderState->assetState = assetState;
 
-        void *data =
-            stbi_load("data/dragon/MI_M_B_44_Qishilong_body02_Inst_diffuse.png", &width, &height, &nChannels, 0);
-        Texture texture;
-        texture.id       = 0;
-        texture.width    = width;
-        texture.height   = height;
-        texture.type     = TextureType_Diffuse;
-        texture.contents = (u8 *)data;
+        // TODO: should be able to get the type from the file name
+        // or I should have my own model file format that specifies the diffuse/normal textures
+        // also need to find a way of getting the handles instead of just hardcoding them
 
-        PushTexture(texture, &gameState->model);
+        LoadTexture(assetState, Str8Lit("data/dragon/MI_M_B_44_Qishilong_body02_2_Inst_diffuse.png"),
+                    TextureType_Diffuse, 1);
+        PushTexture(&gameState->model, 1);
 
-        void *data2 =
-            stbi_load("data/dragon/MI_M_B_44_Qishilong_body02_Inst_normal.png", &width, &height, &nChannels, 0);
-        Texture texture2;
-        texture2.id       = 0;
-        texture2.width    = width;
-        texture2.height   = height;
-        texture2.type     = TextureType_Normal;
-        texture2.contents = (u8 *)data2;
-        PushTexture(texture2, &gameState->model);
-
-        void *data3 =
-            stbi_load("data/dragon/MI_M_B_44_Qishilong_body02_2_Inst_diffuse.png", &width, &height, &nChannels, 0);
-        Texture texture3;
-        texture3.id       = 0;
-        texture3.width    = width;
-        texture3.height   = height;
-        texture3.type     = TextureType_Diffuse;
-        texture3.contents = (u8 *)data3;
-        PushTexture(texture3, &gameState->model);
-
-        void *data4 =
-            stbi_load("data/dragon/MI_M_B_44_Qishilong_body02_2_Inst_normal.png", &width, &height, &nChannels, 0);
-        Texture texture4;
-        texture4.id       = 0;
-        texture4.width    = width;
-        texture4.height   = height;
-        texture4.type     = TextureType_Normal;
-        texture4.contents = (u8 *)data4;
-        PushTexture(texture4, &gameState->model);
-
+        LoadTexture(assetState, Str8Lit("data/dragon/MI_M_B_44_Qishilong_body02_2_Inst_normal.png"),
+                    TextureType_Normal, 2);
+        PushTexture(&gameState->model, 2);
+        //
+        // LoadTexture(assetState, Str8Lit("data/dragon/MI_M_B_44_Qishilong_body02_2_Inst_diffuse.png"),
+        //             TextureType_Diffuse, 2);
+        // PushTexture(&gameState->model, 2);
+        //
+        // LoadTexture(assetState, Str8Lit("data/dragon/MI_M_B_44_Qishilong_body02_2_Inst_normal.png"),
+        //             TextureType_Normal, 3);
+        // PushTexture(&gameState->model, 3);
+        //
         gameState->level      = PushStruct(gameState->worldArena, Level);
         gameState->cameraMode = CameraMode_Player;
 

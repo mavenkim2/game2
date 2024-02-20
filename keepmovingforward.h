@@ -5,10 +5,10 @@
 #include "keepmovingforward_math.h"
 #include "physics.h"
 #include "keepmovingforward_camera.h"
-#include "keepmovingforward_asset.h"
+#include "keepmovingforward_platform.h"
+#include "asset.h"
 #include "render/render.h"
 
-#include "keepmovingforward_platform.h"
 #include "keepmovingforward_entity.h"
 #include "keepmovingforward_level.h"
 
@@ -78,4 +78,9 @@ struct GameState
     Mat4 *finalTransforms;
 
     Model model;
+
+    AssetState assetState;
+    OS_JobQueue *highPriorityQueue;
 };
+
+global os_queue_job* OS_QueueJob;

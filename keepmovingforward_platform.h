@@ -11,7 +11,13 @@ struct DebugPlatformHandle
 typedef DEBUG_PLATFORM_GET_RESOLUTION(DebugPlatformGetResolutionFunctionType);
 #endif
 
+// Forward declarations
+struct OS_JobQueue;
+struct RenderState;
+
 typedef void PlatformToggleCursorFunctionType(b32 value);
+typedef void OS_JobCallback(void *data);
+typedef void os_queue_job(OS_JobQueue *queue, OS_JobCallback *callback, void *data);
 
 void PlatformToggleCursor(b32 value);
 
@@ -26,6 +32,9 @@ struct GameMemory
     void *TransientStorageMemory;
 
     PlatformToggleCursorFunctionType *PlatformToggleCursor;
+    os_queue_job *OS_QueueJob;
+
+    OS_JobQueue *highPriorityQueue;
 };
 
 struct GameOffscreenBuffer
