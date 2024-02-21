@@ -723,6 +723,8 @@ internal DWORD ThreadProc(void *param)
 {
     Win32ThreadInfo *info = (Win32ThreadInfo *)param;
     OS_JobQueue *queue    = info->queue;
+    // TODO: I think the thread entry point (this function) should execute another function (passed in as param)
+    // which sets up the thread context, etc., and then executes the thread's function
     for (;;)
     {
         if (Win32ExecuteJob(queue))
@@ -734,29 +736,18 @@ internal DWORD ThreadProc(void *param)
 
 int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd)
 {
-    Win32ThreadInfo threadInfo[6] = {};
-    OS_JobQueue queue             = {};
 
-    queue.semaphore = CreateSemaphoreEx(0, 0, ArrayLength(threadInfo), 0, 0, SEMAPHORE_ALL_ACCESS);
-    for (u32 threadIndex = 0; threadIndex < ArrayLength(threadInfo); threadIndex++)
-    {
-        Win32ThreadInfo *info = threadInfo + threadIndex;
-        info->queue           = &queue;
-        HANDLE threadHandle   = CreateThread(0, 0, ThreadProc, info, 0, 0);
-        CloseHandle(threadHandle);
-    }
-
-    Win32QueueJob(&queue, TestJobCallback, "String 0");
-    Win32QueueJob(&queue, TestJobCallback, "String 1");
-    Win32QueueJob(&queue, TestJobCallback, "String 2");
-    Win32QueueJob(&queue, TestJobCallback, "String 3");
-    Win32QueueJob(&queue, TestJobCallback, "String 4");
-    Win32QueueJob(&queue, TestJobCallback, "String 5");
-    Win32QueueJob(&queue, TestJobCallback, "String 6");
-    Win32QueueJob(&queue, TestJobCallback, "String 7");
-    Win32QueueJob(&queue, TestJobCallback, "String 8");
-
-    Win32CompleteJobs(&queue);
+    // Win32QueueJob(&queue, TestJobCallback, "String 0");
+    // Win32QueueJob(&queue, TestJobCallback, "String 1");
+    // Win32QueueJob(&queue, TestJobCallback, "String 2");
+    // Win32QueueJob(&queue, TestJobCallback, "String 3");
+    // Win32QueueJob(&queue, TestJobCallback, "String 4");
+    // Win32QueueJob(&queue, TestJobCallback, "String 5");
+    // Win32QueueJob(&queue, TestJobCallback, "String 6");
+    // Win32QueueJob(&queue, TestJobCallback, "String 7");
+    // Win32QueueJob(&queue, TestJobCallback, "String 8");
+    //
+    // Win32CompleteJobs(&queue);
 
     LARGE_INTEGER performanceFrequencyUnion;
     QueryPerformanceFrequency(&performanceFrequencyUnion);
@@ -797,6 +788,26 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     f32 expectedSecondsPerFrame = 1.f / (f32)gameUpdateHz;
 
     //
+    // GRAPHICS
+    //
+    // INIT RENDER STATE
+    //
+    RenderState renderState = {};
+    Win32InitOpenGL(windowHandle);
+
+    Win32ThreadInfo threadInfo[6] = {};
+    OS_JobQueue queue             = {};
+
+    queue.semaphore = CreateSemaphoreEx(0, 0, ArrayLength(threadInfo), 0, 0, SEMAPHORE_ALL_ACCESS);
+    for (u32 threadIndex = 0; threadIndex < ArrayLength(threadInfo); threadIndex++)
+    {
+        Win32ThreadInfo *info = threadInfo + threadIndex;
+        info->queue           = &queue;
+        HANDLE threadHandle   = CreateThread(0, 0, ThreadProc, info, 0, 0);
+        CloseHandle(threadHandle);
+    }
+
+    //
     // GAME MEMORY
     //
 
@@ -824,6 +835,8 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     gameMemory.PlatformToggleCursor = PlatformToggleCursor;
     gameMemory.OS_QueueJob          = Win32QueueJob;
     gameMemory.highPriorityQueue    = &queue;
+    gameMemory.R_AllocateTexture2D  = R_AllocateTexture2D;
+    gameMemory.R_SubmitTexture2D    = R_SubmitTexture2D;
 #if 0
     gameMemory.DebugPlatformFreeFile      = DebugPlatformFreeFile;
     gameMemory.DebugPlatformReadFile      = DebugPlatformReadFile;
@@ -846,16 +859,6 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     Win32InitializeXAudio2(samplesPerSecond);
     // 3 sound buffers
     i16 *samples = (i16 *)VirtualAlloc(sampleBaseAddress, bufferSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-
-    //
-    // GRAPHICS
-    //
-    // INIT RENDER STATE
-    //
-    // TODO: move this somewhere else
-    // SOON! IMPORTANT probably just to isinitialized memory
-    RenderState renderState = {};
-    Win32InitOpenGL(windowHandle);
 
     //
     // INPUT

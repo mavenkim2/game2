@@ -873,31 +873,30 @@ struct AssetJobData
     string filename;
     TextureType type;
     u32 handle;
+    u8 *buffer;
 };
 
 internal void LoadAssetCallback(void *data)
 {
     AssetJobData *jobData = (AssetJobData *)data;
-    // string fileData       = ReadEntireFile(jobData->filename);
 
     i32 width, height, nChannels;
-    // void *textureData = stbi_load_from_memory(fileData.str, (i32)fileData.size, &width, &height, &nChannels, 4);
-    // stbi_set_flip_vertically_on_load(true);
-    u8 *textureData = (u8 *)stbi_load((char *)jobData->filename.str, &width, &height, &nChannels, 0);
+    u8 *texData = (u8 *)stbi_load((char *)jobData->filename.str, &width, &height, &nChannels, 4);
+    MemoryCopy(jobData->buffer, texData, width * height * 4);
 
     Texture result;
-    result.id       = 0;
-    result.width    = width;
-    result.height   = height;
-    result.type     = jobData->type;
-    result.loaded   = true;
-    result.contents = textureData;
+    result.width  = width;
+    result.height = height;
+    result.type   = jobData->type;
+    result.loaded = false;
+    result.id     = 0;
 
     AssetState *state = jobData->state;
 
     AtomicIncrementU32(&state->textureCount);
     state->textures[jobData->handle] = result;
 
+    stbi_image_free(texData);
     ScratchEnd(jobData->temp);
 }
 
@@ -905,13 +904,33 @@ internal void LoadTexture(AssetState *state, string filename, TextureType type, 
 {
     // TODO: have thread specific scratch arenas
     TempArena temp     = ScratchBegin(state->arena);
+    u8 *buffer         = R_AllocateTexture2D();
     AssetJobData *data = PushStruct(temp.arena, AssetJobData);
     data->temp         = temp;
     data->state        = state;
     data->filename     = PushStr8Copy(temp.arena, filename);
     data->type         = type;
     data->handle       = handle;
+    data->buffer       = buffer;
     OS_QueueJob(state->queue, LoadAssetCallback, data);
+}
+
+internal void FinalizeTexture(AssetState *state, u32 handle)
+{
+    Texture *texture   = state->textures + handle;
+    R_TexFormat format = R_TexFormat_Nil;
+    switch (texture->type)
+    {
+        case TextureType_Diffuse:
+            format = R_TexFormat_SRGB;
+        case TextureType_Normal:
+            format = R_TexFormat_RGBA8;
+        default:
+            break;
+    }
+    u32 renderHandle = R_SubmitTexture2D(texture->width, texture->height, format);
+    texture->id      = renderHandle;
+    texture->loaded = true;
 }
 
 #if 0

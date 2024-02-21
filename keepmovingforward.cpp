@@ -462,7 +462,8 @@ internal void InitializePlayer(GameState *gameState)
 extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 {
     // Initialization
-    GameState *gameState = (GameState *)memory->PersistentStorageMemory;
+    GameState *gameState   = (GameState *)memory->PersistentStorageMemory;
+    AssetState *assetState = &gameState->assetState;
 
     if (!memory->isInitialized)
     {
@@ -472,11 +473,13 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
                                            memory->PersistentStorageSize - sizeof(GameState));
         gameState->highPriorityQueue = memory->highPriorityQueue;
         OS_QueueJob                  = memory->OS_QueueJob;
+        R_AllocateTexture2D          = memory->R_AllocateTexture2D;
+        R_SubmitTexture2D            = memory->R_SubmitTexture2D;
 
         InitializeRenderer(gameState->worldArena, renderState);
 
         // Load assets
-        //
+
         // ASSIMP
         //
         // ModelOutput output = AssimpDebugLoadModel(gameState->worldArena, Str8Lit("data/dragon/scene.gltf"));
@@ -500,7 +503,6 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
         ArrayInit(gameState->worldArena, gameState->model.textureHandles, u32, MAX_TEXTURES);
 
-        AssetState *assetState  = &gameState->assetState;
         assetState->arena       = ArenaAllocDefault();
         assetState->queue       = memory->highPriorityQueue;
         renderState->assetState = assetState;
@@ -510,12 +512,12 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         // also need to find a way of getting the handles instead of just hardcoding them
 
         LoadTexture(assetState, Str8Lit("data/dragon/MI_M_B_44_Qishilong_body02_2_Inst_diffuse.png"),
-                    TextureType_Diffuse, 1);
-        PushTexture(&gameState->model, 1);
+                    TextureType_Diffuse, 0);
+        PushTexture(&gameState->model, 0);
 
-        LoadTexture(assetState, Str8Lit("data/dragon/MI_M_B_44_Qishilong_body02_2_Inst_normal.png"),
-                    TextureType_Normal, 2);
-        PushTexture(&gameState->model, 2);
+        // LoadTexture(assetState, Str8Lit("data/dragon/MI_M_B_44_Qishilong_body02_2_Inst_normal.png"),
+        //             TextureType_Normal, 2);
+        // PushTexture(&gameState->model, 2);
         //
         // LoadTexture(assetState, Str8Lit("data/dragon/MI_M_B_44_Qishilong_body02_2_Inst_diffuse.png"),
         //             TextureType_Diffuse, 2);
@@ -557,6 +559,23 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         gameState->tforms = PushArray(gameState->worldArena, AnimationTransform, gameState->model.skeleton.count);
         gameState->finalTransforms = PushArray(gameState->worldArena, Mat4, gameState->model.skeleton.count);
     }
+    //
+    // Assets
+    //
+    // TODO: dumb
+    u32 textureCount = assetState->textureCount;
+    if (assetState->loadedTextureCount < textureCount)
+    {
+        loopi(0, textureCount)
+        {
+            if (assetState->textures[i].loaded == false)
+            {
+                FinalizeTexture(assetState, i);
+            }
+        }
+        assetState->loadedTextureCount = textureCount;
+    }
+
     Level *level                = gameState->level;
     GameInput *playerController = input;
 

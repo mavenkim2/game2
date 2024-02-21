@@ -29,6 +29,7 @@ struct AssetState
     Texture textures[MAX_TEXTURES];
     u32 textureCount = 0;
 
+    u32 loadedTextureCount = 0;
     OS_JobQueue *queue;
 };
 

@@ -1,3 +1,15 @@
+global i32 win32OpenGLAttribs[] = {
+    WGL_CONTEXT_MAJOR_VERSION_ARB,
+    3,
+    WGL_CONTEXT_MINOR_VERSION_ARB,
+    0,
+    WGL_CONTEXT_FLAGS_ARB,
+    WGL_CONTEXT_DEBUG_BIT_ARB,
+    WGL_CONTEXT_PROFILE_MASK_ARB,
+    WGL_CONTEXT_CORE_PROFILE_BIT_ARB,
+    0,
+};
+
 internal void VSyncToggle(b32 enable)
 {
 #if WINDOWS
@@ -260,6 +272,11 @@ internal void OpenGLInit()
     whiteTexture.contents  = (u8 *)&data;
     openGL->whiteTextureId = OpenGLLoadTexture(&whiteTexture);
 
+    openGL->glGenBuffers(1, &openGL->pboId);
+    openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, openGL->pboId);
+    openGL->glBufferData(GL_PIXEL_UNPACK_BUFFER, 1024 * 1024 * 5, 0, GL_STREAM_DRAW);
+    openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+
     VSyncToggle(1);
 
     CompileCubeProgram();
@@ -321,19 +338,8 @@ internal void Win32InitOpenGL(HWND window)
             (wgl_create_context_attribs_arb *)wglGetProcAddress("wglCreateContextAttribsARB");
         if (wglCreateContextAttribsARB)
         {
-            i32 attribs[] = {
-                WGL_CONTEXT_MAJOR_VERSION_ARB,
-                3,
-                WGL_CONTEXT_MINOR_VERSION_ARB,
-                3,
-                WGL_CONTEXT_FLAGS_ARB,
-                WGL_CONTEXT_DEBUG_BIT_ARB,
-                WGL_CONTEXT_PROFILE_MASK_ARB,
-                WGL_CONTEXT_CORE_PROFILE_BIT_ARB,
-                0,
-            };
             HGLRC shareContext = 0;
-            HGLRC modernGLRC   = wglCreateContextAttribsARB(dc, shareContext, attribs);
+            HGLRC modernGLRC   = wglCreateContextAttribsARB(dc, shareContext, win32OpenGLAttribs);
             if (modernGLRC)
             {
                 if (wglMakeCurrent(dc, modernGLRC))
@@ -378,6 +384,8 @@ internal void Win32InitOpenGL(HWND window)
         Win32GetOpenGLFunction(glVertexAttribDivisor);
         Win32GetOpenGLFunction(glDrawElementsInstanced);
         Win32GetOpenGLFunction(glBufferSubData);
+        Win32GetOpenGLFunction(glMapBuffer);
+        Win32GetOpenGLFunction(glUnmapBuffer);
 
         OpenGLGetInfo();
     }
@@ -385,9 +393,8 @@ internal void Win32InitOpenGL(HWND window)
     {
         Unreachable;
     }
-    ReleaseDC(window, dc);
-
     OpenGLInit();
+    ReleaseDC(window, dc);
 };
 
 internal void OpenGLBeginFrame(i32 width, i32 height)
@@ -492,10 +499,6 @@ internal void OpenGLEndFrame(RenderState *state, HDC deviceContext, int clientWi
                 if (texture->loaded == false)
                 {
                     textureId = openGL->whiteTextureId;
-                }
-                else if (texture->loaded && textureId == 0)
-                {
-                    textureId = OpenGLLoadTexture(texture);
                 }
                 switch (texture->type)
                 {
@@ -714,3 +717,52 @@ internal void OpenGLEndFrame(RenderState *state, HDC deviceContext, int clientWi
     // DOUBLE BUFFER SWAP
     SwapBuffers(deviceContext);
 }
+
+internal u8 *R_AllocateTexture2D()
+{
+    u8 *ptr = 0;
+    openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, openGL->pboId);
+    ptr = (u8 *)openGL->glMapBuffer(GL_PIXEL_UNPACK_BUFFER, GL_WRITE_ONLY);
+    openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+    return ptr;
+}
+
+internal u32 R_SubmitTexture2D(u32 width, u32 height, R_TexFormat format)
+{
+    u32 id = 0;
+    glGenTextures(1, &id);
+    glBindTexture(GL_TEXTURE_2D, id);
+
+    openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, openGL->pboId);
+    openGL->glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER);
+
+    u32 glFormat = GL_RGB8;
+    switch (format)
+    {
+        case R_TexFormat_RGBA8:
+        {
+            glFormat = GL_RGBA8;
+        }
+        case R_TexFormat_SRGB:
+        {
+            glFormat = GL_SRGB8_ALPHA8;
+        }
+        default:
+            break;
+    }
+
+    glTexImage2D(GL_TEXTURE_2D, 0, glFormat, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+    // glTexSubImage2D(GL_TEXTURE_2D, 0, glFormat, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, 0);
+
+    // TODO: pass these in as params
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+
+    return id;
+}
+
+// internal void R_DeleteTexture2D

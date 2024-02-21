@@ -19,6 +19,9 @@
 #define GL_TEXTURE6 0x84C6
 #define GL_TEXTURE7 0x84C7
 
+#define GL_WRITE_ONLY          0x88B9
+#define GL_PIXEL_UNPACK_BUFFER 0x88EC
+
 #define GL_DEBUG_SEVERITY_HIGH         0x9146
 #define GL_DEBUG_SEVERITY_MEDIUM       0x9147
 #define GL_DEBUG_SEVERITY_LOW          0x9148
@@ -226,6 +229,8 @@ typedef void WINAPI type_glUniform4f(GLint location, GLfloat v0, GLfloat v1, GLf
 typedef const GLubyte *WINAPI type_glGetStringi(GLenum name, GLuint index);
 typedef void WINAPI type_glVertexAttribDivisor(GLuint index, GLuint divisor);
 typedef void WINAPI type_glBufferSubData(GLenum target, GLintptr offset, GLsizeiptr size, const GLvoid *data);
+typedef void *WINAPI type_glMapBuffer(GLenum target, GLenum access);
+typedef GLboolean WINAPI type_glUnmapBuffer(GLenum target);
 
 typedef BOOL WINAPI wgl_swap_interval_ext(int interval);
 global wgl_swap_interval_ext *wglSwapIntervalEXT;
@@ -272,6 +277,7 @@ struct OpenGL
     Arena *arena;
     GLuint vao;
 
+    GLuint pboId;
     GLuint vertexBufferId;
     GLuint indexBufferId;
     CubeShader cubeShader;
@@ -315,6 +321,8 @@ struct OpenGL
     OpenGLFunction(glDrawElementsInstanced);
     OpenGLFunction(glVertexAttribDivisor);
     OpenGLFunction(glBufferSubData);
+    OpenGLFunction(glMapBuffer);
+    OpenGLFunction(glUnmapBuffer);
 };
 
 global OpenGL _openGL;

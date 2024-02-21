@@ -83,4 +83,6 @@ struct GameState
     OS_JobQueue *highPriorityQueue;
 };
 
-global os_queue_job* OS_QueueJob;
+global os_queue_job *OS_QueueJob;
+global r_allocate_texture_2D *R_AllocateTexture2D;
+global r_submit_texture_2D *R_SubmitTexture2D;
