@@ -13,6 +13,12 @@ inline u32 Min(u32 a, u32 b)
     return result;
 }
 
+inline u64 Min(u64 a, u64 b)
+{
+    u64 result = a < b ? a : b;
+    return result;
+}
+
 inline f32 Max(f32 a, f32 b)
 {
     f32 result = a > b ? a : b;

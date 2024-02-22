@@ -32,5 +32,5 @@ void main()
     f32 spec = specularStrength;
     V3 specular = spec * color;
 
-    FragColor = V4(ambient + diffuse + specular, 1.0);
+    FragColor = V4(color, 1.0);//V4(ambient + diffuse + specular, 1.0);
 }

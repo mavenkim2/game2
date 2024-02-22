@@ -2,11 +2,17 @@
 #include "keepmovingforward_memory.h"
 #include "keepmovingforward_string.h"
 #include "platform.h"
+
+#if WINDOWS
+#include "win32.h"
+#endif
+
 #include "keepmovingforward_math.h"
 #include "physics.h"
 #include "keepmovingforward_camera.h"
 #include "keepmovingforward_platform.h"
 #include "asset.h"
+#include "asset_cache.h"
 #include "render/render.h"
 
 #include "keepmovingforward_entity.h"

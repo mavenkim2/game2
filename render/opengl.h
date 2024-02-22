@@ -285,6 +285,7 @@ struct OpenGL
     ModelShader modelShader;
 
     u32 whiteTextureId;
+    u32 defaultTextureFormat;
 
     OpenGLFunction(glGenBuffers);
     OpenGLFunction(glBindBuffer);

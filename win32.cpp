@@ -81,8 +81,9 @@ internal string ReadEntireFile(string filename)
 
 internal b32 WriteFile(string filename, void *fileMemory, u32 fileSize)
 {
-    b32 result        = false;
-    HANDLE fileHandle = CreateFileA((char*)filename.str, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    b32 result = false;
+    HANDLE fileHandle =
+        CreateFileA((char *)filename.str, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (fileHandle != INVALID_HANDLE_VALUE)
     {
         DWORD bytesToWrite;
@@ -111,69 +112,40 @@ internal void *OS_Alloc(u64 size)
     return ptr;
 }
 
-// LRESULT OS_W32_Callback(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
-// {
-//     LRESULT result = 0;
-//     switch (message)
-//     {
-//         case WM_SIZE:
-//         {
-//             break;
-//         }
-//         case WM_SETCURSOR:
-//         {
-//             if (SHOW_CURSOR)
-//             {
-//                 result = DefWindowProcW(window, message, wParam, lParam);
-//             }
-//             else
-//             {
-//                 SetCursor(0);
-//             }
-//             break;
-//         }
-//         case WM_ACTIVATEAPP:
-//         {
-//             break;
-//         }
-//         case WM_DESTROY:
-//         {
-//             RUNNING = false;
-//             break;
-//         }
-//         case WM_CLOSE:
-//         {
-//             RUNNING = false;
-//             break;
-//         }
-//         default:
-//         {
-//             result = DefWindowProcW(window, message, wParam, lParam);
-//         }
-//     }
-//     return result;
-// }
 //
-// internal b32 OS_Init()
-// {
-//     WNDCLASSW windowClass     = {};
-//     windowClass.style         = CS_HREDRAW | CS_VREDRAW;
-//     windowClass.lpfnWndProc   = OS_W32_Callback;
-//     windowClass.hInstance     = OS_W32_HINSTANCE;
-//     windowClass.lpszClassName = L"Keep Moving Forward";
-//     windowClass.hCursor       = LoadCursorA(0, IDC_ARROW);
+// Handles
 //
-//     if (!RegisterClassW(&windowClass))
-//     {
-//         return 0;
-//     }
-//     HWND windowHandle =
-//         CreateWindowExW(0, windowClass.lpszClassName, L"keep moving forward", WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-//                         CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, OS_W32_HINSTANCE, 0);
-//     if (!windowHandle)
-//     {
-//         return 0;
-//     }
+internal OS_Handle OS_CreateOSHandle(HANDLE input)
+{
+    OS_Handle handle;
+    handle.handle = (u64)input;
+    return handle;
+}
+
+internal HANDLE OS_GetHandleFromOSHandle(OS_Handle input)
+{
+    HANDLE handle = (HANDLE *)input.handle;
+    return handle;
+}
+
 //
-//     return 1;
-// }
+// Semaphores
+//
+internal OS_Handle OS_CreateSemaphore(u32 maxCount)
+{
+    HANDLE handle    = CreateSemaphoreEx(0, 0, maxCount, 0, 0, SEMAPHORE_ALL_ACCESS);
+    OS_Handle result = OS_CreateOSHandle(handle);
+    return result;
+}
+
+internal void OS_WaitOnSemaphore(OS_Handle input, u32 time = U32Max)
+{
+    HANDLE handle = OS_GetHandleFromOSHandle(input);
+    WaitForSingleObjectEx(handle, time, 0);
+}
+
+internal void OS_ReleaseSemaphore(OS_Handle input, u32 count)
+{
+    HANDLE handle = OS_GetHandleFromOSHandle(input);
+    ReleaseSemaphore(handle, count, 0);
+}

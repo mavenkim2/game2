@@ -24,6 +24,7 @@
 
 #define global   static
 #define internal static
+#define U32Max   0xffffffff
 
 typedef int8_t i8;
 typedef int16_t i16;
@@ -159,16 +160,12 @@ inline void *ArrayGrow(void *a, u32 size, u32 length, u32 minCap)
 
 // Compiler stuff
 #if COMPILER_MSVC
-inline u32 AtomicCompareExchangeU32(u32 volatile *dest, u32 src, u32 expected)
-{
-    u32 result = _InterlockedCompareExchange((long volatile *)dest, src, expected);
-    return result;
-}
-inline u32 AtomicIncrementU32(u32 volatile *dest)
-{
-    u32 result = _InterlockedIncrement((long volatile *)dest);
-    return result;
-}
+#define AtomicCompareExchangeU32(dest, src, expected)                                                             \
+    _InterlockedCompareExchange((long volatile *)dest, src, expected)
+#define AtomicCompareExchangeU64(dest, src, expected)                                                             \
+    _InterlockedCompareExchange64((__int64 volatile *)dest, src, expected)
+#define AtomicIncrementU32(dest)   _InterlockedIncrement((long volatile *)dest)
+#define AtomicAddU64(dest, addend) _InterlockedExchangeAdd64((__int64 volatile *)dest, addend)
 
 #else
 #error Atomics not supported

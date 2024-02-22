@@ -10,6 +10,7 @@
 #include "keepmovingforward_camera.cpp"
 #include "keepmovingforward_entity.cpp"
 #include "asset.cpp"
+#include "asset_cache.cpp"
 #include "render/render.cpp"
 
 const f32 GRAVITY = 49.f;
@@ -516,8 +517,8 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         PushTexture(&gameState->model, 0);
 
         // LoadTexture(assetState, Str8Lit("data/dragon/MI_M_B_44_Qishilong_body02_2_Inst_normal.png"),
-        //             TextureType_Normal, 2);
-        // PushTexture(&gameState->model, 2);
+        //             TextureType_Normal, 1);
+        // PushTexture(&gameState->model, 1);
         //
         // LoadTexture(assetState, Str8Lit("data/dragon/MI_M_B_44_Qishilong_body02_2_Inst_diffuse.png"),
         //             TextureType_Diffuse, 2);

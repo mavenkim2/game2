@@ -880,24 +880,27 @@ internal void LoadAssetCallback(void *data)
 {
     AssetJobData *jobData = (AssetJobData *)data;
 
-    i32 width, height, nChannels;
-    u8 *texData = (u8 *)stbi_load((char *)jobData->filename.str, &width, &height, &nChannels, 4);
-    MemoryCopy(jobData->buffer, texData, width * height * 4);
+    if (jobData->buffer)
+    {
+        i32 width, height, nChannels;
+        u8 *texData = (u8 *)stbi_load((char *)jobData->filename.str, &width, &height, &nChannels, 4);
+        MemoryCopy(jobData->buffer, texData, width * height * 4);
 
-    Texture result;
-    result.width  = width;
-    result.height = height;
-    result.type   = jobData->type;
-    result.loaded = false;
-    result.id     = 0;
+        Texture result;
+        result.width  = width;
+        result.height = height;
+        result.type   = jobData->type;
+        result.loaded = false;
+        result.id     = 0;
 
-    AssetState *state = jobData->state;
+        AssetState *state = jobData->state;
 
-    AtomicIncrementU32(&state->textureCount);
-    state->textures[jobData->handle] = result;
+        AtomicIncrementU32(&state->textureCount);
+        state->textures[jobData->handle] = result;
 
-    stbi_image_free(texData);
-    ScratchEnd(jobData->temp);
+        stbi_image_free(texData);
+        ScratchEnd(jobData->temp);
+    }
 }
 
 internal void LoadTexture(AssetState *state, string filename, TextureType type, u32 handle)
@@ -930,7 +933,7 @@ internal void FinalizeTexture(AssetState *state, u32 handle)
     }
     u32 renderHandle = R_SubmitTexture2D(texture->width, texture->height, format);
     texture->id      = renderHandle;
-    texture->loaded = true;
+    texture->loaded  = true;
 }
 
 #if 0

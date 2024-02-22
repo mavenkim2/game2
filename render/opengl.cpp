@@ -85,8 +85,8 @@ internal u32 OpenGLLoadTexture(Texture *texture)
         case TextureType_Diffuse:
         {
             // TODO: NOT SAFE!
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_SRGB8_ALPHA8, texture->width, texture->height, 0, GL_RGB,
-                         GL_UNSIGNED_BYTE, texture->contents);
+            glTexImage2D(GL_TEXTURE_2D, 0, openGL->defaultTextureFormat, texture->width, texture->height, 0,
+                         GL_RGB, GL_UNSIGNED_BYTE, texture->contents);
         }
         case TextureType_Normal:
         {
@@ -274,7 +274,7 @@ internal void OpenGLInit()
 
     openGL->glGenBuffers(1, &openGL->pboId);
     openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, openGL->pboId);
-    openGL->glBufferData(GL_PIXEL_UNPACK_BUFFER, 1024 * 1024 * 5, 0, GL_STREAM_DRAW);
+    openGL->glBufferData(GL_PIXEL_UNPACK_BUFFER, 1024 * 1024 * 4, 0, GL_STREAM_DRAW);
     openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
 
     VSyncToggle(1);
@@ -289,6 +289,7 @@ struct OpenGLInfo
     char *version;
     char *shaderVersion;
     b32 framebufferArb;
+    b32 textureExt;
 };
 
 global OpenGLInfo openGLInfo;
@@ -307,6 +308,7 @@ internal void OpenGLGetInfo()
             char *extension = (char *)openGL->glGetStringi(GL_EXTENSIONS, i);
             if (Str8C(extension) == Str8Lit("GL_EXT_framebuffer_sRGB")) openGLInfo.framebufferArb = true;
             else if (Str8C(extension) == Str8Lit("GL_ARB_framebuffer_sRGB")) openGLInfo.framebufferArb = true;
+            else if (Str8C(extension) == Str8Lit("GL_EXT_texture_sRGB")) openGLInfo.textureExt = true;
         }
     }
 };
@@ -388,6 +390,12 @@ internal void Win32InitOpenGL(HWND window)
         Win32GetOpenGLFunction(glUnmapBuffer);
 
         OpenGLGetInfo();
+
+        openGL->defaultTextureFormat = GL_RGBA8;
+        if (openGLInfo.textureExt)
+        {
+            openGL->defaultTextureFormat = GL_SRGB8_ALPHA8;
+        }
     }
     else
     {
@@ -727,6 +735,7 @@ internal u8 *R_AllocateTexture2D()
     return ptr;
 }
 
+// TODO IMPORTANT: create multiple pbos so multiple textures can be downloaded at once
 internal u32 R_SubmitTexture2D(u32 width, u32 height, R_TexFormat format)
 {
     u32 id = 0;
@@ -745,7 +754,7 @@ internal u32 R_SubmitTexture2D(u32 width, u32 height, R_TexFormat format)
         }
         case R_TexFormat_SRGB:
         {
-            glFormat = GL_SRGB8_ALPHA8;
+            glFormat = openGL->defaultTextureFormat;
         }
         default:
             break;
