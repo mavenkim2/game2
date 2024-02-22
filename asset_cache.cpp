@@ -49,6 +49,21 @@ internal void AS_Init()
     // OS_ThreadStart();
 }
 
+internal u64 RingRead(u8 *base, u64 ringSize, u64 readPos, void *dest, u64 destSize)
+{
+    Assert(ringSize >= destSize);
+
+    u64 cursor         = readPos % ringSize;
+    u64 firstPartSize  = Min(ringSize - cursor, destSize);
+    u64 secondPartSize = destSize - firstPartSize;
+
+    MemoryCopy(dest, base + cursor, firstPartSize);
+    MemoryCopy((u8 *)dest + firstPartSize, base, secondPartSize);
+    return destSize;
+}
+
+#define RingReadStruct(base, size, readPos, ptr) RingRead((base), (size), (readPos), (ptr), sizeof(*(ptr)))
+
 internal u64 RingWrite(u8 *base, u64 ringSize, u64 writePos, void *src, u64 srcSize)
 {
     Assert(ringSize >= srcSize);
@@ -63,7 +78,7 @@ internal u64 RingWrite(u8 *base, u64 ringSize, u64 writePos, void *src, u64 srcS
     return srcSize;
 }
 
-#define RingWriteStruct(base, size, writePos, val) RingWrite((base), (size), (writePos), (val), sizeof(*(val)))
+#define RingWriteStruct(base, size, writePos, ptr) RingWrite((base), (size), (writePos), (ptr), sizeof(*(ptr)))
 
 // TODO: timeout if it takes too long for a file to be loaded?
 internal b32 AS_EnqueueJob(string path)
@@ -78,6 +93,7 @@ internal b32 AS_EnqueueJob(string path)
         u64 availableSize = as_state->ringBufferSize - (curWritePos - curReadPos);
         if (availableSize >= writeSize)
         {
+            writeSize = AlignPow2(writeSize, 8);
             u64 check = AtomicCompareExchangeU64(&as_state->writePos, curWritePos + writeSize, curWritePos);
             if (check == curWritePos)
             {
@@ -98,4 +114,31 @@ internal b32 AS_EnqueueJob(string path)
     return sent;
 }
 
-internal void AS_DequeueJob(string path) {}
+internal string AS_DequeueJob(Arena *arena)
+{
+    string result = {};
+    for (;;)
+    {
+        u64 curWritePos = as_state->writePos;
+        u64 curReadPos  = as_state->readPos;
+
+        u64 availableSize = as_state->ringBufferSize - (curWritePos - curReadPos);
+        if (availableSize >= sizeof(u64))
+        {
+            u64 newReadPos = curReadPos;
+            newReadPos += RingReadStruct(as_state->ringBuffer, as_state->ringBufferSize, newReadPos, &result.size);
+            u64 totalSize   = result.size + sizeof(u64);
+            u64 alignedSize = AlignPow2(totalSize, 8);
+            u64 check       = AtomicCompareExchangeU64(&as_state->readPos, curReadPos + alignedSize, curReadPos);
+            if (check == curReadPos)
+            {
+                result.str = PushArrayNoZero(arena, u8, result.size);
+                RingRead(as_state->ringBuffer, as_state->ringBufferSize, newReadPos, result.str, result.size);
+                break;
+            }
+        }
+        OS_WaitOnSemaphore(as_state->readSemaphore);
+    }
+    OS_ReleaseSemaphore(as_state->writeSemaphore, 1);
+    return result;
+}

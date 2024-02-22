@@ -559,6 +559,10 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
         gameState->tforms = PushArray(gameState->worldArena, AnimationTransform, gameState->model.skeleton.count);
         gameState->finalTransforms = PushArray(gameState->worldArena, Mat4, gameState->model.skeleton.count);
+
+        AS_Init();
+        AS_EnqueueJob(Str8Lit("shmeepshmop"));
+        string result = AS_DequeueJob(gameState->worldArena);
     }
     //
     // Assets
