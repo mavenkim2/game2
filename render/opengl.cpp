@@ -156,13 +156,13 @@ internal void CompileCubeProgram(b32 instanced = false)
     shader->base.globalsFile      = globalFilename;
     shader->base.vsFile           = vsFilename;
     shader->base.fsFile           = fsFilename;
-    shader->base.globalsWriteTime = GetLastWriteTime(globalFilename);
-    shader->base.vsWriteTime      = GetLastWriteTime(vsFilename);
-    shader->base.fsWriteTime      = GetLastWriteTime(fsFilename);
+    shader->base.globalsWriteTime = OS_GetLastWriteTime(globalFilename);
+    shader->base.vsWriteTime      = OS_GetLastWriteTime(vsFilename);
+    shader->base.fsWriteTime      = OS_GetLastWriteTime(fsFilename);
 
-    FreeFileMemory(vs.str);
-    FreeFileMemory(fs.str);
-    FreeFileMemory(g.str);
+    OS_Release(vs.str);
+    OS_Release(fs.str);
+    OS_Release(g.str);
     ScratchEnd(scratch);
 }
 
@@ -186,13 +186,13 @@ internal void CompileModelProgram()
     modelShader->base.globalsFile      = globalFilename;
     modelShader->base.vsFile           = vsFilename;
     modelShader->base.fsFile           = fsFilename;
-    modelShader->base.globalsWriteTime = GetLastWriteTime(globalFilename);
-    modelShader->base.vsWriteTime      = GetLastWriteTime(vsFilename);
-    modelShader->base.fsWriteTime      = GetLastWriteTime(fsFilename);
+    modelShader->base.globalsWriteTime = OS_GetLastWriteTime(globalFilename);
+    modelShader->base.vsWriteTime      = OS_GetLastWriteTime(vsFilename);
+    modelShader->base.fsWriteTime      = OS_GetLastWriteTime(fsFilename);
 
-    FreeFileMemory(globals.str);
-    FreeFileMemory(vs.str);
-    FreeFileMemory(fs.str);
+    OS_Release(globals.str);
+    OS_Release(vs.str);
+    OS_Release(fs.str);
 }
 
 enum ShaderType
@@ -240,9 +240,9 @@ internal void ReloadShader(OpenGLShader *shader)
 
 internal void HotloadShaders(OpenGLShader *shader)
 {
-    if (GetLastWriteTime(shader->globalsFile) != shader->globalsWriteTime ||
-        GetLastWriteTime(shader->vsFile) != shader->vsWriteTime ||
-        GetLastWriteTime(shader->fsFile) != shader->fsWriteTime)
+    if (OS_GetLastWriteTime(shader->globalsFile) != shader->globalsWriteTime ||
+        OS_GetLastWriteTime(shader->vsFile) != shader->vsWriteTime ||
+        OS_GetLastWriteTime(shader->fsFile) != shader->fsWriteTime)
     {
         ReloadShader(shader);
     }

@@ -1,11 +1,8 @@
 #include "keepmovingforward_common.h"
 #include "keepmovingforward_memory.h"
 #include "keepmovingforward_string.h"
-#include "platform.h"
-
-#if WINDOWS
-#include "win32.h"
-#endif
+#include "thread_context.h"
+#include "platform_inc.h"
 
 #include "keepmovingforward_math.h"
 #include "physics.h"

@@ -85,3 +85,8 @@ internal b32 CheckZero(u32 size, u8 *instance)
     }
     return result;
 }
+
+internal void ArenaRelease(Arena *arena)
+{
+    OS_Release(arena);
+}

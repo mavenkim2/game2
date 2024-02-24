@@ -9,6 +9,7 @@
 // - Be able to asynchronously load multiple textures at the same time (using probably a list of PBOs).
 // - LRU for eviction
 
+struct AssetSlot;
 struct AS_State
 {
     Arena *arena;
@@ -24,11 +25,31 @@ struct AS_State
     OS_Handle writeSemaphore;
     OS_Handle readSemaphore;
 
+    // Hash table for files
+    u32 numSlots;
+    AssetSlot *assetSlots;
+
     // Texture textures[MAX_TEXTURES];
     // u32 textureCount = 0;
     //
     // u32 loadedTextureCount = 0;
     // OS_JobQueue *queue;
+};
+
+struct AssetNode
+{
+    u64 hash;
+    u64 lastModified;
+    string path;
+    string data;
+
+    AssetNode *next;
+};
+
+struct AssetSlot
+{
+    AssetNode *first;
+    AssetNode *last;
 };
 
 global AS_State *as_state = 0;
@@ -40,6 +61,9 @@ internal void AS_Init()
     Arena *arena    = ArenaAlloc(megabytes(8));
     as_state        = PushStruct(arena, AS_State);
     as_state->arena = arena;
+
+    as_state->numSlots = 1024;
+    as_state->assetSlots = PushArray(arena, AssetSlot, as_state->numSlots);
 
     as_state->ringBufferSize = kilobytes(64);
     as_state->ringBuffer     = PushArray(arena, u8, as_state->ringBufferSize);
@@ -105,7 +129,7 @@ internal b32 AS_EnqueueJob(string path)
                 break;
             }
         }
-        OS_WaitOnSemaphore(as_state->writeSemaphore);
+        else OS_WaitOnSemaphore(as_state->writeSemaphore);
     }
     if (sent)
     {
@@ -114,7 +138,7 @@ internal b32 AS_EnqueueJob(string path)
     return sent;
 }
 
-internal string AS_DequeueJob(Arena *arena)
+internal string AS_DequeueFile(Arena *arena)
 {
     string result = {};
     for (;;)
@@ -122,7 +146,7 @@ internal string AS_DequeueJob(Arena *arena)
         u64 curWritePos = as_state->writePos;
         u64 curReadPos  = as_state->readPos;
 
-        u64 availableSize = as_state->ringBufferSize - (curWritePos - curReadPos);
+        u64 availableSize = curWritePos - curReadPos;
         if (availableSize >= sizeof(u64))
         {
             u64 newReadPos = curReadPos;
@@ -137,8 +161,53 @@ internal string AS_DequeueJob(Arena *arena)
                 break;
             }
         }
-        OS_WaitOnSemaphore(as_state->readSemaphore);
+        else OS_WaitOnSemaphore(as_state->readSemaphore);
     }
     OS_ReleaseSemaphore(as_state->writeSemaphore, 1);
     return result;
 }
+
+// Dequeues file to be processed, sees if it has a hash
+// How do i even want this to work?
+// LoadModel(), which then loads corresponding textures, meshes, etc.
+// how do you know when it's done loading if the loading is async?
+
+// JOB_ENTRY_POINT(AS_ProcessFiles)
+// {
+//     for (;;)
+//     {
+//         TempArena temp  = ScratchBegin(0, 0);
+//         string filename = AS_DequeueFile(temp.arena);
+//         u64 hash        = HashFromString(filename);
+//         AssetSlot *slot = as_state->assetSlots[hash];
+//         AssetNode *n    = 0;
+//         for (AssetNode *node = slot->first; node != 0; node = node->next)
+//         {
+//             if (node->hash == hash)
+//             {
+//                 n = node;
+//                 break;
+//             }
+//         }
+//     }
+//
+//     if (n == 0)
+//     {
+//         n = PushStruct(arena, AssetNode);
+//         QueuePush(slot->first, slot->last, n);
+//         n->hash = hash;
+//         n->filename =
+//     }
+//
+//     if (OS_GetLastWriteTime(filename))
+//
+    //
+    // // should own the data personally
+    //
+    // string output = ReadEntireFile(filename);
+    // n->data       = output;
+    //
+    // ScratchEnd(temp);
+    //
+    // OS_QueueJob(
+//}

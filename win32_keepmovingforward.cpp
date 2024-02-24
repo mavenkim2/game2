@@ -6,17 +6,19 @@
 #include "keepmovingforward_math.h"
 #include "keepmovingforward_platform.h"
 
-#include "win32.h"
 
 #include "keepmovingforward_memory.h"
 #include "keepmovingforward_string.h"
+#include "thread_context.h"
+#include "platform_inc.h"
 #include "render/opengl.h"
 #include "keepmovingforward_camera.h"
 #include "render/render.h"
 #include "asset.h"
 #include "win32_keepmovingforward.h"
 
-#include "win32.cpp"
+#include "thread_context.cpp"
+#include "platform_inc.cpp"
 #include "keepmovingforward_memory.cpp"
 #include "keepmovingforward_string.cpp"
 #include "render/opengl.cpp"
@@ -739,19 +741,6 @@ internal DWORD ThreadProc(void *param)
 
 int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd)
 {
-
-    // Win32QueueJob(&queue, TestJobCallback, "String 0");
-    // Win32QueueJob(&queue, TestJobCallback, "String 1");
-    // Win32QueueJob(&queue, TestJobCallback, "String 2");
-    // Win32QueueJob(&queue, TestJobCallback, "String 3");
-    // Win32QueueJob(&queue, TestJobCallback, "String 4");
-    // Win32QueueJob(&queue, TestJobCallback, "String 5");
-    // Win32QueueJob(&queue, TestJobCallback, "String 6");
-    // Win32QueueJob(&queue, TestJobCallback, "String 7");
-    // Win32QueueJob(&queue, TestJobCallback, "String 8");
-    //
-    // Win32CompleteJobs(&queue);
-
     LARGE_INTEGER performanceFrequencyUnion;
     QueryPerformanceFrequency(&performanceFrequencyUnion);
     GLOBAL_PERFORMANCE_COUNT_FREQUENCY = performanceFrequencyUnion.QuadPart;

@@ -16,8 +16,11 @@ struct OS_JobQueue;
 struct RenderState;
 enum R_TexFormat;
 
+// Job stuff
+#define JOB_ENTRY_POINT(name) void name(void *data)
+typedef JOB_ENTRY_POINT(OS_JobCallback);
+
 typedef void PlatformToggleCursorFunctionType(b32 value);
-typedef void OS_JobCallback(void *data);
 typedef void os_queue_job(OS_JobQueue *queue, OS_JobCallback *callback, void *data);
 
 typedef u8 *r_allocate_texture_2D(void);

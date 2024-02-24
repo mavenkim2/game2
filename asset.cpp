@@ -747,7 +747,7 @@ internal void ReadModelFromFile(Arena *arena, Model *model, string filename)
 
     Assert(EndOfBuffer(&tokenizer));
 
-    FreeFileMemory(tokenizer.input.str);
+    OS_Release(tokenizer.input.str);
 }
 
 global u32 skeletonVersionNumber = 1;
@@ -808,7 +808,7 @@ internal void ReadSkeletonFromFile(Arena *arena, Skeleton *skeleton, string file
 
         Assert(EndOfBuffer(&tokenizer));
     }
-    FreeFileMemory(tokenizer.input.str);
+    OS_Release(tokenizer.input.str);
 }
 
 global u32 animationFileVersion = 1;
@@ -863,7 +863,7 @@ internal void ReadAnimationFile(Arena *arena, KeyframedAnimation *animation, str
         }
         Assert(EndOfBuffer(&tokenizer));
     }
-    FreeFileMemory(tokenizer.input.str);
+    OS_Release(tokenizer.input.str);
 }
 
 struct AssetJobData
@@ -876,7 +876,7 @@ struct AssetJobData
     u8 *buffer;
 };
 
-internal void LoadAssetCallback(void *data)
+JOB_ENTRY_POINT(LoadAssetCallback)
 {
     AssetJobData *jobData = (AssetJobData *)data;
 

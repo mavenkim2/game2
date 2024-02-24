@@ -1,5 +1,3 @@
-#include <windows.h>
-
 // NOTE: I'm too lazy to put all the platform stuff in one file, so I'm just going to put
 // platform specific stuff that the game calls into this file.
 // TODO: header file with all deez
@@ -19,7 +17,7 @@ internal void Printf(char *fmt, ...)
 }
 
 // NOTE: c string
-internal u64 GetLastWriteTime(string filename)
+internal u64 OS_GetLastWriteTime(string filename)
 {
     WIN32_FILE_ATTRIBUTE_DATA data;
     u64 timeStamp = 0;
@@ -28,13 +26,6 @@ internal u64 GetLastWriteTime(string filename)
         timeStamp = ((u64)data.ftLastWriteTime.dwHighDateTime) | (data.ftLastWriteTime.dwLowDateTime);
     }
     return timeStamp;
-}
-internal void FreeFileMemory(void *memory)
-{
-    if (memory)
-    {
-        VirtualFree(memory, 0, MEM_RELEASE);
-    }
 }
 
 internal string ReadEntireFile(string filename)
@@ -58,7 +49,7 @@ internal string ReadEntireFile(string filename)
                 }
                 else
                 {
-                    FreeFileMemory(&output.str);
+                    OS_Release(&output.str);
                     output.str = 0;
                 }
             }
@@ -112,20 +103,75 @@ internal void *OS_Alloc(u64 size)
     return ptr;
 }
 
+internal void OS_Release(void *memory)
+{
+    VirtualFree(memory, 0, MEM_RELEASE);
+}
+
 //
 // Handles
 //
-internal OS_Handle OS_CreateOSHandle(HANDLE input)
+internal OS_Handle Win32_CreateOSHandle(HANDLE input)
 {
     OS_Handle handle;
     handle.handle = (u64)input;
     return handle;
 }
 
-internal HANDLE OS_GetHandleFromOSHandle(OS_Handle input)
+internal HANDLE Win32_GetHandleFromOSHandle(OS_Handle input)
 {
     HANDLE handle = (HANDLE *)input.handle;
     return handle;
+}
+
+//
+// Threads
+//
+
+global Arena *Win32_arena;
+global Win32_Thread *Win32_freeThread;
+
+internal Win32_Thread *Win32_ThreadAlloc()
+{
+    Win32_Thread *thread = Win32_freeThread;
+    if (thread)
+    {
+        StackPop(Win32_freeThread);
+    }
+    else
+    {
+        thread = PushStruct(Win32_arena, Win32_Thread);
+    }
+    Assert(thread != 0);
+    return thread;
+}
+
+internal OS_Handle OS_ThreadAlloc(OS_ThreadFunction *func, void *ptr)
+{
+    // TODO Hack: Have proper OS initialization
+
+    if (Win32_arena = 0)
+    {
+        Win32_arena = ArenaAllocDefault();
+    }
+
+    Win32_Thread *thread = Win32_ThreadAlloc();
+    thread->func         = func;
+    thread->ptr          = ptr;
+    thread->handle       = CreateThread(0, 0, Win32_ThreadProc, thread, 0, 0);
+    Win32_CreateOSHandle(thread->handle);
+}
+
+internal DWORD Win32_ThreadProc(void *p)
+{
+    Win32_Thread *thread = (Win32_Thread *)p;
+    OS_ThreadFunction *func = thread->func;
+    void *ptr               = thread->ptr;
+
+    ThreadContext tContext_ = {};
+    ThreadContextInitialize(&tContext_);
+    func(ptr);
+    ThreadContextRelease();
 }
 
 //
@@ -134,18 +180,29 @@ internal HANDLE OS_GetHandleFromOSHandle(OS_Handle input)
 internal OS_Handle OS_CreateSemaphore(u32 maxCount)
 {
     HANDLE handle    = CreateSemaphoreEx(0, 0, maxCount, 0, 0, SEMAPHORE_ALL_ACCESS);
-    OS_Handle result = OS_CreateOSHandle(handle);
+    OS_Handle result = Win32_CreateOSHandle(handle);
     return result;
 }
 
 internal void OS_WaitOnSemaphore(OS_Handle input, u32 time = U32Max)
 {
-    HANDLE handle = OS_GetHandleFromOSHandle(input);
+    HANDLE handle = Win32_GetHandleFromOSHandle(input);
     WaitForSingleObjectEx(handle, time, 0);
 }
 
 internal void OS_ReleaseSemaphore(OS_Handle input, u32 count)
 {
-    HANDLE handle = OS_GetHandleFromOSHandle(input);
+    HANDLE handle = Win32_GetHandleFromOSHandle(input);
     ReleaseSemaphore(handle, count, 0);
+}
+
+//
+// System Info
+//
+
+internal u32 OS_NumProcessors()
+{
+    SYSTEM_INFO systemInfo;
+    GetSystemInfo(&systemInfo);
+    return systemInfo.dwNumberOfProcessors;
 }

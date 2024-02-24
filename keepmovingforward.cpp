@@ -1,8 +1,7 @@
 #include "keepmovingforward.h"
 
-#if WINDOWS
-#include "win32.cpp"
-#endif
+#include "thread_context.cpp"
+#include "platform_inc.cpp"
 
 #include "physics.cpp"
 #include "keepmovingforward_memory.cpp"
@@ -562,7 +561,8 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
         AS_Init();
         AS_EnqueueJob(Str8Lit("shmeepshmop"));
-        string result = AS_DequeueJob(gameState->worldArena);
+        string result = AS_DequeueFile(gameState->worldArena);
+        Printf("%u", OS_NumProcessors());
     }
     //
     // Assets

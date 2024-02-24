@@ -16,6 +16,12 @@
 #define readonly
 #endif
 
+#if COMPILER_MSVC
+#define thread_global __declspec(thread)
+#elif COMPILER_CLANG || COMPILER_GCC 
+#define thread_global __thread
+#endif
+
 // NOTE: so LSP doesn't grey out preproc directives, remove this when shippin
 #define INTERNAL    1
 #define UNOPTIMIZED 1
@@ -42,16 +48,15 @@ typedef double f64;
 typedef i32 b32;
 typedef i64 b64;
 
-// clang-format off
 //
 // MACROS
 //
 
 #define ArrayLength(array) sizeof(array) / sizeof((array)[0])
-#define kilobytes(value) ((value)*1024LL)
-#define megabytes(value) (kilobytes(value) * 1024LL)
-#define gigabytes(value) (megabytes(value) * 1024LL)
-#define terabytes(value) (gigabytes(value) * 1024LL)
+#define kilobytes(value)   ((value) * 1024LL)
+#define megabytes(value)   (kilobytes(value) * 1024LL)
+#define gigabytes(value)   (megabytes(value) * 1024LL)
+#define terabytes(value)   (gigabytes(value) * 1024LL)
 
 #if UNOPTIMIZED
 #define Assert(expression) (!(expression) ? (*(volatile int *)0 = 0, 0) : 0)
@@ -60,51 +65,72 @@ typedef i64 b64;
 #endif
 
 #define Unreachable Assert(!"Unreachable")
-#define Swap(type, a, b) do { type _swapper_ = a; a = b; b = _swapper_; } while(0)
+#define Swap(type, a, b)                                                                                          \
+    do                                                                                                            \
+    {                                                                                                             \
+        type _swapper_ = a;                                                                                       \
+        a              = b;                                                                                       \
+        b              = _swapper_;                                                                               \
+    } while (0)
 
 // NOTE: does it matter that this is a u64 instead of uintptr_t?
-#define Offset(type, member) (u64)&(((type *)0)->member)
+#define Offset(type, member) (u64) & (((type *)0)->member)
 
-#define MemoryCopy memcpy
-#define MemorySet memset
+#define MemoryCopy            memcpy
+#define MemorySet             memset
 #define MemoryZero(ptr, size) MemorySet((ptr), 0, (size))
 
-#define ArrayInit(arena, array, type, _cap) \
-    do { array.cap = _cap; array.items = PushArray(arena, type, _cap); } while (0)
+#define ArrayInit(arena, array, type, _cap)                                                                       \
+    do                                                                                                            \
+    {                                                                                                             \
+        array.cap   = _cap;                                                                                       \
+        array.items = PushArray(arena, type, _cap);                                                               \
+    } while (0)
 
-#define Array(type) struct { type* items = 0; u32 count = 0; u32 cap = 0; }
-#define ArrayPush(array, item) (Assert((array)->count < (array)->cap), (array)->items[(array)->count++] = item) 
+#define Array(type)                                                                                               \
+    struct                                                                                                        \
+    {                                                                                                             \
+        type *items = 0;                                                                                          \
+        u32 count   = 0;                                                                                          \
+        u32 cap     = 0;                                                                                          \
+    }
+#define ArrayPush(array, item) (Assert((array)->count < (array)->cap), (array)->items[(array)->count++] = item)
 
 // Loops
-#define DO_STRING_JOIN(arg1, arg2) arg1 ## arg2
-#define STRING_JOIN(arg1, arg2) DO_STRING_JOIN(arg1, arg2)
-#define foreach(array, ptr) \
+#define DO_STRING_JOIN(arg1, arg2) arg1##arg2
+#define STRING_JOIN(arg1, arg2)    DO_STRING_JOIN(arg1, arg2)
+#define foreach(array, ptr)                                                                                       \
     for (u32 STRING_JOIN(i, __LINE__) = 0; STRING_JOIN(i, __LINE__) < (array)->count; STRING_JOIN(i, __LINE__)++) \
         if ((ptr = (array)->items + STRING_JOIN(i, __LINE__)) != 0)
 
-#define foreach_value(array, val) \
+#define foreach_value(array, val)                                                                                 \
     for (u32 STRING_JOIN(i, __LINE__) = 0; STRING_JOIN(i, __LINE__) < (array)->count; STRING_JOIN(i, __LINE__)++) \
         if ((val = (array)->items[STRING_JOIN(i, __LINE__)]), 1)
 
-#define foreach_index(array, ptr, index) \
-    for (u32 index = 0; index < (array)->count; index++) \
+#define foreach_index(array, ptr, index)                                                                          \
+    for (u32 index = 0; index < (array)->count; index++)                                                          \
         if ((ptr = (array)->items + index) != 0)
 
-#define loopi(start, end) for(u32 i = start; i < end; i++)
-#define loopj(start, end) for(u32 j = start; j < end; j++)
+#define loopi(start, end) for (u32 i = start; i < end; i++)
+#define loopj(start, end) for (u32 j = start; j < end; j++)
 
-#define AlignPow2(x,b)     (((x) + (b) - 1)&(~((b) - 1)))
+#define AlignPow2(x, b) (((x) + (b)-1) & (~((b)-1)))
 
-// Linked list
-#define CheckNull(p) ((p)==0)
-#define SetNull(p) ((p)=0)
-#define QueuePush_NZ(f,l,n,next,zchk,zset) (zchk(f)?\
-(((f)=(l)=(n)), zset((n)->next)):\
-((l)->next=(n),(l)=(n),zset((n)->next)))
+////////////////////////////////////////////////////////////////////////////////////////
+// Linked list helpers
+//
+#define CheckNull(p) ((p) == 0)
+#define SetNull(p)   ((p) = 0)
+#define QueuePush_NZ(f, l, n, next, zchk, zset)                                                                   \
+    (zchk(f) ? (((f) = (l) = (n)), zset((n)->next)) : ((l)->next = (n), (l) = (n), zset((n)->next)))
+#define SLLStackPop_N(f, next) ((f) = (f)->next)
+#define SLLStackPush_N(f, n, next) ((n)->next = (f), (f) = (n))
 
-#define QueuePush(f,l,n) QueuePush_NZ(f,l,n,next,CheckNull,SetNull)
-// clang-format on
+#define QueuePush(f, l, n) QueuePush_NZ(f, l, n, next, CheckNull, SetNull)
+#define StackPop(f) SLLStackPop_N(f, next)
+#define StackPush(f, n) StackPush_N(f, n, next)
 
+////////////////////////////////////////////////////////////////////////////////////////
 // Array List
 // TODO: probably going to get rid of this
 struct AHeader
@@ -165,6 +191,7 @@ inline void *ArrayGrow(void *a, u32 size, u32 length, u32 minCap)
 #define AtomicCompareExchangeU64(dest, src, expected)                                                             \
     _InterlockedCompareExchange64((__int64 volatile *)dest, src, expected)
 #define AtomicIncrementU32(dest)   _InterlockedIncrement((long volatile *)dest)
+#define AtomicDecrementU64(dest)   _InterlockedDecrement64((__int64 volatile *)dest)
 #define AtomicAddU64(dest, addend) _InterlockedExchangeAdd64((__int64 volatile *)dest, addend)
 
 #else
