@@ -18,7 +18,7 @@
 
 #if COMPILER_MSVC
 #define thread_global __declspec(thread)
-#elif COMPILER_CLANG || COMPILER_GCC 
+#elif COMPILER_CLANG || COMPILER_GCC
 #define thread_global __thread
 #endif
 
@@ -123,12 +123,12 @@ typedef i64 b64;
 #define SetNull(p)   ((p) = 0)
 #define QueuePush_NZ(f, l, n, next, zchk, zset)                                                                   \
     (zchk(f) ? (((f) = (l) = (n)), zset((n)->next)) : ((l)->next = (n), (l) = (n), zset((n)->next)))
-#define SLLStackPop_N(f, next) ((f) = (f)->next)
+#define SLLStackPop_N(f, next)     ((f) = (f)->next)
 #define SLLStackPush_N(f, n, next) ((n)->next = (f), (f) = (n))
 
 #define QueuePush(f, l, n) QueuePush_NZ(f, l, n, next, CheckNull, SetNull)
-#define StackPop(f) SLLStackPop_N(f, next)
-#define StackPush(f, n) StackPush_N(f, n, next)
+#define StackPop(f)        SLLStackPop_N(f, next)
+#define StackPush(f, n)    StackPush_N(f, n, next)
 
 ////////////////////////////////////////////////////////////////////////////////////////
 // Array List
@@ -184,15 +184,45 @@ inline void *ArrayGrow(void *a, u32 size, u32 length, u32 minCap)
          STRING_JOIN(i, __LINE__)++)                                                                              \
         if ((ptr = (array) + STRING_JOIN(i, __LINE__)) != 0)
 
-// Compiler stuff
+
+// Atomics
 #if COMPILER_MSVC
 #define AtomicCompareExchangeU32(dest, src, expected)                                                             \
     _InterlockedCompareExchange((long volatile *)dest, src, expected)
 #define AtomicCompareExchangeU64(dest, src, expected)                                                             \
     _InterlockedCompareExchange64((__int64 volatile *)dest, src, expected)
-#define AtomicIncrementU32(dest)   _InterlockedIncrement((long volatile *)dest)
+
+#define AtomicIncrementU32(dest) _InterlockedIncrement((long volatile *)dest)
+#define AtomicIncrementU64(dest) _InterlockedIncrement64((__int64 volatile *)dest)
+
+#define AtomicDecrementU32(dest)   _InterlockedDecrement((long volatile *)dest)
 #define AtomicDecrementU64(dest)   _InterlockedDecrement64((__int64 volatile *)dest)
 #define AtomicAddU64(dest, addend) _InterlockedExchangeAdd64((__int64 volatile *)dest, addend)
+
+struct TicketMutex
+{
+    u64 volatile ticket;
+    u64 volatile serving;
+};
+
+inline void BeginTicketMutex(TicketMutex *mutex)
+{
+    u64 ticket = AtomicIncrementU64(&mutex->ticket);
+    while (ticket != mutex->serving)
+        _mm_pause();
+}
+
+inline void EndTicketMutex(TicketMutex *mutex)
+{
+    AtomicIncrementU64(&mutex->serving);
+}
+
+
+//////////////////////////////
+// Defer Loop/Scopes
+//
+#define DeferLoop(begin, end) for (int _i_ = ((begin), 0); !_i_; _i_ += 1, (end))
+#define TicketMutexScope(mutex) DeferLoop(BeginTicketMutex(mutex), EndTicketMutex(mutex))
 
 #else
 #error Atomics not supported

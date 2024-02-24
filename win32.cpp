@@ -146,7 +146,7 @@ internal Win32_Thread *Win32_ThreadAlloc()
     return thread;
 }
 
-internal OS_Handle OS_ThreadAlloc(OS_ThreadFunction *func, void *ptr)
+internal OS_Handle OS_ThreadStart(OS_ThreadFunction *func, void *ptr)
 {
     // TODO Hack: Have proper OS initialization
 
@@ -164,7 +164,7 @@ internal OS_Handle OS_ThreadAlloc(OS_ThreadFunction *func, void *ptr)
 
 internal DWORD Win32_ThreadProc(void *p)
 {
-    Win32_Thread *thread = (Win32_Thread *)p;
+    Win32_Thread *thread    = (Win32_Thread *)p;
     OS_ThreadFunction *func = thread->func;
     void *ptr               = thread->ptr;
 
@@ -188,6 +188,12 @@ internal void OS_WaitOnSemaphore(OS_Handle input, u32 time = U32Max)
 {
     HANDLE handle = Win32_GetHandleFromOSHandle(input);
     WaitForSingleObjectEx(handle, time, 0);
+}
+
+internal void OS_ReleaseSemaphore(OS_Handle input)
+{
+    HANDLE handle = Win32_GetHandleFromOSHandle(input);
+    ReleaseSemaphore(handle, 1, 0);
 }
 
 internal void OS_ReleaseSemaphore(OS_Handle input, u32 count)
