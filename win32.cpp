@@ -150,7 +150,7 @@ internal OS_Handle OS_ThreadStart(OS_ThreadFunction *func, void *ptr)
 {
     // TODO Hack: Have proper OS initialization
 
-    if (Win32_arena = 0)
+    if (Win32_arena == 0)
     {
         Win32_arena = ArenaAllocDefault();
     }
@@ -159,7 +159,8 @@ internal OS_Handle OS_ThreadStart(OS_ThreadFunction *func, void *ptr)
     thread->func         = func;
     thread->ptr          = ptr;
     thread->handle       = CreateThread(0, 0, Win32_ThreadProc, thread, 0, 0);
-    Win32_CreateOSHandle(thread->handle);
+    OS_Handle handle     = Win32_CreateOSHandle(thread->handle);
+    return handle;
 }
 
 internal DWORD Win32_ThreadProc(void *p)
@@ -172,6 +173,8 @@ internal DWORD Win32_ThreadProc(void *p)
     ThreadContextInitialize(&tContext_);
     func(ptr);
     ThreadContextRelease();
+
+    return 0;
 }
 
 //
@@ -184,12 +187,6 @@ internal OS_Handle OS_CreateSemaphore(u32 maxCount)
     return result;
 }
 
-internal void OS_WaitOnSemaphore(OS_Handle input, u32 time = U32Max)
-{
-    HANDLE handle = Win32_GetHandleFromOSHandle(input);
-    WaitForSingleObjectEx(handle, time, 0);
-}
-
 internal void OS_ReleaseSemaphore(OS_Handle input)
 {
     HANDLE handle = Win32_GetHandleFromOSHandle(input);
@@ -200,6 +197,32 @@ internal void OS_ReleaseSemaphore(OS_Handle input, u32 count)
 {
     HANDLE handle = Win32_GetHandleFromOSHandle(input);
     ReleaseSemaphore(handle, count, 0);
+}
+
+//////////////////////////////
+/// Signals
+///
+
+// NOTE: this sets the event to auto-reset after a successful wait.
+internal OS_Handle OS_CreateSignal()
+{
+    HANDLE handle    = CreateEvent(0, 0, 0, 0);
+    OS_Handle result = Win32_CreateOSHandle(handle);
+    return result;
+}
+
+internal b32 OS_SignalWait(OS_Handle input, u32 time = U32Max)
+{
+    HANDLE handle = Win32_GetHandleFromOSHandle(input);
+    DWORD result  = WaitForSingleObject(handle, time);
+    Assert(result == WAIT_OBJECT_0 || (time != U32Max && result == WAIT_TIMEOUT));
+    return (result == WAIT_OBJECT_0);
+}
+
+internal void OS_RaiseSignal(OS_Handle input)
+{
+    HANDLE handle = Win32_GetHandleFromOSHandle(input);
+    SetEvent(handle);
 }
 
 //

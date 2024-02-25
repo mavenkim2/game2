@@ -129,7 +129,7 @@ internal b32 AS_EnqueueJob(string path)
                 break;
             }
         }
-        else OS_WaitOnSemaphore(as_state->writeSemaphore);
+        else OS_SignalWait(as_state->writeSemaphore);
     }
     if (sent)
     {
@@ -161,7 +161,7 @@ internal string AS_DequeueFile(Arena *arena)
                 break;
             }
         }
-        else OS_WaitOnSemaphore(as_state->readSemaphore);
+        else OS_SignalWait(as_state->readSemaphore);
     }
     OS_ReleaseSemaphore(as_state->writeSemaphore, 1);
     return result;

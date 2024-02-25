@@ -560,10 +560,20 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         gameState->tforms = PushArray(gameState->worldArena, AnimationTransform, gameState->model.skeleton.count);
         gameState->finalTransforms = PushArray(gameState->worldArena, Mat4, gameState->model.skeleton.count);
 
-        AS_Init();
-        AS_EnqueueJob(Str8Lit("shmeepshmop"));
-        string result = AS_DequeueFile(gameState->worldArena);
-        Printf("%u", OS_NumProcessors());
+        // AS_Init();
+        // AS_EnqueueJob(Str8Lit("shmeepshmop"));
+        // string result = AS_DequeueFile(gameState->worldArena);
+        // Printf("%u", OS_NumProcessors());
+
+        JS_Init();
+
+        DumbData data    = {};
+        JS_Ticket ticket = JS_Kick(TestCall1, &data, 0, Priority_High);
+        ticket           = JS_Kick(TestCall2, &data, 0, Priority_High, &ticket);
+        ticket           = JS_Kick(TestCall3, &data, 0, Priority_High, &ticket);
+        JS_Join(ticket);
+
+        Assert(data.j == 12);
     }
     //
     // Assets

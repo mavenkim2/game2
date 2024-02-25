@@ -17,7 +17,7 @@ struct JS_Counter
 
 struct JS_Ticket
 {
-    u64 u64[3];
+    u64 u64[2];
 };
 
 struct Job
@@ -39,18 +39,12 @@ struct JS_Queue
     OS_Handle writeSemaphore;
 };
 
-struct JS_Node
-{
-    void *result;
-    b32 isCompleted;
-    u64 id;
-    JS_Node *next;
-};
-
-// struct JobSlot
+// struct JS_Node
 // {
-//     JS_Node *first;
-//     JS_Node *last;
+//     void *result;
+//     b32 isCompleted;
+//     u64 id;
+//     JS_Node *next;
 // };
 
 struct JS_Thread
@@ -64,11 +58,14 @@ struct JS_Stripe
     Arena *arena;
 
     // Free lists
-    JS_Node *freeJob;
+    // JS_Node *freeJob;
     JS_Counter *freeCounter;
 
     // Ticket mutex
     TicketMutex lock;
+
+    // Signal
+    OS_Handle signal;
 };
 
 struct JS_State
@@ -110,21 +107,16 @@ internal void JS_Init()
     // js_state->numSlots = 1024;
     // js_state->slots    = PushArray(arena, JobSlot, js_state->numSlots);
 
-    js_state->threadCount = Clamp(OS_NumProcessors() - 1, 1, 8);
-    for (u64 i = 0; i < js_state->threadCount; i++)
-    {
-        js_state->threads[i].handle = OS_ThreadStart(JobThreadEntryPoint, (void *)i);
-        js_state->threads[i].arena  = ArenaAllocDefault();
-    }
-
     // Initialize stripes
     js_state->numStripes = 64;
     js_state->stripes    = PushArray(arena, JS_Stripe, js_state->numStripes);
     for (u32 i = 0; i < js_state->numStripes; i++)
     {
-        js_state->stripes[i].arena = ArenaAllocDefault();
+        js_state->stripes[i].arena  = ArenaAllocDefault();
+        js_state->stripes[i].signal = OS_CreateSignal();
     }
 
+    js_state->threadCount   = Clamp(OS_NumProcessors() - 1, 1, 8);
     js_state->readSemaphore = OS_CreateSemaphore(js_state->threadCount);
 
     // Initialize priority queues
@@ -139,6 +131,13 @@ internal void JS_Init()
     js_state->lowPriorityQueue.writePos       = 0;
     js_state->lowPriorityQueue.readPos        = 0;
     js_state->lowPriorityQueue.writeSemaphore = OS_CreateSemaphore(js_state->threadCount);
+
+    js_state->threads = PushArray(arena, JS_Thread, js_state->threadCount);
+    for (u64 i = 0; i < js_state->threadCount; i++)
+    {
+        js_state->threads[i].handle = OS_ThreadStart(JobThreadEntryPoint, (void *)i);
+        js_state->threads[i].arena  = ArenaAllocDefault();
+    }
 }
 
 // things i want from this system:
@@ -154,7 +153,8 @@ internal void JS_Init()
 //////////////////////////////
 // Job start/stop
 //
-internal JS_Ticket JS_Kick(JobCallback *callback, void *data, Arena **arena, Priority priority)
+internal JS_Ticket JS_Kick(JobCallback *callback, void *data, Arena **arena, Priority priority,
+                           JS_Ticket *optionalTicket = 0)
 {
     u64 numJobs       = AtomicIncrementU64(&js_state->numJobs);
     u64 stripeIndex   = numJobs % js_state->numStripes;
@@ -182,41 +182,32 @@ internal JS_Ticket JS_Kick(JobCallback *callback, void *data, Arena **arena, Pri
     b32 success = 0;
 
     // Create ticket w/ a job/counter. This will store info about the job's execution and its output.
-    JS_Node *job        = stripe->freeJob;
+    // JS_Node *job        = stripe->freeJob;
     JS_Counter *counter = stripe->freeCounter;
+    JS_Ticket ticket    = {};
 
-    JS_Ticket ticket = {numJobs, (u64)job, (u64)counter};
-
-    // NOTE: theoretically the stripes should minimize congestion. I don't know what I'm doing though.
-    TicketMutexScope(&stripe->lock)
+    // TODO: do I want to have this counter thing so that you can wait on multiple jobs, or no?
+    if (optionalTicket != 0)
     {
-        if (job == 0)
-        {
-            job = PushStructNoZero(stripe->arena, JS_Node);
-        }
-        else
-        {
-            StackPop(stripe->freeJob);
-        }
-        job->id          = numJobs;
-        job->result      = 0;
-        job->isCompleted = 0;
-
-        break;
+        counter = (JS_Counter *)optionalTicket->u64[1];
+        ticket  = *optionalTicket;
+        counter->c += 1;
     }
-
-    TicketMutexScope(&stripe->lock)
+    else
     {
+        BeginTicketMutex(&stripe->lock);
         if (counter == 0)
         {
-            counter = PushStructNoZero(stripe->arena, JS_Counter);
+            counter = PushStruct(stripe->arena, JS_Counter);
         }
         else
         {
             StackPop(stripe->freeCounter);
         }
-        counter->c = 1;
-        break;
+        counter->c += 1;
+        ticket     = {numJobs, (u64)counter};
+        // break;
+        EndTicketMutex(&stripe->lock);
     }
 
     // Queue a task.
@@ -250,7 +241,7 @@ internal JS_Ticket JS_Kick(JobCallback *callback, void *data, Arena **arena, Pri
                 break;
             }
         }
-        else OS_WaitOnSemaphore(queue->writeSemaphore);
+        else OS_SignalWait(queue->writeSemaphore);
     }
     return ticket;
 }
@@ -259,23 +250,27 @@ internal void JS_Join(JS_Ticket ticket)
 {
     void *result        = 0;
     u64 id              = ticket.u64[0];
-    JS_Node *jobNode    = (JS_Node *)ticket.u64[1];
-    JS_Counter *counter = (JS_Counter *)ticket.u64[2];
+    JS_Counter *counter = (JS_Counter *)ticket.u64[1];
 
     u64 stripeIndex   = id % js_state->numStripes;
     JS_Stripe *stripe = js_state->stripes + stripeIndex;
 
     // TODO Note: This will spin lock waiting for the job to finish. I should probably use a mutex
-    // so that it put the thread to sleep instead of busy waiting, but idc!!!
+    // so that it put the thread to sleep instead of busy waiting. also i could use a slim srw
+    // so that it can read without blocking exclusively, but IDC!!!!
+    // I could also use CreateEvent() WaitEvent()
 
-    // NOTE: if I go with the model of waiting for a counter to reach 0, then I cannot return the result
-    // of the job from this method. This means that the job has to edit some global state.
-    TicketMutexScope(&stripe->lock)
+    for (;;)
     {
-        // jobNode->result      = result;
-        // jobNode->isCompleted = 1;
-
-        break;
+        b32 taskCompleted = (counter->c == 0);
+        if (taskCompleted)
+        {
+            BeginTicketMutex(&stripe->lock);
+            StackPush(stripe->freeCounter, counter);
+            EndTicketMutex(&stripe->lock);
+            OS_SignalWait(stripe->signal);
+            break;
+        }
     }
 }
 
@@ -302,11 +297,9 @@ internal b32 JS_PopJob(JS_Queue *queue, JS_Thread *thread)
             u64 stripeIndex   = id % js_state->numStripes;
             JS_Stripe *stripe = js_state->stripes + stripeIndex;
 
-            JS_Node *jobNode     = (JS_Node *)job->ticket.u64[1];
-            jobNode->result      = result;
-            jobNode->isCompleted = 1;
+            OS_RaiseSignal(stripe->signal);
 
-            JS_Counter *counter = (JS_Counter *)job->ticket.u64[2];
+            JS_Counter *counter = (JS_Counter *)job->ticket.u64[1];
             AtomicDecrementU32(&counter->c);
 
             OS_ReleaseSemaphore(queue->writeSemaphore);
@@ -325,11 +318,36 @@ internal void JobThreadEntryPoint(void *p)
     JS_Thread *thread = &js_state->threads[threadIndex];
     for (;;)
     {
-
         if (JS_PopJob(&js_state->highPriorityQueue, thread) && JS_PopJob(&js_state->normalPriorityQueue, thread) &&
             JS_PopJob(&js_state->lowPriorityQueue, thread))
         {
-            OS_WaitOnSemaphore(js_state->readSemaphore);
+            OS_SignalWait(js_state->readSemaphore);
         }
     }
+}
+
+struct DumbData
+{
+    u32 j;
+};
+
+JOB_CALLBACK(TestCall1)
+{
+    DumbData *d = (DumbData *)data;
+    d->j += 5;
+    return 0;
+}
+
+JOB_CALLBACK(TestCall2)
+{
+    DumbData *d = (DumbData *)data;
+    d->j += 4;
+    return 0;
+}
+
+JOB_CALLBACK(TestCall3)
+{
+    DumbData *d = (DumbData *)data;
+    d->j += 3;
+    return 0;
 }

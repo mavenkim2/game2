@@ -26,8 +26,13 @@ internal OS_Handle OS_ThreadAlloc(OS_ThreadFunction *func, void *ptr);
 // Semaphores
 //
 internal OS_Handle OS_CreateSemaphore(u32 maxCount);
-internal void OS_WaitOnSemaphore(OS_Handle input, u32 time);
-internal void OS_ReleaseSemaphore(OS_Handle input, u32 count);
+
+//////////////////////////////
+/// Events
+///
+internal OS_Handle OS_CreateSignal();
+internal b32 OS_SignalWait(OS_Handle input, u32 time);
+internal void OS_RaiseSignal(OS_Handle input);
 
 /////////////////////////////////////////////////////
 // System Info

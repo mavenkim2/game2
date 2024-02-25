@@ -128,7 +128,7 @@ typedef i64 b64;
 
 #define QueuePush(f, l, n) QueuePush_NZ(f, l, n, next, CheckNull, SetNull)
 #define StackPop(f)        SLLStackPop_N(f, next)
-#define StackPush(f, n)    StackPush_N(f, n, next)
+#define StackPush(f, n)    SLLStackPush_N(f, n, next)
 
 ////////////////////////////////////////////////////////////////////////////////////////
 // Array List
@@ -184,7 +184,6 @@ inline void *ArrayGrow(void *a, u32 size, u32 length, u32 minCap)
          STRING_JOIN(i, __LINE__)++)                                                                              \
         if ((ptr = (array) + STRING_JOIN(i, __LINE__)) != 0)
 
-
 // Atomics
 #if COMPILER_MSVC
 #define AtomicCompareExchangeU32(dest, src, expected)                                                             \
@@ -207,9 +206,11 @@ struct TicketMutex
 
 inline void BeginTicketMutex(TicketMutex *mutex)
 {
-    u64 ticket = AtomicIncrementU64(&mutex->ticket);
+    u64 ticket = AtomicAddU64(&mutex->ticket, 1);
     while (ticket != mutex->serving)
+    {
         _mm_pause();
+    }
 }
 
 inline void EndTicketMutex(TicketMutex *mutex)
@@ -217,13 +218,42 @@ inline void EndTicketMutex(TicketMutex *mutex)
     AtomicIncrementU64(&mutex->serving);
 }
 
+struct ReadWriteLock
+{
+    u64 count;
+};
+
+// #define WriteLock 1 << 63
+//
+// inline void BeginRLock(ReadWriteLock *lock)
+// {
+//     while (lock->count & WriteLock)
+//         _mm_pause();
+//
+//     AtomicIncrementU64(&lock->count);
+// }
+//
+// inline void EndRLock(ReadWriteLock *lock)
+// {
+//     AtomicDecrementU64(&lock->count);
+// }
+//
+// inline void BeginWLock(ReadWriteLock *lock)
+// {
+//     while (AtomicCompareExchangeU64(lock->count, WriteLock, 0))
+//         _mm_pause();
+// }
+//
+// inline void EndWLock(ReadWriteLock *lock)
+// {
+//     lock->count = 0;
+// }
+#else
+#error Atomics not supported
+#endif
 
 //////////////////////////////
 // Defer Loop/Scopes
 //
-#define DeferLoop(begin, end) for (int _i_ = ((begin), 0); !_i_; _i_ += 1, (end))
+#define DeferLoop(begin, end)   for (int _i_ = ((begin), 0); !_i_; _i_ += 1, (end))
 #define TicketMutexScope(mutex) DeferLoop(BeginTicketMutex(mutex), EndTicketMutex(mutex))
-
-#else
-#error Atomics not supported
-#endif
