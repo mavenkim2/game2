@@ -3,6 +3,7 @@
 #include "keepmovingforward_string.h"
 #include "thread_context.h"
 #include "platform_inc.h"
+#include "job.h"
 
 #include "keepmovingforward_math.h"
 #include "physics.h"

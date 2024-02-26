@@ -569,11 +569,14 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
         DumbData data    = {};
         JS_Ticket ticket = JS_Kick(TestCall1, &data, 0, Priority_High);
-        ticket           = JS_Kick(TestCall2, &data, 0, Priority_High, &ticket);
-        ticket           = JS_Kick(TestCall3, &data, 0, Priority_High, &ticket);
+        for (i32 i = 0; i < 255; i++)
+        {
+            ticket = JS_Kick(TestCall1, &data, 0, Priority_High, &ticket);
+            ticket = JS_Kick(TestCall2, &data, 0, Priority_Normal, &ticket);
+            ticket = JS_Kick(TestCall3, &data, 0, Priority_Low, &ticket);
+        }
         JS_Join(ticket);
-
-        Assert(data.j == 12);
+        i32 breakhere = 0;
     }
     //
     // Assets

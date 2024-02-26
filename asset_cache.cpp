@@ -10,6 +10,8 @@
 // - LRU for eviction
 
 struct AssetSlot;
+JOB_CALLBACK(AS_EntryPoint);
+
 struct AS_State
 {
     Arena *arena;
@@ -21,19 +23,12 @@ struct AS_State
     u64 writePos;
 
     // Synchronization primitives
-    OS_Handle threads[4];
-    OS_Handle writeSemaphore;
-    OS_Handle readSemaphore;
+    OS_Handle *threads;
+    u32 threadCount;
 
     // Hash table for files
     u32 numSlots;
     AssetSlot *assetSlots;
-
-    // Texture textures[MAX_TEXTURES];
-    // u32 textureCount = 0;
-    //
-    // u32 loadedTextureCount = 0;
-    // OS_JobQueue *queue;
 };
 
 struct AssetNode
@@ -62,14 +57,19 @@ internal void AS_Init()
     as_state        = PushStruct(arena, AS_State);
     as_state->arena = arena;
 
-    as_state->numSlots = 1024;
+    as_state->numSlots   = 1024;
     as_state->assetSlots = PushArray(arena, AssetSlot, as_state->numSlots);
 
     as_state->ringBufferSize = kilobytes(64);
     as_state->ringBuffer     = PushArray(arena, u8, as_state->ringBufferSize);
 
-    as_state->writeSemaphore = OS_CreateSemaphore((u32)as_state->ringBufferSize);
-    as_state->readSemaphore  = OS_CreateSemaphore((u32)as_state->ringBufferSize);
+    as_state->threadCount = Max(2, OS_NumProcessors() - 1);
+    as_state->threads     = PushArray(arena, OS_Handle, as_state->threadCount);
+    for (u64 i = 0; i < as_state->threadCount; i++)
+    {
+        as_state->threads[i] = OS_ThreadStart(AS_EntryPoint, (void *)i);
+    }
+
     // OS_ThreadStart();
 }
 
@@ -167,6 +167,12 @@ internal string AS_DequeueFile(Arena *arena)
     return result;
 }
 
+// Loop infinitely, dequeue files to be read, kick off a task, and then go back to sleep
+JOB_CALLBACK(AS_EntryPoint)
+{
+    for (;;)
+}
+
 // Dequeues file to be processed, sees if it has a hash
 // How do i even want this to work?
 // LoadModel(), which then loads corresponding textures, meshes, etc.
@@ -201,13 +207,13 @@ internal string AS_DequeueFile(Arena *arena)
 //
 //     if (OS_GetLastWriteTime(filename))
 //
-    //
-    // // should own the data personally
-    //
-    // string output = ReadEntireFile(filename);
-    // n->data       = output;
-    //
-    // ScratchEnd(temp);
-    //
-    // OS_QueueJob(
+//
+// // should own the data personally
+//
+// string output = ReadEntireFile(filename);
+// n->data       = output;
+//
+// ScratchEnd(temp);
+//
+// OS_QueueJob(
 //}
