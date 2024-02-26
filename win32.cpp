@@ -1,6 +1,8 @@
 // global HINSTANCE OS_W32_HINSTANCE;
 // global bool SHOW_CURSOR;
 // global bool RUNNING = true;
+global Arena *Win32_arena;
+global Win32_Sync *Win32_freeSync;
 
 internal void Printf(char *fmt, ...)
 {
@@ -103,12 +105,20 @@ internal void OS_Release(void *memory)
 {
     VirtualFree(memory, 0, MEM_RELEASE);
 }
+//////////////////////////////
+// Initialization
+//
+internal void OS_Init()
+{
+    if (Win32_arena == 0)
+    {
+        Win32_arena = ArenaAllocDefault();
+    }
+}
 
 //////////////////////////////
 // Threads
 //
-global Arena *Win32_arena;
-global Win32_Sync *Win32_freeSync;
 
 internal Win32_Sync *Win32_SyncAlloc(Win32_SyncType type)
 {
@@ -135,11 +145,6 @@ internal void Win32_SyncFree(Win32_Sync *sync)
 internal OS_Handle OS_ThreadStart(OS_ThreadFunction *func, void *ptr)
 {
     // TODO Hack: Have proper OS initialization
-
-    if (Win32_arena == 0)
-    {
-        Win32_arena = ArenaAllocDefault();
-    }
 
     Win32_Sync *thread    = Win32_SyncAlloc(Win32_SyncType_Thread);
     thread->thread.func   = func;
@@ -215,6 +220,9 @@ internal void OS_DropMutex(OS_Handle input)
     LeaveCriticalSection(&mutex->mutex);
 }
 
+//////////////////////////////
+// Read/Write Mutex
+//
 internal OS_Handle OS_CreateRWMutex()
 {
     Win32_Sync *mutex = Win32_SyncAlloc(Win32_SyncType_RWMutex);
@@ -222,10 +230,6 @@ internal OS_Handle OS_CreateRWMutex()
     OS_Handle handle = {(u64)mutex};
     return handle;
 }
-
-//////////////////////////////
-// Read/Write Mutex
-//
 internal void OS_DeleteRWMutex(OS_Handle input)
 {
     Win32_Sync *mutex = (Win32_Sync *)input.handle;

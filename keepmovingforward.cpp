@@ -565,11 +565,12 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         // string result = AS_DequeueFile(gameState->worldArena);
         // Printf("%u", OS_NumProcessors());
 
+        OS_Init();
         JS_Init();
 
         DumbData data    = {};
         JS_Ticket ticket = JS_Kick(TestCall1, &data, 0, Priority_High);
-        for (i32 i = 0; i < 255; i++)
+        for (i32 i = 0; i < 1000; i++)
         {
             ticket = JS_Kick(TestCall1, &data, 0, Priority_High, &ticket);
             ticket = JS_Kick(TestCall2, &data, 0, Priority_Normal, &ticket);

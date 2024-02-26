@@ -36,7 +36,7 @@ struct JS_Queue
     Job jobs[256];
 
     OS_Handle writeSemaphore;
-    TicketMutex lock;
+    Mutex lock;
 };
 
 struct JS_Thread
@@ -52,11 +52,8 @@ struct JS_Stripe
     // Free lists
     JS_Counter *freeCounter;
 
-    // Ticket mutex
-    TicketMutex lock;
-
-    // Signal
-    OS_Handle signal;
+    // RW Mutex
+    OS_Handle rwMutex;
 };
 
 struct JS_State

@@ -15,11 +15,12 @@ internal void JS_Init()
     js_state->stripes    = PushArray(arena, JS_Stripe, js_state->numStripes);
     for (u32 i = 0; i < js_state->numStripes; i++)
     {
-        js_state->stripes[i].arena  = ArenaAllocDefault();
-        js_state->stripes[i].signal = OS_CreateSignal();
+        js_state->stripes[i].arena   = ArenaAllocDefault();
+        js_state->stripes[i].rwMutex = OS_CreateRWMutex();
     }
 
-    js_state->threadCount   = Clamp(OS_NumProcessors() - 1, 1, 8);
+    // js_state->threadCount   = Clamp(OS_NumProcessors() - 1, 1, 8);
+    js_state->threadCount   = OS_NumProcessors() - 1;
     js_state->readSemaphore = OS_CreateSemaphore(js_state->threadCount);
 
     // Initialize priority queues
@@ -57,17 +58,19 @@ internal JS_Ticket JS_Kick(JobCallback *callback, void *data, Arena **arena, Pri
         case Priority_Normal:
         {
             queue = &js_state->normalPriorityQueue;
+            break;
         }
         case Priority_High:
         {
             queue = &js_state->highPriorityQueue;
+            break;
         }
     }
 
     b32 success = 0;
 
     // Create ticket w/ a job/counter. This will store info about the job's execution and its output.
-    JS_Counter *counter = stripe->freeCounter;
+    JS_Counter *counter = 0;
     JS_Ticket ticket    = {};
 
     if (optionalTicket != 0)
@@ -77,25 +80,25 @@ internal JS_Ticket JS_Kick(JobCallback *callback, void *data, Arena **arena, Pri
     }
     else
     {
-        TicketMutexScope(&stripe->lock)
+        OS_TakeWMutex(stripe->rwMutex);
+        counter = stripe->freeCounter;
+        if (counter == 0)
         {
-            if (counter == 0)
-            {
-                counter = PushStruct(stripe->arena, JS_Counter);
-            }
-            else
-            {
-                StackPop(stripe->freeCounter);
-            }
-            ticket = {numJobs, (u64)counter};
+            counter = PushStruct(stripe->arena, JS_Counter);
         }
+        else
+        {
+            StackPop(stripe->freeCounter);
+        }
+        OS_DropWMutex(stripe->rwMutex);
+        ticket = {numJobs, (u64)counter};
     }
     AtomicIncrementU32(&counter->c);
 
     // Queue a task.
     for (;;)
     {
-        BeginTicketMutex(&queue->lock);
+        BeginMutex(&queue->lock);
         u64 curWritePos = queue->writePos;
         u64 curReadPos  = queue->readPos;
 
@@ -114,15 +117,17 @@ internal JS_Ticket JS_Kick(JobCallback *callback, void *data, Arena **arena, Pri
             newJob->data     = data;
             newJob->arena    = taskArena;
             newJob->ticket   = ticket;
-            EndTicketMutex(&queue->lock);
+
+            EndMutex(&queue->lock);
+            OS_ReleaseSemaphore(js_state->readSemaphore);
+
             if (arena != 0)
             {
                 *arena = 0;
             }
-            OS_ReleaseSemaphore(js_state->readSemaphore);
             break;
         }
-        EndTicketMutex(&queue->lock);
+        EndMutex(&queue->lock);
         OS_SignalWait(queue->writeSemaphore);
     }
     return ticket;
@@ -139,16 +144,16 @@ internal void JS_Join(JS_Ticket ticket)
 
     for (;;)
     {
-        b32 taskCompleted = (counter->c == 0);
+        b32 taskCompleted = (AtomicAddU64(&counter->c, 0) == 0);
         if (taskCompleted)
         {
-            TicketMutexScope(&stripe->lock)
-            {
-                StackPush(stripe->freeCounter, counter);
-            }
+            OS_TakeWMutex(stripe->rwMutex);
+
+            StackPush(stripe->freeCounter, counter);
+
+            OS_DropWMutex(stripe->rwMutex);
             break;
         }
-        OS_SignalWait(stripe->signal);
     }
 }
 
@@ -158,43 +163,42 @@ internal void JS_Join(JS_Ticket ticket)
 internal b32 JS_PopJob(JS_Queue *queue, JS_Thread *thread)
 {
     b32 sleep = false;
-    TicketMutexScope(&queue->lock)
+    BeginMutex(&queue->lock);
+    u64 curReadPos  = queue->readPos;
+    u64 curWritePos = queue->writePos;
+
+    if (curWritePos - curReadPos >= 1)
     {
-        u64 curReadPos  = queue->readPos;
-        u64 curWritePos = queue->writePos;
+        queue->readPos += 1;
+        // Read the correct job
+        Job *job          = &queue->jobs[curReadPos & (ArrayLength(queue->jobs) - 1)];
+        JS_Ticket ticket  = job->ticket;
+        Arena *arena      = job->arena;
+        void *data        = job->data;
+        JobCallback *func = job->callback;
 
-        if (curWritePos - curReadPos >= 1)
+        EndMutex(&queue->lock);
+        OS_ReleaseSemaphore(queue->writeSemaphore);
+
+        if (arena == 0)
         {
-            queue->readPos += 1;
-            // Read the correct job
-            Job *job          = &queue->jobs[curReadPos & (ArrayLength(queue->jobs) - 1)];
-            JS_Ticket ticket  = job->ticket;
-            Arena *arena      = job->arena;
-            void *data        = job->data;
-            JobCallback *func = job->callback;
-            if (arena == 0)
-            {
-                arena = thread->arena;
-            }
-            // Execute
-            void *result = func(data, arena);
-
-            // Decrement counter
-            u64 id            = ticket.u64[0];
-            u64 stripeIndex   = id % js_state->numStripes;
-            JS_Stripe *stripe = js_state->stripes + stripeIndex;
-
-            OS_RaiseSignal(stripe->signal);
-
-            JS_Counter *counter = (JS_Counter *)ticket.u64[1];
-            AtomicDecrementU32(&counter->c);
-
-            OS_ReleaseSemaphore(queue->writeSemaphore);
+            arena = thread->arena;
         }
-        else
-        {
-            sleep = true;
-        }
+        // Execute
+        void *result = func(data, arena);
+
+        u64 id            = ticket.u64[0];
+        u64 stripeIndex   = id % js_state->numStripes;
+        JS_Stripe *stripe = js_state->stripes + stripeIndex;
+
+        // Decrement counter
+        JS_Counter *counter = (JS_Counter *)ticket.u64[1];
+        AtomicDecrementU32(&counter->c);
+    }
+    else
+    {
+        EndMutex(&queue->lock);
+        sleep = true;
     }
     return sleep;
 }
@@ -224,21 +228,24 @@ struct DumbData
 JOB_CALLBACK(TestCall2)
 {
     DumbData *d = (DumbData *)data;
-    d->j += 4;
+    AtomicAddU64(&d->j, 5);
     return 0;
 }
 
 JOB_CALLBACK(TestCall3)
 {
     DumbData *d = (DumbData *)data;
-    d->j += 3;
+    AtomicAddU64(&d->j, 3);
     return 0;
 }
 
 JOB_CALLBACK(TestCall1)
 {
     DumbData *d = (DumbData *)data;
-    d->j += 5;
+    AtomicAddU64(&d->j, 4);
+
+    JS_Ticket ticket = JS_Kick(TestCall3, d, 0, Priority_Normal);
+    JS_Join(ticket);
 
     return 0;
 }

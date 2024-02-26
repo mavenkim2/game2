@@ -218,10 +218,25 @@ inline void EndTicketMutex(TicketMutex *mutex)
     AtomicIncrementU64(&mutex->serving);
 }
 
-struct ReadWriteLock
+struct Mutex
 {
-    u64 count;
+    u32 count;
 };
+
+inline void BeginMutex(Mutex *mutex)
+{
+    while (AtomicCompareExchangeU32(&mutex->count, 1, 0))
+    {
+        _mm_pause();
+    }
+}
+
+// TODO: use memory barrier instead, _mm_sfence()?
+inline void EndMutex(Mutex *mutex)
+{
+    _mm_sfence();
+    mutex->count = 0;
+}
 
 // #define WriteLock 1 << 63
 //
@@ -257,3 +272,4 @@ struct ReadWriteLock
 //
 #define DeferLoop(begin, end)   for (int _i_ = ((begin), 0); !_i_; _i_ += 1, (end))
 #define TicketMutexScope(mutex) DeferLoop(BeginTicketMutex(mutex), EndTicketMutex(mutex))
+#define MutexScope(mutex)       DeferLoop(BeginMutex(mutex), EndMutex(mutex))

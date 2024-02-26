@@ -14,8 +14,9 @@ internal void *OS_Alloc(u64 size);
 internal void OS_Release(void *memory);
 
 /////////////////////////////////////////////////////
-// Handles
+// Initialization
 //
+internal void OS_Init();
 
 /////////////////////////////////////////////////////
 // Threads
