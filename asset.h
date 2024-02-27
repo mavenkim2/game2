@@ -88,6 +88,14 @@ struct Skeleton
     Array(Mat4) transformsToParent;
 };
 
+struct SkeletonHelp
+{
+    u32 count;
+    i32 *parents;
+    Mat4 *inverseBindPoses;
+    Mat4 *transformsToParent;
+};
+
 struct AnimationTransform
 {
     V3 translation;

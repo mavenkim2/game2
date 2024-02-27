@@ -569,18 +569,18 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         JS_Init();
         AS_Init();
 
-        DumbData data    = {};
-        JS_Ticket ticket = JS_Kick(TestCall1, &data, 0, Priority_High);
-        for (i32 i = 0; i < 1000; i++)
-        {
-            ticket = JS_Kick(TestCall1, &data, 0, Priority_High, &ticket);
-            ticket = JS_Kick(TestCall2, &data, 0, Priority_Normal, &ticket);
-            ticket = JS_Kick(TestCall3, &data, 0, Priority_Low, &ticket);
-        }
-        JS_Join(ticket);
-        i32 breakhere = 0;
+        // DumbData data    = {};
+        // JS_Ticket ticket = JS_Kick(TestCall1, &data, 0, Priority_High);
+        // for (i32 i = 0; i < 1000; i++)
+        // {
+        //     ticket = JS_Kick(TestCall1, &data, 0, Priority_High, &ticket);
+        //     ticket = JS_Kick(TestCall2, &data, 0, Priority_Normal, &ticket);
+        //     ticket = JS_Kick(TestCall3, &data, 0, Priority_Low, &ticket);
+        // }
+        // JS_Join(ticket);
+        // i32 breakhere = 0;
 
-        AS_EnqueueFile(Str8Lit("data/dragon_attack_01.anim"));
+        AS_EnqueueFile(Str8C("data/dragon.skel"));
     }
     //
     // Assets

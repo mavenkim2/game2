@@ -25,10 +25,10 @@ internal void OS_Init();
 typedef u32 OS_AccessFlags;
 enum
 {
-    OS_AccessFlag_Read,
-    OS_AccessFlag_Write,
-    OS_AccessFlag_ShareRead,
-    OS_AccessFlag_ShareWrite,
+    OS_AccessFlag_Read       = (1 << 0),
+    OS_AccessFlag_Write      = (1 << 1),
+    OS_AccessFlag_ShareRead  = (1 << 2),
+    OS_AccessFlag_ShareWrite = (1 << 3),
 };
 
 struct OS_FileAttributes
@@ -39,6 +39,7 @@ struct OS_FileAttributes
 
 internal OS_FileAttributes OS_AttributesFromFile(OS_Handle input);
 internal OS_Handle OS_OpenFile(OS_AccessFlags flags, string path);
+internal void OS_CloseFile(OS_Handle input);
 internal OS_FileAttributes OS_AtributesFromFile(OS_Handle input);
 internal u64 OS_ReadEntireFile(OS_Handle handle, void *out);
 internal u64 OS_ReadEntireFile(string path, void *out);

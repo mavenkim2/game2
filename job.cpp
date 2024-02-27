@@ -187,9 +187,7 @@ internal b32 JS_PopJob(JS_Queue *queue, JS_Thread *thread)
         // Execute
         void *result = func(data, arena);
 
-        u64 id            = ticket.u64[0];
-        u64 stripeIndex   = id % js_state->numStripes;
-        JS_Stripe *stripe = js_state->stripes + stripeIndex;
+        u64 id = ticket.u64[0];
 
         // Decrement counter
         JS_Counter *counter = (JS_Counter *)ticket.u64[1];
@@ -249,8 +247,11 @@ JOB_CALLBACK(TestCall1)
     DumbData *d = (DumbData *)data;
     AtomicAddU64(&d->j, 4);
 
-    JS_Ticket ticket = JS_Kick(TestCall3, d, 0, Priority_Normal);
-    JS_Join(ticket);
+    // NOTE: sometimes, if the call stack is deep enough, all of the threads are stuck in either
+    // JS_Kick or JS_Join, leading to a deadlock, since there is no thread to pop off a job.
+
+    // JS_Ticket ticket = JS_Kick(TestCall3, d, 0, Priority_Normal);
+    // JS_Join(ticket);
 
     return 0;
 }

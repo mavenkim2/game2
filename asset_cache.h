@@ -52,6 +52,11 @@ struct AS_Node
     string data;
     AS_Type type;
 
+    union
+    {
+        SkeletonHelp skeleton;
+    };
+
     AS_Node *next;
 };
 

@@ -47,13 +47,26 @@ internal OS_Handle OS_OpenFile(OS_AccessFlags flags, string path)
     {
         result.handle = (u64)file;
     }
+    else
+    {
+        Assert(!"File not found");
+    }
     return result;
+}
+
+internal void OS_CloseFile(OS_Handle input)
+{
+    if (input.handle != 0)
+    {
+        HANDLE handle = (HANDLE)input.handle;
+        CloseHandle(handle);
+    }
 }
 
 internal OS_FileAttributes OS_AttributesFromFile(OS_Handle input)
 {
     OS_FileAttributes result = {};
-    HANDLE handle            = (HANDLE *)input.handle;
+    HANDLE handle            = (HANDLE)input.handle;
     u32 high                 = 0;
     u32 low                  = GetFileSize(handle, (DWORD *)&high);
     FILETIME filetime        = {};
@@ -65,26 +78,35 @@ internal OS_FileAttributes OS_AttributesFromFile(OS_Handle input)
 
 internal u64 OS_ReadEntireFile(OS_Handle handle, void *out)
 {
-    u64 totalReadSize = 0;
-    if (handle.handle != 0)
+    u64 totalReadSize   = 0;
+    LARGE_INTEGER start = {};
+    HANDLE file         = (HANDLE)handle.handle;
+    if (handle.handle == 0)
     {
-        HANDLE file = (HANDLE *)handle.handle;
+    }
+    else
+    {
         u64 size;
         GetFileSizeEx(file, (LARGE_INTEGER *)&size);
-
-        for (totalReadSize = 0; totalReadSize < size;)
-        {
-            u64 readAmount = size - totalReadSize;
-            u32 sizeToRead = (readAmount > U32Max) ? U32Max : (u32)readAmount;
-            DWORD readSize;
-            ReadFile(file, (u8 *)out + totalReadSize, sizeToRead, &readSize, 0);
-            totalReadSize += readSize;
-            if (readSize != sizeToRead)
-            {
-                break;
-            }
-        }
+        DWORD bytesToRead = 0;
+        if (!ReadFile(file, out, (u32)size, &bytesToRead, 0)) Assert(!"wtf?");
+        totalReadSize = size;
     }
+    // else if (SetFilePointerEx(file, start, 0, FILE_BEGIN))
+    // {
+    //     u64 size;
+    //     GetFileSizeEx(file, (LARGE_INTEGER *)&size);
+    //
+    //     for (totalReadSize = 0; totalReadSize < size;)
+    //     {
+    //         u64 readAmount = size - totalReadSize;
+    //         u32 sizeToRead = (readAmount > U32Max) ? U32Max : (u32)readAmount;
+    //         DWORD readSize = 0;
+    //         if (!ReadFile(file, (u8 *)out + totalReadSize, sizeToRead, &readSize, 0)) break;
+    //         totalReadSize += sizeToRead;
+    //     }
+    // }
+
     return totalReadSize;
 }
 
@@ -263,13 +285,13 @@ internal OS_Handle OS_CreateSemaphore(u32 maxCount)
 
 internal void OS_ReleaseSemaphore(OS_Handle input)
 {
-    HANDLE handle = (HANDLE *)input.handle;
+    HANDLE handle = (HANDLE)input.handle;
     ReleaseSemaphore(handle, 1, 0);
 }
 
 internal void OS_ReleaseSemaphore(OS_Handle input, u32 count)
 {
-    HANDLE handle = (HANDLE *)input.handle;
+    HANDLE handle = (HANDLE)input.handle;
     ReleaseSemaphore(handle, count, 0);
 }
 
@@ -412,7 +434,7 @@ internal OS_Handle OS_CreateSignal()
 
 internal b32 OS_SignalWait(OS_Handle input, u32 time = U32Max)
 {
-    HANDLE handle = (HANDLE *)input.handle;
+    HANDLE handle = (HANDLE)input.handle;
     DWORD result  = WaitForSingleObject(handle, time);
     Assert(result == WAIT_OBJECT_0 || (time != U32Max && result == WAIT_TIMEOUT));
     return (result == WAIT_OBJECT_0);
@@ -420,7 +442,7 @@ internal b32 OS_SignalWait(OS_Handle input, u32 time = U32Max)
 
 internal void OS_RaiseSignal(OS_Handle input)
 {
-    HANDLE handle = (HANDLE *)input.handle;
+    HANDLE handle = (HANDLE)input.handle;
     SetEvent(handle);
 }
 

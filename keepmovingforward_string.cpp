@@ -254,6 +254,12 @@ inline void Advance(Tokenizer *tokenizer, u32 size)
     }
 }
 
+inline u8 *GetCursor_(Tokenizer *tokenizer)
+{
+    u8 *result = tokenizer->cursor;
+    return result;
+}
+
 inline b32 EndOfBuffer(Tokenizer *tokenizer)
 {
     b32 result = tokenizer->cursor >= tokenizer->input.str + tokenizer->input.size;
@@ -343,3 +349,5 @@ internal void Get(Tokenizer *tokenizer, void *ptr, u32 size)
         array.count = count_;                                                                                     \
         Get(tokenizer, array.items, sizeof(array.items[0]) * count_);                                             \
     } while (0)
+
+#define GetCursor(tokenizer, type) (type *)GetCursor_(tokenizer)

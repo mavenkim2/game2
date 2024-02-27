@@ -109,7 +109,7 @@ internal string AS_DequeueFile(Arena *arena)
         {
             as_state->readPos +=
                 RingReadStruct(as_state->ringBuffer, as_state->ringBufferSize, as_state->readPos, &result.size);
-            result.str = PushArrayNoZero(arena, u8, result.size);
+            result.str = PushArrayNoZero(arena, u8, result.size + 1);
             as_state->readPos += RingRead(as_state->ringBuffer, as_state->ringBufferSize, as_state->readPos,
                                           result.str, result.size);
             as_state->readPos = AlignPow2(as_state->readPos, 8);
@@ -131,10 +131,9 @@ internal void AS_EntryPoint(void *p)
     SetThreadName(Str8Lit("[AS] Scanner"));
     for (;;)
     {
-        TempArena scratch            = ScratchStart(0, 0);
-        string path                  = AS_DequeueFile(scratch.arena);
-        OS_Handle handle             = OS_OpenFile(OS_AccessFlag_Read | OS_AccessFlag_ShareRead, path);
-        OS_FileAttributes attributes = OS_AttributesFromFile(handle);
+        TempArena scratch   = ScratchStart(0, 0);
+        string path         = AS_DequeueFile(scratch.arena);
+        path.str[path.size] = 0;
 
         u64 hash      = HashFromString(path);
         AS_Slot *slot = &as_state->assetSlots[(hash & (as_state->numSlots - 1))];
@@ -169,22 +168,26 @@ internal void AS_EntryPoint(void *p)
             {
                 QueuePush(slot->first, slot->last, n);
             }
+            n->hash = hash;
+            n->path = path;
         }
 
-        // Hot load
-        // TODO: this is no bueno
-        if (n != 0 && n->lastModified != attributes.lastModified)
+        OS_Handle handle = OS_OpenFile(OS_AccessFlag_Read | OS_AccessFlag_ShareRead, path);
+        OS_FileAttributes attributes = OS_AttributesFromFile(handle);
+        // // Hot load
+        // // TODO: this is no bueno
+        if (n != 0 && attributes.lastModified != 0 && n->lastModified != attributes.lastModified)
         {
             ArenaRelease(n->arena);
         }
 
-        n->path         = path;
         n->lastModified = attributes.lastModified;
         n->arena        = ArenaAlloc(attributes.size);
-        n->hash         = hash;
         n->data.str     = PushArrayNoZero(n->arena, u8, attributes.size);
-
+        n->arena     = ArenaAlloc(23320);
+        n->data.str  = PushArrayNoZero(n->arena, u8, 23320);
         n->data.size = OS_ReadEntireFile(handle, n->data.str);
+        OS_CloseFile(handle);
 
         JS_Kick(AS_LoadAsset, n, 0, Priority_Low);
         ScratchEnd(scratch);
@@ -196,16 +199,42 @@ JOB_CALLBACK(AS_LoadAsset)
 {
     AS_Node *node    = (AS_Node *)data;
     string extension = GetFileExtension(node->path);
-    int stop = 5;
+    int stop         = 5;
     if (extension == Str8Lit("model"))
     {
     }
     else if (extension == Str8Lit("anim"))
     {
-        Printf("It's so lit!");
     }
     else if (extension == Str8Lit("skel"))
     {
+        SkeletonHelp skeleton;
+        Tokenizer tokenizer;
+        tokenizer.input  = node->data;
+        tokenizer.cursor = tokenizer.input.str;
+
+        u32 version;
+        u32 count;
+        GetPointer(&tokenizer, &version);
+        GetPointer(&tokenizer, &count);
+        skeleton.count = count;
+
+        if (version == 1)
+        {
+            loopi(0, count)
+            {
+                ReadLine(&tokenizer);
+            }
+            skeleton.parents = GetCursor(&tokenizer, i32);
+            Advance(&tokenizer, sizeof(skeleton.parents[0]) * count);
+            skeleton.inverseBindPoses = GetCursor(&tokenizer, Mat4);
+            Advance(&tokenizer, sizeof(skeleton.inverseBindPoses[0]) * count);
+            skeleton.transformsToParent = GetCursor(&tokenizer, Mat4);
+            Advance(&tokenizer, sizeof(skeleton.transformsToParent[0]) * count);
+
+            Assert(EndOfBuffer(&tokenizer));
+        }
+        node->type = AS_Skeleton;
     }
     else if (extension == Str8Lit("png"))
     {
