@@ -47,3 +47,11 @@ internal Arena *ThreadContextScratch(Arena **conflicts, u32 count)
     }
     return result;
 }
+
+internal void SetThreadName(string name)
+{
+    ThreadContext *context  = ThreadContextGet();
+    context->threadNameSize = Min(name.size, sizeof(context->threadName));
+    MemoryCopy(context->threadName, name.str, context->threadNameSize);
+    OS_SetThreadName(name);
+}

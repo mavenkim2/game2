@@ -26,6 +26,75 @@ internal u64 OS_GetLastWriteTime(string filename)
     return timeStamp;
 }
 
+//////////////////////////////
+// FILE I/O
+//
+
+internal OS_Handle OS_OpenFile(OS_AccessFlags flags, string path)
+{
+    OS_Handle result          = {};
+    DWORD accessFlags         = 0;
+    DWORD shareMode           = 0;
+    DWORD creationDisposition = OPEN_EXISTING;
+    if (flags & OS_AccessFlag_Read) accessFlags |= GENERIC_READ;
+    if (flags & OS_AccessFlag_Write) accessFlags |= GENERIC_WRITE;
+    if (flags & OS_AccessFlag_ShareRead) shareMode |= FILE_SHARE_READ;
+    if (flags & OS_AccessFlag_ShareWrite) shareMode |= FILE_SHARE_WRITE;
+    if (flags & OS_AccessFlag_Write) creationDisposition = CREATE_ALWAYS;
+    HANDLE file =
+        CreateFileA((char *)path.str, accessFlags, shareMode, 0, creationDisposition, FILE_ATTRIBUTE_NORMAL, 0);
+    if (file != INVALID_HANDLE_VALUE)
+    {
+        result.handle = (u64)file;
+    }
+    return result;
+}
+
+internal OS_FileAttributes OS_AttributesFromFile(OS_Handle input)
+{
+    OS_FileAttributes result = {};
+    HANDLE handle            = (HANDLE *)input.handle;
+    u32 high                 = 0;
+    u32 low                  = GetFileSize(handle, (DWORD *)&high);
+    FILETIME filetime        = {};
+    GetFileTime(handle, 0, 0, &filetime);
+    result.size         = (u64)low | (((u64)high) << 32);
+    result.lastModified = ((u64)filetime.dwHighDateTime) | (filetime.dwLowDateTime);
+    return result;
+}
+
+internal u64 OS_ReadEntireFile(OS_Handle handle, void *out)
+{
+    u64 totalReadSize = 0;
+    if (handle.handle != 0)
+    {
+        HANDLE file = (HANDLE *)handle.handle;
+        u64 size;
+        GetFileSizeEx(file, (LARGE_INTEGER *)&size);
+
+        for (totalReadSize = 0; totalReadSize < size;)
+        {
+            u64 readAmount = size - totalReadSize;
+            u32 sizeToRead = (readAmount > U32Max) ? U32Max : (u32)readAmount;
+            DWORD readSize;
+            ReadFile(file, (u8 *)out + totalReadSize, sizeToRead, &readSize, 0);
+            totalReadSize += readSize;
+            if (readSize != sizeToRead)
+            {
+                break;
+            }
+        }
+    }
+    return totalReadSize;
+}
+
+internal u64 OS_ReadEntireFile(string path, void *out)
+{
+    OS_Handle handle = OS_OpenFile(OS_AccessFlag_Read | OS_AccessFlag_ShareRead, path);
+    u64 result       = OS_ReadEntireFile(handle, out);
+    return result;
+}
+
 internal string ReadEntireFile(string filename)
 {
     string output     = {};
@@ -166,6 +235,20 @@ internal DWORD Win32_ThreadProc(void *p)
     ThreadContextRelease();
 
     return 0;
+}
+
+// TODO: set thread names using raise exception as well?
+internal void OS_SetThreadName(string name)
+{
+    TempArena scratch = ScratchStart(0, 0);
+
+    u32 resultSize  = (u32)(2 * name.size);
+    wchar_t *result = (wchar_t *)PushArray(scratch.arena, u8, resultSize + 1);
+    resultSize      = MultiByteToWideChar(CP_UTF8, 0, (char *)name.str, (i32)name.size, result, (i32)resultSize);
+    result[resultSize] = 0;
+    SetThreadDescription(GetCurrentThread(), result);
+
+    ScratchEnd(scratch);
 }
 
 //////////////////////////////

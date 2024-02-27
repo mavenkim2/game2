@@ -18,11 +18,37 @@ internal void OS_Release(void *memory);
 //
 internal void OS_Init();
 
+//////////////////////////////
+// Files
+//
+
+typedef u32 OS_AccessFlags;
+enum
+{
+    OS_AccessFlag_Read,
+    OS_AccessFlag_Write,
+    OS_AccessFlag_ShareRead,
+    OS_AccessFlag_ShareWrite,
+};
+
+struct OS_FileAttributes
+{
+    u64 size;
+    u64 lastModified;
+};
+
+internal OS_FileAttributes OS_AttributesFromFile(OS_Handle input);
+internal OS_Handle OS_OpenFile(OS_AccessFlags flags, string path);
+internal OS_FileAttributes OS_AtributesFromFile(OS_Handle input);
+internal u64 OS_ReadEntireFile(OS_Handle handle, void *out);
+internal u64 OS_ReadEntireFile(string path, void *out);
+
 /////////////////////////////////////////////////////
 // Threads
 //
 internal OS_Handle OS_ThreadAlloc(OS_ThreadFunction *func, void *ptr);
 internal OS_Handle OS_ThreadStart(OS_ThreadFunction *func, void *ptr);
+internal void OS_SetThreadName(string name);
 
 //////////////////////////////
 // Semaphores

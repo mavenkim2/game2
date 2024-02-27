@@ -207,6 +207,11 @@ internal void JobThreadEntryPoint(void *p)
 {
     u64 threadIndex   = (u64)p;
     JS_Thread *thread = &js_state->threads[threadIndex];
+
+    TempArena temp = ScratchStart(0, 0);
+    SetThreadName(PushStr8F(temp.arena, "[JS] Worker %u", threadIndex));
+    ScratchEnd(temp);
+
     for (;;)
     {
         if (JS_PopJob(&js_state->highPriorityQueue, thread) && JS_PopJob(&js_state->normalPriorityQueue, thread) &&

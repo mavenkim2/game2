@@ -567,6 +567,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
         OS_Init();
         JS_Init();
+        AS_Init();
 
         DumbData data    = {};
         JS_Ticket ticket = JS_Kick(TestCall1, &data, 0, Priority_High);
@@ -578,6 +579,8 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         }
         JS_Join(ticket);
         i32 breakhere = 0;
+
+        AS_EnqueueFile(Str8Lit("data/dragon_attack_01.anim"));
     }
     //
     // Assets

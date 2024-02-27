@@ -32,16 +32,6 @@ inline string Substr8(string str, u64 min, u64 max)
     return str;
 }
 
-internal u64 HashString(string string)
-{
-    u64 result = 5381;
-    for (u64 i = 0; i < string.size; i += 1)
-    {
-        result = ((result << 5) + result) + string.str[i];
-    }
-    return result;
-}
-
 internal b32 CharIsAlpha(u8 c)
 {
     return CharIsAlphaUpper(c) || CharIsAlphaLower(c);
@@ -193,6 +183,44 @@ internal b32 StartsWith(string a, string b)
     }
     return result;
 }
+
+//////////////////////////////
+// File path helpers
+//
+internal string GetFileExtension(string path)
+{
+    string result = path;
+
+    u32 index = 0;
+    u32 loc   = 0;
+    while (index++ < path.size)
+    {
+        if (path.str[index] == '.')
+        {
+            loc = index + 1;
+        }
+    }
+    result.str  = path.str + loc;
+    result.size = path.size - loc;
+    return result;
+}
+
+//////////////////////////////
+// Hash
+//
+internal u64 HashFromString(string string)
+{
+    u64 result = 5381;
+    for (u64 i = 0; i < string.size; i += 1)
+    {
+        result = ((result << 5) + result) + string.str[i];
+    }
+    return result;
+}
+
+//////////////////////////////
+// String token building/reading
+//
 
 struct StringBuilderNode
 {
