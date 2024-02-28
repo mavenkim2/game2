@@ -78,3 +78,5 @@ struct JS_State
     // Job number
     u64 numJobs;
 };
+
+internal b32 JS_PopJob(JS_Queue *queue, JS_Thread *thread);

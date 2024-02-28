@@ -124,7 +124,7 @@ internal string AS_DequeueFile(Arena *arena)
 }
 
 //////////////////////////////
-// Asset Thread Entry Point
+// Asset Thread Entry Points
 //
 internal void AS_EntryPoint(void *p)
 {
@@ -172,7 +172,7 @@ internal void AS_EntryPoint(void *p)
             n->path = path;
         }
 
-        OS_Handle handle = OS_OpenFile(OS_AccessFlag_Read | OS_AccessFlag_ShareRead, path);
+        OS_Handle handle             = OS_OpenFile(OS_AccessFlag_Read | OS_AccessFlag_ShareRead, path);
         OS_FileAttributes attributes = OS_AttributesFromFile(handle);
         // // Hot load
         // // TODO: this is no bueno
@@ -184,9 +184,7 @@ internal void AS_EntryPoint(void *p)
         n->lastModified = attributes.lastModified;
         n->arena        = ArenaAlloc(attributes.size);
         n->data.str     = PushArrayNoZero(n->arena, u8, attributes.size);
-        n->arena     = ArenaAlloc(23320);
-        n->data.str  = PushArrayNoZero(n->arena, u8, 23320);
-        n->data.size = OS_ReadEntireFile(handle, n->data.str);
+        n->data.size    = OS_ReadEntireFile(handle, n->data.str);
         OS_CloseFile(handle);
 
         JS_Kick(AS_LoadAsset, n, 0, Priority_Low);
@@ -194,6 +192,31 @@ internal void AS_EntryPoint(void *p)
     }
 }
 
+internal void AS_HotloadEntryPoint(void *p)
+{
+    u64 threadIndex = (u64)p;
+    TempArena temp  = ScratchStart(0, 0);
+    SetThreadName(PushStr8F(temp.arena, "[AS] Hotload %u", threadIndex));
+    ScratchEnd(temp);
+
+    for (;;)
+    {
+        for (u32 i = 0; i < as_state->numSlots; i++)
+        {
+            AS_Slot *slot = as_state->assetSlots + i;
+            MutexScope(&slot->mutex)
+            {
+                for (AS_Node *node = slot->first; node != 0; node = node->next)
+                {
+                }
+            }
+        }
+    }
+}
+
+//////////////////////////////
+// Specific asset loading callbacks
+//
 // TODO: create a pack file so you don't have to check the file extension
 JOB_CALLBACK(AS_LoadAsset)
 {

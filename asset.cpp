@@ -275,7 +275,7 @@ internal void ProcessMesh(Arena *arena, Model *model, const aiMesh *mesh)
 
 internal Model LoadAllMeshes(Arena *arena, const aiScene *scene)
 {
-    TempArena scratch    = ScratchBegin(scratchArena);
+    TempArena scratch    = ScratchStart(0, 0);
     u32 totalVertexCount = 0;
     u32 totalFaceCount   = 0;
     Model model          = {};
@@ -497,7 +497,7 @@ internal ModelOutput AssimpDebugLoadModel(Arena *arena, string filename)
     ArrayInit(arena, model.skeleton.parents, i32, scene->mMeshes[0]->mNumBones);
     ArrayInit(arena, model.skeleton.transformsToParent, Mat4, scene->mMeshes[0]->mNumBones);
 
-    TempArena scratch = ScratchBegin(scratchArena);
+    TempArena scratch = ScratchStart(0, 0);
 
     MeshNodeInfoArray infoArray;
     infoArray.items = PushArrayNoZero(scratch.arena, MeshNodeInfo, 200);
@@ -714,7 +714,7 @@ internal void SkinModelToAnimation(AnimationPlayer *player, Model *model, const 
 internal void WriteModelToFile(Model *model, string filename)
 {
     StringBuilder builder = {};
-    TempArena temp        = ScratchBegin(scratchArena);
+    TempArena temp        = ScratchStart(0, 0);
     builder.scratch       = temp;
     Put(&builder, model->vertices.count);
     Put(&builder, model->indices.count);
@@ -754,7 +754,7 @@ global u32 skeletonVersionNumber = 1;
 internal void WriteSkeletonToFile(Skeleton *skeleton, string filename)
 {
     StringBuilder builder = {};
-    TempArena temp        = ScratchBegin(scratchArena);
+    TempArena temp        = ScratchStart(0, 0);
     builder.scratch       = temp;
     Put(&builder, skeletonVersionNumber);
     Put(&builder, skeleton->count);
@@ -815,7 +815,7 @@ global u32 animationFileVersion = 1;
 internal void WriteAnimationToFile(KeyframedAnimation *animation, string filename)
 {
     StringBuilder builder = {};
-    TempArena temp        = ScratchBegin(scratchArena);
+    TempArena temp        = ScratchStart(0, 0);
     builder.scratch       = temp;
 
     Put(&builder, animationFileVersion);

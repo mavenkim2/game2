@@ -16,8 +16,6 @@
 #include "keepmovingforward_entity.h"
 #include "keepmovingforward_level.h"
 
-global Arena *scratchArena;
-
 struct DebugBmpResult
 {
     u32 *pixels;

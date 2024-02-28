@@ -1,12 +1,13 @@
 thread_global ThreadContext *tLocalContext;
 
-internal void ThreadContextInitialize(ThreadContext *t)
+internal void ThreadContextInitialize(ThreadContext *t, b32 isMainThread = 0)
 {
     for (u32 i = 0; i < ArrayLength(t->arenas); i++)
     {
         t->arenas[i] = ArenaAllocDefault();
     }
-    tLocalContext = t;
+    t->isMainThread = isMainThread;
+    tLocalContext   = t;
 }
 
 internal void ThreadContextRelease()
@@ -54,4 +55,17 @@ internal void SetThreadName(string name)
     context->threadNameSize = Min(name.size, sizeof(context->threadName));
     MemoryCopy(context->threadName, name.str, context->threadNameSize);
     OS_SetThreadName(name);
+}
+
+internal void SetThreadIndex(u32 index)
+{
+    ThreadContext *context = ThreadContextGet();
+    context->index         = index;
+}
+
+internal u32 GetThreadIndex()
+{
+    ThreadContext *context = ThreadContextGet();
+    u32 result             = context->index;
+    return result;
 }

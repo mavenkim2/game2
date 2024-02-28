@@ -6,7 +6,6 @@
 #include "keepmovingforward_math.h"
 #include "keepmovingforward_platform.h"
 
-
 #include "keepmovingforward_memory.h"
 #include "keepmovingforward_string.h"
 #include "thread_context.h"
@@ -1034,6 +1033,5 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
         lastCycleCount = endCycleCount;
 #endif
     }
-
     return 0;
 }

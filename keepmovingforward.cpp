@@ -468,10 +468,14 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
     if (!memory->isInitialized)
     {
-        scratchArena = ArenaAlloc(megabytes(64));
 
         gameState->worldArena = ArenaAlloc((void *)((u8 *)(memory->PersistentStorageMemory) + sizeof(GameState)),
                                            memory->PersistentStorageSize - sizeof(GameState));
+        // TODO: this is scuffed. really need to
+        ThreadContext *tctx = PushStruct(gameState->worldArena, ThreadContext);
+        ThreadContextInitialize(tctx, 1);
+        SetThreadName(Str8Lit("[Main Thread]"));
+
         gameState->highPriorityQueue = memory->highPriorityQueue;
         OS_QueueJob                  = memory->OS_QueueJob;
         R_AllocateTexture2D          = memory->R_AllocateTexture2D;
@@ -569,16 +573,16 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         JS_Init();
         AS_Init();
 
-        // DumbData data    = {};
-        // JS_Ticket ticket = JS_Kick(TestCall1, &data, 0, Priority_High);
-        // for (i32 i = 0; i < 1000; i++)
-        // {
-        //     ticket = JS_Kick(TestCall1, &data, 0, Priority_High, &ticket);
-        //     ticket = JS_Kick(TestCall2, &data, 0, Priority_Normal, &ticket);
-        //     ticket = JS_Kick(TestCall3, &data, 0, Priority_Low, &ticket);
-        // }
-        // JS_Join(ticket);
-        // i32 breakhere = 0;
+        DumbData data    = {};
+        JS_Ticket ticket = JS_Kick(TestCall1, &data, 0, Priority_High);
+        for (i32 i = 0; i < 1000; i++)
+        {
+            ticket = JS_Kick(TestCall1, &data, 0, Priority_High, &ticket);
+            ticket = JS_Kick(TestCall2, &data, 0, Priority_Normal, &ticket);
+            ticket = JS_Kick(TestCall3, &data, 0, Priority_Low, &ticket);
+        }
+        JS_Join(ticket);
+        i32 breakhere = 0;
 
         AS_EnqueueFile(Str8C("data/dragon.skel"));
     }

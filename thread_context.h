@@ -6,9 +6,12 @@ struct ThreadContext
     Arena *arenas[2];
     u8 threadName[64];
     u64 threadNameSize;
+
+    b32 isMainThread;
+    u32 index;
 };
 
-internal void ThreadContextInitialize(ThreadContext *t);
+internal void ThreadContextInitialize(ThreadContext *t, b32 isMainThread);
 internal void ThreadContextRelease();
 internal ThreadContext *ThreadContextGet();
 

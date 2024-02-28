@@ -20,7 +20,7 @@ internal void JS_Init()
     }
 
     // js_state->threadCount   = Clamp(OS_NumProcessors() - 1, 1, 8);
-    js_state->threadCount   = OS_NumProcessors() - 1;
+    js_state->threadCount   = OS_NumProcessors();
     js_state->readSemaphore = OS_CreateSemaphore(js_state->threadCount);
 
     // Initialize priority queues
@@ -29,7 +29,12 @@ internal void JS_Init()
     js_state->lowPriorityQueue.writeSemaphore    = OS_CreateSemaphore(js_state->threadCount);
 
     js_state->threads = PushArray(arena, JS_Thread, js_state->threadCount);
-    for (u64 i = 0; i < js_state->threadCount; i++)
+
+    // Main thread
+    js_state->threads[0].handle = {};
+    js_state->threads[0].arena  = ArenaAllocDefault();
+    SetThreadIndex(0);
+    for (u64 i = 1; i < js_state->threadCount; i++)
     {
         js_state->threads[i].handle = OS_ThreadStart(JobThreadEntryPoint, (void *)i);
         js_state->threads[i].arena  = ArenaAllocDefault();
@@ -142,6 +147,10 @@ internal void JS_Join(JS_Ticket ticket)
     u64 stripeIndex   = id % js_state->numStripes;
     JS_Stripe *stripe = js_state->stripes + stripeIndex;
 
+    u32 threadIndex = GetThreadIndex();
+
+    JS_Thread *thread = &js_state->threads[threadIndex];
+
     for (;;)
     {
         b32 taskCompleted = (AtomicAddU64(&counter->c, 0) == 0);
@@ -153,6 +162,14 @@ internal void JS_Join(JS_Ticket ticket)
 
             OS_DropWMutex(stripe->rwMutex);
             break;
+        }
+
+        // NOTE: crazytown incoming
+
+        if (JS_PopJob(&js_state->highPriorityQueue, thread) && JS_PopJob(&js_state->normalPriorityQueue, thread) &&
+            JS_PopJob(&js_state->lowPriorityQueue, thread))
+        {
+            _mm_pause();
         }
     }
 }
@@ -247,11 +264,8 @@ JOB_CALLBACK(TestCall1)
     DumbData *d = (DumbData *)data;
     AtomicAddU64(&d->j, 4);
 
-    // NOTE: sometimes, if the call stack is deep enough, all of the threads are stuck in either
-    // JS_Kick or JS_Join, leading to a deadlock, since there is no thread to pop off a job.
-
-    // JS_Ticket ticket = JS_Kick(TestCall3, d, 0, Priority_Normal);
-    // JS_Join(ticket);
+    JS_Ticket ticket = JS_Kick(TestCall3, d, 0, Priority_Normal);
+    JS_Join(ticket);
 
     return 0;
 }
