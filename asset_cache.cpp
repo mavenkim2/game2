@@ -196,7 +196,7 @@ internal void AS_EntryPoint(void *p)
         // If the file doesn't exist, abort
         if (attributes.lastModified == 0 && attributes.size == U32Max)
         {
-            return;
+            continue;
         }
 
         u64 hash      = HashFromString(path);

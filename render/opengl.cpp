@@ -722,9 +722,11 @@ R_ALLOC_TEXTURE_2D(R_AllocateTexture2D)
 
 R_TEXTURE_SUBMIT_2D(R_SubmitTexture2D)
 {
+    b32 newTexture = 0;
     if (*textureHandle == 0)
     {
         glGenTextures(1, textureHandle);
+        newTexture = 1;
     }
     glBindTexture(GL_TEXTURE_2D, *textureHandle);
 
@@ -746,7 +748,14 @@ R_TEXTURE_SUBMIT_2D(R_SubmitTexture2D)
             break;
     }
 
-    glTexImage2D(GL_TEXTURE_2D, 0, glFormat, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+    if (newTexture)
+    {
+        glTexImage2D(GL_TEXTURE_2D, 0, glFormat, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+    }
+    else
+    {
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+    }
 
     // TODO: pass these in as params
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -762,5 +771,3 @@ R_DELETE_TEXTURE_2D(R_DeleteTexture2D)
 {
     glDeleteTextures(1, &handle);
 }
-
-// internal void R_DeleteTexture2D

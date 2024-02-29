@@ -867,7 +867,7 @@ internal void ReadAnimationFile(Arena *arena, KeyframedAnimation *animation, str
 }
 
 //////////////////////////////
-// Asset streaming
+// Texture streaming
 //
 enum T_LoadStatus
 {
