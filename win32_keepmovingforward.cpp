@@ -585,6 +585,12 @@ internal void Win32ProcessPendingMessages(HWND window, Win32State *state, GameIn
                 RUNNING = false;
                 break;
             }
+            case WM_PAINT:
+            {
+                PAINTSTRUCT paint; HDC dc = BeginPaint(window, &paint);
+                EndPaint(window, &paint);
+                break;
+            }
             default:
             {
                 TranslateMessage(&message);

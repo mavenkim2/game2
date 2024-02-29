@@ -6,6 +6,11 @@
 
 typedef u32 R_Handle;
 
+union AS_Handle
+{
+    u64 u64[2];
+};
+
 enum TextureType
 {
     TextureType_Nil,
@@ -24,14 +29,14 @@ struct Texture
     u32 type;
     b32 loaded;
 };
+
 struct AssetState
 {
     Arena *arena;
-    Texture textures[MAX_TEXTURES];
-    u32 textureCount = 0;
 
-    u32 loadedTextureCount = 0;
-    // OS_JobQueue *queue;
+    // TODO: better name. these are the textureIds opengl uses
+    u32 textureIds[MAX_TEXTURES];
+    u32 textureCount;
 };
 
 struct Iter
@@ -170,7 +175,16 @@ struct Model
 
     Skeleton skeleton;
 
-    Array(u32) textureHandles;
+    AS_Handle textures[4];
+    u32 numTextures;
+
+    // TODO For later:
+    struct
+    {
+        u32 startIndex;
+        u32 onePlusEndIndex;
+        u32 handleIndex;
+    } materials[4];
 
     Mat4 transform;
 

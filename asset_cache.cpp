@@ -124,22 +124,60 @@ internal string AS_DequeueFile(Arena *arena)
 }
 
 //////////////////////////////
-// Handle
+// Handles
 //
-internal AS_Handle AS_GetAssetHandle(string path)
+internal AS_Handle AS_GetAssetHandle(u64 hash)
 {
-    u64 hash      = HashFromString(path);
-    AS_Slot *slot = &as_state->assetSlots[(hash & (as_state->numSlots - 1))];
+    u64 index     = hash & (as_state->numSlots - 1);
+    AS_Slot *slot = as_state->assetSlots + index;
     AS_Node *n    = 0;
     BeginMutex(&slot->mutex);
     for (AS_Node *node = slot->first; node != 0; node = node->next)
     {
-        if (node->path == path)
+        if (node->hash == hash)
         {
             n = node;
             break;
         }
     }
+    EndMutex(&slot->mutex);
+
+    // TODO: gen id?
+    AS_Handle result = {(u64)n, hash};
+    return result;
+}
+
+internal AS_Handle AS_GetAssetHandle(string path)
+{
+    u64 hash         = HashFromString(path);
+    AS_Handle result = {};
+
+    u64 index     = hash & (as_state->numSlots - 1);
+    AS_Slot *slot = as_state->assetSlots + index;
+    AS_Node *n    = 0;
+
+    BeginMutex(&slot->mutex);
+    for (AS_Node *node = slot->first; node != 0; node = node->next)
+    {
+        if (node->hash == hash)
+        {
+            n = node;
+            break;
+        }
+    }
+    EndMutex(&slot->mutex);
+
+    if (n == 0)
+    {
+        AS_EnqueueFile(path);
+        result = {0, hash};
+    }
+    else
+    {
+        result = {(u64)n, hash};
+    }
+
+    return result;
 }
 
 //////////////////////////////

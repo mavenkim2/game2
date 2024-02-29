@@ -134,25 +134,42 @@ internal void BeginRenderFrame(RenderState *state)
     }
 }
 
-// internal void PushTexture(Texture texture, Model *model)
-// {
-//     ArrayPush(&model->textures, texture);
-// }
-
-internal void PushTexture(Model *model, u32 id)
+internal b32 AddTexture(Model *model, AS_Handle handle)
 {
-    ArrayPush(&model->textureHandles, id);
+    b32 result = 0;
+    if (model->numTextures < ArrayLength(model->textures))
+    {
+        model->textures[model->numTextures++] = handle;
+        result = 1;
+    }
+    return result;
 }
 
 internal void PushModel(RenderState *state, Model *model, Mat4 *finalTransforms = 0)
 {
-    RenderCommand command;
-    command.model     = model;
-    command.transform = Identity();
+    RenderCommand command = {};
+    command.model         = model;
+    command.transform     = Identity();
     if (finalTransforms)
     {
         command.finalBoneTransforms = finalTransforms;
     }
+
+    // Add the opengl texture handles to the render command
+    for (u32 i = 0; i < model->numTextures; i++)
+    {
+        if (model->textures[i].u64[0] == 0)
+        {
+            model->textures[i] = AS_GetAssetHandle(model->textures[i].u64[1]);
+        }
+        AS_Node *node = (AS_Node *)model->textures[i].u64[0];
+        if (node)
+        {
+            R_Handle handle                              = node->texture.handle;
+            command.textureHandles[command.numHandles++] = handle;
+        }
+    }
+
     ArrayPush(&state->commands, command);
 }
 

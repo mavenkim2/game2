@@ -928,7 +928,7 @@ JOB_CALLBACK(LoadTextureCallback)
     TextureOp *op = (TextureOp *)data;
     i32 width, height, nChannels;
     u8 *texData = (u8 *)stbi_load_from_memory(op->assetNode->data.str, (i32)op->assetNode->data.size, &width,
-                                              &height, &nChannels, 0);
+                                              &height, &nChannels, 4);
     MemoryCopy(op->buffer, texData, width * height * 4);
     op->assetNode->texture.width  = width;
     op->assetNode->texture.height = height;
@@ -936,6 +936,8 @@ JOB_CALLBACK(LoadTextureCallback)
 
     WriteBarrier();
     op->status = T_LoadStatus_Loaded;
+
+    return 0;
 }
 
 // NOTE: if there isn't space it just won't push
@@ -968,12 +970,10 @@ internal void LoadTextureOps()
             TextureOp *op = queue->ops + ringIndex;
             Assert(queue->ops[ringIndex].status == T_LoadStatus_Unloaded);
             op->buffer    = 0;
-            op->pboHandle = R_AllocateTexture2D(op->buffer);
+            op->pboHandle = R_AllocateTexture2D(&op->buffer);
             if (op->buffer)
             {
-                op->status       = T_LoadStatus_Loading;
-                TextureOp *oldOp = op;
-                op               = op->next;
+                op->status = T_LoadStatus_Loading;
                 JS_Kick(LoadTextureCallback, op, 0, Priority_Low);
                 break;
             }
@@ -981,7 +981,7 @@ internal void LoadTextureOps()
         // Submits PBO to OpenGL
         while (queue->finalizePos != queue->loadPos)
         {
-            u32 ringIndex = queue->finalizePos++ & (queue->numOps - 1);
+            u32 ringIndex = queue->finalizePos & (queue->numOps - 1);
             TextureOp *op = queue->ops + ringIndex;
             if (op->status == T_LoadStatus_Loaded)
             {
@@ -999,6 +999,7 @@ internal void LoadTextureOps()
                 }
                 texture->handle = R_SubmitTexture2D(op->pboHandle, texture->width, texture->height, format);
                 texture->loaded = true;
+                queue->finalizePos++;
             }
             else
             {

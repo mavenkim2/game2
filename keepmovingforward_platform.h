@@ -16,11 +16,12 @@ struct RenderState;
 enum R_TexFormat;
 typedef u32 R_Handle;
 
-// Job stuff
+#define R_ALLOC_TEXTURE_2D(name) u64 name(u8 **out)
+typedef R_ALLOC_TEXTURE_2D(r_allocate_texture_2D);
+#define R_TEXTURE_SUBMIT_2D(name) R_Handle name(u64 handle, u32 width, u32 height, R_TexFormat format)
+typedef R_TEXTURE_SUBMIT_2D(r_submit_texture_2D);
 
 typedef void PlatformToggleCursorFunctionType(b32 value);
-typedef u64 r_allocate_texture_2D(u8 *out);
-typedef R_Handle r_submit_texture_2D(u64 handle, u32 width, u32 height, R_TexFormat format);
 
 void PlatformToggleCursor(b32 value);
 

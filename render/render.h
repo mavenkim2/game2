@@ -69,12 +69,17 @@ struct RenderVertex
     V3 color;
 };
 
+typedef u32 T_Handle;
+
 struct RenderCommand
 {
     Model *model;
     Mat4 transform;
 
     Mat4 *finalBoneTransforms;
+
+    R_Handle textureHandles[4];
+    u32 numHandles;
 };
 
 struct RenderState

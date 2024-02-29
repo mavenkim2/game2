@@ -216,11 +216,11 @@ internal void HotloadShaders(OpenGLShader *shader)
     }
 }
 
-inline Texture *OpenGLGetTexFromHandle(RenderState *state, u32 handle)
-{
-    Texture *result = state->assetState->textures + handle;
-    return result;
-}
+// inline Texture *OpenGLGetTexFromHandle(RenderState *state, u32 handle)
+// {
+//     Texture *result = state->assetState->textures + handle;
+//     return result;
+// }
 
 internal void OpenGLInit()
 {
@@ -230,15 +230,11 @@ internal void OpenGLInit()
 
     openGL->glGenBuffers(1, &openGL->vertexBufferId);
     openGL->glGenBuffers(1, &openGL->indexBufferId);
+
+    // Pbos
     openGL->glGenBuffers(ArrayLength(openGL->pbos), openGL->pbos);
     openGL->pboIndex          = 0;
     openGL->firstUsedPboIndex = 0;
-
-    u32 data = 0xffffffff;
-    u8 *buffer;
-    u64 pbo = R_AllocateTexture2D(buffer);
-    MemoryCopy(buffer, &data, sizeof(data));
-    R_SubmitTexture2D(pbo, 1, 1, R_TexFormat_RGBA8);
 
     for (u32 i = 0; i < ArrayLength(openGL->pbos); i++)
     {
@@ -246,6 +242,13 @@ internal void OpenGLInit()
         openGL->glBufferData(GL_PIXEL_UNPACK_BUFFER, 1024 * 1024 * 4, 0, GL_STREAM_DRAW);
         openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
     }
+
+    // Default white texture
+    u32 data   = 0xffffffff;
+    u8 *buffer = 0;
+    u64 pbo    = R_AllocateTexture2D(&buffer);
+    MemoryCopy(buffer, &data, sizeof(data));
+    R_SubmitTexture2D(pbo, 1, 1, R_TexFormat_RGBA8);
 
     VSyncToggle(1);
 
@@ -468,41 +471,43 @@ internal void OpenGLEndFrame(RenderState *state, HDC deviceContext, int clientWi
             {
                 LoadModel(model);
             }
-            loopi(0, model->textureHandles.count)
+            // NOTE: If there are no textures, use the default white texture
+            openGL->glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, openGL->whiteTextureId);
+            for (u32 i = 0; i < command->numHandles; i++)
             {
-                Texture *texture = OpenGLGetTexFromHandle(state, model->textureHandles.items[i]);
-
-                // TODO: make the texture loading code more streamlined and less bug prone
-                u32 textureId = texture->handle;
-                if (texture->loaded == false)
+                u32 textureHandle = command->textureHandles[i];
+                if (textureHandle == 0)
                 {
-                    textureId = openGL->whiteTextureId;
+                    textureHandle = openGL->whiteTextureId;
                 }
-                switch (texture->type)
-                {
-                    case TextureType_Diffuse:
-                    {
-                        openGL->glActiveTexture(GL_TEXTURE0);
-                        glBindTexture(GL_TEXTURE_2D, textureId);
-                        break;
-                    }
-                    case TextureType_Normal:
-                    {
-                        openGL->glActiveTexture(GL_TEXTURE0 + 1);
-                        glBindTexture(GL_TEXTURE_2D, textureId);
-                        break;
-                    }
-                    case TextureType_Nil:
-                    {
-                        openGL->glActiveTexture(GL_TEXTURE0);
-                        glBindTexture(GL_TEXTURE_2D, textureId);
-                        break;
-                    }
-                    default:
-                    {
-                        break;
-                    }
-                }
+                openGL->glActiveTexture(GL_TEXTURE0 + i);
+                glBindTexture(GL_TEXTURE_2D, textureHandle);
+                // switch (texture->type)
+                // {
+                //     case TextureType_Diffuse:
+                //     {
+                //         openGL->glActiveTexture(GL_TEXTURE0);
+                //         glBindTexture(GL_TEXTURE_2D, textureId);
+                //         break;
+                //     }
+                //     case TextureType_Normal:
+                //     {
+                //         openGL->glActiveTexture(GL_TEXTURE0 + 1);
+                //         glBindTexture(GL_TEXTURE_2D, textureId);
+                //         break;
+                //     }
+                //     case TextureType_Nil:
+                //     {
+                //         openGL->glActiveTexture(GL_TEXTURE0);
+                //         glBindTexture(GL_TEXTURE_2D, textureId);
+                //         break;
+                //     }
+                //     default:
+                //     {
+                //         break;
+                //     }
+                // }
             }
 
             openGL->glActiveTexture(GL_TEXTURE0);
@@ -706,21 +711,22 @@ inline GLuint GetPbo(u64 handle)
     return pbo;
 }
 
-internal u64 R_AllocateTexture2D(u8 *out)
+R_ALLOC_TEXTURE_2D(R_AllocateTexture2D)
 {
     u64 handle         = 0;
     u64 availableSlots = ArrayLength(openGL->pbos) - (openGL->pboIndex - openGL->firstUsedPboIndex);
     if (availableSlots >= 1)
     {
-        handle = openGL->pboIndex++;
-        openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, GetPbo(handle));
-        out = (u8 *)openGL->glMapBuffer(GL_PIXEL_UNPACK_BUFFER, GL_WRITE_ONLY);
+        handle     = openGL->pboIndex++;
+        GLuint pbo = GetPbo(handle);
+        openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
+        *out = (u8 *)openGL->glMapBuffer(GL_PIXEL_UNPACK_BUFFER, GL_WRITE_ONLY);
         openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
     }
     return handle;
 }
 
-internal R_Handle R_SubmitTexture2D(u64 handle, u32 width, u32 height, R_TexFormat format)
+R_TEXTURE_SUBMIT_2D(R_SubmitTexture2D)
 {
     R_Handle id = 0;
     glGenTextures(1, &id);

@@ -3,11 +3,6 @@ struct AS_Slot;
 internal void AS_EntryPoint(void *p);
 JOB_CALLBACK(AS_LoadAsset);
 
-union AS_Handle
-{
-    u64 u64[2];
-};
-
 struct AS_CacheState
 {
     Arena *arena;

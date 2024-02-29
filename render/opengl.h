@@ -242,8 +242,8 @@ global wgl_create_context_attribs_arb *wglCreateContextAttribsARB;
 
 #define OpenGLFunction(name) type_##name *name
 
-internal u64 R_AllocateTexture2D(u8 *out);
-internal R_Handle R_SubmitTexture2D(u64 handle, u32 width, u32 height, R_TexFormat format);
+R_ALLOC_TEXTURE_2D(R_AllocateTexture2D);
+R_TEXTURE_SUBMIT_2D(R_SubmitTexture2D);
 
 struct OpenGLShader
 {

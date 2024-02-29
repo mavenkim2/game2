@@ -468,16 +468,19 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
     if (!memory->isInitialized)
     {
-
         gameState->worldArena = ArenaAlloc((void *)((u8 *)(memory->PersistentStorageMemory) + sizeof(GameState)),
                                            memory->PersistentStorageSize - sizeof(GameState));
-        // TODO: this is scuffed. really need to
+
+        // TODO: have main thread initialization somewhere else
         ThreadContext *tctx = PushStruct(gameState->worldArena, ThreadContext);
         ThreadContextInitialize(tctx, 1);
         SetThreadName(Str8Lit("[Main Thread]"));
 
-        // gameState->highPriorityQueue = memory->highPriorityQueue;
-        // OS_QueueJob                  = memory->OS_QueueJob;
+        OS_Init();
+        JS_Init();
+        AS_Init();
+        T_Init();
+
         R_AllocateTexture2D = memory->R_AllocateTexture2D;
         R_SubmitTexture2D   = memory->R_SubmitTexture2D;
 
@@ -506,15 +509,12 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
         ReadAnimationFile(gameState->worldArena, animation, Str8Lit("data/dragon_attack_01.anim"));
 
-        ArrayInit(gameState->worldArena, gameState->model.textureHandles, u32, MAX_TEXTURES);
+        // ArrayInit(gameState->worldArena, gameState->model.textureHandles, u32, MAX_TEXTURES);
 
         assetState->arena = ArenaAllocDefault();
         // assetState->queue       = memory->highPriorityQueue;
         renderState->assetState = assetState;
 
-        // TODO: should be able to get the type from the file name
-        // or I should have my own model file format that specifies the diffuse/normal textures
-        // also need to find a way of getting the handles instead of just hardcoding them
 
         AS_Handle handle = AS_GetAssetHandle(Str8Lit("data/dragon/MI_M_B_44_Qishilong_body02_2_Inst_diffuse.png"));
         AddTexture(&gameState->model, handle);
@@ -563,27 +563,18 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         gameState->tforms = PushArray(gameState->worldArena, AnimationTransform, gameState->model.skeleton.count);
         gameState->finalTransforms = PushArray(gameState->worldArena, Mat4, gameState->model.skeleton.count);
 
-        // AS_Init();
-        // AS_EnqueueJob(Str8Lit("shmeepshmop"));
-        // string result = AS_DequeueFile(gameState->worldArena);
-        // Printf("%u", OS_NumProcessors());
+        // DumbData data    = {};
+        // JS_Ticket ticket = JS_Kick(TestCall1, &data, 0, Priority_High);
+        // for (i32 i = 0; i < 1000; i++)
+        // {
+        //     ticket = JS_Kick(TestCall1, &data, 0, Priority_High, &ticket);
+        //     ticket = JS_Kick(TestCall2, &data, 0, Priority_Normal, &ticket);
+        //     ticket = JS_Kick(TestCall3, &data, 0, Priority_Low, &ticket);
+        // }
+        // JS_Join(ticket);
+        // i32 breakhere = 0;
 
-        OS_Init();
-        JS_Init();
-        AS_Init();
-
-        DumbData data    = {};
-        JS_Ticket ticket = JS_Kick(TestCall1, &data, 0, Priority_High);
-        for (i32 i = 0; i < 1000; i++)
-        {
-            ticket = JS_Kick(TestCall1, &data, 0, Priority_High, &ticket);
-            ticket = JS_Kick(TestCall2, &data, 0, Priority_Normal, &ticket);
-            ticket = JS_Kick(TestCall3, &data, 0, Priority_Low, &ticket);
-        }
-        JS_Join(ticket);
-        i32 breakhere = 0;
-
-        AS_EnqueueFile(Str8C("data/dragon.skel"));
+        // AS_EnqueueFile(Str8C("data/dragon.skel"));
     }
     //
     // Assets
