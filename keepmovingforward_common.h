@@ -126,9 +126,26 @@ typedef i64 b64;
 #define SLLStackPop_N(f, next)     ((f) = (f)->next)
 #define SLLStackPush_N(f, n, next) ((n)->next = (f), (f) = (n))
 
+#define DLLInsert_NPZ(f, l, p, n, next, prev, zchk, zset)                                                         \
+    (zchk(f)   ? (((f) = (l) = (n)), zset((n)->next), zset((n)->prev))                                            \
+     : zchk(p) ? (zset((n)->prev), (n)->next = (f), (zchk(f) ? (0) : ((f)->prev = (n))), (f) = (n))               \
+               : ((zchk((p)->next) ? (0) : (((p)->next->prev) = (n))), (n)->next = (p)->next, (n)->prev = (p),    \
+                  (p)->next = (n), ((p) == (l) ? (l) = (n) : (0))))
+#define DLLPushBack_NPZ(f, l, n, next, prev, zchk, zset) DLLInsert_NPZ(f, l, l, n, next, prev, zchk, zset)
+#define DLLRemove_NPZ(f, l, n, next, prev, zchk, zset)                                                            \
+    (((f) == (n))   ? ((f) = (f)->next, (zchk(f) ? (zset(l)) : zset((f)->prev)))                                  \
+     : ((l) == (n)) ? ((l) = (l)->prev, (zchk(l) ? (zset(f)) : zset((l)->next)))                                  \
+                    : ((zchk((n)->next) ? (0) : ((n)->next->prev = (n)->prev)),                                   \
+                       (zchk((n)->prev) ? (0) : ((n)->prev->next = (n)->next))))
+
 #define QueuePush(f, l, n) QueuePush_NZ(f, l, n, next, CheckNull, SetNull)
 #define StackPop(f)        SLLStackPop_N(f, next)
 #define StackPush(f, n)    SLLStackPush_N(f, n, next)
+
+#define DLLPushBack(f, l, n)  DLLPushBack_NPZ(f, l, n, next, prev, CheckNull, SetNull)
+#define DLLPushFront(f, l, n) DLLPushBack_NPZ(l, f, n, prev, next, CheckNull, SetNull)
+#define DLLInsert(f, l, p, n) DLLInsert_NPZ(f, l, p, n, next, prev, CheckNull, SetNull)
+#define DLLRemove(f, l, n)    DLLRemove_NPZ(f, l, n, next, prev, CheckNull, SetNull)
 
 ////////////////////////////////////////////////////////////////////////////////////////
 // Array List
@@ -197,6 +214,7 @@ inline void *ArrayGrow(void *a, u32 size, u32 length, u32 minCap)
 #define AtomicDecrementU32(dest)   _InterlockedDecrement((long volatile *)dest)
 #define AtomicDecrementU64(dest)   _InterlockedDecrement64((__int64 volatile *)dest)
 #define AtomicAddU64(dest, addend) _InterlockedExchangeAdd64((__int64 volatile *)dest, addend)
+#define WriteBarrier()             _mm_sfence()
 
 struct TicketMutex
 {
@@ -234,7 +252,7 @@ inline void BeginMutex(Mutex *mutex)
 // TODO: use memory barrier instead, _mm_sfence()?
 inline void EndMutex(Mutex *mutex)
 {
-    _mm_sfence();
+    WriteBarrier();
     mutex->count = 0;
 }
 

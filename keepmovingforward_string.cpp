@@ -1,35 +1,11 @@
 #include <string.h>
 
-internal string Str8(u8 *str, u64 size)
-{
-    string result;
-    result.str  = str;
-    result.size = size;
-    return result;
-}
-
+//////////////////////////////
+// Char
+//
 inline b32 CharIsWhitespace(u8 c)
 {
     return c == ' ';
-}
-
-inline string Substr8(string str, u64 min, u64 max)
-{
-    if (max > str.size)
-    {
-        max = str.size;
-    }
-    if (min > str.size)
-    {
-        min = str.size;
-    }
-    if (min > max)
-    {
-        Swap(u64, min, max);
-    }
-    str.size = max - min;
-    str.str += min;
-    return str;
 }
 
 internal b32 CharIsAlpha(u8 c)
@@ -51,6 +27,45 @@ internal b32 CharIsDigit(u8 c)
     return (c >= '0' && c <= '9');
 }
 
+internal u8 CharToLower(u8 c)
+{
+    u8 result = (c >= 'A' && c <= 'Z') ? ('a' + (c - 'A')) : c;
+    return result;
+}
+internal u8 CharToUpper(u8 c)
+{
+    u8 result = (c >= 'A' && c <= 'Z') ? ('a' + (c - 'A')) : c;
+    return result;
+}
+
+//////////////////////////////
+// Creating Strings
+//
+internal string Str8(u8 *str, u64 size)
+{
+    string result;
+    result.str  = str;
+    result.size = size;
+    return result;
+}
+inline string Substr8(string str, u64 min, u64 max)
+{
+    if (max > str.size)
+    {
+        max = str.size;
+    }
+    if (min > str.size)
+    {
+        min = str.size;
+    }
+    if (min > max)
+    {
+        Swap(u64, min, max);
+    }
+    str.size = max - min;
+    str.str += min;
+    return str;
+}
 internal u64 CalculateCStringLength(char *cstr)
 {
     u64 length = 0;
@@ -59,49 +74,6 @@ internal u64 CalculateCStringLength(char *cstr)
     }
     return length;
 }
-
-internal string Str8PathChopLastSlash(string string)
-{
-    u64 onePastLastSlash = string.size;
-    for (u64 count = 0; count < string.size; count++)
-    {
-        if (string.str[count] == '\\')
-        {
-            onePastLastSlash = count;
-        }
-    }
-    string.size = onePastLastSlash;
-    return string;
-}
-
-internal string Str8PathChopPastLastSlash(string string)
-{
-    // TODO: implement find substring
-    u64 onePastLastSlash = string.size;
-    for (u64 count = 0; count < string.size; count++)
-    {
-        if (string.str[count] == '\\')
-        {
-            onePastLastSlash = count + 1;
-        }
-    }
-    string.size = onePastLastSlash;
-    return string;
-}
-
-// internal string Concat(Arena *arena, string a, string b)
-// {
-//     string result = {};
-//     result.size = a.size + b.size;
-//     result.str = PushArray(arena, u8, result.size + 1);
-//
-//     u8 *ptr = result.str;
-//     memcpy(ptr, a.str, a.size);
-//     ptr += a.size;
-//     memcpy(ptr, b.str, b.size);
-//     result.str[result.size] = 0;
-//     return result;
-// }
 
 internal string PushStr8FV(Arena *arena, char *fmt, va_list args)
 {
@@ -125,6 +97,19 @@ internal string PushStr8Copy(Arena *arena, string str)
     return res;
 }
 
+internal string PushStr8F(Arena *arena, char *fmt, ...)
+{
+    string result = {};
+    va_list args;
+    va_start(args, fmt);
+    result = PushStr8FV(arena, fmt, args);
+    va_end(args);
+    return result;
+}
+
+//////////////////////////////
+// Finding Strings
+//
 internal b32 operator==(string a, string b)
 {
     b32 result = false;
@@ -139,16 +124,6 @@ internal b32 operator==(string a, string b)
             }
         }
     }
-    return result;
-}
-
-internal string PushStr8F(Arena *arena, char *fmt, ...)
-{
-    string result = {};
-    va_list args;
-    va_start(args, fmt);
-    result = PushStr8FV(arena, fmt, args);
-    va_end(args);
     return result;
 }
 
@@ -184,6 +159,47 @@ internal b32 StartsWith(string a, string b)
     return result;
 }
 
+internal b32 MatchString(string a, string b, MatchFlags flags)
+{
+    b32 result = 0;
+    if (a.size == b.size)
+    {
+        result = 1;
+        for (u64 i = 0; i < a.size; i++)
+        {
+            b32 match = (a.str[i] == b.str[i]);
+            if (flags & MatchFlag_CaseInsensitive)
+            {
+                match |= (CharToLower(a.str[i]) == CharToLower(b.str[i]));
+            }
+            if (match == 0)
+            {
+                result = 0;
+                break;
+            }
+        }
+    }
+    return result;
+}
+
+internal u64 FindSubstring(string haystack, string needle, MatchFlags flags)
+{
+    u64 foundIndex = haystack.size;
+    for (u64 i = 0; i < haystack.size; i++)
+    {
+        if (i + needle.size <= haystack.size)
+        {
+            string substr = Substr8(haystack, i, i + needle.size);
+            if (MatchString(substr, needle, flags))
+            {
+                foundIndex = i;
+                break;
+            }
+        }
+    }
+    return foundIndex;
+}
+
 //////////////////////////////
 // File path helpers
 //
@@ -205,6 +221,35 @@ internal string GetFileExtension(string path)
     return result;
 }
 
+internal string Str8PathChopLastSlash(string string)
+{
+    u64 onePastLastSlash = string.size;
+    for (u64 count = 0; count < string.size; count++)
+    {
+        if (string.str[count] == '\\')
+        {
+            onePastLastSlash = count;
+        }
+    }
+    string.size = onePastLastSlash;
+    return string;
+}
+
+internal string Str8PathChopPastLastSlash(string string)
+{
+    // TODO: implement find substring
+    u64 onePastLastSlash = string.size;
+    for (u64 count = 0; count < string.size; count++)
+    {
+        if (string.str[count] == '\\')
+        {
+            onePastLastSlash = count + 1;
+        }
+    }
+    string.size = onePastLastSlash;
+    return string;
+}
+
 //////////////////////////////
 // Hash
 //
@@ -221,27 +266,6 @@ internal u64 HashFromString(string string)
 //////////////////////////////
 // String token building/reading
 //
-
-struct StringBuilderNode
-{
-    string str;
-    StringBuilderNode *next;
-};
-
-struct StringBuilder
-{
-    StringBuilderNode *first;
-    StringBuilderNode *last;
-    u32 totalSize;
-    TempArena scratch;
-};
-
-struct Tokenizer
-{
-    string input;
-    u8 *cursor;
-};
-
 inline void Advance(Tokenizer *tokenizer, u32 size)
 {
     if (tokenizer->cursor + size <= tokenizer->input.str + tokenizer->input.size)
@@ -338,16 +362,3 @@ internal void Get(Tokenizer *tokenizer, void *ptr, u32 size)
     MemoryCopy(ptr, tokenizer->cursor, size);
     Advance(tokenizer, size);
 }
-
-#define PutPointer(builder, ptr) Put(builder, ptr, sizeof(*ptr))
-#define PutArray(builder, array) Put(builder, array.items, sizeof(array.items[0]) * array.count)
-
-#define GetPointer(tokenizer, ptr) Get(tokenizer, ptr, sizeof(*ptr))
-#define GetArray(tokenizer, array, count_)                                                                        \
-    do                                                                                                            \
-    {                                                                                                             \
-        array.count = count_;                                                                                     \
-        Get(tokenizer, array.items, sizeof(array.items[0]) * count_);                                             \
-    } while (0)
-
-#define GetCursor(tokenizer, type) (type *)GetCursor_(tokenizer)

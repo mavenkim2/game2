@@ -9,12 +9,12 @@
 // - Be able to asynchronously load multiple textures at the same time (using probably a list of PBOs).
 // - LRU for eviction
 
-global AS_State *as_state = 0;
+global AS_CacheState *as_state = 0;
 
 internal void AS_Init()
 {
     Arena *arena    = ArenaAlloc(megabytes(8));
-    as_state        = PushStruct(arena, AS_State);
+    as_state        = PushStruct(arena, AS_CacheState);
     as_state->arena = arena;
 
     as_state->numSlots   = 1024;
@@ -121,6 +121,25 @@ internal string AS_DequeueFile(Arena *arena)
     }
     OS_ReleaseSemaphore(as_state->writeSemaphore);
     return result;
+}
+
+//////////////////////////////
+// Handle
+//
+internal AS_Handle AS_GetAssetHandle(string path)
+{
+    u64 hash      = HashFromString(path);
+    AS_Slot *slot = &as_state->assetSlots[(hash & (as_state->numSlots - 1))];
+    AS_Node *n    = 0;
+    BeginMutex(&slot->mutex);
+    for (AS_Node *node = slot->first; node != 0; node = node->next)
+    {
+        if (node->path == path)
+        {
+            n = node;
+            break;
+        }
+    }
 }
 
 //////////////////////////////
@@ -248,19 +267,30 @@ JOB_CALLBACK(AS_LoadAsset)
             {
                 ReadLine(&tokenizer);
             }
-            skeleton.parents = GetCursor(&tokenizer, i32);
+            skeleton.parents = GetTokenCursor(&tokenizer, i32);
             Advance(&tokenizer, sizeof(skeleton.parents[0]) * count);
-            skeleton.inverseBindPoses = GetCursor(&tokenizer, Mat4);
+            skeleton.inverseBindPoses = GetTokenCursor(&tokenizer, Mat4);
             Advance(&tokenizer, sizeof(skeleton.inverseBindPoses[0]) * count);
-            skeleton.transformsToParent = GetCursor(&tokenizer, Mat4);
+            skeleton.transformsToParent = GetTokenCursor(&tokenizer, Mat4);
             Advance(&tokenizer, sizeof(skeleton.transformsToParent[0]) * count);
 
             Assert(EndOfBuffer(&tokenizer));
         }
         node->type = AS_Skeleton;
     }
+    // TODO: I wish I could just stream the texture from this thread, but opengl won't let me
     else if (extension == Str8Lit("png"))
     {
+        node->type = AS_Texture;
+        if (FindSubstring(node->path, Str8Lit("diffuse"), MatchFlag_CaseInsensitive) != node->path.size)
+        {
+            node->texture.type = TextureType_Diffuse;
+        }
+        else if (FindSubstring(node->path, Str8Lit("normal"), MatchFlag_CaseInsensitive) != node->path.size)
+        {
+            node->texture.type = TextureType_Normal;
+        }
+        PushTextureQueue(node);
     }
     else if (extension == Str8Lit("vs"))
     {

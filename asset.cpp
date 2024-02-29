@@ -866,74 +866,146 @@ internal void ReadAnimationFile(Arena *arena, KeyframedAnimation *animation, str
     OS_Release(tokenizer.input.str);
 }
 
-struct AssetJobData
+//////////////////////////////
+// Asset streaming
+//
+enum T_LoadStatus
 {
-    TempArena temp;
-    AssetState *state;
-    string filename;
-    TextureType type;
-    u32 handle;
-    u8 *buffer;
+    T_LoadStatus_Unloaded,
+    T_LoadStatus_Loading,
+    T_LoadStatus_Loaded,
 };
 
-JOB_ENTRY_POINT(LoadAssetCallback)
+struct TextureOp
 {
-    AssetJobData *jobData = (AssetJobData *)data;
+    T_LoadStatus status;
+    AS_Node *assetNode;
 
-    if (jobData->buffer)
+    u8 *buffer;
+
+    TextureOp *next;
+    TextureOp *prev;
+
+    u64 pboHandle;
+};
+
+struct TextureQueue
+{
+    TextureOp ops[64];
+    u32 numOps;
+
+    // Loaded -> GPU
+    u32 finalizePos;
+    // Unloaded -> Loading
+    u32 loadPos;
+
+    // Add Unloaded Textures to be loaded
+    u32 writePos;
+
+    TicketMutex mutex;
+};
+
+struct T_State
+{
+    Arena *arena;
+    TextureQueue queue;
+};
+
+global T_State *t_state;
+
+internal void T_Init()
+{
+    Arena *arena   = ArenaAllocDefault();
+    t_state        = PushStruct(arena, T_State);
+    t_state->arena = arena;
+
+    // Push free texture ops to use
+    t_state->queue.numOps = 64;
+}
+
+JOB_CALLBACK(LoadTextureCallback)
+{
+    TextureOp *op = (TextureOp *)data;
+    i32 width, height, nChannels;
+    u8 *texData = (u8 *)stbi_load_from_memory(op->assetNode->data.str, (i32)op->assetNode->data.size, &width,
+                                              &height, &nChannels, 0);
+    MemoryCopy(op->buffer, texData, width * height * 4);
+    op->assetNode->texture.width  = width;
+    op->assetNode->texture.height = height;
+    stbi_image_free(texData);
+
+    WriteBarrier();
+    op->status = T_LoadStatus_Loaded;
+}
+
+// NOTE: if there isn't space it just won't push
+internal void PushTextureQueue(AS_Node *node)
+{
+    TextureQueue *queue = &t_state->queue;
+    TicketMutexScope(&queue->mutex)
     {
-        i32 width, height, nChannels;
-        u8 *texData = (u8 *)stbi_load((char *)jobData->filename.str, &width, &height, &nChannels, 4);
-        MemoryCopy(jobData->buffer, texData, width * height * 4);
-
-        Texture result;
-        result.width  = width;
-        result.height = height;
-        result.type   = jobData->type;
-        result.loaded = false;
-        result.id     = 0;
-
-        AssetState *state = jobData->state;
-
-        AtomicIncrementU32(&state->textureCount);
-        state->textures[jobData->handle] = result;
-
-        stbi_image_free(texData);
-        ScratchEnd(jobData->temp);
+        u32 availableSpots = queue->numOps - (queue->writePos - queue->finalizePos);
+        if (availableSpots >= 1)
+        {
+            u32 ringIndex = (queue->writePos++ & (queue->numOps - 1));
+            TextureOp *op = queue->ops + ringIndex;
+            op->status    = T_LoadStatus_Unloaded;
+            op->assetNode = node;
+        }
     }
 }
 
-internal void LoadTexture(AssetState *state, string filename, TextureType type, u32 handle)
+internal void LoadTextureOps()
 {
-    // TODO: have thread specific scratch arenas
-    TempArena temp     = ScratchBegin(state->arena);
-    u8 *buffer         = R_AllocateTexture2D();
-    AssetJobData *data = PushStruct(temp.arena, AssetJobData);
-    data->temp         = temp;
-    data->state        = state;
-    data->filename     = PushStr8Copy(temp.arena, filename);
-    data->type         = type;
-    data->handle       = handle;
-    data->buffer       = buffer;
-    OS_QueueJob(state->queue, LoadAssetCallback, data);
-}
+    TextureQueue *queue = &t_state->queue;
 
-internal void FinalizeTexture(AssetState *state, u32 handle)
-{
-    Texture *texture   = state->textures + handle;
-    R_TexFormat format = R_TexFormat_Nil;
-    switch (texture->type)
+    TicketMutexScope(&queue->mutex)
     {
-        case TextureType_Diffuse:
-            format = R_TexFormat_SRGB;
-        case TextureType_Normal:
-            format = R_TexFormat_RGBA8;
-        default:
-            break;
+        // Gets the Pixel Buffer Object to map to
+        while (queue->loadPos != queue->writePos)
+        {
+            u32 ringIndex = queue->loadPos++ & (queue->numOps - 1);
+            TextureOp *op = queue->ops + ringIndex;
+            Assert(queue->ops[ringIndex].status == T_LoadStatus_Unloaded);
+            op->buffer    = 0;
+            op->pboHandle = R_AllocateTexture2D(op->buffer);
+            if (op->buffer)
+            {
+                op->status       = T_LoadStatus_Loading;
+                TextureOp *oldOp = op;
+                op               = op->next;
+                JS_Kick(LoadTextureCallback, op, 0, Priority_Low);
+                break;
+            }
+        }
+        // Submits PBO to OpenGL
+        while (queue->finalizePos != queue->loadPos)
+        {
+            u32 ringIndex = queue->finalizePos++ & (queue->numOps - 1);
+            TextureOp *op = queue->ops + ringIndex;
+            if (op->status == T_LoadStatus_Loaded)
+            {
+                Texture *texture   = &op->assetNode->texture;
+                R_TexFormat format = R_TexFormat_Nil;
+                switch (texture->type)
+                {
+                    case TextureType_Diffuse:
+                        format = R_TexFormat_SRGB;
+                        break;
+                    case TextureType_Normal:
+                    default:
+                        format = R_TexFormat_RGBA8;
+                        break;
+                }
+                texture->handle = R_SubmitTexture2D(op->pboHandle, texture->width, texture->height, format);
+                texture->loaded = true;
+            }
+            else
+            {
+                break;
+            }
+        }
     }
-    u32 renderHandle = R_SubmitTexture2D(texture->width, texture->height, format);
-    texture->id      = renderHandle;
-    texture->loaded  = true;
 }
 
 #if 0

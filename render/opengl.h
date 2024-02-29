@@ -242,6 +242,9 @@ global wgl_create_context_attribs_arb *wglCreateContextAttribsARB;
 
 #define OpenGLFunction(name) type_##name *name
 
+internal u64 R_AllocateTexture2D(u8 *out);
+internal R_Handle R_SubmitTexture2D(u64 handle, u32 width, u32 height, R_TexFormat format);
+
 struct OpenGLShader
 {
     GLuint id;
@@ -277,7 +280,10 @@ struct OpenGL
     Arena *arena;
     GLuint vao;
 
-    GLuint pboId;
+    GLuint pbos[16];
+    u64 pboIndex;
+    u64 firstUsedPboIndex;
+
     GLuint vertexBufferId;
     GLuint indexBufferId;
     CubeShader cubeShader;

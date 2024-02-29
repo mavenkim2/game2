@@ -12,19 +12,15 @@ typedef DEBUG_PLATFORM_GET_RESOLUTION(DebugPlatformGetResolutionFunctionType);
 #endif
 
 // Forward declarations
-struct OS_JobQueue;
 struct RenderState;
 enum R_TexFormat;
+typedef u32 R_Handle;
 
 // Job stuff
-#define JOB_ENTRY_POINT(name) void name(void *data)
-typedef JOB_ENTRY_POINT(OS_JobCallback);
 
 typedef void PlatformToggleCursorFunctionType(b32 value);
-typedef void os_queue_job(OS_JobQueue *queue, OS_JobCallback *callback, void *data);
-
-typedef u8 *r_allocate_texture_2D(void);
-typedef u32 r_submit_texture_2D(u32 width, u32 height, R_TexFormat format);
+typedef u64 r_allocate_texture_2D(u8 *out);
+typedef R_Handle r_submit_texture_2D(u64 handle, u32 width, u32 height, R_TexFormat format);
 
 void PlatformToggleCursor(b32 value);
 
@@ -39,9 +35,6 @@ struct GameMemory
     void *TransientStorageMemory;
 
     PlatformToggleCursorFunctionType *PlatformToggleCursor;
-    os_queue_job *OS_QueueJob;
-
-    OS_JobQueue *highPriorityQueue;
 
     r_allocate_texture_2D *R_AllocateTexture2D;
     r_submit_texture_2D *R_SubmitTexture2D;
@@ -94,33 +87,6 @@ struct GameSoundOutput
     i16 *samples;
     int samplesPerSecond;
     int sampleCount;
-};
-
-inline void CopyString_(char *destination, const char *source)
-{
-    char *scanDest         = destination;
-    const char *scanSource = source;
-    while (*scanSource)
-    {
-        *scanDest++ = *scanSource++;
-    }
-}
-
-// NOTE: assume destination can hold source
-// overwrrites \0 from destination, adds source to dest
-inline void AddStrings_(char *destination, const char *source)
-{
-    char *scanDest = destination;
-    while (*scanDest)
-    {
-        scanDest++;
-    }
-
-    const char *scanSource = source;
-    while (*scanSource)
-    {
-        *scanDest++ = *scanSource++;
-    }
 };
 
 #define GAME_UPDATE_AND_RENDER(name)                                                                              \

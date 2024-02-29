@@ -3,7 +3,12 @@ struct AS_Slot;
 internal void AS_EntryPoint(void *p);
 JOB_CALLBACK(AS_LoadAsset);
 
-struct AS_State
+union AS_Handle
+{
+    u64 u64[2];
+};
+
+struct AS_CacheState
 {
     Arena *arena;
 
@@ -55,6 +60,7 @@ struct AS_Node
     union
     {
         SkeletonHelp skeleton;
+        Texture texture;
     };
 
     AS_Node *next;

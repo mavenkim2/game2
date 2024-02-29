@@ -76,38 +76,6 @@ internal OpenGLShader OpenGLCreateProgram(char *defines, char *vertexCode, char 
     return result;
 }
 
-internal u32 OpenGLLoadTexture(Texture *texture)
-{
-    glGenTextures(1, &texture->id);
-    glBindTexture(GL_TEXTURE_2D, texture->id);
-    switch (texture->type)
-    {
-        case TextureType_Diffuse:
-        {
-            // TODO: NOT SAFE!
-            glTexImage2D(GL_TEXTURE_2D, 0, openGL->defaultTextureFormat, texture->width, texture->height, 0,
-                         GL_RGB, GL_UNSIGNED_BYTE, texture->contents);
-        }
-        case TextureType_Normal:
-        {
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, texture->width, texture->height, 0, GL_RGB, GL_UNSIGNED_BYTE,
-                         texture->contents);
-        }
-        default:
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, texture->width, texture->height, 0, GL_RGB, GL_UNSIGNED_BYTE,
-                         texture->contents);
-            break;
-    }
-
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-    glBindTexture(GL_TEXTURE_2D, 0);
-
-    return texture->id;
-}
-
 internal void LoadModel(Model *model)
 {
     // NOTE: must be 0
@@ -262,20 +230,22 @@ internal void OpenGLInit()
 
     openGL->glGenBuffers(1, &openGL->vertexBufferId);
     openGL->glGenBuffers(1, &openGL->indexBufferId);
+    openGL->glGenBuffers(ArrayLength(openGL->pbos), openGL->pbos);
+    openGL->pboIndex          = 0;
+    openGL->firstUsedPboIndex = 0;
 
-    Texture whiteTexture   = {};
-    whiteTexture.width     = 1;
-    whiteTexture.height    = 1;
-    whiteTexture.type      = TextureType_Nil;
-    whiteTexture.loaded    = true;
-    u32 data               = 0xffffffff;
-    whiteTexture.contents  = (u8 *)&data;
-    openGL->whiteTextureId = OpenGLLoadTexture(&whiteTexture);
+    u32 data = 0xffffffff;
+    u8 *buffer;
+    u64 pbo = R_AllocateTexture2D(buffer);
+    MemoryCopy(buffer, &data, sizeof(data));
+    R_SubmitTexture2D(pbo, 1, 1, R_TexFormat_RGBA8);
 
-    openGL->glGenBuffers(1, &openGL->pboId);
-    openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, openGL->pboId);
-    openGL->glBufferData(GL_PIXEL_UNPACK_BUFFER, 1024 * 1024 * 4, 0, GL_STREAM_DRAW);
-    openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+    for (u32 i = 0; i < ArrayLength(openGL->pbos); i++)
+    {
+        openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, openGL->pbos[i]);
+        openGL->glBufferData(GL_PIXEL_UNPACK_BUFFER, 1024 * 1024 * 4, 0, GL_STREAM_DRAW);
+        openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+    }
 
     VSyncToggle(1);
 
@@ -503,7 +473,7 @@ internal void OpenGLEndFrame(RenderState *state, HDC deviceContext, int clientWi
                 Texture *texture = OpenGLGetTexFromHandle(state, model->textureHandles.items[i]);
 
                 // TODO: make the texture loading code more streamlined and less bug prone
-                u32 textureId = texture->id;
+                u32 textureId = texture->handle;
                 if (texture->loaded == false)
                 {
                     textureId = openGL->whiteTextureId;
@@ -530,7 +500,7 @@ internal void OpenGLEndFrame(RenderState *state, HDC deviceContext, int clientWi
                     }
                     default:
                     {
-                        Assert(!"Texture type not supported in renderer.");
+                        break;
                     }
                 }
             }
@@ -726,23 +696,37 @@ internal void OpenGLEndFrame(RenderState *state, HDC deviceContext, int clientWi
     SwapBuffers(deviceContext);
 }
 
-internal u8 *R_AllocateTexture2D()
+//////////////////////////////
+// Externally called functions
+//
+inline GLuint GetPbo(u64 handle)
 {
-    u8 *ptr = 0;
-    openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, openGL->pboId);
-    ptr = (u8 *)openGL->glMapBuffer(GL_PIXEL_UNPACK_BUFFER, GL_WRITE_ONLY);
-    openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
-    return ptr;
+    u64 ringIndex = handle & (ArrayLength(openGL->pbos) - 1);
+    GLuint pbo    = openGL->pbos[ringIndex];
+    return pbo;
 }
 
-// TODO IMPORTANT: create multiple pbos so multiple textures can be downloaded at once
-internal u32 R_SubmitTexture2D(u32 width, u32 height, R_TexFormat format)
+internal u64 R_AllocateTexture2D(u8 *out)
 {
-    u32 id = 0;
+    u64 handle         = 0;
+    u64 availableSlots = ArrayLength(openGL->pbos) - (openGL->pboIndex - openGL->firstUsedPboIndex);
+    if (availableSlots >= 1)
+    {
+        handle = openGL->pboIndex++;
+        openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, GetPbo(handle));
+        out = (u8 *)openGL->glMapBuffer(GL_PIXEL_UNPACK_BUFFER, GL_WRITE_ONLY);
+        openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+    }
+    return handle;
+}
+
+internal R_Handle R_SubmitTexture2D(u64 handle, u32 width, u32 height, R_TexFormat format)
+{
+    R_Handle id = 0;
     glGenTextures(1, &id);
     glBindTexture(GL_TEXTURE_2D, id);
 
-    openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, openGL->pboId);
+    openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, GetPbo(handle));
     openGL->glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER);
 
     u32 glFormat = GL_RGB8;
@@ -761,7 +745,6 @@ internal u32 R_SubmitTexture2D(u32 width, u32 height, R_TexFormat format)
     }
 
     glTexImage2D(GL_TEXTURE_2D, 0, glFormat, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0);
-    // glTexSubImage2D(GL_TEXTURE_2D, 0, glFormat, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, 0);
 
     // TODO: pass these in as params
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -770,6 +753,7 @@ internal u32 R_SubmitTexture2D(u32 width, u32 height, R_TexFormat format)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
     glBindTexture(GL_TEXTURE_2D, 0);
     openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+    openGL->firstUsedPboIndex++;
 
     return id;
 }

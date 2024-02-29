@@ -476,10 +476,10 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         ThreadContextInitialize(tctx, 1);
         SetThreadName(Str8Lit("[Main Thread]"));
 
-        gameState->highPriorityQueue = memory->highPriorityQueue;
-        OS_QueueJob                  = memory->OS_QueueJob;
-        R_AllocateTexture2D          = memory->R_AllocateTexture2D;
-        R_SubmitTexture2D            = memory->R_SubmitTexture2D;
+        // gameState->highPriorityQueue = memory->highPriorityQueue;
+        // OS_QueueJob                  = memory->OS_QueueJob;
+        R_AllocateTexture2D = memory->R_AllocateTexture2D;
+        R_SubmitTexture2D   = memory->R_SubmitTexture2D;
 
         InitializeRenderer(gameState->worldArena, renderState);
 
@@ -508,17 +508,16 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
         ArrayInit(gameState->worldArena, gameState->model.textureHandles, u32, MAX_TEXTURES);
 
-        assetState->arena       = ArenaAllocDefault();
-        assetState->queue       = memory->highPriorityQueue;
+        assetState->arena = ArenaAllocDefault();
+        // assetState->queue       = memory->highPriorityQueue;
         renderState->assetState = assetState;
 
         // TODO: should be able to get the type from the file name
         // or I should have my own model file format that specifies the diffuse/normal textures
         // also need to find a way of getting the handles instead of just hardcoding them
 
-        LoadTexture(assetState, Str8Lit("data/dragon/MI_M_B_44_Qishilong_body02_2_Inst_diffuse.png"),
-                    TextureType_Diffuse, 0);
-        PushTexture(&gameState->model, 0);
+        AS_Handle handle = AS_GetAssetHandle(Str8Lit("data/dragon/MI_M_B_44_Qishilong_body02_2_Inst_diffuse.png"));
+        AddTexture(&gameState->model, handle);
 
         // LoadTexture(assetState, Str8Lit("data/dragon/MI_M_B_44_Qishilong_body02_2_Inst_normal.png"),
         //             TextureType_Normal, 1);
@@ -589,19 +588,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     //
     // Assets
     //
-    // TODO: dumb
-    u32 textureCount = assetState->textureCount;
-    if (assetState->loadedTextureCount < textureCount)
-    {
-        loopi(0, textureCount)
-        {
-            if (assetState->textures[i].loaded == false)
-            {
-                FinalizeTexture(assetState, i);
-            }
-        }
-        assetState->loadedTextureCount = textureCount;
-    }
+    LoadTextureOps();
 
     Level *level                = gameState->level;
     GameInput *playerController = input;

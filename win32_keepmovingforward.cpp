@@ -641,103 +641,6 @@ LRESULT WindowsCallback(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
     return result;
 }
 
-struct OS_JobQueue;
-
-struct Job
-{
-    OS_JobCallback *callback;
-    void *data;
-};
-
-struct OS_JobQueue
-{
-    i32 volatile nextEntryToWrite;
-    i32 volatile nextEntryToRead;
-    i32 volatile completionCount;
-    i32 volatile completionGoal;
-
-    HANDLE semaphore;
-    Job jobs[256];
-};
-
-struct Win32ThreadInfo
-{
-    OS_JobQueue *queue;
-};
-
-// NOTE: other threads cannot add jobs
-internal void Win32QueueJob(OS_JobQueue *queue, OS_JobCallback *callback, void *data)
-{
-    // Power of 2
-    Assert((ArrayLength(queue->jobs) & (ArrayLength(queue->jobs) - 1)) == 0);
-
-    i32 newNextEntry = (queue->nextEntryToWrite + 1) & (ArrayLength(queue->jobs) - 1);
-    Assert(newNextEntry != queue->nextEntryToRead);
-    Job *job      = queue->jobs + queue->nextEntryToWrite;
-    job->data     = data;
-    job->callback = callback;
-    queue->completionGoal++;
-    _mm_sfence();
-    queue->nextEntryToWrite = newNextEntry;
-    ReleaseSemaphore(queue->semaphore, 1, 0);
-}
-
-internal b32 Win32ExecuteJob(OS_JobQueue *queue)
-{
-    b32 sleep               = false;
-    i32 originalEntryToRead = queue->nextEntryToRead;
-    i32 newNextEntryToRead  = (originalEntryToRead + 1) & (ArrayLength(queue->jobs) - 1);
-    if (originalEntryToRead != queue->nextEntryToWrite)
-    {
-        i32 index = InterlockedCompareExchange((LONG volatile *)&queue->nextEntryToRead, newNextEntryToRead,
-                                               originalEntryToRead);
-        if (index == originalEntryToRead)
-        {
-            Job *job = &queue->jobs[index];
-            job->callback(job->data);
-            InterlockedIncrement((LONG volatile *)&queue->completionCount);
-        }
-    }
-    else
-    {
-        sleep = true;
-    }
-    return sleep;
-}
-
-internal void Win32CompleteJobs(OS_JobQueue *queue)
-{
-    while (queue->completionCount != queue->completionGoal)
-    {
-        if (Win32ExecuteJob(queue))
-        {
-            WaitForSingleObjectEx(queue->semaphore, INFINITE, FALSE);
-        }
-    }
-    queue->completionCount = 0;
-    queue->completionGoal  = 0;
-}
-
-internal void TestJobCallback(void *data)
-{
-    Printf("Thread %u: %s\n", GetCurrentThreadId(), (char *)data);
-}
-
-internal DWORD ThreadProc(void *param)
-{
-    Win32ThreadInfo *info = (Win32ThreadInfo *)param;
-    OS_JobQueue *queue    = info->queue;
-    // TODO: I think the thread entry point (this function) should execute another function (passed in as param)
-    // which sets up the thread context, etc., and then executes the thread's function
-    for (;;)
-    {
-        if (Win32ExecuteJob(queue))
-        {
-            WaitForSingleObjectEx(queue->semaphore, INFINITE, FALSE);
-        }
-    }
-}
-
 int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd)
 {
     LARGE_INTEGER performanceFrequencyUnion;
@@ -786,18 +689,6 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     RenderState renderState = {};
     Win32InitOpenGL(windowHandle);
 
-    Win32ThreadInfo threadInfo[6] = {};
-    OS_JobQueue queue             = {};
-
-    queue.semaphore = CreateSemaphoreEx(0, 0, ArrayLength(threadInfo), 0, 0, SEMAPHORE_ALL_ACCESS);
-    for (u32 threadIndex = 0; threadIndex < ArrayLength(threadInfo); threadIndex++)
-    {
-        Win32ThreadInfo *info = threadInfo + threadIndex;
-        info->queue           = &queue;
-        HANDLE threadHandle   = CreateThread(0, 0, ThreadProc, info, 0, 0);
-        CloseHandle(threadHandle);
-    }
-
     //
     // GAME MEMORY
     //
@@ -824,8 +715,6 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     Arena *win32Arena = ArenaAlloc(win32Memory, kilobytes(256));
 
     gameMemory.PlatformToggleCursor = PlatformToggleCursor;
-    gameMemory.OS_QueueJob          = Win32QueueJob;
-    gameMemory.highPriorityQueue    = &queue;
     gameMemory.R_AllocateTexture2D  = R_AllocateTexture2D;
     gameMemory.R_SubmitTexture2D    = R_SubmitTexture2D;
 #if 0

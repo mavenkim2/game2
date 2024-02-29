@@ -4,6 +4,8 @@
 
 #define MAX_TEXTURES 10
 
+typedef u32 R_Handle;
+
 enum TextureType
 {
     TextureType_Nil,
@@ -16,12 +18,11 @@ enum TextureType
 
 struct Texture
 {
-    u32 id;
+    R_Handle handle;
     u32 width;
     u32 height;
     u32 type;
     b32 loaded;
-    u8 *contents;
 };
 struct AssetState
 {
@@ -30,7 +31,7 @@ struct AssetState
     u32 textureCount = 0;
 
     u32 loadedTextureCount = 0;
-    OS_JobQueue *queue;
+    // OS_JobQueue *queue;
 };
 
 struct Iter

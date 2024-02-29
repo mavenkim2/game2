@@ -23,7 +23,8 @@
 
 struct Model;
 
-enum R_TexFormat {
+enum R_TexFormat
+{
     R_TexFormat_Nil,
     R_TexFormat_RGBA8,
     R_TexFormat_SRGB,
