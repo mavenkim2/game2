@@ -98,3 +98,8 @@ internal void OS_RaiseSignal(OS_Handle input);
 // System Info
 //
 internal u32 OS_NumProcessors();
+
+//////////////////////////////
+// zzz
+//
+internal void OS_Sleep(u32 milliseconds);

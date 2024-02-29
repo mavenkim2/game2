@@ -723,6 +723,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     gameMemory.PlatformToggleCursor = PlatformToggleCursor;
     gameMemory.R_AllocateTexture2D  = R_AllocateTexture2D;
     gameMemory.R_SubmitTexture2D    = R_SubmitTexture2D;
+    gameMemory.R_DeleteTexture2D = R_DeleteTexture2D;
 #if 0
     gameMemory.DebugPlatformFreeFile      = DebugPlatformFreeFile;
     gameMemory.DebugPlatformReadFile      = DebugPlatformReadFile;

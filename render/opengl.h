@@ -244,6 +244,7 @@ global wgl_create_context_attribs_arb *wglCreateContextAttribsARB;
 
 R_ALLOC_TEXTURE_2D(R_AllocateTexture2D);
 R_TEXTURE_SUBMIT_2D(R_SubmitTexture2D);
+R_DELETE_TEXTURE_2D(R_DeleteTexture2D);
 
 struct OpenGLShader
 {
@@ -290,7 +291,7 @@ struct OpenGL
     CubeShader instancedBasicShader;
     ModelShader modelShader;
 
-    u32 whiteTextureId;
+    R_Handle whiteTextureHandle;
     u32 defaultTextureFormat;
 
     OpenGLFunction(glGenBuffers);

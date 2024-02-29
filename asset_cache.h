@@ -1,7 +1,9 @@
 struct AS_Node;
 struct AS_Slot;
 internal void AS_EntryPoint(void *p);
+internal void AS_HotloadEntryPoint(void *p);
 JOB_CALLBACK(AS_LoadAsset);
+internal void AS_UnloadAsset(AS_Node *node);
 
 struct AS_CacheState
 {

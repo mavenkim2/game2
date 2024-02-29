@@ -216,12 +216,6 @@ internal void HotloadShaders(OpenGLShader *shader)
     }
 }
 
-// inline Texture *OpenGLGetTexFromHandle(RenderState *state, u32 handle)
-// {
-//     Texture *result = state->assetState->textures + handle;
-//     return result;
-// }
-
 internal void OpenGLInit()
 {
     openGL->arena = ArenaAllocDefault();
@@ -248,7 +242,7 @@ internal void OpenGLInit()
     u8 *buffer = 0;
     u64 pbo    = R_AllocateTexture2D(&buffer);
     MemoryCopy(buffer, &data, sizeof(data));
-    R_SubmitTexture2D(pbo, 1, 1, R_TexFormat_RGBA8);
+    R_SubmitTexture2D(&openGL->whiteTextureHandle, pbo, 1, 1, R_TexFormat_RGBA8);
 
     VSyncToggle(1);
 
@@ -473,13 +467,13 @@ internal void OpenGLEndFrame(RenderState *state, HDC deviceContext, int clientWi
             }
             // NOTE: If there are no textures, use the default white texture
             openGL->glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_2D, openGL->whiteTextureId);
+            glBindTexture(GL_TEXTURE_2D, openGL->whiteTextureHandle);
             for (u32 i = 0; i < command->numHandles; i++)
             {
                 u32 textureHandle = command->textureHandles[i];
                 if (textureHandle == 0)
                 {
-                    textureHandle = openGL->whiteTextureId;
+                    textureHandle = openGL->whiteTextureHandle;
                 }
                 openGL->glActiveTexture(GL_TEXTURE0 + i);
                 glBindTexture(GL_TEXTURE_2D, textureHandle);
@@ -728,11 +722,13 @@ R_ALLOC_TEXTURE_2D(R_AllocateTexture2D)
 
 R_TEXTURE_SUBMIT_2D(R_SubmitTexture2D)
 {
-    R_Handle id = 0;
-    glGenTextures(1, &id);
-    glBindTexture(GL_TEXTURE_2D, id);
+    if (*textureHandle == 0)
+    {
+        glGenTextures(1, textureHandle);
+    }
+    glBindTexture(GL_TEXTURE_2D, *textureHandle);
 
-    openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, GetPbo(handle));
+    openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, GetPbo(pboHandle));
     openGL->glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER);
 
     u32 glFormat = GL_RGB8;
@@ -760,8 +756,11 @@ R_TEXTURE_SUBMIT_2D(R_SubmitTexture2D)
     glBindTexture(GL_TEXTURE_2D, 0);
     openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
     openGL->firstUsedPboIndex++;
+}
 
-    return id;
+R_DELETE_TEXTURE_2D(R_DeleteTexture2D)
+{
+    glDeleteTextures(1, &handle);
 }
 
 // internal void R_DeleteTexture2D

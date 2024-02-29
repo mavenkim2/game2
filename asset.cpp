@@ -871,6 +871,7 @@ internal void ReadAnimationFile(Arena *arena, KeyframedAnimation *animation, str
 //
 enum T_LoadStatus
 {
+    T_LoadStatus_Empty,
     T_LoadStatus_Unloaded,
     T_LoadStatus_Loading,
     T_LoadStatus_Loaded,
@@ -997,9 +998,10 @@ internal void LoadTextureOps()
                         format = R_TexFormat_RGBA8;
                         break;
                 }
-                texture->handle = R_SubmitTexture2D(op->pboHandle, texture->width, texture->height, format);
+                R_SubmitTexture2D(&texture->handle, op->pboHandle, texture->width, texture->height, format);
                 texture->loaded = true;
                 queue->finalizePos++;
+                op->status = T_LoadStatus_Empty;
             }
             else
             {

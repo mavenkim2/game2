@@ -15,8 +15,8 @@ enum TextureType
 {
     TextureType_Nil,
     TextureType_Diffuse,
-    TextureType_Specular,
     TextureType_Normal,
+    TextureType_Specular,
     TextureType_Height,
     TextureType_Count,
 };
@@ -26,17 +26,8 @@ struct Texture
     R_Handle handle;
     u32 width;
     u32 height;
-    u32 type;
+    TextureType type;
     b32 loaded;
-};
-
-struct AssetState
-{
-    Arena *arena;
-
-    // TODO: better name. these are the textureIds opengl uses
-    u32 textureIds[MAX_TEXTURES];
-    u32 textureCount;
 };
 
 struct Iter

@@ -95,7 +95,6 @@ struct RenderState
     Array(RenderCommand) commands;
 
     DebugRenderer debugRenderer;
-    struct AssetState *assetState;
 };
 
 internal void PushTexture(Model *model, u32 id);

@@ -47,10 +47,6 @@ internal OS_Handle OS_OpenFile(OS_AccessFlags flags, string path)
     {
         result.handle = (u64)file;
     }
-    else
-    {
-        Assert(!"File not found");
-    }
     return result;
 }
 
@@ -455,4 +451,12 @@ internal u32 OS_NumProcessors()
     SYSTEM_INFO systemInfo;
     GetSystemInfo(&systemInfo);
     return systemInfo.dwNumberOfProcessors;
+}
+
+//////////////////////////////
+// zzz
+//
+internal void OS_Sleep(u32 milliseconds)
+{
+    Sleep(milliseconds);
 }

@@ -32,6 +32,7 @@ internal void AS_Init()
     {
         as_state->threads[i] = OS_ThreadStart(AS_EntryPoint, (void *)i);
     }
+    as_state->hotloadThread = OS_ThreadStart(AS_HotloadEntryPoint, 0);
 }
 
 internal u64 RingRead(u8 *base, u64 ringSize, u64 readPos, void *dest, u64 destSize)
@@ -112,7 +113,8 @@ internal string AS_DequeueFile(Arena *arena)
             result.str = PushArrayNoZero(arena, u8, result.size + 1);
             as_state->readPos += RingRead(as_state->ringBuffer, as_state->ringBufferSize, as_state->readPos,
                                           result.str, result.size);
-            as_state->readPos = AlignPow2(as_state->readPos, 8);
+            as_state->readPos       = AlignPow2(as_state->readPos, 8);
+            result.str[result.size] = 0;
             EndTicketMutex(&as_state->mutex);
             break;
         }
@@ -142,7 +144,6 @@ internal AS_Handle AS_GetAssetHandle(u64 hash)
     }
     EndMutex(&slot->mutex);
 
-    // TODO: gen id?
     AS_Handle result = {(u64)n, hash};
     return result;
 }
@@ -169,7 +170,6 @@ internal AS_Handle AS_GetAssetHandle(string path)
 
     if (n == 0)
     {
-        AS_EnqueueFile(path);
         result = {0, hash};
     }
     else
@@ -188,17 +188,25 @@ internal void AS_EntryPoint(void *p)
     SetThreadName(Str8Lit("[AS] Scanner"));
     for (;;)
     {
-        TempArena scratch   = ScratchStart(0, 0);
-        string path         = AS_DequeueFile(scratch.arena);
-        path.str[path.size] = 0;
+        TempArena scratch = ScratchStart(0, 0);
+        string path       = AS_DequeueFile(scratch.arena);
+
+        OS_Handle handle             = OS_OpenFile(OS_AccessFlag_Read | OS_AccessFlag_ShareRead, path);
+        OS_FileAttributes attributes = OS_AttributesFromFile(handle);
+        // If the file doesn't exist, abort
+        if (attributes.lastModified == 0 && attributes.size == U32Max)
+        {
+            return;
+        }
 
         u64 hash      = HashFromString(path);
         AS_Slot *slot = &as_state->assetSlots[(hash & (as_state->numSlots - 1))];
         AS_Node *n    = 0;
+        // Find node with matching filename
         BeginMutex(&slot->mutex);
         for (AS_Node *node = slot->first; node != 0; node = node->next)
         {
-            if (node->path == path)
+            if (node->hash == hash)
             {
                 n = node;
                 break;
@@ -206,6 +214,7 @@ internal void AS_EntryPoint(void *p)
         }
         EndMutex(&slot->mutex);
 
+        // If node doesn't exist, add it to the hash table
         if (n == 0)
         {
             TicketMutexScope(&as_state->mutex)
@@ -219,6 +228,7 @@ internal void AS_EntryPoint(void *p)
                 {
                     StackPop(as_state->freeNode);
                 }
+                n->path = PushStr8Copy(as_state->arena, path);
             }
 
             MutexScope(&slot->mutex)
@@ -226,24 +236,22 @@ internal void AS_EntryPoint(void *p)
                 QueuePush(slot->first, slot->last, n);
             }
             n->hash = hash;
-            n->path = path;
         }
-
-        OS_Handle handle             = OS_OpenFile(OS_AccessFlag_Read | OS_AccessFlag_ShareRead, path);
-        OS_FileAttributes attributes = OS_AttributesFromFile(handle);
-        // // Hot load
-        // // TODO: this is no bueno
-        if (n != 0 && attributes.lastModified != 0 && n->lastModified != attributes.lastModified)
+        // If node does exist, then it needs to be hot reloaded.
+        else
         {
             ArenaRelease(n->arena);
+            // AS_UnloadAsset(n);
         }
 
+        // Update the node
         n->lastModified = attributes.lastModified;
         n->arena        = ArenaAlloc(attributes.size);
-        n->data.str     = PushArrayNoZero(n->arena, u8, attributes.size);
+        n->data.str     = PushArrayNoZero(n->arena, u8, attributes.size + path.size);
         n->data.size    = OS_ReadEntireFile(handle, n->data.str);
         OS_CloseFile(handle);
 
+        // Process the raw asset data
         JS_Kick(AS_LoadAsset, n, 0, Priority_Low);
         ScratchEnd(scratch);
     }
@@ -251,10 +259,7 @@ internal void AS_EntryPoint(void *p)
 
 internal void AS_HotloadEntryPoint(void *p)
 {
-    u64 threadIndex = (u64)p;
-    TempArena temp  = ScratchStart(0, 0);
-    SetThreadName(PushStr8F(temp.arena, "[AS] Hotload %u", threadIndex));
-    ScratchEnd(temp);
+    SetThreadName(Str8Lit("[AS] Hotload"));
 
     for (;;)
     {
@@ -265,9 +270,17 @@ internal void AS_HotloadEntryPoint(void *p)
             {
                 for (AS_Node *node = slot->first; node != 0; node = node->next)
                 {
+                    // If the asset was modified, its write time changes. Need to hotload.
+                    u64 lastModified = OS_GetLastWriteTime(node->path);
+                    if (lastModified != 0 && lastModified != node->lastModified)
+                    {
+                        node->lastModified = lastModified;
+                        AS_EnqueueFile(node->path);
+                    }
                 }
             }
         }
+        OS_Sleep(100);
     }
 }
 
@@ -279,7 +292,6 @@ JOB_CALLBACK(AS_LoadAsset)
 {
     AS_Node *node    = (AS_Node *)data;
     string extension = GetFileExtension(node->path);
-    int stop         = 5;
     if (extension == Str8Lit("model"))
     {
     }
@@ -316,7 +328,6 @@ JOB_CALLBACK(AS_LoadAsset)
         }
         node->type = AS_Skeleton;
     }
-    // TODO: I wish I could just stream the texture from this thread, but opengl won't let me
     else if (extension == Str8Lit("png"))
     {
         node->type = AS_Texture;
@@ -341,4 +352,30 @@ JOB_CALLBACK(AS_LoadAsset)
         Assert(!"Asset type not supported");
     }
     return 0;
+}
+
+internal void AS_UnloadAsset(AS_Node *node)
+{
+    switch (node->type)
+    {
+        case AS_Null:
+            break;
+        case AS_Mesh:
+            break;
+        case AS_Texture:
+        {
+            // R_DeleteTexture2D(node->texture.handle);
+            break;
+        }
+        case AS_Skeleton:
+            break;
+        case AS_Model:
+            break;
+        case AS_Shader:
+            break;
+        case AS_GLTF:
+            break;
+        default:
+            Assert(!"Invalid asset type");
+    }
 }

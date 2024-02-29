@@ -462,10 +462,9 @@ internal void InitializePlayer(GameState *gameState)
 
 extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 {
-    // Initialization
-    GameState *gameState   = (GameState *)memory->PersistentStorageMemory;
-    AssetState *assetState = &gameState->assetState;
+    GameState *gameState = (GameState *)memory->PersistentStorageMemory;
 
+    // Initialization
     if (!memory->isInitialized)
     {
         gameState->worldArena = ArenaAlloc((void *)((u8 *)(memory->PersistentStorageMemory) + sizeof(GameState)),
@@ -483,6 +482,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
         R_AllocateTexture2D = memory->R_AllocateTexture2D;
         R_SubmitTexture2D   = memory->R_SubmitTexture2D;
+        R_DeleteTexture2D   = memory->R_DeleteTexture2D;
 
         InitializeRenderer(gameState->worldArena, renderState);
 
@@ -509,14 +509,16 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
         ReadAnimationFile(gameState->worldArena, animation, Str8Lit("data/dragon_attack_01.anim"));
 
-        // ArrayInit(gameState->worldArena, gameState->model.textureHandles, u32, MAX_TEXTURES);
-
-        assetState->arena = ArenaAllocDefault();
-        // assetState->queue       = memory->highPriorityQueue;
-        renderState->assetState = assetState;
-
-
+        // TODO IMPORTANTS:
+        // - white texture isn't loading/being used?
+        // - be able to use multiple materials/textures for each model
+        // - automatically load all model data instead of having to do this by hand
+        AS_EnqueueFile(Str8Lit("data/dragon/MI_M_B_44_Qishilong_body02_2_Inst_diffuse.png"));
         AS_Handle handle = AS_GetAssetHandle(Str8Lit("data/dragon/MI_M_B_44_Qishilong_body02_2_Inst_diffuse.png"));
+        AddTexture(&gameState->model, handle);
+
+        AS_EnqueueFile(Str8Lit("data/dragon/MI_M_B_44_Qishilong_body02_Inst_normal.png"));
+        handle = AS_GetAssetHandle(Str8Lit("data/dragon/MI_M_B_44_Qishilong_body02_Inst_normal.png"));
         AddTexture(&gameState->model, handle);
 
         // LoadTexture(assetState, Str8Lit("data/dragon/MI_M_B_44_Qishilong_body02_2_Inst_normal.png"),
