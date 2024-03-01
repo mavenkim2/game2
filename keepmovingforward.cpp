@@ -509,8 +509,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
         ReadAnimationFile(gameState->worldArena, animation, Str8Lit("data/dragon_attack_01.anim"));
 
-        // TODO IMPORTANTS:
-        // - white texture isn't loading/being used?
+        // TODO
         // - be able to use multiple materials/textures for each model
         // - automatically load all model data instead of having to do this by hand
         AS_EnqueueFile(Str8Lit("data/dragon/MI_M_B_44_Qishilong_body02_2_Inst_diffuse.png"));

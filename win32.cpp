@@ -14,16 +14,45 @@ internal void Printf(char *fmt, ...)
     OutputDebugStringA(printBuffer);
 }
 
-// NOTE: c string
-internal u64 OS_GetLastWriteTime(string filename)
+//////////////////////////////
+// File Information
+//
+
+internal u64 Win32DenseTimeFromSystemtime(SYSTEMTIME *sysTime)
 {
-    WIN32_FILE_ATTRIBUTE_DATA data;
-    u64 timeStamp = 0;
-    if (GetFileAttributesExA((char *)(filename.str), GetFileExInfoStandard, &data))
+    u64 result = sysTime->wYear * 12 + sysTime->wMonth * 31 + sysTime->wDay * 24 + sysTime->wHour * 60 +
+                 sysTime->wMinute * 60 + sysTime->wSecond * 1000 + sysTime->wMilliseconds;
+    return result;
+}
+
+internal u64 Win32DenseTimeFromFileTime(FILETIME *filetime)
+{
+    SYSTEMTIME systime = {};
+    FileTimeToSystemTime(filetime, &systime);
+    u64 result = Win32DenseTimeFromSystemtime(&systime);
+    return result;
+}
+
+internal OS_FileAttributes OS_AttributesFromPath(string path)
+{
+    OS_FileAttributes result  = {};
+    WIN32_FIND_DATAA findData = {};
+    HANDLE handle             = FindFirstFileA((char *)path.str, &findData);
+    if (handle != INVALID_HANDLE_VALUE)
     {
-        timeStamp = ((u64)data.ftLastWriteTime.dwHighDateTime) | (data.ftLastWriteTime.dwLowDateTime);
+        u32 low             = findData.nFileSizeLow;
+        u32 high            = findData.nFileSizeHigh;
+        result.size         = (u64)low | (((u64)high) << 32);
+        result.lastModified = Win32DenseTimeFromFileTime(&findData.ftLastWriteTime);
     }
-    return timeStamp;
+    return result;
+}
+
+internal u64 OS_GetLastWriteTime(string path)
+{
+    OS_FileAttributes attrib = OS_AttributesFromPath(path);
+    u64 result               = attrib.lastModified;
+    return result;
 }
 
 //////////////////////////////
@@ -62,13 +91,19 @@ internal void OS_CloseFile(OS_Handle input)
 internal OS_FileAttributes OS_AttributesFromFile(OS_Handle input)
 {
     OS_FileAttributes result = {};
-    HANDLE handle            = (HANDLE)input.handle;
-    u32 high                 = 0;
-    u32 low                  = GetFileSize(handle, (DWORD *)&high);
-    FILETIME filetime        = {};
-    GetFileTime(handle, 0, 0, &filetime);
-    result.size         = (u64)low | (((u64)high) << 32);
-    result.lastModified = ((u64)filetime.dwHighDateTime) | (filetime.dwLowDateTime);
+    if (input.handle != 0)
+    {
+        HANDLE handle = (HANDLE)input.handle;
+        BY_HANDLE_FILE_INFORMATION info;
+        b32 good = GetFileInformationByHandle(handle, &info);
+        if (good)
+        {
+            u32 low             = info.nFileSizeLow;
+            u32 high            = info.nFileSizeHigh;
+            result.size         = (u64)low | (((u64)high) << 32);
+            result.lastModified = Win32DenseTimeFromFileTime(&info.ftLastWriteTime);
+        }
+    }
     return result;
 }
 
@@ -77,31 +112,24 @@ internal u64 OS_ReadEntireFile(OS_Handle handle, void *out)
     u64 totalReadSize   = 0;
     LARGE_INTEGER start = {};
     HANDLE file         = (HANDLE)handle.handle;
-    if (handle.handle == 0)
-    {
-    }
-    else
+    if (handle.handle != 0)
     {
         u64 size;
         GetFileSizeEx(file, (LARGE_INTEGER *)&size);
-        DWORD bytesToRead = 0;
-        if (!ReadFile(file, out, (u32)size, &bytesToRead, 0)) Assert(!"wtf?");
-        totalReadSize = size;
+
+        for (totalReadSize = 0; totalReadSize < size;)
+        {
+            u64 readAmount = size - totalReadSize;
+            u32 sizeToRead = (readAmount > U32Max) ? U32Max : (u32)readAmount;
+            DWORD readSize = 0;
+            if (!ReadFile(file, (u8 *)out + totalReadSize, sizeToRead, &readSize, 0)) break;
+            totalReadSize += readSize;
+            if (readSize != sizeToRead)
+            {
+                break;
+            }
+        }
     }
-    // else if (SetFilePointerEx(file, start, 0, FILE_BEGIN))
-    // {
-    //     u64 size;
-    //     GetFileSizeEx(file, (LARGE_INTEGER *)&size);
-    //
-    //     for (totalReadSize = 0; totalReadSize < size;)
-    //     {
-    //         u64 readAmount = size - totalReadSize;
-    //         u32 sizeToRead = (readAmount > U32Max) ? U32Max : (u32)readAmount;
-    //         DWORD readSize = 0;
-    //         if (!ReadFile(file, (u8 *)out + totalReadSize, sizeToRead, &readSize, 0)) break;
-    //         totalReadSize += sizeToRead;
-    //     }
-    // }
 
     return totalReadSize;
 }

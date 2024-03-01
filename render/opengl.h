@@ -281,7 +281,7 @@ struct OpenGL
     Arena *arena;
     GLuint vao;
 
-    GLuint pbos[16];
+    GLuint pbos[4];
     u64 pboIndex;
     u64 firstUsedPboIndex;
 

@@ -140,7 +140,7 @@ internal b32 AddTexture(Model *model, AS_Handle handle)
     if (model->numTextures < ArrayLength(model->textures))
     {
         model->textures[model->numTextures++] = handle;
-        result = 1;
+        result                                = 1;
     }
     return result;
 }

@@ -76,7 +76,6 @@ struct GameState
     // also need to use the same hierarchy for animation/skeleton/mesh
     AnimationPlayer animPlayer;
     AnimationTransform *tforms;
-    MeshNodeInfoArray *meshNodeHierarchy;
     Mat4 *finalTransforms;
 
     Model model;

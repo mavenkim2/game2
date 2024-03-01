@@ -194,7 +194,7 @@ internal void AS_EntryPoint(void *p)
         OS_Handle handle             = OS_OpenFile(OS_AccessFlag_Read | OS_AccessFlag_ShareRead, path);
         OS_FileAttributes attributes = OS_AttributesFromFile(handle);
         // If the file doesn't exist, abort
-        if (attributes.lastModified == 0 && attributes.size == U32Max)
+        if (attributes.lastModified == 0 && attributes.size == 0)
         {
             continue;
         }
@@ -240,6 +240,11 @@ internal void AS_EntryPoint(void *p)
         // If node does exist, then it needs to be hot reloaded.
         else
         {
+            // Don't hot load if the texture is loading.
+            if (AtomicCompareExchangeU32(&n->status, AS_Status_Unloaded, AS_Status_Loaded) != AS_Status_Loaded)
+            {
+                continue;
+            }
             ArenaRelease(n->arena);
             // AS_UnloadAsset(n);
         }
@@ -257,6 +262,11 @@ internal void AS_EntryPoint(void *p)
     }
 }
 
+// TODO BUG: every once in a while hot loading just fails? I'm pretty sure this is an issue with
+// how I'm checking the filetimes. also for some reason every time the file is modified, the
+// write time is modified twice sometimes
+// TODO IMPORTANT: After running the game for a bit, it just massively slows down now for some reason? this isn't 
+// even related to anything in the asset system I don't think, it just happens.
 internal void AS_HotloadEntryPoint(void *p)
 {
     SetThreadName(Str8Lit("[AS] Hotload"));
@@ -274,6 +284,8 @@ internal void AS_HotloadEntryPoint(void *p)
                     u64 lastModified = OS_GetLastWriteTime(node->path);
                     if (lastModified != 0 && lastModified != node->lastModified)
                     {
+                        Printf("Old last modified: %u\nNew last modified: %u\n\n", node->lastModified,
+                               lastModified);
                         node->lastModified = lastModified;
                         AS_EnqueueFile(node->path);
                     }
@@ -339,6 +351,10 @@ JOB_CALLBACK(AS_LoadAsset)
         {
             node->texture.type = TextureType_Normal;
         }
+        // TODO: theoretically you can delete the node's data while it is on the texture queue, but this would only
+        // happen if the file was hotloaded twice very quickly in succession
+        // easy fix is to just atomic compare exchange an enum on the node that says whether it's loaded, unloaded,
+        // or queued
         PushTextureQueue(node);
     }
     else if (extension == Str8Lit("vs"))

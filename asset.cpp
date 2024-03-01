@@ -3,12 +3,6 @@
 #define STBI_ONLY_PNG
 #include "third_party/stb_image.h"
 
-#if INTERNAL
-#include "third_party/assimp/Importer.hpp"
-#include "third_party/assimp/scene.h"
-#include "third_party/assimp/postprocess.h"
-#endif
-
 inline AnimationTransform MakeAnimTform(V3 position, Quat rotation, V3 scale)
 {
     AnimationTransform result;
@@ -171,283 +165,6 @@ internal string ConsumeLine(Iter *iter)
     return result;
 }
 
-internal Mat4 ConvertAssimpMatrix4x4(aiMatrix4x4t<f32> m)
-{
-    Mat4 result;
-    result.a1 = m.a1;
-    result.a2 = m.b1;
-    result.a3 = m.c1;
-    result.a4 = m.d1;
-
-    result.b1 = m.a2;
-    result.b2 = m.b2;
-    result.b3 = m.c2;
-    result.b4 = m.d2;
-
-    result.c1 = m.a3;
-    result.c2 = m.b3;
-    result.c3 = m.c3;
-    result.c4 = m.d3;
-
-    result.d1 = m.a4;
-    result.d2 = m.b4;
-    result.d3 = m.c4;
-    result.d4 = m.d4;
-    return result;
-}
-
-internal void LoadBones(Arena *arena, AssimpSkeletonAsset *skeleton, aiMesh *mesh, u32 baseVertex)
-{
-    skeleton->count = mesh->mNumBones;
-    for (u32 i = 0; i < mesh->mNumBones; i++)
-    {
-        aiBone *bone = mesh->mBones[i];
-        if (baseVertex == 0)
-        {
-            string name = Str8((u8 *)bone->mName.data, bone->mName.length);
-            name        = PushStr8Copy(arena, name);
-
-            ArrayPush(&skeleton->names, name);
-            ArrayPush(&skeleton->inverseBindPoses, ConvertAssimpMatrix4x4(bone->mOffsetMatrix));
-        }
-
-        for (u32 j = 0; j < bone->mNumWeights; j++)
-        {
-            aiVertexWeight *weight = bone->mWeights + j;
-            u32 vertexId           = weight->mVertexId + baseVertex;
-            f32 boneWeight         = weight->mWeight;
-            if (boneWeight)
-            {
-                VertexBoneInfo *info = &skeleton->vertexBoneInfo.items[vertexId];
-                Assert(info->numMatrices < MAX_MATRICES_PER_VERTEX);
-                // NOTE: this doesn't increment the count of the array
-                info->pieces[info->numMatrices].boneIndex  = i;
-                info->pieces[info->numMatrices].boneWeight = boneWeight;
-                info->numMatrices++;
-            }
-        }
-    }
-}
-
-internal void ProcessMesh(Arena *arena, Model *model, const aiMesh *mesh)
-{
-    u32 baseVertex = model->vertices.count;
-
-    for (u32 i = 0; i < mesh->mNumVertices; i++)
-    {
-        MeshVertex vertex = {};
-        vertex.position.x = mesh->mVertices[i].x;
-        vertex.position.y = mesh->mVertices[i].y;
-        vertex.position.z = mesh->mVertices[i].z;
-
-        vertex.tangent.x = mesh->mTangents[i].x;
-        vertex.tangent.y = mesh->mTangents[i].y;
-        vertex.tangent.z = mesh->mTangents[i].z;
-
-        if (mesh->HasNormals())
-        {
-            vertex.normal.x = mesh->mNormals[i].x;
-            vertex.normal.y = mesh->mNormals[i].y;
-            vertex.normal.z = mesh->mNormals[i].z;
-        }
-        if (mesh->mTextureCoords[0])
-        {
-            vertex.uv.u = mesh->mTextureCoords[0][i].x;
-            vertex.uv.y = mesh->mTextureCoords[0][i].y;
-        }
-        else
-        {
-            vertex.uv = {0, 0};
-        }
-        ArrayPush(&model->vertices, vertex);
-    }
-    for (u32 i = 0; i < mesh->mNumFaces; i++)
-    {
-        aiFace *face = &mesh->mFaces[i];
-        for (u32 indexindex = 0; indexindex < face->mNumIndices; indexindex++)
-        {
-            ArrayPush(&model->indices, face->mIndices[indexindex] + baseVertex);
-        }
-    }
-    // TODO: Load materials
-    //  aiMaterial* material = scene->mMaterials[mesh->mMaterialIndex];
-}
-
-internal Model LoadAllMeshes(Arena *arena, const aiScene *scene)
-{
-    TempArena scratch    = ScratchStart(0, 0);
-    u32 totalVertexCount = 0;
-    u32 totalFaceCount   = 0;
-    Model model          = {};
-    loopi(0, scene->mNumMeshes)
-    {
-        aiMesh *mesh = scene->mMeshes[i];
-        totalVertexCount += mesh->mNumVertices;
-        totalFaceCount += mesh->mNumFaces;
-    }
-
-    ArrayInit(arena, model.vertices, MeshVertex, totalVertexCount);
-    ArrayInit(arena, model.indices, u32, totalFaceCount * 3);
-
-    AssimpSkeletonAsset assetSkeleton = {};
-    ArrayInit(arena, assetSkeleton.inverseBindPoses, Mat4, scene->mMeshes[0]->mNumBones);
-    ArrayInit(arena, assetSkeleton.names, string, scene->mMeshes[0]->mNumBones);
-    ArrayInit(scratch.arena, assetSkeleton.vertexBoneInfo, VertexBoneInfo, scene->mMeshes[0]->mNumBones);
-
-    loopi(0, scene->mNumMeshes)
-    {
-        aiMesh *mesh = scene->mMeshes[i];
-        ProcessMesh(arena, &model, mesh);
-    }
-
-    u32 baseVertex = 0;
-    loopi(0, scene->mNumMeshes)
-    {
-        aiMesh *mesh = scene->mMeshes[i];
-        LoadBones(arena, &assetSkeleton, mesh, baseVertex);
-        baseVertex += mesh->mNumVertices;
-    }
-
-    loopi(0, totalVertexCount)
-    {
-        VertexBoneInfo *piece = &assetSkeleton.vertexBoneInfo.items[i];
-        loopj(0, MAX_MATRICES_PER_VERTEX)
-        {
-            model.vertices.items[i].boneIds[j]     = piece->pieces[j].boneIndex;
-            model.vertices.items[i].boneWeights[j] = piece->pieces[j].boneWeight;
-        }
-    }
-
-    model.skeleton.count                  = assetSkeleton.count;
-    model.skeleton.inverseBindPoses.items = assetSkeleton.inverseBindPoses.items;
-    model.skeleton.inverseBindPoses.count = assetSkeleton.inverseBindPoses.count;
-    model.skeleton.inverseBindPoses.cap   = assetSkeleton.inverseBindPoses.cap;
-    model.skeleton.names.items            = assetSkeleton.names.items;
-    model.skeleton.names.count            = assetSkeleton.names.count;
-    model.skeleton.names.cap              = assetSkeleton.names.cap;
-
-    ScratchEnd(scratch);
-    return model;
-}
-
-internal void ProcessNode(Arena *arena, MeshNodeInfoArray *nodeArray, const aiNode *node)
-{
-    u32 index                   = nodeArray->count++;
-    MeshNodeInfo *nodeInfo      = &nodeArray->items[index];
-    string name                 = Str8((u8 *)node->mName.data, node->mName.length);
-    name                        = PushStr8Copy(arena, name);
-    nodeInfo->name              = name;
-    nodeInfo->transformToParent = ConvertAssimpMatrix4x4(node->mTransformation);
-    if (node->mParent)
-    {
-        nodeInfo->hasParent  = true;
-        string parentName    = Str8((u8 *)node->mParent->mName.data, node->mParent->mName.length);
-        parentName           = PushStr8Copy(arena, parentName);
-        nodeInfo->parentName = parentName;
-    }
-    else
-    {
-        nodeInfo->hasParent = false;
-    }
-
-    Assert(nodeArray->count < nodeArray->cap);
-
-    for (u32 i = 0; i < node->mNumChildren; i++)
-    {
-        ProcessNode(arena, nodeArray, node->mChildren[i]);
-    }
-}
-
-internal void ProcessAnimations(Arena *arena, const aiScene *scene, KeyframedAnimation *animationChannel)
-{
-
-    // for (u32 i = 0; i < scene->mNumAnimations; i++) {
-    //     aiAnimation* animation = scene->mAnimations[i]
-    // }
-    aiAnimation *animation      = scene->mAnimations[0];
-    animationChannel->duration  = (f32)animation->mDuration / (f32)animation->mTicksPerSecond;
-    animationChannel->numFrames = 0;
-    animationChannel->numNodes  = 0;
-    BoneChannel *boneChannels   = PushArray(arena, BoneChannel, animation->mNumChannels);
-    u32 boneCount               = 0;
-    for (u32 i = 0; i < animation->mNumChannels; i++)
-    {
-        BoneChannel boneChannel;
-        aiNodeAnim *channel = animation->mChannels[i];
-        string name         = Str8((u8 *)channel->mNodeName.data, channel->mNodeName.length);
-        name                = PushStr8Copy(arena, name);
-
-        boneChannel.name = name;
-
-        u32 iterateLength =
-            Max(channel->mNumPositionKeys, Max(channel->mNumRotationKeys, channel->mNumScalingKeys));
-        if (animationChannel->numFrames == 0)
-        {
-            animationChannel->numFrames = iterateLength;
-        }
-        u32 positionIndex = 0;
-        u32 scaleIndex    = 0;
-        u32 rotationIndex = 0;
-        for (u32 j = 0; j < iterateLength; j++)
-        {
-            aiVector3t<f32> aiPosition = channel->mPositionKeys[positionIndex].mValue;
-            V3 position                = MakeV3(aiPosition.x, aiPosition.y, aiPosition.z);
-            aiQuaterniont<f32> aiQuat  = channel->mRotationKeys[rotationIndex].mValue;
-            Quat rotation              = MakeQuat(aiQuat.x, aiQuat.y, aiQuat.z, aiQuat.w);
-            aiVector3t<f32> aiScale    = channel->mScalingKeys[scaleIndex].mValue;
-            V3 scale                   = MakeV3(aiScale.x, aiScale.y, aiScale.z);
-
-            Assert(!IsZero(scale));
-            Assert(!IsZero(rotation));
-            AnimationTransform transform = MakeAnimTform(position, rotation, scale);
-            boneChannel.transforms[j]    = transform;
-            positionIndex++;
-            rotationIndex++;
-            scaleIndex++;
-
-            if (positionIndex == channel->mNumPositionKeys)
-            {
-                positionIndex--;
-            }
-            if (rotationIndex == channel->mNumRotationKeys)
-            {
-                rotationIndex--;
-            }
-            if (scaleIndex == channel->mNumScalingKeys)
-            {
-                scaleIndex--;
-            }
-            // NOTE: cruft because converting from mTime to key frames
-
-            f64 positionTime = channel->mPositionKeys[positionIndex].mTime;
-            f64 rotationTime = channel->mRotationKeys[rotationIndex].mTime;
-            f64 scaleTime    = channel->mScalingKeys[scaleIndex].mTime;
-
-            if (channel->mNumPositionKeys < channel->mNumScalingKeys &&
-                channel->mNumPositionKeys < channel->mNumRotationKeys &&
-                (positionTime > rotationTime || positionTime > scaleTime))
-            {
-                positionIndex--;
-            }
-            if (channel->mNumRotationKeys < channel->mNumScalingKeys &&
-                channel->mNumRotationKeys < channel->mNumPositionKeys &&
-                (rotationTime > positionTime || rotationTime > scaleTime))
-            {
-                rotationIndex--;
-            }
-            if (channel->mNumScalingKeys < channel->mNumRotationKeys &&
-                channel->mNumScalingKeys < channel->mNumPositionKeys &&
-                (scaleTime > rotationTime || scaleTime > positionTime))
-            {
-                scaleIndex--;
-            }
-        }
-        boneChannels[boneCount++] = boneChannel;
-    }
-    animationChannel->boneChannels = boneChannels;
-    animationChannel->numNodes     = boneCount;
-}
-
 internal i32 FindNodeIndex(Skeleton *skeleton, string name)
 {
     i32 parentId = -1;
@@ -475,104 +192,6 @@ internal i32 FindMeshNodeInfo(MeshNodeInfoArray *array, string name)
         }
     }
     return id;
-}
-
-internal ModelOutput AssimpDebugLoadModel(Arena *arena, string filename)
-{
-    ModelOutput result = {};
-    Model model;
-
-    Assimp::Importer importer;
-    const char *file = (const char *)filename.str;
-    const aiScene *scene =
-        importer.ReadFile(file, aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_CalcTangentSpace);
-
-    if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode)
-    {
-        return result;
-    }
-
-    aiMatrix4x4t<f32> transform = scene->mRootNode->mTransformation;
-    model                       = LoadAllMeshes(arena, scene);
-    ArrayInit(arena, model.skeleton.parents, i32, scene->mMeshes[0]->mNumBones);
-    ArrayInit(arena, model.skeleton.transformsToParent, Mat4, scene->mMeshes[0]->mNumBones);
-
-    TempArena scratch = ScratchStart(0, 0);
-
-    MeshNodeInfoArray infoArray;
-    infoArray.items = PushArrayNoZero(scratch.arena, MeshNodeInfo, 200);
-    infoArray.cap   = 200;
-    infoArray.count = 0;
-    ProcessNode(arena, &infoArray, scene->mRootNode);
-
-    // TODO: this is very janky because assimp doesn't have a continuity in count b/t
-    // scene nodes, bones, and animation channels. probably need to get far away from assimp
-    // asap
-    u32 shift = 0;
-    {
-        MeshNodeInfo *info;
-        foreach (&infoArray, info)
-        {
-            string name    = info->name;
-            b32 inSkeleton = false;
-            for (u32 i = 0; i < model.skeleton.names.count; i++)
-            {
-                if (name == model.skeleton.names.items[i])
-                {
-                    inSkeleton = true;
-                    break;
-                }
-            }
-            if (inSkeleton)
-            {
-                break;
-            }
-            shift++;
-        }
-    }
-    for (u32 i = 0; i < model.skeleton.names.count; i++)
-    {
-        MeshNodeInfo *info = &infoArray.items[i + shift];
-        string parentName  = info->parentName;
-        i32 parentId       = -1;
-        parentId           = FindNodeIndex(&model.skeleton, parentName);
-        ArrayPush(&model.skeleton.parents, parentId);
-        Mat4 parentTransform = info->transformToParent;
-        if (parentId == -1)
-        {
-            parentId = FindMeshNodeInfo(&infoArray, parentName);
-            while (parentId != -1)
-            {
-                info            = &infoArray.items[parentId];
-                parentTransform = info->transformToParent * parentTransform;
-                parentId        = FindMeshNodeInfo(&infoArray, info->parentName);
-            }
-        }
-        ArrayPush(&model.skeleton.transformsToParent, parentTransform);
-    }
-
-    result.model     = model;
-    result.animation = PushStruct(arena, KeyframedAnimation);
-    ProcessAnimations(arena, scene, result.animation);
-
-    ScratchEnd(scratch);
-
-    return result;
-}
-
-internal void AssimpLoadAnimation(Arena *arena, string filename, KeyframedAnimation *animation)
-{
-    Assimp::Importer importer;
-    const char *file = (const char *)filename.str;
-    const aiScene *scene =
-        importer.ReadFile(file, aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_CalcTangentSpace);
-
-    if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode)
-    {
-        return;
-    }
-
-    ProcessAnimations(arena, scene, animation);
 }
 
 // TODO: load all the other animations
@@ -945,15 +564,23 @@ JOB_CALLBACK(LoadTextureCallback)
 internal void PushTextureQueue(AS_Node *node)
 {
     TextureQueue *queue = &t_state->queue;
-    TicketMutexScope(&queue->mutex)
+    if (AtomicCompareExchangeU32(&node->status, AS_Status_Queued, AS_Status_Unloaded) == AS_Status_Unloaded)
     {
-        u32 availableSpots = queue->numOps - (queue->writePos - queue->finalizePos);
-        if (availableSpots >= 1)
+        TicketMutexScope(&queue->mutex)
         {
-            u32 ringIndex = (queue->writePos++ & (queue->numOps - 1));
-            TextureOp *op = queue->ops + ringIndex;
-            op->status    = T_LoadStatus_Unloaded;
-            op->assetNode = node;
+            for (;;)
+            {
+                u32 availableSpots = queue->numOps - (queue->writePos - queue->finalizePos);
+                if (availableSpots >= 1)
+                {
+                    u32 ringIndex = (queue->writePos++ & (queue->numOps - 1));
+                    TextureOp *op = queue->ops + ringIndex;
+                    op->status    = T_LoadStatus_Unloaded;
+                    op->assetNode = node;
+                    break;
+                }
+                _mm_pause();
+            }
         }
     }
 }
@@ -967,7 +594,7 @@ internal void LoadTextureOps()
         // Gets the Pixel Buffer Object to map to
         while (queue->loadPos != queue->writePos)
         {
-            u32 ringIndex = queue->loadPos++ & (queue->numOps - 1);
+            u32 ringIndex = queue->loadPos & (queue->numOps - 1);
             TextureOp *op = queue->ops + ringIndex;
             Assert(queue->ops[ringIndex].status == T_LoadStatus_Unloaded);
             op->buffer    = 0;
@@ -975,7 +602,11 @@ internal void LoadTextureOps()
             if (op->buffer)
             {
                 op->status = T_LoadStatus_Loading;
+                queue->loadPos++;
                 JS_Kick(LoadTextureCallback, op, 0, Priority_Low);
+            }
+            else
+            {
                 break;
             }
         }
@@ -1001,7 +632,8 @@ internal void LoadTextureOps()
                 R_SubmitTexture2D(&texture->handle, op->pboHandle, texture->width, texture->height, format);
                 texture->loaded = true;
                 queue->finalizePos++;
-                op->status = T_LoadStatus_Empty;
+                op->status            = T_LoadStatus_Empty;
+                op->assetNode->status = AS_Status_Loaded;
             }
             else
             {

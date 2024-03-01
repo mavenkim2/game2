@@ -13,7 +13,6 @@ union AS_Handle
 
 enum TextureType
 {
-    TextureType_Nil,
     TextureType_Diffuse,
     TextureType_Normal,
     TextureType_Specular,
@@ -169,13 +168,12 @@ struct Model
     AS_Handle textures[4];
     u32 numTextures;
 
-    // TODO For later:
     struct
     {
         u32 startIndex;
         u32 onePlusEndIndex;
-        u32 handleIndex;
-    } materials[4];
+        R_Handle textureHandles[2];
+    } materials[2];
 
     Mat4 transform;
 

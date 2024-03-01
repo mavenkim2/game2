@@ -44,6 +44,13 @@ enum AS_Type
     AS_Count,
 };
 
+enum AS_Status
+{
+    AS_Status_Unloaded,
+    AS_Status_Queued,
+    AS_Status_Loaded,
+};
+
 struct AS_Node
 {
     // TODO: some sort of memory management scheme for this
@@ -53,6 +60,7 @@ struct AS_Node
     string path;
     string data;
     AS_Type type;
+    AS_Status status;
 
     union
     {

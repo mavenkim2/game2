@@ -35,3 +35,9 @@ struct Win32_Sync
 internal Win32_Sync *Win32_SyncAlloc(Win32_SyncType type);
 internal void Win32_SyncFree(Win32_Sync *sync);
 internal DWORD Win32_ThreadProc(void *ptr);
+
+//////////////////////////////
+// File information
+//
+internal u64 Win32DenseTimeFromSystemtime(SYSTEMTIME *sysTime);
+internal u64 Win32DenseTimeFromFileTime(FILETIME *filetime);

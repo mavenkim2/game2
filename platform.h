@@ -3,6 +3,21 @@ struct OS_Handle
     u64 handle;
 };
 
+typedef u32 OS_AccessFlags;
+enum
+{
+    OS_AccessFlag_Read       = (1 << 0),
+    OS_AccessFlag_Write      = (1 << 1),
+    OS_AccessFlag_ShareRead  = (1 << 2),
+    OS_AccessFlag_ShareWrite = (1 << 3),
+};
+
+struct OS_FileAttributes
+{
+    u64 size;
+    u64 lastModified;
+};
+
 typedef void OS_ThreadFunction(void *);
 
 internal void Printf(char *fmt, ...);
@@ -19,25 +34,15 @@ internal void OS_Release(void *memory);
 internal void OS_Init();
 
 //////////////////////////////
+// File information
+//
+internal OS_FileAttributes OS_AttributesFromPath(string path);
+internal OS_FileAttributes OS_AttributesFromFile(OS_Handle input);
+
+//////////////////////////////
 // Files
 //
 
-typedef u32 OS_AccessFlags;
-enum
-{
-    OS_AccessFlag_Read       = (1 << 0),
-    OS_AccessFlag_Write      = (1 << 1),
-    OS_AccessFlag_ShareRead  = (1 << 2),
-    OS_AccessFlag_ShareWrite = (1 << 3),
-};
-
-struct OS_FileAttributes
-{
-    u64 size;
-    u64 lastModified;
-};
-
-internal OS_FileAttributes OS_AttributesFromFile(OS_Handle input);
 internal OS_Handle OS_OpenFile(OS_AccessFlags flags, string path);
 internal void OS_CloseFile(OS_Handle input);
 internal OS_FileAttributes OS_AtributesFromFile(OS_Handle input);
