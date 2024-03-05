@@ -256,6 +256,20 @@ internal string GetFileExtension(string str)
     return str;
 }
 
+internal string RemoveFileExtension(string str)
+{
+    for (u64 size = str.size; size > 0;)
+    {
+        size--;
+        if (str.str[size] == '.')
+        {
+            str.size = Min(size, str.size);
+            break;
+        }
+    }
+    return str;
+}
+
 internal string Str8PathChopLastSlash(string string)
 {
     u64 onePastLastSlash = string.size;
@@ -400,7 +414,6 @@ internal b32 WriteEntireFile(StringBuilder *builder, string filename)
     {
         MemoryCopy(cursor, node->str.str, node->str.size);
         cursor += node->str.size;
-        node = node->next;
     }
     b32 success = WriteFile(filename, result.str, (u32)result.size);
     return success;

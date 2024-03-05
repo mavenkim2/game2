@@ -26,7 +26,6 @@ global i32 animationFileVersion  = 1;
 //////////////////////////////
 // Model Loading
 //
-internal ModelOutput AssimpDebugLoadModel(Arena *arena, string filename);
 internal Model LoadAllMeshes(Arena *arena, const aiScene *scene);
 internal void ProcessMesh(Arena *arena, Model *model, const aiScene *scene, const aiMesh *mesh);
 
@@ -41,6 +40,13 @@ internal void ProcessNode(Arena *arena, MeshNodeInfoArray *nodeArray, const aiNo
 //
 internal void ProcessAnimations(Arena *arena, const aiScene *scene, KeyframedAnimation *animationChannel);
 internal void AssimpLoadAnimation(Arena *arena, string filename, KeyframedAnimation *animation);
+
+//////////////////////////////
+// File Output
+//
+internal void WriteModelToFile(Model *model, string filename);
+internal void WriteSkeletonToFile(Skeleton *skeleton, string filename);
+internal void WriteAnimationToFile(KeyframedAnimation *animation, string filename);
 
 //////////////////////////////
 // Helpers
@@ -61,30 +67,35 @@ inline AnimationTransform MakeAnimTform(V3 position, Quat rotation, V3 scale)
 //////////////////////////////
 // Model Loading
 //
-internal ModelOutput AssimpDebugLoadModel(Arena *arena, string filename)
+internal void LoadAndWriteModel(Arena *arena, string directory, string filename)
 {
-    ModelOutput result = {};
     Model model;
+    string fullPath = StrConcat(arena, directory, filename);
 
+    // Load gltf file using Assimp
     Assimp::Importer importer;
-    const char *file = (const char *)filename.str;
+    const char *file = (const char *)fullPath.str;
     const aiScene *scene =
         importer.ReadFile(file, aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_CalcTangentSpace);
 
     if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode)
     {
-        return result;
+        Printf("Unable to load %S", fullPath);
     }
 
     aiMatrix4x4t<f32> transform = scene->mRootNode->mTransformation;
     model                       = LoadAllMeshes(arena, scene);
 
-    // WriteModelToFile(&model, filename);
+    // Write vertex data & texture dependencies
+    filename               = RemoveFileExtension(filename);
+    string outputModelPath = PushStr8F(arena, "%S%S.model", directory, filename);
+    WriteModelToFile(&model, outputModelPath);
 
+    // Load skeleton
     ArrayInit(arena, model.skeleton.parents, i32, scene->mMeshes[0]->mNumBones);
     ArrayInit(arena, model.skeleton.transformsToParent, Mat4, scene->mMeshes[0]->mNumBones);
 
-    TempArena scratch = ScratchStart(0, 0);
+    TempArena scratch = ScratchStart(&arena, 1);
 
     MeshNodeInfoArray infoArray;
     infoArray.items = PushArrayNoZero(scratch.arena, MeshNodeInfo, 200);
@@ -138,18 +149,18 @@ internal ModelOutput AssimpDebugLoadModel(Arena *arena, string filename)
         ArrayPush(&model.skeleton.transformsToParent, parentTransform);
     }
 
-    result.model     = model;
-    result.animation = PushStruct(arena, KeyframedAnimation);
-    ProcessAnimations(arena, scene, result.animation);
+    string outputSkelPath = PushStr8F(arena, "%S%S.skel", directory, filename);
+    WriteSkeletonToFile(&model.skeleton, outputSkelPath);
+
+    KeyframedAnimation *animation = PushStruct(arena, KeyframedAnimation);
+    ProcessAnimations(arena, scene, animation);
 
     ScratchEnd(scratch);
-
-    return result;
 }
 
 internal Model LoadAllMeshes(Arena *arena, const aiScene *scene)
 {
-    TempArena scratch    = ScratchStart(0, 0);
+    TempArena scratch    = ScratchStart(&arena, 1);
     u32 totalVertexCount = 0;
     u32 totalFaceCount   = 0;
     Model model          = {};
@@ -166,7 +177,7 @@ internal Model LoadAllMeshes(Arena *arena, const aiScene *scene)
     AssimpSkeletonAsset assetSkeleton = {};
     ArrayInit(arena, assetSkeleton.inverseBindPoses, Mat4, scene->mMeshes[0]->mNumBones);
     ArrayInit(arena, assetSkeleton.names, string, scene->mMeshes[0]->mNumBones);
-    ArrayInit(scratch.arena, assetSkeleton.vertexBoneInfo, VertexBoneInfo, scene->mMeshes[0]->mNumBones);
+    ArrayInit(scratch.arena, assetSkeleton.vertexBoneInfo, VertexBoneInfo, totalVertexCount);
 
     loopi(0, scene->mNumMeshes)
     {
@@ -355,7 +366,6 @@ internal void ProcessNode(Arena *arena, MeshNodeInfoArray *nodeArray, const aiNo
 //
 internal void ProcessAnimations(Arena *arena, const aiScene *scene, KeyframedAnimation *animationChannel)
 {
-
     // for (u32 i = 0; i < scene->mNumAnimations; i++) {
     //     aiAnimation* animation = scene->mAnimations[i]
     // }
@@ -472,17 +482,17 @@ internal void WriteModelToFile(Model *model, string filename)
     PutArray(&builder, model->indices);
 
     // Add texture filenames
-    // for (u32 i = 0; i < model->materialCount; i++)
-    // {
-    //     for (u32 j = 0; j < TextureType_Count; j++)
-    //     {
-    //         if (model->materials[i].texture[j].size != 0)
-    //         {
-    //             Put(&builder, model->materials[i].texture[j].size);
-    //             Put(&buililer, model->materials[i].texture[j]);
-    //         }
-    //     }
-    // }
+    for (u32 i = 0; i < model->materialCount; i++)
+    {
+        for (u32 j = 0; j < TextureType_Count; j++)
+        {
+            if (model->materials[i].texture[j].size != 0)
+            {
+                Put(&builder, model->materials[i].texture[j].size);
+                Put(&builder, model->materials[i].texture[j]);
+            }
+        }
+    }
 
     b32 success = WriteEntireFile(&builder, filename);
     if (!success)
@@ -619,6 +629,7 @@ int main(int argc, char *argv[])
     // Write out using the file format
     // could recursively go through every directory, loading all gltfs and writing them to the same directory
 
+    Arena *arena      = ArenaAlloc(gigabytes(1));
     TempArena scratch = ScratchStart(0, 0);
 
     string directories[1024];
@@ -635,21 +646,20 @@ int main(int argc, char *argv[])
         {
             if (!(props.isDirectory))
             {
-                // TODO: support other file formats (fbx, obj, etc.)
+                // TODO: support other file formats (fbx, obj, etc.) and make async
                 if (MatchString(GetFileExtension(props.name), Str8Lit("gltf"),
                                 MatchFlag_CaseInsensitive | MatchFlag_RightSideSloppy))
                 {
                     string path = StrConcat(scratch.arena, directoryPath, props.name);
                     Printf("Loading file: %S\n", path);
+                    LoadAndWriteModel(arena, directoryPath, props.name);
                 }
-                int yippi_kai_yay = 0;
             }
             else
             {
                 string directory = StrConcat(scratch.arena, directoryPath, props.name);
                 Printf("Adding directory: %S\n", directory);
                 directories[size++] = directory;
-                int boohoo          = true;
             }
         }
         OS_DirectoryIterEnd(&fileIter);
