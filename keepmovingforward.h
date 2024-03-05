@@ -1,8 +1,8 @@
 #include "keepmovingforward_common.h"
 #include "keepmovingforward_memory.h"
 #include "keepmovingforward_string.h"
-#include "thread_context.h"
 #include "platform_inc.h"
+#include "thread_context.h"
 #include "job.h"
 
 #include "keepmovingforward_math.h"

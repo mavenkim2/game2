@@ -165,20 +165,6 @@ internal string ConsumeLine(Iter *iter)
     return result;
 }
 
-internal i32 FindNodeIndex(Skeleton *skeleton, string name)
-{
-    i32 parentId = -1;
-    string *ptrName;
-    foreach_index (&skeleton->names, ptrName, i)
-    {
-        if (*ptrName == name)
-        {
-            parentId = i;
-            break;
-        }
-    }
-    return parentId;
-}
 internal i32 FindMeshNodeInfo(MeshNodeInfoArray *array, string name)
 {
     i32 id = -1;

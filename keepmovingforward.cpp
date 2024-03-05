@@ -1,7 +1,7 @@
 #include "keepmovingforward.h"
 
-#include "thread_context.cpp"
 #include "platform_inc.cpp"
+#include "thread_context.cpp"
 
 #include "physics.cpp"
 #include "keepmovingforward_memory.cpp"

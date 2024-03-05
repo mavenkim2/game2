@@ -69,3 +69,11 @@ internal u32 GetThreadIndex()
     u32 result             = context->index;
     return result;
 }
+
+internal void BaseThreadEntry(OS_ThreadFunction *func, void *params)
+{
+    ThreadContext tContext_ = {};
+    ThreadContextInitialize(&tContext_);
+    func(params);
+    ThreadContextRelease();
+}

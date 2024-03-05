@@ -45,6 +45,7 @@ internal OS_FileAttributes OS_AttributesFromPath(string path)
         result.size         = (u64)low | (((u64)high) << 32);
         result.lastModified = Win32DenseTimeFromFileTime(&findData.ftLastWriteTime);
     }
+    FindClose(handle);
     return result;
 }
 
@@ -200,6 +201,94 @@ internal b32 WriteFile(string filename, void *fileMemory, u32 fileSize)
     return result;
 }
 
+//////////////////////////////
+// File directory iteration
+//
+StaticAssert((sizeof(Win32_FileIter) <= sizeof(((OS_FileIter *)0)->memory)), fileIterSize);
+
+internal string OS_GetCurrentWorkingDirectory()
+{
+    DWORD length = GetCurrentDirectoryA(0, 0);
+    u8 *path     = PushArray(Win32_arena, u8, length);
+    length       = GetCurrentDirectoryA(length + 1, (char *)path);
+
+    string result = Str8(path, length);
+
+    return result;
+}
+
+internal OS_FileIter OS_DirectoryIterStart(string path, OS_FileIterFlags flags)
+{
+    OS_FileIter result;
+    TempArena temp       = ScratchStart(0, 0);
+    string search        = StrConcat(temp.arena, path, Str8Lit("\\*"));
+    result.flags         = flags;
+    Win32_FileIter *iter = (Win32_FileIter *)result.memory;
+    iter->handle         = FindFirstFileA((char *)search.str, &iter->findData);
+    return result;
+}
+
+internal b32 OS_DirectoryIterNext(Arena *arena, OS_FileIter *input, OS_FileProperties *out)
+{
+    b32 done               = 0;
+    Win32_FileIter *iter   = (Win32_FileIter *)input->memory;
+    OS_FileIterFlags flags = input->flags;
+    if (!(input->flags & OS_FileIterFlag_Complete) && iter->handle != INVALID_HANDLE_VALUE)
+    {
+        do
+        {
+            b32 skip         = 0;
+            char *filename   = iter->findData.cFileName;
+            DWORD attributes = iter->findData.dwFileAttributes;
+            if (filename[0] == '.')
+            {
+                if (flags & OS_FileIterFlag_SkipHiddenFiles || filename[1] == 0 ||
+                    (filename[1] == '.' && filename[2] == 0))
+                {
+                    skip = 1;
+                }
+            }
+            if (attributes & FILE_ATTRIBUTE_DIRECTORY)
+            {
+                if (flags & OS_FileIterFlag_SkipDirectories)
+                {
+                    skip = 1;
+                }
+            }
+            else
+            {
+                if (flags & OS_FileIterFlag_SkipFiles)
+                {
+                    skip = 1;
+                }
+            }
+            if (!skip)
+            {
+                out->size = ((u64)iter->findData.nFileSizeLow) | (((u64)iter->findData.nFileSizeHigh) << 32);
+                out->lastModified = Win32DenseTimeFromFileTime(&iter->findData.ftLastWriteTime);
+                out->isDirectory  = (attributes & FILE_ATTRIBUTE_DIRECTORY);
+                out->name         = PushStr8Copy(arena, Str8C(filename));
+                done              = 1;
+                if (!FindNextFileA(iter->handle, &iter->findData))
+                {
+                    input->flags |= OS_FileIterFlag_Complete;
+                }
+                break;
+            }
+        } while (FindNextFileA(iter->handle, &iter->findData));
+    }
+    return done;
+}
+
+internal void OS_DirectoryIterEnd(OS_FileIter *input)
+{
+    Win32_FileIter *iter = (Win32_FileIter *)input->memory;
+    FindClose(iter->handle);
+}
+
+//////////////////////////////
+// Memory
+//
 internal u64 OS_PageSize()
 {
     SYSTEM_INFO info;
@@ -275,10 +364,7 @@ internal DWORD Win32_ThreadProc(void *p)
     OS_ThreadFunction *func = thread->thread.func;
     void *ptr               = thread->thread.ptr;
 
-    ThreadContext tContext_ = {};
-    ThreadContextInitialize(&tContext_);
-    func(ptr);
-    ThreadContextRelease();
+    BaseThreadEntry(func, ptr);
 
     return 0;
 }

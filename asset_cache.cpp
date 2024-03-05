@@ -265,7 +265,7 @@ internal void AS_EntryPoint(void *p)
 // TODO BUG: every once in a while hot loading just fails? I'm pretty sure this is an issue with
 // how I'm checking the filetimes. also for some reason every time the file is modified, the
 // write time is modified twice sometimes
-// TODO IMPORTANT: After running the game for a bit, it just massively slows down now for some reason? this isn't 
+// TODO IMPORTANT: After running the game for a bit, it just massively slows down now for some reason? this isn't
 // even related to anything in the asset system I don't think, it just happens.
 internal void AS_HotloadEntryPoint(void *p)
 {
@@ -343,18 +343,14 @@ JOB_CALLBACK(AS_LoadAsset)
     else if (extension == Str8Lit("png"))
     {
         node->type = AS_Texture;
-        if (FindSubstring(node->path, Str8Lit("diffuse"), MatchFlag_CaseInsensitive) != node->path.size)
+        if (FindSubstring(node->path, Str8Lit("diffuse"), 0, MatchFlag_CaseInsensitive) != node->path.size)
         {
             node->texture.type = TextureType_Diffuse;
         }
-        else if (FindSubstring(node->path, Str8Lit("normal"), MatchFlag_CaseInsensitive) != node->path.size)
+        else if (FindSubstring(node->path, Str8Lit("normal"), 0, MatchFlag_CaseInsensitive) != node->path.size)
         {
             node->texture.type = TextureType_Normal;
         }
-        // TODO: theoretically you can delete the node's data while it is on the texture queue, but this would only
-        // happen if the file was hotloaded twice very quickly in succession
-        // easy fix is to just atomic compare exchange an enum on the node that says whether it's loaded, unloaded,
-        // or queued
         PushTextureQueue(node);
     }
     else if (extension == Str8Lit("vs"))

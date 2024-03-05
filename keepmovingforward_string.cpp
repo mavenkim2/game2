@@ -37,6 +37,18 @@ internal u8 CharToUpper(u8 c)
     u8 result = (c >= 'A' && c <= 'Z') ? ('a' + (c - 'A')) : c;
     return result;
 }
+internal b32 CharIsSlash(u8 c)
+{
+    return (c == '/' || c == '\\');
+}
+internal u8 CharCorrectSlash(u8 c)
+{
+    if (CharIsSlash(c))
+    {
+        c = '/';
+    }
+    return c;
+}
 
 //////////////////////////////
 // Creating Strings
@@ -107,6 +119,17 @@ internal string PushStr8F(Arena *arena, char *fmt, ...)
     return result;
 }
 
+internal string StrConcat(Arena *arena, string s1, string s2)
+{
+    string result;
+    result.size = s1.size + s2.size;
+    result.str  = PushArrayNoZero(arena, u8, result.size + 1);
+    MemoryCopy(result.str, s1.str, s1.size);
+    MemoryCopy(result.str + s1.size, s2.str, s2.size);
+    result.str[result.size] = 0;
+    return result;
+}
+
 //////////////////////////////
 // Finding Strings
 //
@@ -162,17 +185,27 @@ internal b32 StartsWith(string a, string b)
 internal b32 MatchString(string a, string b, MatchFlags flags)
 {
     b32 result = 0;
-    if (a.size == b.size)
+    if (a.size == b.size || flags & MatchFlag_RightSideSloppy)
     {
-        result = 1;
-        for (u64 i = 0; i < a.size; i++)
+        result               = 1;
+        u64 size             = Min(a.size, b.size);
+        b32 caseInsensitive  = (flags & MatchFlag_CaseInsensitive);
+        b32 slashInsensitive = (flags & MatchFlag_SlashInsensitive);
+        for (u64 i = 0; i < size; i++)
         {
-            b32 match = (a.str[i] == b.str[i]);
-            if (flags & MatchFlag_CaseInsensitive)
+            u8 charA = a.str[i];
+            u8 charB = b.str[i];
+            if (caseInsensitive)
             {
-                match |= (CharToLower(a.str[i]) == CharToLower(b.str[i]));
+                charA = CharToLower(charA);
+                charB = CharToLower(charB);
             }
-            if (match == 0)
+            if (slashInsensitive)
+            {
+                charA = CharCorrectSlash(charA);
+                charB = CharCorrectSlash(charB);
+            }
+            if (charA != charB)
             {
                 result = 0;
                 break;
@@ -182,10 +215,10 @@ internal b32 MatchString(string a, string b, MatchFlags flags)
     return result;
 }
 
-internal u64 FindSubstring(string haystack, string needle, MatchFlags flags)
+internal u64 FindSubstring(string haystack, string needle, u64 startPos, MatchFlags flags)
 {
     u64 foundIndex = haystack.size;
-    for (u64 i = 0; i < haystack.size; i++)
+    for (u64 i = startPos; i < haystack.size; i++)
     {
         if (i + needle.size <= haystack.size)
         {
@@ -193,6 +226,10 @@ internal u64 FindSubstring(string haystack, string needle, MatchFlags flags)
             if (MatchString(substr, needle, flags))
             {
                 foundIndex = i;
+                if (!(flags & MatchFlag_FindLast))
+                {
+                    break;
+                }
                 break;
             }
         }
@@ -203,22 +240,20 @@ internal u64 FindSubstring(string haystack, string needle, MatchFlags flags)
 //////////////////////////////
 // File path helpers
 //
-internal string GetFileExtension(string path)
+internal string GetFileExtension(string str)
 {
-    string result = path;
-
-    u32 index = 0;
-    u32 loc   = 0;
-    while (index++ < path.size)
+    for (u64 size = str.size; size > 0;)
     {
-        if (path.str[index] == '.')
+        size--;
+        if (str.str[size] == '.')
         {
-            loc = index + 1;
+            u64 amt = Min(size + 1, str.size);
+            str.str += amt;
+            str.size -= amt;
+            break;
         }
     }
-    result.str  = path.str + loc;
-    result.size = path.size - loc;
-    return result;
+    return str;
 }
 
 internal string Str8PathChopLastSlash(string string)
@@ -248,6 +283,22 @@ internal string Str8PathChopPastLastSlash(string string)
     }
     string.size = onePastLastSlash;
     return string;
+}
+
+internal string PathSkipLastSlash(string str)
+{
+    for (u64 size = str.size; size > 0;)
+    {
+        size--;
+        if (CharIsSlash(str.str[size]))
+        {
+            u64 amt = Min(size + 1, str.size);
+            str.str += amt;
+            str.size -= amt;
+            break;
+        }
+    }
+    return str;
 }
 
 //////////////////////////////
@@ -344,9 +395,8 @@ internal b32 WriteEntireFile(StringBuilder *builder, string filename)
     result.str  = PushArray(builder->scratch.arena, u8, builder->totalSize);
     result.size = builder->totalSize;
 
-    StringBuilderNode *node = builder->first;
-    u8 *cursor              = result.str;
-    while (node)
+    u8 *cursor = result.str;
+    for (StringBuilderNode *node = builder->first; node != 0; node = node->next)
     {
         MemoryCopy(cursor, node->str.str, node->str.size);
         cursor += node->str.size;

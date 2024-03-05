@@ -1,21 +1,34 @@
 #include "../keepmovingforward_common.h"
 #include "../keepmovingforward_math.h"
 #include "../keepmovingforward_memory.h"
+#include "../keepmovingforward_string.h"
+#include "../platform_inc.h"
+#include "../thread_context.h"
+#include "../job.h"
+#include "./asset_processing.h"
 
 #include "third_party/assimp/Importer.hpp"
 #include "third_party/assimp/scene.h"
 #include "third_party/assimp/postprocess.h"
 
-#include "../keepmovingforward_common.cpp"
-#include "../keepmovingforward_math.cpp"
+#include "../platform_inc.cpp"
+#include "../thread_context.cpp"
 #include "../keepmovingforward_memory.cpp"
+#include "../keepmovingforward_string.cpp"
+#include "../job.cpp"
+
+//////////////////////////////
+// Globals
+//
+global i32 skeletonVersionNumber = 1;
+global i32 animationFileVersion  = 1;
 
 //////////////////////////////
 // Model Loading
 //
 internal ModelOutput AssimpDebugLoadModel(Arena *arena, string filename);
 internal Model LoadAllMeshes(Arena *arena, const aiScene *scene);
-internal void ProcessMesh(Arena *arena, Model *model, const aiMesh *mesh);
+internal void ProcessMesh(Arena *arena, Model *model, const aiScene *scene, const aiMesh *mesh);
 
 //////////////////////////////
 // Skeleton Loading
@@ -33,6 +46,17 @@ internal void AssimpLoadAnimation(Arena *arena, string filename, KeyframedAnimat
 // Helpers
 //
 internal Mat4 ConvertAssimpMatrix4x4(aiMatrix4x4t<f32> m);
+internal i32 FindNodeIndex(Skeleton *skeleton, string name);
+internal i32 FindMeshNodeInfo(MeshNodeInfoArray *array, string name);
+
+inline AnimationTransform MakeAnimTform(V3 position, Quat rotation, V3 scale)
+{
+    AnimationTransform result;
+    result.translation = position;
+    result.rotation    = rotation;
+    result.scale       = scale;
+    return result;
+}
 
 //////////////////////////////
 // Model Loading
@@ -54,6 +78,9 @@ internal ModelOutput AssimpDebugLoadModel(Arena *arena, string filename)
 
     aiMatrix4x4t<f32> transform = scene->mRootNode->mTransformation;
     model                       = LoadAllMeshes(arena, scene);
+
+    // WriteModelToFile(&model, filename);
+
     ArrayInit(arena, model.skeleton.parents, i32, scene->mMeshes[0]->mNumBones);
     ArrayInit(arena, model.skeleton.transformsToParent, Mat4, scene->mMeshes[0]->mNumBones);
 
@@ -144,7 +171,7 @@ internal Model LoadAllMeshes(Arena *arena, const aiScene *scene)
     loopi(0, scene->mNumMeshes)
     {
         aiMesh *mesh = scene->mMeshes[i];
-        ProcessMesh(arena, &model, mesh);
+        ProcessMesh(arena, &model, scene, mesh);
     }
 
     u32 baseVertex = 0;
@@ -177,9 +204,10 @@ internal Model LoadAllMeshes(Arena *arena, const aiScene *scene)
     return model;
 }
 
-internal void ProcessMesh(Arena *arena, Model *model, const aiMesh *mesh)
+internal void ProcessMesh(Arena *arena, Model *model, const aiScene *scene, const aiMesh *mesh)
 {
     u32 baseVertex = model->vertices.count;
+    u32 baseIndex  = model->indices.count;
 
     for (u32 i = 0; i < mesh->mNumVertices; i++)
     {
@@ -217,8 +245,45 @@ internal void ProcessMesh(Arena *arena, Model *model, const aiMesh *mesh)
             ArrayPush(&model->indices, face->mIndices[indexindex] + baseVertex);
         }
     }
-    // TODO: Load materials
-    //  aiMaterial* material = scene->mMaterials[mesh->mMaterialIndex];
+    aiMaterial *mMaterial = scene->mMaterials[mesh->mMaterialIndex];
+    aiColor4D diffuse;
+    aiGetMaterialColor(mMaterial, AI_MATKEY_COLOR_DIFFUSE, &diffuse);
+    Material *material        = &model->materials[model->materialCount++];
+    material->startIndex      = baseIndex;
+    material->onePlusEndIndex = model->indices.count;
+    // Diffuse
+    for (u32 i = 0; i < mMaterial->GetTextureCount(aiTextureType_DIFFUSE); i++)
+    {
+        aiString str;
+        mMaterial->GetTexture(aiTextureType_DIFFUSE, i, &str);
+        string *texturePath = &material->texture[TextureType_Diffuse];
+        texturePath->size   = str.length;
+        texturePath->str    = PushArray(arena, u8, str.length);
+        MemoryCopy(texturePath->str, str.data, str.length);
+        *texturePath = PathSkipLastSlash(*texturePath);
+    }
+    // Specular
+    for (u32 i = 0; i < mMaterial->GetTextureCount(aiTextureType_SPECULAR); i++)
+    {
+        aiString str;
+        mMaterial->GetTexture(aiTextureType_SPECULAR, i, &str);
+        string *texturePath = &material->texture[TextureType_Specular];
+        texturePath->size   = str.length;
+        texturePath->str    = PushArray(arena, u8, str.length);
+        MemoryCopy(texturePath->str, str.data, str.length);
+        *texturePath = PathSkipLastSlash(*texturePath);
+    }
+    // Normals
+    for (u32 i = 0; i < mMaterial->GetTextureCount(aiTextureType_NORMALS); i++)
+    {
+        aiString str;
+        mMaterial->GetTexture(aiTextureType_NORMALS, i, &str);
+        string *texturePath = &material->texture[TextureType_Normal];
+        texturePath->size   = str.length;
+        texturePath->str    = PushArray(arena, u8, str.length);
+        MemoryCopy(texturePath->str, str.data, str.length);
+        *texturePath = PathSkipLastSlash(*texturePath);
+    }
 }
 
 //////////////////////////////
@@ -406,6 +471,19 @@ internal void WriteModelToFile(Model *model, string filename)
     PutArray(&builder, model->vertices);
     PutArray(&builder, model->indices);
 
+    // Add texture filenames
+    // for (u32 i = 0; i < model->materialCount; i++)
+    // {
+    //     for (u32 j = 0; j < TextureType_Count; j++)
+    //     {
+    //         if (model->materials[i].texture[j].size != 0)
+    //         {
+    //             Put(&builder, model->materials[i].texture[j].size);
+    //             Put(&buililer, model->materials[i].texture[j]);
+    //         }
+    //     }
+    // }
+
     b32 success = WriteEntireFile(&builder, filename);
     if (!success)
     {
@@ -468,7 +546,113 @@ internal void WriteAnimationToFile(KeyframedAnimation *animation, string filenam
     ScratchEnd(temp);
 }
 
+//////////////////////////////
+// Helpers
+//
+internal i32 FindNodeIndex(Skeleton *skeleton, string name)
+{
+    i32 parentId = -1;
+    string *ptrName;
+    foreach_index (&skeleton->names, ptrName, i)
+    {
+        if (*ptrName == name)
+        {
+            parentId = i;
+            break;
+        }
+    }
+    return parentId;
+}
+
+internal Mat4 ConvertAssimpMatrix4x4(aiMatrix4x4t<f32> m)
+{
+    Mat4 result;
+    result.a1 = m.a1;
+    result.a2 = m.b1;
+    result.a3 = m.c1;
+    result.a4 = m.d1;
+
+    result.b1 = m.a2;
+    result.b2 = m.b2;
+    result.b3 = m.c2;
+    result.b4 = m.d2;
+
+    result.c1 = m.a3;
+    result.c2 = m.b3;
+    result.c3 = m.c3;
+    result.c4 = m.d3;
+
+    result.d1 = m.a4;
+    result.d2 = m.b4;
+    result.d3 = m.c4;
+    result.d4 = m.d4;
+    return result;
+}
+
+internal i32 FindMeshNodeInfo(MeshNodeInfoArray *array, string name)
+{
+    i32 id = -1;
+    MeshNodeInfo *info;
+    foreach_index (array, info, i)
+    {
+        if (info->name == name)
+        {
+            id = i;
+            break;
+        }
+    }
+    return id;
+}
+
+// Model processing entry point
 int main(int argc, char *argv[])
 {
-    A
+    OS_Init();
+
+    ThreadContext tctx = {};
+    ThreadContextInitialize(&tctx, 1);
+    SetThreadName(Str8Lit("[Main Thread]"));
+
+    JS_Init();
+    // TODO: these are the steps
+    // Load model using assimp, get the per vertex info, all of the animation data, etc.
+    // Write out using the file format
+    // could recursively go through every directory, loading all gltfs and writing them to the same directory
+
+    TempArena scratch = ScratchStart(0, 0);
+
+    string directories[1024];
+    u32 size = 0;
+    // TODO: Hardcoded
+    string cwd          = StrConcat(scratch.arena, OS_GetCurrentWorkingDirectory(), Str8Lit("\\data"));
+    directories[size++] = cwd;
+    while (size != 0)
+    {
+        string directoryPath = directories[--size];
+        OS_FileIter fileIter = OS_DirectoryIterStart(directoryPath, OS_FileIterFlag_SkipHiddenFiles);
+        directoryPath        = StrConcat(scratch.arena, directoryPath, Str8Lit("\\"));
+        for (OS_FileProperties props = {}; OS_DirectoryIterNext(scratch.arena, &fileIter, &props);)
+        {
+            if (!(props.isDirectory))
+            {
+                // TODO: support other file formats (fbx, obj, etc.)
+                if (MatchString(GetFileExtension(props.name), Str8Lit("gltf"),
+                                MatchFlag_CaseInsensitive | MatchFlag_RightSideSloppy))
+                {
+                    string path = StrConcat(scratch.arena, directoryPath, props.name);
+                    Printf("Loading file: %S\n", path);
+                }
+                int yippi_kai_yay = 0;
+            }
+            else
+            {
+                string directory = StrConcat(scratch.arena, directoryPath, props.name);
+                Printf("Adding directory: %S\n", directory);
+                directories[size++] = directory;
+                int boohoo          = true;
+            }
+        }
+        OS_DirectoryIterEnd(&fileIter);
+    }
+    ScratchEnd(scratch);
 }

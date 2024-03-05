@@ -8,16 +8,16 @@
 
 #include "keepmovingforward_memory.h"
 #include "keepmovingforward_string.h"
-#include "thread_context.h"
 #include "platform_inc.h"
+#include "thread_context.h"
 #include "render/opengl.h"
 #include "keepmovingforward_camera.h"
 #include "render/render.h"
 #include "asset.h"
 #include "win32_keepmovingforward.h"
 
-#include "thread_context.cpp"
 #include "platform_inc.cpp"
+#include "thread_context.cpp"
 #include "keepmovingforward_memory.cpp"
 #include "keepmovingforward_string.cpp"
 #include "render/opengl.cpp"
@@ -199,49 +199,6 @@ internal void Win32Playback(Win32State *state, GameInput *input)
 // DEBUG END
 //*******************************************
 
-//*******************************************
-// RENDER START
-//*******************************************
-
-/* internal void Win32ResizeDIBSection(Win32OffscreenBuffer *buffer, int width, int height)
-{
-    if (buffer->memory)
-    {
-        VirtualFree(buffer->memory, 0, MEM_RELEASE);
-    }
-    buffer->width = width;
-    buffer->height = height;
-    int bytesPerPixel = 4;
-    buffer->pitch = buffer->width * bytesPerPixel;
-    buffer->bytesPerPixel = bytesPerPixel;
-
-    buffer->info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    buffer->info.bmiHeader.biWidth = buffer->width;
-    buffer->info.bmiHeader.biHeight = -buffer->height;
-    buffer->info.bmiHeader.biPlanes = 1;
-    buffer->info.bmiHeader.biBitCount = 32;
-    buffer->info.bmiHeader.biCompression = BI_RGB;
-
-    // NOTE: Aligned on 4 Byte boundaries to prevent performance cost
-    int BitmapMemorySize = bytesPerPixel * width * height;
-    buffer->memory = VirtualAlloc(0, BitmapMemorySize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-} */
-
-internal void Win32DisplayBufferInWindow(Win32OffscreenBuffer *buffer, HDC deviceContext, int clientWidth,
-                                         int clientHeight)
-{
-#if 0 
-    StretchDIBits(deviceContext, 0, 0, clientWidth, clientHeight, 0, 0, buffer->width, buffer->height,
-            buffer->memory, &(buffer->info), DIB_RGB_COLORS, SRCCOPY);
-#else
-    // OpenGLRenderDraw(buffer, deviceContext, clientWidth, clientHeight);
-#endif
-}
-
-/*******************************************
-// RENDER END
-*/
-//
 /*******************************************
 // AUDIO START
 */
@@ -587,7 +544,8 @@ internal void Win32ProcessPendingMessages(HWND window, Win32State *state, GameIn
             }
             case WM_PAINT:
             {
-                PAINTSTRUCT paint; HDC dc = BeginPaint(window, &paint);
+                PAINTSTRUCT paint;
+                HDC dc = BeginPaint(window, &paint);
                 EndPaint(window, &paint);
                 break;
             }
@@ -723,7 +681,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     gameMemory.PlatformToggleCursor = PlatformToggleCursor;
     gameMemory.R_AllocateTexture2D  = R_AllocateTexture2D;
     gameMemory.R_SubmitTexture2D    = R_SubmitTexture2D;
-    gameMemory.R_DeleteTexture2D = R_DeleteTexture2D;
+    gameMemory.R_DeleteTexture2D    = R_DeleteTexture2D;
 #if 0
     gameMemory.DebugPlatformFreeFile      = DebugPlatformFreeFile;
     gameMemory.DebugPlatformReadFile      = DebugPlatformReadFile;

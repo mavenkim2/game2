@@ -29,6 +29,8 @@ inline string Substr8(string str, u64 min, u64 max);
 internal u64 CalculateCStringLength(char *cstr);
 internal string PushStr8F(Arena *arena, char *fmt, ...);
 internal string PushStr8FV(Arena *arena, char *fmt, va_list args);
+internal string PushStr8Copy(Arena *arena, string str);
+internal string StrConcat(Arena *arena, string s1, string s2);
 
 #define Str8Lit(s)     Str8((u8 *)(s), sizeof(s) - 1)
 #define Str8C(cstring) Str8((u8 *)(cstring), CalculateCStringLength(cstring))
@@ -40,12 +42,16 @@ typedef u32 MatchFlags;
 enum
 {
     MatchFlag_CaseInsensitive = (1 << 0),
+    MatchFlag_RightSideSloppy  = (1 << 1),
+    MatchFlag_SlashInsensitive = (1 << 2),
+    MatchFlag_FindLast         = (1 << 3),
+    MatchFlag_KeepEmpties      = (1 << 4),
 };
 
 internal string SkipWhitespace(string str);
 internal b32 StartsWith(string a, string b);
 internal b32 MatchString(string a, string b, MatchFlags flags);
-internal u64 FindSubstring(string haystack, string needle, MatchFlags flags);
+internal u64 FindSubstring(string haystack, string needle, u64 startPos, MatchFlags flags);
 
 //////////////////////////////
 // File Path Helpers

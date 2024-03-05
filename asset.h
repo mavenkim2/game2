@@ -50,7 +50,6 @@ struct MeshVertex
     V3 normal;
     V2 uv;
     V3 tangent;
-    // V3 bitangent;
 
     u32 boneIds[MAX_MATRICES_PER_VERTEX];
     f32 boneWeights[MAX_MATRICES_PER_VERTEX];
@@ -61,18 +60,6 @@ struct BoneInfo
     string name;
     u32 boneId;
     Mat4 convertToBoneSpaceMatrix;
-};
-
-struct VertexBoneInfoPiece
-{
-    u32 boneIndex;
-    f32 boneWeight;
-};
-
-struct VertexBoneInfo
-{
-    i32 numMatrices;
-    VertexBoneInfoPiece pieces[MAX_MATRICES_PER_VERTEX];
 };
 
 struct Skeleton
@@ -222,13 +209,4 @@ struct ModelOutput
 {
     Model model;
     KeyframedAnimation *animation;
-};
-
-struct AssimpSkeletonAsset
-{
-    u32 count;
-    Array(string) names;
-    Array(i32) parents;
-    Array(Mat4) inverseBindPoses;
-    Array(VertexBoneInfo) vertexBoneInfo;
 };

@@ -12,7 +12,6 @@ enum Priority
 struct JS_Counter
 {
     u32 c;
-    JS_Counter *next;
 };
 
 struct JS_Ticket
@@ -25,7 +24,7 @@ struct Job
     JobCallback *callback;
     void *data;
     Arena *arena;
-    JS_Ticket ticket;
+    JS_Counter *counter;
 };
 
 struct JS_Queue
@@ -45,24 +44,9 @@ struct JS_Thread
     Arena *arena;
 };
 
-struct JS_Stripe
-{
-    Arena *arena;
-
-    // Free lists
-    JS_Counter *freeCounter;
-
-    // RW Mutex
-    OS_Handle rwMutex;
-};
-
 struct JS_State
 {
     Arena *arena;
-
-    // Stripes
-    JS_Stripe *stripes;
-    u32 numStripes;
 
     // Threads
     JS_Thread *threads;

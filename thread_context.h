@@ -14,10 +14,11 @@ struct ThreadContext
 internal void ThreadContextInitialize(ThreadContext *t, b32 isMainThread);
 internal void ThreadContextRelease();
 internal ThreadContext *ThreadContextGet();
-
 internal Arena *ThreadContextScratch(Arena **conflicts, u32 count);
-
 internal void SetThreadName(string name);
+internal void SetThreadIndex(u32 index);
+internal u32 GetThreadIndex();
+internal void BaseThreadEntry(OS_ThreadFunction *func, void *params);
 
 #define ScratchStart(conflicts, count) TempBegin(ThreadContextScratch((conflicts), (count)))
 

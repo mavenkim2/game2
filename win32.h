@@ -29,6 +29,13 @@ struct Win32_Sync
     Win32_Sync *next;
 };
 
+struct Win32_FileIter
+{
+    HANDLE handle;
+    WIN32_FIND_DATAA findData;
+};
+
+
 ///////////////////////////////////////
 // Threads
 //

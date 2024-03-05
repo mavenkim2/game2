@@ -291,3 +291,9 @@ inline void EndMutex(Mutex *mutex)
 #define DeferLoop(begin, end)   for (int _i_ = ((begin), 0); !_i_; _i_ += 1, (end))
 #define TicketMutexScope(mutex) DeferLoop(BeginTicketMutex(mutex), EndTicketMutex(mutex))
 #define MutexScope(mutex)       DeferLoop(BeginMutex(mutex), EndMutex(mutex))
+
+//////////////////////////////
+// Asserts
+//
+#define Glue(a, b)             a##b
+#define StaticAssert(expr, ID) global u8 Glue(ID, __LINE__)[(expr) ? 1 : -1]

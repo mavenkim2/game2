@@ -10,15 +10,6 @@ internal void JS_Init()
     js_state        = PushStruct(arena, JS_State);
     js_state->arena = arena;
 
-    // Initialize stripes
-    js_state->numStripes = 64;
-    js_state->stripes    = PushArray(arena, JS_Stripe, js_state->numStripes);
-    for (u32 i = 0; i < js_state->numStripes; i++)
-    {
-        js_state->stripes[i].arena   = ArenaAllocDefault();
-        js_state->stripes[i].rwMutex = OS_CreateRWMutex();
-    }
-
     // js_state->threadCount   = Clamp(OS_NumProcessors() - 1, 1, 8);
     js_state->threadCount   = OS_NumProcessors();
     js_state->readSemaphore = OS_CreateSemaphore(js_state->threadCount);
@@ -44,13 +35,10 @@ internal void JS_Init()
 //////////////////////////////
 // Job API Functions
 //
-internal JS_Ticket JS_Kick(JobCallback *callback, void *data, Arena **arena, Priority priority,
-                           JS_Ticket *optionalTicket = 0)
+internal void JS_Kick(JobCallback *callback, void *data, Arena **arena, Priority priority, JS_Counter *counter = 0)
 {
-    u64 numJobs       = AtomicIncrementU64(&js_state->numJobs);
-    u64 stripeIndex   = numJobs % js_state->numStripes;
-    JS_Stripe *stripe = js_state->stripes + stripeIndex;
-    JS_Queue *queue   = 0;
+    u64 numJobs     = AtomicIncrementU64(&js_state->numJobs);
+    JS_Queue *queue = 0;
 
     switch (priority)
     {
@@ -74,31 +62,11 @@ internal JS_Ticket JS_Kick(JobCallback *callback, void *data, Arena **arena, Pri
 
     b32 success = 0;
 
-    // Create ticket w/ a job/counter. This will store info about the job's execution and its output.
-    JS_Counter *counter = 0;
-    JS_Ticket ticket    = {};
-
-    if (optionalTicket != 0)
+    // Increments counter if one is passed in.
+    if (counter != 0)
     {
-        counter = (JS_Counter *)optionalTicket->u64[1];
-        ticket  = *optionalTicket;
+        AtomicIncrementU32(&counter->c);
     }
-    else
-    {
-        OS_TakeWMutex(stripe->rwMutex);
-        counter = stripe->freeCounter;
-        if (counter == 0)
-        {
-            counter = PushStruct(stripe->arena, JS_Counter);
-        }
-        else
-        {
-            StackPop(stripe->freeCounter);
-        }
-        OS_DropWMutex(stripe->rwMutex);
-        ticket = {numJobs, (u64)counter};
-    }
-    AtomicIncrementU32(&counter->c);
 
     // Queue a task.
     for (;;)
@@ -121,7 +89,6 @@ internal JS_Ticket JS_Kick(JobCallback *callback, void *data, Arena **arena, Pri
             newJob->callback = callback;
             newJob->data     = data;
             newJob->arena    = taskArena;
-            newJob->ticket   = ticket;
 
             EndMutex(&queue->lock);
             OS_ReleaseSemaphore(js_state->readSemaphore);
@@ -135,18 +102,10 @@ internal JS_Ticket JS_Kick(JobCallback *callback, void *data, Arena **arena, Pri
         EndMutex(&queue->lock);
         OS_SignalWait(queue->writeSemaphore);
     }
-    return ticket;
 }
 
-internal void JS_Join(JS_Ticket ticket)
+internal void JS_Join(JS_Counter *counter)
 {
-    void *result        = 0;
-    u64 id              = ticket.u64[0];
-    JS_Counter *counter = (JS_Counter *)ticket.u64[1];
-
-    u64 stripeIndex   = id % js_state->numStripes;
-    JS_Stripe *stripe = js_state->stripes + stripeIndex;
-
     u32 threadIndex = GetThreadIndex();
 
     JS_Thread *thread = &js_state->threads[threadIndex];
@@ -156,11 +115,6 @@ internal void JS_Join(JS_Ticket ticket)
         b32 taskCompleted = (AtomicAddU64(&counter->c, 0) == 0);
         if (taskCompleted)
         {
-            OS_TakeWMutex(stripe->rwMutex);
-
-            StackPush(stripe->freeCounter, counter);
-
-            OS_DropWMutex(stripe->rwMutex);
             break;
         }
 
@@ -177,6 +131,9 @@ internal void JS_Join(JS_Ticket ticket)
 //////////////////////////////
 // Worker Thread Tasks
 //
+
+// TODO: should the job system "own" the results of the job callbacks, or should the callback handle how the
+// data is handled?
 internal b32 JS_PopJob(JS_Queue *queue, JS_Thread *thread)
 {
     b32 sleep = false;
@@ -188,11 +145,11 @@ internal b32 JS_PopJob(JS_Queue *queue, JS_Thread *thread)
     {
         queue->readPos += 1;
         // Read the correct job
-        Job *job          = &queue->jobs[curReadPos & (ArrayLength(queue->jobs) - 1)];
-        JS_Ticket ticket  = job->ticket;
-        Arena *arena      = job->arena;
-        void *data        = job->data;
-        JobCallback *func = job->callback;
+        Job *job            = &queue->jobs[curReadPos & (ArrayLength(queue->jobs) - 1)];
+        JS_Counter *counter = job->counter;
+        Arena *arena        = job->arena;
+        void *data          = job->data;
+        JobCallback *func   = job->callback;
 
         EndMutex(&queue->lock);
         OS_ReleaseSemaphore(queue->writeSemaphore);
@@ -204,10 +161,7 @@ internal b32 JS_PopJob(JS_Queue *queue, JS_Thread *thread)
         // Execute
         void *result = func(data, arena);
 
-        u64 id = ticket.u64[0];
-
         // Decrement counter
-        JS_Counter *counter = (JS_Counter *)ticket.u64[1];
         AtomicDecrementU32(&counter->c);
     }
     else
@@ -264,8 +218,9 @@ JOB_CALLBACK(TestCall1)
     DumbData *d = (DumbData *)data;
     AtomicAddU64(&d->j, 4);
 
-    JS_Ticket ticket = JS_Kick(TestCall3, d, 0, Priority_Normal);
-    JS_Join(ticket);
+    JS_Counter counter = {};
+    JS_Kick(TestCall3, d, 0, Priority_Normal, &counter);
+    JS_Join(&counter);
 
     return 0;
 }
