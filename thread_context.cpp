@@ -1,3 +1,12 @@
+#include "crack.h"
+#ifdef LSP_INCLUDE
+#include "keepmovingforward_common.h"
+#include "keepmovingforward_math.h"
+#include "keepmovingforward_memory.h"
+#include "keepmovingforward_string.h"
+#include "thread_context.h"
+#endif
+
 thread_global ThreadContext *tLocalContext;
 
 internal void ThreadContextInitialize(ThreadContext *t, b32 isMainThread = 0)

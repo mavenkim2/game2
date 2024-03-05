@@ -1,3 +1,10 @@
+#include "crack.h"
+#ifdef LSP_INCLUDE
+#include "keepmovingforward_common.h"
+#include "keepmovingforward_math.h"
+#include "keepmovingforward_camera.h"
+#endif
+
 internal void RotateCamera(Camera *camera, V2 dMouse, f32 rotationSpeed)
 {
     camera->pitch -= rotationSpeed * dMouse.y;

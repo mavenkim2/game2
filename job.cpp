@@ -1,3 +1,10 @@
+#include "crack.h"
+#ifdef LSP_INCLUDE
+#include "job.h"
+#include "thread_context.h"
+#include "platform_inc.h"
+#endif
+
 internal void JobThreadEntryPoint(void *p);
 global JS_State *js_state;
 
@@ -89,6 +96,7 @@ internal void JS_Kick(JobCallback *callback, void *data, Arena **arena, Priority
             newJob->callback = callback;
             newJob->data     = data;
             newJob->arena    = taskArena;
+            newJob->counter  = counter;
 
             EndMutex(&queue->lock);
             OS_ReleaseSemaphore(js_state->readSemaphore);
@@ -112,7 +120,8 @@ internal void JS_Join(JS_Counter *counter)
 
     for (;;)
     {
-        b32 taskCompleted = (AtomicAddU64(&counter->c, 0) == 0);
+        u64 result        = AtomicAddU32(&counter->c, 0);
+        b32 taskCompleted = (result == 0);
         if (taskCompleted)
         {
             break;

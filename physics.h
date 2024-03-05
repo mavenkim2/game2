@@ -1,3 +1,6 @@
+#ifndef PHYSICS_H
+#define PHYSICS_H
+
 #define FLT_EPSILON 1.192092896e-07F
 
 enum ShapeType
@@ -29,3 +32,5 @@ struct GJKState
     V3 simplex[4];
     u32 numPoints;
 };
+
+#endif

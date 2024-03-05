@@ -1,3 +1,6 @@
+#ifndef WIN32_H
+#define WIN32_H
+
 #include <windows.h>
 
 enum Win32_SyncType
@@ -48,3 +51,5 @@ internal DWORD Win32_ThreadProc(void *ptr);
 //
 internal u64 Win32DenseTimeFromSystemtime(SYSTEMTIME *sysTime);
 internal u64 Win32DenseTimeFromFileTime(FILETIME *filetime);
+
+#endif

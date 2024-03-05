@@ -1,6 +1,11 @@
 #ifndef KEEPMOVINGFORWARD_MEMORY_H
 #define KEEPMOVINGFORWARD_MEMORY_H
 
+#include "crack.h"
+#ifdef LSP_INCLUDE
+#include "keepmovingforward_common.h"
+#endif
+
 struct Arena
 {
     u64 pos;

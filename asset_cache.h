@@ -1,3 +1,12 @@
+#ifndef ASSET_CACHE_H
+#define ASSET_CACHE_H
+
+#include "crack.h"
+#ifdef LSP_INCLUDE
+#include "keepmovingforward_common.h"
+#include "job.h"
+#endif
+
 struct AS_Node;
 struct AS_Slot;
 internal void AS_EntryPoint(void *p);
@@ -78,3 +87,5 @@ struct AS_Slot
 
     Mutex mutex;
 };
+
+#endif 

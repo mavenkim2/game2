@@ -1,3 +1,10 @@
+#include "crack.h"
+#ifdef LSP_INCLUDE
+#include "keepmovingforward_common.h"
+#include "keepmovingforward_math.h"
+#include "physics.h"
+#endif
+
 internal ConvexShape MakeSphere(V3 center, f32 radius)
 {
     ConvexShape result;

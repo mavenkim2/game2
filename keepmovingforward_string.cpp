@@ -1,4 +1,12 @@
-#include <string.h>
+#include "crack.h"
+#ifdef LSP_INCLUDE
+#include <cstring>
+#include "keepmovingforward_common.h"
+#include "keepmovingforward_memory.h"
+#include "keepmovingforward_string.h"
+#include "keepmovingforward_math.h"
+#include "platform_inc.h"
+#endif
 
 //////////////////////////////
 // Char

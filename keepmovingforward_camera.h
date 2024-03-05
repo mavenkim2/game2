@@ -1,5 +1,12 @@
 #ifndef KEEPMOVINGFORWARD_CAMERA_H
-struct Camera {
+#define KEEPMOVINGFORWARD_CAMERA_H
+
+#ifdef INTERNAL
+#include "keepmovingforward_math.h"
+#endif
+
+struct Camera
+{
     f32 pitch;
     f32 yaw;
 
@@ -10,5 +17,5 @@ struct Camera {
     V3 forward;
     V3 right;
 };
-#define KEEPMOVINGFORWARD_CAMERA_H
+
 #endif

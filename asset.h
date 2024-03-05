@@ -1,3 +1,13 @@
+#ifndef ASSET_H
+#define ASSET_H
+
+#include "crack.h"
+#ifdef LSP_INCLUDE
+#include "keepmovingforward_common.h"
+#include "keepmovingforward_math.h"
+#include "keepmovingforward_string.h"
+#endif
+
 #define MAX_MATRICES_PER_VERTEX 4
 #define MAX_BONES               200
 #define MAX_FRAMES              200
@@ -210,3 +220,5 @@ struct ModelOutput
     Model model;
     KeyframedAnimation *animation;
 };
+
+#endif

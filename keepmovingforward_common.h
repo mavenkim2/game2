@@ -1,3 +1,6 @@
+#ifndef COMMON_H
+#define COMMON_H
+
 #include <cstdlib>
 #include <stdint.h>
 
@@ -213,6 +216,7 @@ inline void *ArrayGrow(void *a, u32 size, u32 length, u32 minCap)
 
 #define AtomicDecrementU32(dest)   _InterlockedDecrement((long volatile *)dest)
 #define AtomicDecrementU64(dest)   _InterlockedDecrement64((__int64 volatile *)dest)
+#define AtomicAddU32(dest, addend) _InterlockedExchangeAdd((long volatile *)dest, addend)
 #define AtomicAddU64(dest, addend) _InterlockedExchangeAdd64((__int64 volatile *)dest, addend)
 #define WriteBarrier()             _mm_sfence()
 
@@ -297,3 +301,5 @@ inline void EndMutex(Mutex *mutex)
 //
 #define Glue(a, b)             a##b
 #define StaticAssert(expr, ID) global u8 Glue(ID, __LINE__)[(expr) ? 1 : -1]
+
+#endif

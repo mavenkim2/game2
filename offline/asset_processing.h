@@ -143,3 +143,9 @@ struct BoneInfo
     u32 boneId;
     Mat4 convertToBoneSpaceMatrix;
 };
+
+struct Data
+{
+    string directory;
+    string filename;
+};

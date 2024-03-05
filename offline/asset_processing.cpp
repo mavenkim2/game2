@@ -7,9 +7,9 @@
 #include "../job.h"
 #include "./asset_processing.h"
 
-#include "third_party/assimp/Importer.hpp"
-#include "third_party/assimp/scene.h"
-#include "third_party/assimp/postprocess.h"
+#include "../third_party/assimp/Importer.hpp"
+#include "../third_party/assimp/scene.h"
+#include "../third_party/assimp/postprocess.h"
 
 #include "../platform_inc.cpp"
 #include "../thread_context.cpp"
@@ -67,8 +67,11 @@ inline AnimationTransform MakeAnimTform(V3 position, Quat rotation, V3 scale)
 //////////////////////////////
 // Model Loading
 //
-internal void LoadAndWriteModel(Arena *arena, string directory, string filename)
+internal void *LoadAndWriteModel(void *ptr, Arena *arena)
 {
+    Data *data       = (Data *)ptr;
+    string directory = data->directory;
+    string filename  = data->filename;
     Model model;
     string fullPath = StrConcat(arena, directory, filename);
 
@@ -156,6 +159,7 @@ internal void LoadAndWriteModel(Arena *arena, string directory, string filename)
     ProcessAnimations(arena, scene, animation);
 
     ScratchEnd(scratch);
+    return 0;
 }
 
 internal Model LoadAllMeshes(Arena *arena, const aiScene *scene)
@@ -631,6 +635,7 @@ int main(int argc, char *argv[])
 
     Arena *arena      = ArenaAlloc(gigabytes(1));
     TempArena scratch = ScratchStart(0, 0);
+    JS_Counter counter = {};
 
     string directories[1024];
     u32 size = 0;
@@ -652,7 +657,11 @@ int main(int argc, char *argv[])
                 {
                     string path = StrConcat(scratch.arena, directoryPath, props.name);
                     Printf("Loading file: %S\n", path);
-                    LoadAndWriteModel(arena, directoryPath, props.name);
+
+                    Data *data      = PushStruct(scratch.arena, Data);
+                    data->directory = directoryPath;
+                    data->filename  = props.name;
+                    JS_Kick(LoadAndWriteModel, data, &arena, Priority_High, &counter);
                 }
             }
             else
@@ -664,5 +673,6 @@ int main(int argc, char *argv[])
         }
         OS_DirectoryIterEnd(&fileIter);
     }
+    JS_Join(&counter);
     ScratchEnd(scratch);
 }

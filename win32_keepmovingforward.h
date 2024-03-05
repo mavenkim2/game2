@@ -1,4 +1,5 @@
 #ifndef WIN32_GAME_H
+#define WIN32_GAME_H
 
 global LARGE_INTEGER START_TIME;
 global i64 GLOBAL_PERFORMANCE_COUNT_FREQUENCY;
@@ -57,5 +58,4 @@ struct Win32GameCode
 inline LARGE_INTEGER Win32GetWallClock();
 f32 Win32GetTimeElapsed();
 
-#define WIN32_GAME_H
 #endif

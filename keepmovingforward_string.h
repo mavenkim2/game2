@@ -1,6 +1,9 @@
 #ifndef KEEPMOVINGFORWARD_STRING_H
 #define KEEPMOVINGFORWARD_STRING_H
 
+#include "keepmovingforward_common.h"
+#include "keepmovingforward_memory.h"
+
 struct string
 {
     u8 *str;

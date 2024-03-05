@@ -1,3 +1,6 @@
+#ifndef OPENGL_H
+#define OPENGL_H
+
 #if WINDOWS
 #include <windows.h>
 #include <gl/GL.h>
@@ -335,3 +338,5 @@ struct OpenGL
 
 global OpenGL _openGL;
 global OpenGL *openGL = &_openGL;
+
+#endif

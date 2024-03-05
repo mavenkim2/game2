@@ -1,3 +1,6 @@
+#ifndef KEEPMOVINGFORWARD_H
+#define KEEPMOVINGFORWARD_H
+
 #include "keepmovingforward_common.h"
 #include "keepmovingforward_memory.h"
 #include "keepmovingforward_string.h"
@@ -84,3 +87,5 @@ struct GameState
 global r_allocate_texture_2D *R_AllocateTexture2D;
 global r_submit_texture_2D *R_SubmitTexture2D;
 global r_delete_texture_2D *R_DeleteTexture2D;
+
+#endif 

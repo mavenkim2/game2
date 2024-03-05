@@ -1,5 +1,11 @@
 #ifndef KEEPMOVINGFORWARD_MATH_H
+#define KEEPMOVINGFORWARD_MATH_H
+
 #include <math.h>
+#include "crack.h"
+#ifdef LSP_INCLUDE
+#include "keepmovingforward_common.h"
+#endif
 
 inline u32 Max(u32 a, u32 b)
 {
@@ -1349,5 +1355,4 @@ inline V3 Barycentric(V2 a, V2 b, V2 c, V2 p)
     return result;
 }
 
-#define KEEPMOVINGFORWARD_MATH_H
 #endif

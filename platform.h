@@ -1,3 +1,13 @@
+#ifndef PLATFORM_H
+#define PLATFORM_H
+
+#include "crack.h"
+#ifdef LSP_INCLUDE
+#include "keepmovingforward_common.h"
+#include "keepmovingforward_memory.h"
+#include "keepmovingforward_string.h"
+#endif
+
 struct OS_Handle
 {
     u64 handle;
@@ -132,3 +142,5 @@ internal u32 OS_NumProcessors();
 // zzz
 //
 internal void OS_Sleep(u32 milliseconds);
+
+#endif

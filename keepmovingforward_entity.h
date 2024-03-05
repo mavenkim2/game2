@@ -1,4 +1,12 @@
-#ifndef KEEPMOVINGFORWARD_H
+#ifndef ENTITY_H
+#define ENTITY_H
+
+#include "crack.h"
+#ifdef LSP_INCLUDE
+#include "keepmovingforward_common.h"
+#include "keepmovingforward_math.h"
+#endif
+
 struct LevelPosition
 {
     u32 tileX;
@@ -31,5 +39,4 @@ struct Entity
     V4 color;
 };
 
-#define KEEPMOVINGFORWARD_H
 #endif

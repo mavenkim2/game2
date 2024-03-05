@@ -1,3 +1,5 @@
+#ifndef RENDER_H
+#define RENDER_H
 /* TODO: this is what I'm thinking
  * everything is technically a "mesh". instead of storing data as interleaved in memory however,
  * have arrays of positions, colors, bones, etc etc. thus, these arrays can be null and optionally
@@ -99,3 +101,5 @@ struct RenderState
 
 internal void PushTexture(Model *model, u32 id);
 internal void PushModel(RenderState *state, Model *model, Mat4 *finalTransforms);
+
+#endif

@@ -1,6 +1,15 @@
 #ifndef THREAD_CONTEXT_H
 #define THREAD_CONTEXT_H
 
+#include "crack.h"
+#ifdef LSP_INCLUDE
+#include "keepmovingforward_common.h"
+#include "keepmovingforward_math.h"
+#include "keepmovingforward_memory.h"
+#include "keepmovingforward_string.h"
+#include "platform_inc.h"
+#endif
+
 struct ThreadContext
 {
     Arena *arenas[2];

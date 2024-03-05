@@ -1,3 +1,13 @@
+#ifndef JOB_H
+#define JOB_H
+
+#include "crack.h"
+#ifdef LSP_INCLUDE 
+#include "keepmovingforward_common.h"
+#include "keepmovingforward_memory.h"
+#include "platform_inc.h"
+#endif
+
 #define JOB_CALLBACK(name) void *name(void *data, Arena *arena)
 typedef JOB_CALLBACK(JobCallback);
 
@@ -64,3 +74,5 @@ struct JS_State
 };
 
 internal b32 JS_PopJob(JS_Queue *queue, JS_Thread *thread);
+
+#endif 
