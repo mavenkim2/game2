@@ -445,3 +445,19 @@ internal void Get(Tokenizer *tokenizer, void *ptr, u32 size)
     MemoryCopy(ptr, tokenizer->cursor, size);
     Advance(tokenizer, size);
 }
+
+inline u64 PutPointer(StringBuilder *builder, u64 address)
+{
+    u64 offset = (u64)builder->totalSize;
+    offset += sizeof(offset) + address;
+    PutPointerValue(builder, &offset);
+    return offset;
+}
+
+inline u8 *GetPointer_(Tokenizer *tokenizer)
+{
+    u64 offset;
+    GetPointerValue(tokenizer, &offset);
+    u8 *result = tokenizer->input.str + offset;
+    return result;
+}

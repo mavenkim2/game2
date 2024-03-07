@@ -403,7 +403,7 @@ internal void WriteAnimationToFile(KeyframedAnimation *animation, string filenam
 
     Put(&builder, animationFileVersion);
     Put(&builder, animation->numNodes);
-    PutPointer(&builder, &animation->duration);
+    PutPointerValue(&builder, &animation->duration);
     Put(&builder, animation->numFrames);
 
     loopi(0, animation->numNodes)
@@ -429,10 +429,10 @@ internal void ReadAnimationFile(Arena *arena, KeyframedAnimation *animation, str
     tokenizer.cursor = tokenizer.input.str;
 
     u32 version;
-    GetPointer(&tokenizer, &version);
-    GetPointer(&tokenizer, &animation->numNodes);
-    GetPointer(&tokenizer, &animation->duration);
-    GetPointer(&tokenizer, &animation->numFrames);
+    GetPointerValue(&tokenizer, &version);
+    GetPointerValue(&tokenizer, &animation->numNodes);
+    GetPointerValue(&tokenizer, &animation->duration);
+    GetPointerValue(&tokenizer, &animation->numFrames);
 
     if (version == 1)
     {

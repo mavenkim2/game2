@@ -57,7 +57,6 @@ struct Skeleton
 //
 enum TextureType
 {
-    TextureType_Nil,
     TextureType_Diffuse,
     TextureType_Normal,
     TextureType_Specular,

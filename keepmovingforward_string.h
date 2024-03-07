@@ -44,7 +44,7 @@ internal string StrConcat(Arena *arena, string s1, string s2);
 typedef u32 MatchFlags;
 enum
 {
-    MatchFlag_CaseInsensitive = (1 << 0),
+    MatchFlag_CaseInsensitive  = (1 << 0),
     MatchFlag_RightSideSloppy  = (1 << 1),
     MatchFlag_SlashInsensitive = (1 << 2),
     MatchFlag_FindLast         = (1 << 3),
@@ -96,16 +96,20 @@ inline void Advance(Tokenizer *tokenizer, u32 size);
 inline u8 *GetCursor_(Tokenizer *tokenizer);
 inline b32 EndOfBuffer(Tokenizer *tokenizer);
 internal string ReadLine(Tokenizer *tokenizer);
+internal void Get(Tokenizer *tokenizer, void *ptr, u32 size);
+inline u8 *GetPointer_(Tokenizer *tokenizer);
+
 internal void Put(StringBuilder *builder, void *data, u32 size);
 internal void Put(StringBuilder *builder, string str);
 internal void Put(StringBuilder *builder, u32 value);
 internal b32 WriteEntireFile(StringBuilder *builder, string filename);
-internal void Get(Tokenizer *tokenizer, void *ptr, u32 size);
+inline u64 PutPointer(StringBuilder *builder, u64 address);
 
-#define PutPointer(builder, ptr) Put(builder, ptr, sizeof(*ptr))
-#define PutArray(builder, array) Put(builder, array.items, sizeof(array.items[0]) * array.count)
+#define PutPointerValue(builder, ptr) Put(builder, ptr, sizeof(*ptr))
+#define PutArray(builder, array)      Put(builder, array.items, sizeof(array.items[0]) * array.count)
 
-#define GetPointer(tokenizer, ptr) Get(tokenizer, ptr, sizeof(*ptr))
+#define GetPointerValue(tokenizer, ptr) Get(tokenizer, ptr, sizeof(*ptr))
+#define GetPointer(tokenizer, type) (type*)GetPointer_(tokenizer)
 #define GetArray(tokenizer, array, count_)                                                                        \
     do                                                                                                            \
     {                                                                                                             \

@@ -908,11 +908,11 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         // ANIMATION
         PlayCurrentAnimation(&gameState->animPlayer, input->dT, tforms);
 
-        // SkinModelToAnimation(&gameState->animPlayer, &gameState->model, tforms, finalTransforms);
+        SkinModelToAnimation(&gameState->animPlayer, &gameState->model, tforms, finalTransforms);
         DrawArrow(&renderState->debugRenderer, {0, 0, 0}, {5, 0, 0}, {1, 0, 0, 1}, 1.f);
         DrawArrow(&renderState->debugRenderer, {0, 0, 0}, {0, 5, 0}, {0, 1, 0, 1}, 1.f);
         DrawArrow(&renderState->debugRenderer, {0, 0, 0}, {0, 0, 5}, {0, 0, 1, 1}, 1.f);
-        // DebugDrawSkeleton(&renderState->debugRenderer, &gameState->model, finalTransforms);
+        DebugDrawSkeleton(&renderState->debugRenderer, &gameState->model, finalTransforms);
 
         PushModel(renderState, &gameState->model, finalTransforms);
     }

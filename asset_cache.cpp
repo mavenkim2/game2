@@ -271,8 +271,8 @@ JOB_CALLBACK(AS_LoadAsset)
         tokenizer.input  = node->data;
         tokenizer.cursor = tokenizer.input.str;
 
-        GetPointer(&tokenizer, &model->vertexCount);
-        GetPointer(&tokenizer, &model->indexCount);
+        GetPointerValue(&tokenizer, &model->vertexCount);
+        GetPointerValue(&tokenizer, &model->indexCount);
 
         // TODO: if the data is freed, this instantly goes bye bye. use a handle.
         // what I'm thinking is that the memory itself is wrapped in a structure that is pointed to by a handle,
@@ -283,40 +283,48 @@ JOB_CALLBACK(AS_LoadAsset)
         Advance(&tokenizer, sizeof(model->indices[0]) * model->indexCount);
 
         // Materials
-        GetPointer(&tokenizer, &model->materialCount);
+        GetPointerValue(&tokenizer, &model->materialCount);
+        Printf("material count: %u\n", model->materialCount);
         model->materials = PushArray(node->arena, Material, model->materialCount);
         for (u32 i = 0; i < model->materialCount; i++)
         {
             Material *material = model->materials + i;
-            GetPointer(&tokenizer, &material->startIndex);
-            GetPointer(&tokenizer, &material->onePlusEndIndex);
+            GetPointerValue(&tokenizer, &material->startIndex);
+            GetPointerValue(&tokenizer, &material->onePlusEndIndex);
+            Printf("material start index: %u\n", material->startIndex);
+            Printf("material end index: %u\n", material->onePlusEndIndex);
             for (u32 j = 0; j < TextureType_Count; j++)
             {
                 char marker[6];
                 Get(&tokenizer, &marker, 6);
+                Printf("Marker: %s\n", marker);
 
                 string path;
-                u64 offset;
-                GetPointer(&tokenizer, &offset);
-                if (offset != 0)
+                path.str = GetPointer(&tokenizer, u8);
+                Printf("Offset: %u\n", path.str);
+                if (path.str != tokenizer.input.str)
                 {
-                    path.str = (u8 *)(node->data.str + offset);
-                    GetPointer(&tokenizer, &path.size);
+                    GetPointerValue(&tokenizer, &path.size);
                     Advance(&tokenizer, (u32)path.size);
+                    Printf("Size: %u\n", path.size);
                     model->materials[i].textureHandles[j] = LoadAssetFile(path);
+                    Printf("Texture Type: %u, File: %S\n", j, path);
                 }
+                else
+                {
+                    Printf("Texture Type: %u Not found\n", j);
+                }
+                Printf("\n");
             }
         }
 
         // Skeleton
         {
             string path;
-            u64 offset;
-            GetPointer(&tokenizer, &offset);
-            GetPointer(&tokenizer, &path.size);
+            path.str = GetPointer(&tokenizer, u8);
+            GetPointerValue(&tokenizer, &path.size);
             Advance(&tokenizer, (u32)path.size);
 
-            path.str = (u8 *)(node->data.str + offset);
             AS_EnqueueFile(path);
             model->skeleton = AS_GetAssetHandle(path);
         }
@@ -335,15 +343,24 @@ JOB_CALLBACK(AS_LoadAsset)
 
         u32 version;
         u32 count;
-        GetPointer(&tokenizer, &version);
-        GetPointer(&tokenizer, &count);
+        GetPointerValue(&tokenizer, &version);
+        GetPointerValue(&tokenizer, &count);
         skeleton.count = count;
 
         if (version == 1)
         {
-            loopi(0, count)
+            // NOTE: How this works for future me:
+            // When written, pointers are converted to offsets in file. Offset + base file address is the new
+            // pointer location. For now, I am storing the string data right after the offset and size, but this
+            // could theoretically be moved elsewhere.
+            // TODO: get rid of these types of allocations
+            skeleton.names = PushArray(node->arena, string, skeleton.count);
+            for (u32 i = 0; i < count; i++)
             {
-                ReadLine(&tokenizer);
+                string boneName;
+                boneName.str = GetPointer(&tokenizer, u8);
+                GetPointerValue(&tokenizer, &boneName.size);
+                Advance(&tokenizer, (u32)boneName.size);
             }
             skeleton.parents = GetTokenCursor(&tokenizer, i32);
             Advance(&tokenizer, sizeof(skeleton.parents[0]) * count);

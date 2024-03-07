@@ -501,27 +501,23 @@ internal void WriteModelToFile(Model *model, string directory, string filename)
             {
                 string output = StrConcat(temp.arena, directory, model->materials[i].texture[j]);
                 // Place the pointer to the string data
-                u64 offset = (u64)builder.totalSize;
-                offset += 16;
-                PutPointer(&builder, &offset);
-                PutPointer(&builder, &output.size);
+                u64 offset = PutPointer(&builder, 8);
+                PutPointerValue(&builder, &output.size);
                 Assert(builder.totalSize == offset);
                 Put(&builder, output);
             }
             else
             {
                 u64 offset = 0;
-                PutPointer(&builder, &offset);
+                PutPointerValue(&builder, &offset);
             }
         }
     }
 
     // Add skeleton filename
     string output = StrConcat(temp.arena, directory, model->skeleton.filename);
-    u64 offset    = builder.totalSize;
-    offset += 16;
-    PutPointer(&builder, &offset);
-    PutPointer(&builder, &output.size);
+    u64 offset    = PutPointer(&builder, 8);
+    PutPointerValue(&builder, &output.size);
     Assert(builder.totalSize == offset);
     Put(&builder, output);
 
@@ -541,11 +537,12 @@ internal void WriteSkeletonToFile(Skeleton *skeleton, string filename)
     Put(&builder, skeletonVersionNumber);
     Put(&builder, skeleton->count);
 
-    // TODO: maybe get rid of names entirely for bones
     string *name;
     foreach (&skeleton->names, name)
     {
-        Put(&builder, name->size);
+        u64 offset = PutPointer(&builder, 8);
+        PutPointerValue(&builder, &name->size);
+        Assert(builder.totalSize == offset);
         Put(&builder, *name);
     }
     PutArray(&builder, skeleton->parents);
@@ -568,7 +565,7 @@ internal void WriteAnimationToFile(KeyframedAnimation *animation, string filenam
 
     Put(&builder, animationFileVersion);
     Put(&builder, animation->numNodes);
-    PutPointer(&builder, &animation->duration);
+    PutPointerValue(&builder, &animation->duration);
     Put(&builder, animation->numFrames);
 
     loopi(0, animation->numNodes)
