@@ -8,8 +8,19 @@
 //
 // - Be able to asynchronously load multiple textures at the same time (using probably a list of PBOs).
 // - LRU for eviction
+#include "crack.h"
+#ifdef LSP_INCLUDE
+#include "asset.h"
+#include "asset_cache.h"
+#endif
 
+//////////////////////////////
+// Globals
+//
 global AS_CacheState *as_state = 0;
+global readonly LoadedSkeleton skeletonNil;
+global readonly LoadedModel modelNil;
+global readonly Texture textureNil;
 
 internal void AS_Init()
 {
@@ -48,8 +59,6 @@ internal u64 RingRead(u8 *base, u64 ringSize, u64 readPos, void *dest, u64 destS
     return destSize;
 }
 
-#define RingReadStruct(base, size, readPos, ptr) RingRead((base), (size), (readPos), (ptr), sizeof(*(ptr)))
-
 internal u64 RingWrite(u8 *base, u64 ringSize, u64 writePos, void *src, u64 srcSize)
 {
     Assert(ringSize >= srcSize);
@@ -63,8 +72,6 @@ internal u64 RingWrite(u8 *base, u64 ringSize, u64 writePos, void *src, u64 srcS
 
     return srcSize;
 }
-
-#define RingWriteStruct(base, size, writePos, ptr) RingWrite((base), (size), (writePos), (ptr), sizeof(*(ptr)))
 
 // TODO: timeout if it takes too long for a file to be loaded?
 internal b32 AS_EnqueueFile(string path)
@@ -122,61 +129,6 @@ internal string AS_DequeueFile(Arena *arena)
         OS_SignalWait(as_state->readSemaphore);
     }
     OS_ReleaseSemaphore(as_state->writeSemaphore);
-    return result;
-}
-
-//////////////////////////////
-// Handles
-//
-internal AS_Handle AS_GetAssetHandle(u64 hash)
-{
-    u64 index     = hash & (as_state->numSlots - 1);
-    AS_Slot *slot = as_state->assetSlots + index;
-    AS_Node *n    = 0;
-    BeginMutex(&slot->mutex);
-    for (AS_Node *node = slot->first; node != 0; node = node->next)
-    {
-        if (node->hash == hash)
-        {
-            n = node;
-            break;
-        }
-    }
-    EndMutex(&slot->mutex);
-
-    AS_Handle result = {(u64)n, hash};
-    return result;
-}
-
-internal AS_Handle AS_GetAssetHandle(string path)
-{
-    u64 hash         = HashFromString(path);
-    AS_Handle result = {};
-
-    u64 index     = hash & (as_state->numSlots - 1);
-    AS_Slot *slot = as_state->assetSlots + index;
-    AS_Node *n    = 0;
-
-    BeginMutex(&slot->mutex);
-    for (AS_Node *node = slot->first; node != 0; node = node->next)
-    {
-        if (node->hash == hash)
-        {
-            n = node;
-            break;
-        }
-    }
-    EndMutex(&slot->mutex);
-
-    if (n == 0)
-    {
-        result = {0, hash};
-    }
-    else
-    {
-        result = {(u64)n, hash};
-    }
-
     return result;
 }
 
@@ -246,7 +198,6 @@ internal void AS_EntryPoint(void *p)
                 continue;
             }
             ArenaRelease(n->arena);
-            // AS_UnloadAsset(n);
         }
 
         // Update the node
@@ -255,6 +206,8 @@ internal void AS_EntryPoint(void *p)
         n->data.str     = PushArrayNoZero(n->arena, u8, attributes.size + path.size);
         n->data.size    = OS_ReadEntireFile(handle, n->data.str);
         OS_CloseFile(handle);
+
+        // TODO IMPORTANT: virtual protect the memory so it can only be read
 
         // Process the raw asset data
         JS_Kick(AS_LoadAsset, n, 0, Priority_Low);
@@ -300,19 +253,76 @@ internal void AS_HotloadEntryPoint(void *p)
 // Specific asset loading callbacks
 //
 // TODO: create a pack file so you don't have to check the file extension
+// assets should either be loaded directly into main memory, or into a temp storage
 JOB_CALLBACK(AS_LoadAsset)
 {
     AS_Node *node    = (AS_Node *)data;
     string extension = GetFileExtension(node->path);
     if (extension == Str8Lit("model"))
     {
+        string directory = Str8PathChopPastLastSlash(node->path);
+
+        LoadedModel *model = &node->model;
+        node->type         = AS_Model;
+
+        Tokenizer tokenizer;
+        // TODO: data could be freed out from under
+        tokenizer.input  = node->data;
+        tokenizer.cursor = tokenizer.input.str;
+
+        GetPointer(&tokenizer, &model->vertexCount);
+        GetPointer(&tokenizer, &model->indexCount);
+
+        // TODO: if the data is freed, this instantly goes bye bye. use a handle.
+        // what I'm thinking is that the memory itself is wrapped in a structure that is pointed to by a handle,
+        // instead of just pointing to the asset node which contains information you don't really need?
+        model->vertices = GetTokenCursor(&tokenizer, MeshVertex);
+        Advance(&tokenizer, sizeof(model->vertices[0]) * model->vertexCount);
+        model->indices = GetTokenCursor(&tokenizer, u32);
+        Advance(&tokenizer, sizeof(model->indices[0]) * model->indexCount);
+
+        // Materials
+        // TODO: manually set this pointer instead of allocating by using a pointer look up table
+        // each pointer is just a 64 bit offset (or index into a lookup table w/ the offset), where the offset
+        // is from the beginning of the file.
+        GetPointer(&tokenizer, &model->materialCount);
+        model->materials = PushArray(node->arena, Material, model->materialCount);
+        for (u32 i = 0; i < model->materialCount; i++)
+        {
+            Material *material = model->materials + i;
+            GetPointer(&tokenizer, &material->startIndex);
+            GetPointer(&tokenizer, &material->onePlusEndIndex);
+            for (u32 j = 0; j < TextureType_Count; j++)
+            {
+                string path;
+                u64 offset;
+                GetPointer(&tokenizer, &offset);
+                path.str  = (u8 *)(node->data.str + offset);
+                GetPointer(&tokenizer, &path.size);
+                AS_EnqueueFile(path);
+                model->materials[i].textureHandles[j] = AS_GetAssetHandle(path);
+            }
+        }
+
+        // Skeleton
+        {
+            string path;
+            u64 offset;
+            GetPointer(&tokenizer, &offset);
+            path.str  = (u8 *)(node->data.str + offset);
+            GetPointer(&tokenizer, &path.size);
+            AS_EnqueueFile(path);
+            model->skeleton = AS_GetAssetHandle(path);
+        }
+
+        Assert(EndOfBuffer(&tokenizer));
     }
     else if (extension == Str8Lit("anim"))
     {
     }
     else if (extension == Str8Lit("skel"))
     {
-        SkeletonHelp skeleton;
+        LoadedSkeleton skeleton;
         Tokenizer tokenizer;
         tokenizer.input  = node->data;
         tokenizer.cursor = tokenizer.input.str;
@@ -338,7 +348,8 @@ JOB_CALLBACK(AS_LoadAsset)
 
             Assert(EndOfBuffer(&tokenizer));
         }
-        node->type = AS_Skeleton;
+        node->type     = AS_Skeleton;
+        node->skeleton = skeleton;
     }
     else if (extension == Str8Lit("png"))
     {
@@ -390,4 +401,123 @@ internal void AS_UnloadAsset(AS_Node *node)
         default:
             Assert(!"Invalid asset type");
     }
+}
+
+//////////////////////////////
+// Handles
+//
+
+// TODO: this feels weird that the handle could be in three states:
+// 1. asset hasn't been loaded yet
+// 2. asset is valid, points to an AS_Node
+// 3. asset is no longer valid,
+//
+// ideas for later (wow my brain is actually capable of thinking?)
+// global handle table containing the handle struct which is:
+// struct Handle {
+//      enum type;
+//      u8* data
+// };
+// you cast the data to the handle type (how is this allocated? answer: it's not, it's just a fixed sized buffer,
+// like 60 bytes or something), then you use the handle. for example a handle to vertex data could be a mesh vertex
+// handle, which could contain a gen id, memory block ptr, and offset into the block. if the block's memory is
+// freed, its gen id increases. and the handle checks this id when accessing. the block could be a block allocator
+// (?) that only gives out fixed size blocks, some memory wastage will happen but that will be ok.
+internal AS_Handle AS_GetAssetHandle(string path)
+{
+    u64 hash         = HashFromString(path);
+    AS_Handle result = {hash, 0};
+
+    return result;
+}
+
+internal AS_Node *AS_GetNodeFromHandle(AS_Handle handle)
+{
+    Assert(sizeof(handle) <= 16);
+
+    u64 hash        = handle.u64[0];
+    u32 slotIndex   = hash & (as_state->numSlots - 1);
+    AS_Slot *slot   = as_state->assetSlots + slotIndex;
+    AS_Node *result = 0;
+
+    // TODO: can this be lockless?
+    BeginMutex(&slot->mutex);
+    for (AS_Node *node = slot->first; node != 0; node = node->next)
+    {
+        if (node->hash == hash)
+        {
+            result = node;
+        }
+    }
+    EndMutex(&slot->mutex);
+    return result;
+}
+
+internal LoadedSkeleton *GetSkeleton(AS_Handle handle)
+{
+    LoadedSkeleton *result = &skeletonNil;
+    AS_Node *node          = AS_GetNodeFromHandle(handle);
+    if (node)
+    {
+        Assert(node->type == AS_Skeleton);
+        result = &node->skeleton;
+    }
+
+    return result;
+}
+
+internal Texture *GetTexture(AS_Handle handle)
+{
+    Texture *result = &textureNil;
+    AS_Node *node   = AS_GetNodeFromHandle(handle);
+    if (node)
+    {
+        Assert(node->type == AS_Texture);
+        result = &node->texture;
+    }
+    return result;
+}
+
+internal LoadedModel *GetModel(AS_Handle handle)
+{
+    LoadedModel *result = &modelNil;
+    AS_Node *node       = AS_GetNodeFromHandle(handle);
+    if (node)
+    {
+        Assert(node->type == AS_Model);
+        result = &node->model;
+    }
+    return result;
+}
+internal LoadedSkeleton *GetSkeletonFromModel(AS_Handle handle)
+{
+    LoadedModel *model     = GetModel(handle);
+    LoadedSkeleton *result = &skeletonNil;
+    AS_Node *node          = AS_GetNodeFromHandle(handle);
+    if (node == 0)
+    {
+        result = &skeletonNil;
+    }
+    else
+    {
+        Assert(node->type == AS_Model);
+        model  = &node->model;
+        result = GetSkeleton(model->skeleton);
+    }
+
+    return result;
+}
+
+internal R_Handle GetTextureRenderHandle(AS_Handle input)
+{
+    Texture *texture = GetTexture(input);
+    R_Handle handle  = texture->handle;
+    return handle;
+}
+
+inline AS_Handle LoadModel(string filename)
+{
+    AS_EnqueueFile(filename);
+    AS_Handle result = AS_GetAssetHandle(filename);
+    return result;
 }

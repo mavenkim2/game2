@@ -1,3 +1,10 @@
+#include "../crack.h"
+#ifdef LSP_INCLUDE
+#include "../asset.h"
+#include "../asset_cache.h"
+#include "./render.h"
+#endif
+
 global i32 win32OpenGLAttribs[] = {
     WGL_CONTEXT_MAJOR_VERSION_ARB,
     3,
@@ -81,16 +88,18 @@ internal void LoadModel(Model *model)
     // NOTE: must be 0
     if (!model->vbo)
     {
+        // TODO: this shouldn't be necessary. render.cpp should just give the right data
+        LoadedModel *loadedModel = GetModel(model->loadedModel);
         openGL->glGenBuffers(1, &model->vbo);
         openGL->glGenBuffers(1, &model->ebo);
 
         openGL->glBindBuffer(GL_ARRAY_BUFFER, model->vbo);
-        openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(model->vertices.items[0]) * model->vertices.count,
-                             model->vertices.items, GL_STREAM_DRAW);
+        openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(loadedModel->vertices[0]) * loadedModel->vertexCount,
+                             loadedModel->vertices, GL_STREAM_DRAW);
 
         openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, model->ebo);
-        openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(model->indices.items[0]) * model->indices.count,
-                             model->indices.items, GL_STREAM_DRAW);
+        openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(loadedModel->indices[0]) * loadedModel->indexCount,
+                             loadedModel->indices, GL_STREAM_DRAW);
     }
 }
 
@@ -459,51 +468,12 @@ internal void OpenGLEndFrame(RenderState *state, HDC deviceContext, int clientWi
         RenderCommand *command;
         foreach (&state->commands, command)
         {
-            Model *model       = command->model;
-            Skeleton *skeleton = &model->skeleton;
+            Model *model             = command->model;
+            LoadedSkeleton *skeleton = command->skeleton;
             if (!model->vbo)
             {
                 LoadModel(model);
             }
-            // NOTE: If there are no textures, use the default white texture
-            openGL->glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_2D, openGL->whiteTextureHandle);
-            for (u32 i = 0; i < command->numHandles; i++)
-            {
-                u32 textureHandle = command->textureHandles[i];
-                if (textureHandle == 0)
-                {
-                    textureHandle = openGL->whiteTextureHandle;
-                }
-                openGL->glActiveTexture(GL_TEXTURE0 + i);
-                glBindTexture(GL_TEXTURE_2D, textureHandle);
-                // switch (texture->type)
-                // {
-                //     case TextureType_Diffuse:
-                //     {
-                //         openGL->glActiveTexture(GL_TEXTURE0);
-                //         glBindTexture(GL_TEXTURE_2D, textureId);
-                //         break;
-                //     }
-                //     case TextureType_Normal:
-                //     {
-                //         openGL->glActiveTexture(GL_TEXTURE0 + 1);
-                //         glBindTexture(GL_TEXTURE_2D, textureId);
-                //         break;
-                //     }
-                //     case TextureType_Nil:
-                //     {
-                //         openGL->glActiveTexture(GL_TEXTURE0);
-                //         glBindTexture(GL_TEXTURE_2D, textureId);
-                //         break;
-                //     }
-                //     default:
-                //     {
-                //         break;
-                //     }
-                // }
-            }
-
             openGL->glActiveTexture(GL_TEXTURE0);
 
             openGL->glBindBuffer(GL_ARRAY_BUFFER, model->vbo);
@@ -566,7 +536,44 @@ internal void OpenGLEndFrame(RenderState *state, HDC deviceContext, int clientWi
             GLint nmapLoc = openGL->glGetUniformLocation(openGL->modelShader.base.id, "normalMap");
             openGL->glUniform1i(nmapLoc, 1);
 
-            glDrawElements(GL_TRIANGLES, model->indices.count, GL_UNSIGNED_INT, 0);
+            openGL->glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, openGL->whiteTextureHandle);
+            for (u32 i = 0; i < command->numMaterials; i++)
+            {
+                Material *material = command->materials;
+                for (u32 j = 0; j < TextureType_Count; j++)
+                {
+                    R_Handle textureHandle = GetTextureRenderHandle(material->textureHandles[j]);
+                    Texture *texture       = GetTexture(material->textureHandles[j]);
+                    if (textureHandle == 0)
+                    {
+                        textureHandle = openGL->whiteTextureHandle;
+                    }
+                    openGL->glActiveTexture(GL_TEXTURE0 + i);
+                    glBindTexture(GL_TEXTURE_2D, textureHandle);
+                    switch (texture->type)
+                    {
+                        case TextureType_Diffuse:
+                        {
+                            openGL->glActiveTexture(GL_TEXTURE0);
+                            glBindTexture(GL_TEXTURE_2D, textureHandle);
+                            break;
+                        }
+                        case TextureType_Normal:
+                        {
+                            openGL->glActiveTexture(GL_TEXTURE0 + 1);
+                            glBindTexture(GL_TEXTURE_2D, textureHandle);
+                            break;
+                        }
+                        default:
+                        {
+                            break;
+                        }
+                    }
+                    glDrawElements(GL_TRIANGLES, material->onePlusEndIndex - material->startIndex, GL_UNSIGNED_INT,
+                                   (void *)(sizeof(u32) * material->startIndex));
+                }
+            }
 
             // UNBIND
             openGL->glUseProgram(0);

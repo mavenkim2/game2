@@ -62,6 +62,8 @@ enum CameraMode
 
 struct GameState
 {
+    Arena* frameArena;
+
     u64 entity_id_gen;
     Entity player;
 
@@ -78,8 +80,8 @@ struct GameState
     // also mesh node hierarchy should use id's for parent name.
     // also need to use the same hierarchy for animation/skeleton/mesh
     AnimationPlayer animPlayer;
-    AnimationTransform *tforms;
-    Mat4 *finalTransforms;
+    // AnimationTransform *tforms;
+    // Mat4 *finalTransforms;
 
     Model model;
 };

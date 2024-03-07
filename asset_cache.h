@@ -5,14 +5,35 @@
 #ifdef LSP_INCLUDE
 #include "keepmovingforward_common.h"
 #include "job.h"
+#include "asset.h"
 #endif
 
 struct AS_Node;
 struct AS_Slot;
+internal void AS_Init();
+internal u64 RingRead(u8 *base, u64 ringSize, u64 readPos, void *dest, u64 destSize);
+internal u64 RingWrite(u8 *base, u64 ringSize, u64 writePos, void *src, u64 srcSize);
+#define RingReadStruct(base, size, readPos, ptr)   RingRead((base), (size), (readPos), (ptr), sizeof(*(ptr)))
+#define RingWriteStruct(base, size, writePos, ptr) RingWrite((base), (size), (writePos), (ptr), sizeof(*(ptr)))
+
+internal b32 AS_EnqueueFile(string path);
+internal string AS_DequeueFile(Arena *arena);
+
 internal void AS_EntryPoint(void *p);
 internal void AS_HotloadEntryPoint(void *p);
 JOB_CALLBACK(AS_LoadAsset);
 internal void AS_UnloadAsset(AS_Node *node);
+
+//////////////////////////////
+// Handles
+//
+internal AS_Handle AS_GetAssetHandle(u64 hash);
+internal AS_Handle AS_GetAssetHandle(string path);
+internal LoadedSkeleton *GetSkeleton(AS_Handle handle);
+internal LoadedSkeleton *GetSkeletonFromModel(AS_Handle handle);
+internal LoadedModel *GetModel(AS_Handle handle);
+internal Texture *GetTexture(AS_Handle handle);
+internal R_Handle GetTextureRenderHandle(AS_Handle input);
 
 struct AS_CacheState
 {
@@ -73,8 +94,9 @@ struct AS_Node
 
     union
     {
-        SkeletonHelp skeleton;
+        LoadedSkeleton skeleton;
         Texture texture;
+        LoadedModel model;
     };
 
     AS_Node *next;
@@ -88,4 +110,4 @@ struct AS_Slot
     Mutex mutex;
 };
 
-#endif 
+#endif

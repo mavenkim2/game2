@@ -31,6 +31,7 @@ internal TempArena TempBegin(Arena *arena);
 internal void TempEnd(TempArena temp);
 internal b32 CheckZero(u32 size, u8 *instance);
 internal void ArenaRelease(Arena *arena);
+internal void ArenaClear(Arena *arena);
 
 #define PushArrayNoZero(arena, type, count) (type *)ArenaPushNoZero(arena, sizeof(type) * (count))
 #define PushStructNoZero(arena, type)       (type *)PushArrayNoZero(arena, type, 1)

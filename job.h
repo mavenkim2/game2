@@ -2,7 +2,7 @@
 #define JOB_H
 
 #include "crack.h"
-#ifdef LSP_INCLUDE 
+#ifdef LSP_INCLUDE
 #include "keepmovingforward_common.h"
 #include "keepmovingforward_memory.h"
 #include "platform_inc.h"
@@ -73,6 +73,22 @@ struct JS_State
     u64 numJobs;
 };
 
-internal b32 JS_PopJob(JS_Queue *queue, JS_Thread *thread);
+//////////////////////////////
+// Initialization
+//
+internal void JS_Init();
 
-#endif 
+//////////////////////////////
+// Job API Functions
+//
+internal void JS_Kick(JobCallback *callback, void *data, Arena **arena, Priority priority, JS_Counter *counter);
+internal void JS_Join(JS_Counter *counter);
+
+//////////////////////////////
+// Worker Thread Tasks
+//
+
+internal b32 JS_PopJob(JS_Queue *queue, JS_Thread *thread);
+internal void JobThreadEntryPoint(void *p);
+
+#endif

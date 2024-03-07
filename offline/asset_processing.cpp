@@ -72,8 +72,9 @@ internal void *LoadAndWriteModel(void *ptr, Arena *arena)
     Data *data       = (Data *)ptr;
     string directory = data->directory;
     string filename  = data->filename;
+    string fullPath  = StrConcat(arena, directory, filename);
+
     Model model;
-    string fullPath = StrConcat(arena, directory, filename);
 
     // Load gltf file using Assimp
     Assimp::Importer importer;
@@ -83,16 +84,13 @@ internal void *LoadAndWriteModel(void *ptr, Arena *arena)
 
     if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode)
     {
-        Printf("Unable to load %S", fullPath);
+        Printf("Unable to load %S\n", fullPath);
+        Assert(!":(");
     }
 
+    filename         = RemoveFileExtension(filename);
     aiMatrix4x4t<f32> transform = scene->mRootNode->mTransformation;
     model                       = LoadAllMeshes(arena, scene);
-
-    // Write vertex data & texture dependencies
-    filename               = RemoveFileExtension(filename);
-    string outputModelPath = PushStr8F(arena, "%S%S.model", directory, filename);
-    WriteModelToFile(&model, outputModelPath);
 
     // Load skeleton
     ArrayInit(arena, model.skeleton.parents, i32, scene->mMeshes[0]->mNumBones);
@@ -154,9 +152,14 @@ internal void *LoadAndWriteModel(void *ptr, Arena *arena)
 
     string outputSkelPath = PushStr8F(arena, "%S%S.skel", directory, filename);
     WriteSkeletonToFile(&model.skeleton, outputSkelPath);
+    model.skeleton.filename = StrConcat(arena, filename, Str8Lit(".skel"));
 
     KeyframedAnimation *animation = PushStruct(arena, KeyframedAnimation);
     ProcessAnimations(arena, scene, animation);
+
+    // Write vertex data & texture dependencies
+    string outputModelPath = PushStr8F(arena, "%S%S.model", directory, filename);
+    WriteModelToFile(&model, outputModelPath);
 
     ScratchEnd(scratch);
     return 0;
@@ -486,17 +489,33 @@ internal void WriteModelToFile(Model *model, string filename)
     PutArray(&builder, model->indices);
 
     // Add texture filenames
+    Put(&builder, model->materialCount);
     for (u32 i = 0; i < model->materialCount; i++)
     {
+        Put(&builder, model->materials[i].startIndex);
+        Put(&builder, model->materials[i].onePlusEndIndex);
         for (u32 j = 0; j < TextureType_Count; j++)
         {
             if (model->materials[i].texture[j].size != 0)
             {
-                Put(&builder, model->materials[i].texture[j].size);
+                // Place the pointer to the string data
+                u64 offset = (u64)builder.totalSize;
+                offset += 16;
+                PutPointer(&builder, &offset);
+                PutPointer(&builder, &model->materials[i].texture[j].size);
+                Assert(builder.totalSize == offset);
                 Put(&builder, model->materials[i].texture[j]);
             }
         }
     }
+
+    // Add skeleton filename
+    u64 offset = builder.totalSize;
+    offset += 16;
+    PutPointer(&builder, &offset);
+    PutPointer(&builder, &model->skeleton.filename.size);
+    Assert(builder.totalSize == offset);
+    Put(&builder, model->skeleton.filename);
 
     b32 success = WriteEntireFile(&builder, filename);
     if (!success)
@@ -518,8 +537,8 @@ internal void WriteSkeletonToFile(Skeleton *skeleton, string filename)
     string *name;
     foreach (&skeleton->names, name)
     {
-        string output = PushStr8F(temp.arena, "%S\n", *name);
-        Put(&builder, output);
+        Put(&builder, name->size);
+        Put(&builder, *name);
     }
     PutArray(&builder, skeleton->parents);
     PutArray(&builder, skeleton->inverseBindPoses);
@@ -633,8 +652,8 @@ int main(int argc, char *argv[])
     // Write out using the file format
     // could recursively go through every directory, loading all gltfs and writing them to the same directory
 
-    Arena *arena      = ArenaAlloc(gigabytes(1));
-    TempArena scratch = ScratchStart(0, 0);
+    Arena *arena       = ArenaAlloc(gigabytes(1));
+    TempArena scratch  = ScratchStart(0, 0);
     JS_Counter counter = {};
 
     string directories[1024];

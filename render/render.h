@@ -19,6 +19,14 @@
  * when meshes are loaded though, textures are also loaded (eventually async). when they are finished
  * loading, they are sent to the gpu then freed
  */
+#include "../crack.h"
+#ifdef LSP_INCLUDE
+#include "../keepmovingforward_common.h"
+#include "../keepmovingforward_string.h"
+#include "../keepmovingforward_math.h"
+#include "../asset.h"
+#include "../asset_cache.h"
+#endif
 
 #define MAX_COMMANDS       10
 #define MAX_DEBUG_VERTICES 1000
@@ -72,6 +80,8 @@ struct RenderVertex
 };
 
 typedef u32 T_Handle;
+struct Material;
+struct LoadedSkeleton;
 
 struct RenderCommand
 {
@@ -80,8 +90,12 @@ struct RenderCommand
 
     Mat4 *finalBoneTransforms;
 
-    R_Handle textureHandles[4];
-    u32 numHandles;
+    Material *materials;
+    u32 numMaterials;
+
+    LoadedSkeleton *skeleton;
+    // R_Handle textureHandles[4];
+    // u32 numHandles;
 };
 
 struct RenderState

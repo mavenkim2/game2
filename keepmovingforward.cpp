@@ -1,5 +1,6 @@
 #include "keepmovingforward.h"
 
+#include "asset_cache.h"
 #include "platform_inc.cpp"
 #include "thread_context.cpp"
 
@@ -467,6 +468,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     // Initialization
     if (!memory->isInitialized)
     {
+        gameState->frameArena = ArenaAllocDefault();
         gameState->worldArena = ArenaAlloc((void *)((u8 *)(memory->PersistentStorageMemory) + sizeof(GameState)),
                                            memory->PersistentStorageSize - sizeof(GameState));
 
@@ -495,8 +497,10 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         // WriteModelToFile(&gameState->model, Str8Lit("data/dragon.model"));
         // WriteSkeletonToFile(&gameState->model.skeleton, Str8Lit("data/dragon.skel"));
 
-        ReadModelFromFile(gameState->worldArena, &gameState->model, Str8Lit("data/dragon.model"));
-        ReadSkeletonFromFile(gameState->worldArena, &gameState->model.skeleton, Str8Lit("data/dragon.skel"));
+        gameState->model.loadedModel = LoadModel(Str8Lit("data/dragon/scene.model"));
+        // ReadModelFromFile(gameState->worldArena, &gameState->model,
+        // ReadSkeletonFromFile(gameState->worldArena, &gameState->model.skeleton,
+        // Str8Lit("data/dragon/scene.skel"));
         KeyframedAnimation *animation = PushStruct(gameState->worldArena, KeyframedAnimation);
 
         Mat4 translate             = Translate4(V3{0, 0, 5});
@@ -509,29 +513,15 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
         ReadAnimationFile(gameState->worldArena, animation, Str8Lit("data/dragon_attack_01.anim"));
 
-        // TODO
-        // - be able to use multiple materials/textures for each model
-        // - automatically load all model data instead of having to do this by hand
-        AS_EnqueueFile(Str8Lit("data/dragon/MI_M_B_44_Qishilong_body02_2_Inst_diffuse.png"));
-        AS_Handle handle = AS_GetAssetHandle(Str8Lit("data/dragon/MI_M_B_44_Qishilong_body02_2_Inst_diffuse.png"));
-        AddTexture(&gameState->model, handle);
+        // AS_EnqueueFile(Str8Lit("data/dragon/MI_M_B_44_Qishilong_body02_2_Inst_diffuse.png"));
+        // AS_Handle handle =
+        // AS_GetAssetHandle(Str8Lit("data/dragon/MI_M_B_44_Qishilong_body02_2_Inst_diffuse.png"));
+        // AddTexture(&gameState->model, handle);
+        //
+        // AS_EnqueueFile(Str8Lit("data/dragon/MI_M_B_44_Qishilong_body02_Inst_normal.png"));
+        // handle = AS_GetAssetHandle(Str8Lit("data/dragon/MI_M_B_44_Qishilong_body02_Inst_normal.png"));
+        // AddTexture(&gameState->model, handle);
 
-        AS_EnqueueFile(Str8Lit("data/dragon/MI_M_B_44_Qishilong_body02_Inst_normal.png"));
-        handle = AS_GetAssetHandle(Str8Lit("data/dragon/MI_M_B_44_Qishilong_body02_Inst_normal.png"));
-        AddTexture(&gameState->model, handle);
-
-        // LoadTexture(assetState, Str8Lit("data/dragon/MI_M_B_44_Qishilong_body02_2_Inst_normal.png"),
-        //             TextureType_Normal, 1);
-        // PushTexture(&gameState->model, 1);
-        //
-        // LoadTexture(assetState, Str8Lit("data/dragon/MI_M_B_44_Qishilong_body02_2_Inst_diffuse.png"),
-        //             TextureType_Diffuse, 2);
-        // PushTexture(&gameState->model, 2);
-        //
-        // LoadTexture(assetState, Str8Lit("data/dragon/MI_M_B_44_Qishilong_body02_2_Inst_normal.png"),
-        //             TextureType_Normal, 3);
-        // PushTexture(&gameState->model, 3);
-        //
         gameState->level      = PushStruct(gameState->worldArena, Level);
         gameState->cameraMode = CameraMode_Player;
 
@@ -561,9 +551,6 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         AnimationPlayer *aPlayer = &gameState->animPlayer;
         StartLoopedAnimation(aPlayer, animation);
 
-        gameState->tforms = PushArray(gameState->worldArena, AnimationTransform, gameState->model.skeleton.count);
-        gameState->finalTransforms = PushArray(gameState->worldArena, Mat4, gameState->model.skeleton.count);
-
         // DumbData data    = {};
         // JS_Ticket ticket = JS_Kick(TestCall1, &data, 0, Priority_High);
         // for (i32 i = 0; i < 1000; i++)
@@ -577,6 +564,8 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
         // AS_EnqueueFile(Str8C("data/dragon.skel"));
     }
+
+    ArenaClear(gameState->frameArena);
     //
     // Assets
     //
@@ -934,16 +923,18 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         // PushCube(&openGL->group, player->pos, player->size, player->color);
         // PushModel();
 
+        LoadedSkeleton *skeleton   = GetSkeletonFromModel(gameState->model.loadedModel);
+        AnimationTransform *tforms = PushArray(gameState->frameArena, AnimationTransform, skeleton->count);
+        Mat4 *finalTransforms      = PushArray(gameState->frameArena, Mat4, skeleton->count);
         // ANIMATION
-        PlayCurrentAnimation(&gameState->animPlayer, input->dT, gameState->tforms);
+        PlayCurrentAnimation(&gameState->animPlayer, input->dT, tforms);
 
-        SkinModelToAnimation(&gameState->animPlayer, &gameState->model, gameState->tforms,
-                             gameState->finalTransforms);
-        PushModel(renderState, &gameState->model, gameState->finalTransforms);
+        SkinModelToAnimation(&gameState->animPlayer, &gameState->model, tforms, finalTransforms);
+        PushModel(renderState, &gameState->model, finalTransforms);
         DrawArrow(&renderState->debugRenderer, {0, 0, 0}, {5, 0, 0}, {1, 0, 0, 1}, 1.f);
         DrawArrow(&renderState->debugRenderer, {0, 0, 0}, {0, 5, 0}, {0, 1, 0, 1}, 1.f);
         DrawArrow(&renderState->debugRenderer, {0, 0, 0}, {0, 0, 5}, {0, 0, 1, 1}, 1.f);
-        DebugDrawSkeleton(&renderState->debugRenderer, &gameState->model, gameState->finalTransforms);
+        DebugDrawSkeleton(&renderState->debugRenderer, &gameState->model, finalTransforms);
     }
     // GameOutputSound(soundBuffer, gameState->toneHz);
 }

@@ -411,6 +411,18 @@ internal void Put(StringBuilder *builder, u32 value)
     QueuePush(builder->first, builder->last, node);
 }
 
+internal void Prepend(StringBuilder *builder, void *data, u32 size)
+{
+    StringBuilderNode *node = PushStruct(builder->scratch.arena, StringBuilderNode);
+    node->str.str           = PushArray(builder->scratch.arena, u8, size);
+    node->str.size          = size;
+
+    builder->totalSize += size;
+
+    MemoryCopy(node->str.str, data, size);
+    StackPush(builder->first, node);
+}
+
 internal b32 WriteEntireFile(StringBuilder *builder, string filename)
 {
     string result;

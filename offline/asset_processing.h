@@ -44,6 +44,7 @@ struct VertexBoneInfo
 
 struct Skeleton
 {
+    string filename;
     u32 count;
     Array(string) names;
     Array(i32) parents;

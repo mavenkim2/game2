@@ -65,25 +65,26 @@ struct MeshVertex
     f32 boneWeights[MAX_MATRICES_PER_VERTEX];
 };
 
-struct BoneInfo
-{
-    string name;
-    u32 boneId;
-    Mat4 convertToBoneSpaceMatrix;
-};
+// struct BoneInfo
+// {
+//     string name;
+//     u32 boneId;
+//     Mat4 convertToBoneSpaceMatrix;
+// };
 
-struct Skeleton
+// struct Skeleton
+// {
+//     u32 count;
+//     Array(string) names;
+//     Array(i32) parents;
+//     Array(Mat4) inverseBindPoses;
+//     Array(Mat4) transformsToParent;
+// };
+
+struct LoadedSkeleton
 {
     u32 count;
-    Array(string) names;
-    Array(i32) parents;
-    Array(Mat4) inverseBindPoses;
-    Array(Mat4) transformsToParent;
-};
-
-struct SkeletonHelp
-{
-    u32 count;
+    string *names;
     i32 *parents;
     Mat4 *inverseBindPoses;
     Mat4 *transformsToParent;
@@ -155,28 +156,30 @@ struct AnimationPlayer
     b32 isLooping;
 };
 
+struct Material
+{
+    u32 startIndex;
+    u32 onePlusEndIndex;
+    AS_Handle textureHandles[TextureType_Count];
+};
+
+struct LoadedModel
+{
+    u32 vertexCount;
+    u32 indexCount;
+    MeshVertex *vertices;
+    u32 *indices;
+
+    AS_Handle skeleton;
+
+    u32 materialCount;
+    Material *materials;
+};
+
 struct Model
 {
-    Array(MeshVertex) vertices;
-    Array(u32) indices;
-
-    Skeleton skeleton;
-
-    AS_Handle textures[4];
-    u32 numTextures;
-
-    struct
-    {
-        u32 startIndex;
-        u32 onePlusEndIndex;
-        R_Handle textureHandles[2];
-    } materials[2];
-
+    AS_Handle loadedModel;
     Mat4 transform;
-
-    // TODO: maybe the model shouldn't own a vbo and ebo. maybe it can have an id or something
-    // that the render state can map to a vbo. this could be useful for packing multiple models
-    // into one buffer, to reduce the number of draw calls, but doing this now would be premature. 2/12/24
     u32 vbo;
     u32 ebo;
 };
@@ -220,5 +223,12 @@ struct ModelOutput
     Model model;
     KeyframedAnimation *animation;
 };
+
+//////////////////////////////
+// Function
+//
+struct AS_Node;
+internal void PushTextureQueue(AS_Node *node);
+internal void LoadTextureOps();
 
 #endif

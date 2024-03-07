@@ -14,12 +14,18 @@
 #include "keepmovingforward_camera.h"
 #include "render/render.h"
 #include "asset.h"
+#include "job.h"
+// TODO: remove below
+#include "asset_cache.h"
 #include "win32_keepmovingforward.h"
 
 #include "platform_inc.cpp"
 #include "thread_context.cpp"
 #include "keepmovingforward_memory.cpp"
 #include "keepmovingforward_string.cpp"
+#include "job.cpp"
+#include "asset.cpp"
+#include "asset_cache.cpp"
 #include "render/opengl.cpp"
 
 global b32 RUNNING = true;

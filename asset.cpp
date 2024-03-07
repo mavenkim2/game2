@@ -3,6 +3,12 @@
 #define STBI_ONLY_PNG
 #include "third_party/stb_image.h"
 
+#include "crack.h"
+#ifdef LSP_INCLUDE
+#include "asset.h"
+#include "asset_cache.h"
+#endif
+
 inline AnimationTransform MakeAnimTform(V3 position, Quat rotation, V3 scale)
 {
     AnimationTransform result;
@@ -272,13 +278,12 @@ internal void SkinModelToAnimation(AnimationPlayer *player, Model *model, const 
                                    Mat4 *finalTransforms)
 {
     Mat4 transformToParent[MAX_BONES];
-    Skeleton *skeleton = &model->skeleton;
-
-    i32 previousId = -1;
+    LoadedSkeleton *skeleton = GetSkeletonFromModel(model->loadedModel);
+    i32 previousId           = -1;
 
     loopi(0, skeleton->count)
     {
-        const string name = skeleton->names.items[i];
+        const string name = skeleton->names[i];
         i32 id            = i;
 
         i32 animationId = -1;
@@ -293,13 +298,13 @@ internal void SkinModelToAnimation(AnimationPlayer *player, Model *model, const 
         Mat4 lerpedMatrix;
         if (animationId == -1)
         {
-            lerpedMatrix = skeleton->transformsToParent.items[id];
+            lerpedMatrix = skeleton->transformsToParent[id];
         }
         else
         {
             lerpedMatrix = ConvertToMatrix(&transforms[animationId]);
         }
-        i32 parentId = skeleton->parents.items[id];
+        i32 parentId = skeleton->parents[id];
         if (parentId == -1)
         {
             transformToParent[id] = lerpedMatrix;
@@ -312,109 +317,82 @@ internal void SkinModelToAnimation(AnimationPlayer *player, Model *model, const 
 
         Assert(id > previousId);
         previousId          = id;
-        finalTransforms[id] = transformToParent[id] * skeleton->inverseBindPoses.items[id];
+        finalTransforms[id] = transformToParent[id] * skeleton->inverseBindPoses[id];
     }
 }
 
-internal void WriteModelToFile(Model *model, string filename)
-{
-    StringBuilder builder = {};
-    TempArena temp        = ScratchStart(0, 0);
-    builder.scratch       = temp;
-    Put(&builder, model->vertices.count);
-    Put(&builder, model->indices.count);
-    PutArray(&builder, model->vertices);
-    PutArray(&builder, model->indices);
+// internal void ReadModelFromFile(Arena *arena, Model *model, string filename)
+// {
+//     string directory = Str8PathChopPastLastSlash(filename);
+//
+//     Tokenizer tokenizer;
+//     tokenizer.input  = ReadEntireFile(filename);
+//     tokenizer.cursor = tokenizer.input.str;
+//
+//     GetPointer(&tokenizer, &model->vertexCount);
+//     GetPointer(&tokenizer, &model->indexCount);
+//
+//     // TODO: if the data is freed, this instantly goes bye bye. use a handle.
+//     // what I'm thinking is that the memory itself is wrapped in a structure that is pointed to by a handle,
+//     // instead of just pointing to the asset node which contains information you don't really need?
+//     model->vertices = GetTokenCursor(&tokenizer, MeshVertex);
+//     Advance(&tokenizer, sizeof(model->vertices[0]) * model->vertexCount);
+//     model->indices = GetTokenCursor(&tokenizer, u32);
+//     Advance(&tokenizer, sizeof(model->indices[0]) * model->indexCount);
+//
+//     // Materials
+//     for (u32 i = 0; i < model->materialCount; i++)
+//     {
+//         Material *material = model->materials + i;
+//         GetPointer(&tokenizer, &material->startIndex);
+//         GetPointer(&tokenizer, &material->onePlusEndIndex);
+//         for (u32 j = 0; j < TextureType_Count; j++)
+//         {
+//             string path;
+//             GetPointer(&tokenizer, &path.size);
+//             Get(&tokenizer, path.str, path.size);
+//             AS_EnqueueFile(path);
+//             model->materials[i].textureHandles[j] = AS_GetAssetHandle(path);
+//         }
+//     }
+//
+//     Assert(EndOfBuffer(&tokenizer));
+//
+//     OS_Release(tokenizer.input.str);
+// }
 
-    b32 success = WriteEntireFile(&builder, filename);
-    if (!success)
-    {
-        Printf("Failed to write file %S\n", filename);
-    }
-    ScratchEnd(temp);
-}
-
-// TODO IMPORTANT: the arrays should point directly to the data from the file, instead of copying
-internal void ReadModelFromFile(Arena *arena, Model *model, string filename)
-{
-    Tokenizer tokenizer;
-    tokenizer.input  = ReadEntireFile(filename);
-    tokenizer.cursor = tokenizer.input.str;
-
-    u32 vertexCount, indexCount;
-    GetPointer(&tokenizer, &vertexCount);
-    GetPointer(&tokenizer, &indexCount);
-    ArrayInit(arena, model->vertices, MeshVertex, vertexCount);
-    ArrayInit(arena, model->indices, u32, indexCount);
-
-    GetArray(&tokenizer, model->vertices, vertexCount);
-    GetArray(&tokenizer, model->indices, indexCount);
-
-    Assert(EndOfBuffer(&tokenizer));
-
-    OS_Release(tokenizer.input.str);
-}
-
-global u32 skeletonVersionNumber = 1;
-internal void WriteSkeletonToFile(Skeleton *skeleton, string filename)
-{
-    StringBuilder builder = {};
-    TempArena temp        = ScratchStart(0, 0);
-    builder.scratch       = temp;
-    Put(&builder, skeletonVersionNumber);
-    Put(&builder, skeleton->count);
-
-    // TODO: maybe get rid of names entirely for bones
-    string *name;
-    foreach (&skeleton->names, name)
-    {
-        string output = PushStr8F(temp.arena, "%S\n", *name);
-        Put(&builder, output);
-    }
-    PutArray(&builder, skeleton->parents);
-    PutArray(&builder, skeleton->inverseBindPoses);
-    PutArray(&builder, skeleton->transformsToParent);
-
-    b32 success = WriteEntireFile(&builder, filename);
-    if (!success)
-    {
-        Printf("Failed to write file %S\n", filename);
-    }
-    ScratchEnd(temp);
-}
-
-internal void ReadSkeletonFromFile(Arena *arena, Skeleton *skeleton, string filename)
-{
-    Tokenizer tokenizer;
-    tokenizer.input  = ReadEntireFile(filename);
-    tokenizer.cursor = tokenizer.input.str;
-
-    u32 version;
-    u32 count;
-    GetPointer(&tokenizer, &version);
-    GetPointer(&tokenizer, &count);
-    skeleton->count = count;
-    if (version == 1)
-    {
-        // TODO: is it weird that these names are a string pointer? who knows
-        ArrayInit(arena, skeleton->names, string, count);
-        ArrayInit(arena, skeleton->parents, i32, count);
-        ArrayInit(arena, skeleton->inverseBindPoses, Mat4, count);
-        ArrayInit(arena, skeleton->transformsToParent, Mat4, count);
-        loopi(0, count)
-        {
-            string output            = ReadLine(&tokenizer);
-            skeleton->names.items[i] = PushStr8Copy(arena, output);
-        }
-        skeleton->names.count = count;
-        GetArray(&tokenizer, skeleton->parents, count);
-        GetArray(&tokenizer, skeleton->inverseBindPoses, count);
-        GetArray(&tokenizer, skeleton->transformsToParent, count);
-
-        Assert(EndOfBuffer(&tokenizer));
-    }
-    OS_Release(tokenizer.input.str);
-}
+// internal void ReadSkeletonFromFile(Arena *arena, Skeleton *skeleton, string filename)
+// {
+//     Tokenizer tokenizer;
+//     tokenizer.input  = ReadEntireFile(filename);
+//     tokenizer.cursor = tokenizer.input.str;
+//
+//     u32 version;
+//     u32 count;
+//     GetPointer(&tokenizer, &version);
+//     GetPointer(&tokenizer, &count);
+//     skeleton->count = count;
+//     if (version == 1)
+//     {
+//         // TODO: is it weird that these names are a string pointer? who knows
+//         ArrayInit(arena, skeleton->names, string, count);
+//         ArrayInit(arena, skeleton->parents, i32, count);
+//         ArrayInit(arena, skeleton->inverseBindPoses, Mat4, count);
+//         ArrayInit(arena, skeleton->transformsToParent, Mat4, count);
+//         loopi(0, count)
+//         {
+//             string output            = ReadLine(&tokenizer);
+//             skeleton->names.items[i] = PushStr8Copy(arena, output);
+//         }
+//         skeleton->names.count = count;
+//         GetArray(&tokenizer, skeleton->parents, count);
+//         GetArray(&tokenizer, skeleton->inverseBindPoses, count);
+//         GetArray(&tokenizer, skeleton->transformsToParent, count);
+//
+//         Assert(EndOfBuffer(&tokenizer));
+//     }
+//     OS_Release(tokenizer.input.str);
+// }
 
 global u32 animationFileVersion = 1;
 internal void WriteAnimationToFile(KeyframedAnimation *animation, string filename)

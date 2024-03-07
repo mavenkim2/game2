@@ -1,3 +1,10 @@
+#include "../crack.h"
+#ifdef LSP_INCLUDE
+#include "../asset.h"
+#include "../asset_cache.h"
+#include "render.h"
+#endif
+
 global V4 Color_Red   = {1, 0, 0, 1};
 global V4 Color_Green = {0, 1, 0, 1};
 global V4 Color_Blue  = {0, 0, 1, 1};
@@ -134,17 +141,6 @@ internal void BeginRenderFrame(RenderState *state)
     }
 }
 
-internal b32 AddTexture(Model *model, AS_Handle handle)
-{
-    b32 result = 0;
-    if (model->numTextures < ArrayLength(model->textures))
-    {
-        model->textures[model->numTextures++] = handle;
-        result                                = 1;
-    }
-    return result;
-}
-
 internal void PushModel(RenderState *state, Model *model, Mat4 *finalTransforms = 0)
 {
     RenderCommand command = {};
@@ -156,19 +152,11 @@ internal void PushModel(RenderState *state, Model *model, Mat4 *finalTransforms 
     }
 
     // Add the opengl texture handles to the render command
-    for (u32 i = 0; i < model->numTextures; i++)
-    {
-        if (model->textures[i].u64[0] == 0)
-        {
-            model->textures[i] = AS_GetAssetHandle(model->textures[i].u64[1]);
-        }
-        AS_Node *node = (AS_Node *)model->textures[i].u64[0];
-        if (node)
-        {
-            R_Handle handle                              = node->texture.handle;
-            command.textureHandles[command.numHandles++] = handle;
-        }
-    }
+
+    LoadedModel *loadedModel = GetModel(model->loadedModel);
+    command.numMaterials     = loadedModel->materialCount;
+    command.materials        = loadedModel->materials;
+    command.skeleton         = GetSkeleton(loadedModel->skeleton);
 
     ArrayPush(&state->commands, command);
 }
@@ -241,17 +229,16 @@ internal void DrawSphere(DebugRenderer *debug, V3 offset, f32 radius, V4 color)
 
 internal void DebugDrawSkeleton(DebugRenderer *debug, Model *model, Mat4 *finalTransform)
 {
-    Skeleton *skeleton = &model->skeleton;
+    LoadedSkeleton *skeleton = GetSkeletonFromModel(model->loadedModel);
     loopi(0, skeleton->count)
     {
-        u32 parentId = skeleton->parents.items[i];
+        u32 parentId = skeleton->parents[i];
         if (parentId != -1)
         {
-            V3 childPoint = model->transform *
-                            GetTranslation(finalTransform[i] * Inverse(skeleton->inverseBindPoses.items[i]));
-            V3 parentPoint =
-                model->transform *
-                GetTranslation(finalTransform[parentId] * Inverse(skeleton->inverseBindPoses.items[parentId]));
+            V3 childPoint =
+                model->transform * GetTranslation(finalTransform[i] * Inverse(skeleton->inverseBindPoses[i]));
+            V3 parentPoint = model->transform * GetTranslation(finalTransform[parentId] *
+                                                               Inverse(skeleton->inverseBindPoses[parentId]));
             DrawLine(debug, parentPoint, childPoint, Color_Green);
         }
     }
