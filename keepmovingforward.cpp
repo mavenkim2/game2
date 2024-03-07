@@ -490,17 +490,8 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
         // Load assets
 
-        // ASSIMP
-        //
-        // ModelOutput output = AssimpDebugLoadModel(gameState->worldArena, Str8Lit("data/dragon/scene.gltf"));
-        // gameState->model   = output.model;
-        // WriteModelToFile(&gameState->model, Str8Lit("data/dragon.model"));
-        // WriteSkeletonToFile(&gameState->model.skeleton, Str8Lit("data/dragon.skel"));
+        gameState->model.loadedModel = LoadAssetFile(Str8Lit("data/dragon/scene.model"));
 
-        gameState->model.loadedModel = LoadModel(Str8Lit("data/dragon/scene.model"));
-        // ReadModelFromFile(gameState->worldArena, &gameState->model,
-        // ReadSkeletonFromFile(gameState->worldArena, &gameState->model.skeleton,
-        // Str8Lit("data/dragon/scene.skel"));
         KeyframedAnimation *animation = PushStruct(gameState->worldArena, KeyframedAnimation);
 
         Mat4 translate             = Translate4(V3{0, 0, 5});
@@ -508,19 +499,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         Mat4 rotate                = Rotate4(MakeV3(1, 0, 0), PI / 2);
         gameState->model.transform = translate * rotate * scale;
 
-        // AssimpLoadAnimation(gameState->worldArena, Str8Lit("data/dragon/scene.gltf"), animation);
-        // WriteAnimationToFile(animation, Str8Lit("data/dragon_attack_01.anim"));
-
         ReadAnimationFile(gameState->worldArena, animation, Str8Lit("data/dragon_attack_01.anim"));
-
-        // AS_EnqueueFile(Str8Lit("data/dragon/MI_M_B_44_Qishilong_body02_2_Inst_diffuse.png"));
-        // AS_Handle handle =
-        // AS_GetAssetHandle(Str8Lit("data/dragon/MI_M_B_44_Qishilong_body02_2_Inst_diffuse.png"));
-        // AddTexture(&gameState->model, handle);
-        //
-        // AS_EnqueueFile(Str8Lit("data/dragon/MI_M_B_44_Qishilong_body02_Inst_normal.png"));
-        // handle = AS_GetAssetHandle(Str8Lit("data/dragon/MI_M_B_44_Qishilong_body02_Inst_normal.png"));
-        // AddTexture(&gameState->model, handle);
 
         gameState->level      = PushStruct(gameState->worldArena, Level);
         gameState->cameraMode = CameraMode_Player;
@@ -563,6 +542,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         // i32 breakhere = 0;
 
         // AS_EnqueueFile(Str8C("data/dragon.skel"));
+        renderState->as_state = as_state;
     }
 
     ArenaClear(gameState->frameArena);
@@ -921,7 +901,6 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         //     PushCube(&openGL->group, entity->pos, entity->size, entity->color);
         // }
         // PushCube(&openGL->group, player->pos, player->size, player->color);
-        // PushModel();
 
         LoadedSkeleton *skeleton   = GetSkeletonFromModel(gameState->model.loadedModel);
         AnimationTransform *tforms = PushArray(gameState->frameArena, AnimationTransform, skeleton->count);
@@ -929,12 +908,13 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         // ANIMATION
         PlayCurrentAnimation(&gameState->animPlayer, input->dT, tforms);
 
-        SkinModelToAnimation(&gameState->animPlayer, &gameState->model, tforms, finalTransforms);
-        PushModel(renderState, &gameState->model, finalTransforms);
+        // SkinModelToAnimation(&gameState->animPlayer, &gameState->model, tforms, finalTransforms);
         DrawArrow(&renderState->debugRenderer, {0, 0, 0}, {5, 0, 0}, {1, 0, 0, 1}, 1.f);
         DrawArrow(&renderState->debugRenderer, {0, 0, 0}, {0, 5, 0}, {0, 1, 0, 1}, 1.f);
         DrawArrow(&renderState->debugRenderer, {0, 0, 0}, {0, 0, 5}, {0, 0, 1, 1}, 1.f);
-        DebugDrawSkeleton(&renderState->debugRenderer, &gameState->model, finalTransforms);
+        // DebugDrawSkeleton(&renderState->debugRenderer, &gameState->model, finalTransforms);
+
+        PushModel(renderState, &gameState->model, finalTransforms);
     }
     // GameOutputSound(soundBuffer, gameState->toneHz);
 }

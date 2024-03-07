@@ -78,6 +78,7 @@ internal b32 AS_EnqueueFile(string path)
 {
     b32 sent      = 0;
     u64 writeSize = sizeof(path.size) + path.size;
+    Assert(writeSize < as_state->ringBufferSize);
     for (;;)
     {
         BeginTicketMutex(&as_state->mutex);
@@ -282,9 +283,6 @@ JOB_CALLBACK(AS_LoadAsset)
         Advance(&tokenizer, sizeof(model->indices[0]) * model->indexCount);
 
         // Materials
-        // TODO: manually set this pointer instead of allocating by using a pointer look up table
-        // each pointer is just a 64 bit offset (or index into a lookup table w/ the offset), where the offset
-        // is from the beginning of the file.
         GetPointer(&tokenizer, &model->materialCount);
         model->materials = PushArray(node->arena, Material, model->materialCount);
         for (u32 i = 0; i < model->materialCount; i++)
@@ -294,13 +292,19 @@ JOB_CALLBACK(AS_LoadAsset)
             GetPointer(&tokenizer, &material->onePlusEndIndex);
             for (u32 j = 0; j < TextureType_Count; j++)
             {
+                char marker[6];
+                Get(&tokenizer, &marker, 6);
+
                 string path;
                 u64 offset;
                 GetPointer(&tokenizer, &offset);
-                path.str  = (u8 *)(node->data.str + offset);
-                GetPointer(&tokenizer, &path.size);
-                AS_EnqueueFile(path);
-                model->materials[i].textureHandles[j] = AS_GetAssetHandle(path);
+                if (offset != 0)
+                {
+                    path.str = (u8 *)(node->data.str + offset);
+                    GetPointer(&tokenizer, &path.size);
+                    Advance(&tokenizer, (u32)path.size);
+                    model->materials[i].textureHandles[j] = LoadAssetFile(path);
+                }
             }
         }
 
@@ -309,8 +313,10 @@ JOB_CALLBACK(AS_LoadAsset)
             string path;
             u64 offset;
             GetPointer(&tokenizer, &offset);
-            path.str  = (u8 *)(node->data.str + offset);
             GetPointer(&tokenizer, &path.size);
+            Advance(&tokenizer, (u32)path.size);
+
+            path.str = (u8 *)(node->data.str + offset);
             AS_EnqueueFile(path);
             model->skeleton = AS_GetAssetHandle(path);
         }
@@ -515,9 +521,16 @@ internal R_Handle GetTextureRenderHandle(AS_Handle input)
     return handle;
 }
 
-inline AS_Handle LoadModel(string filename)
+inline AS_Handle LoadAssetFile(string filename)
 {
     AS_EnqueueFile(filename);
     AS_Handle result = AS_GetAssetHandle(filename);
+    return result;
+}
+
+inline b32 IsModelHandleNil(AS_Handle handle)
+{
+    LoadedModel *model = GetModel(handle);
+    b32 result         = (model == 0 || model == &modelNil);
     return result;
 }

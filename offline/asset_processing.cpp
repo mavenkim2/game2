@@ -44,7 +44,7 @@ internal void AssimpLoadAnimation(Arena *arena, string filename, KeyframedAnimat
 //////////////////////////////
 // File Output
 //
-internal void WriteModelToFile(Model *model, string filename);
+internal void WriteModelToFile(Model *model, string directory, string filename);
 internal void WriteSkeletonToFile(Skeleton *skeleton, string filename);
 internal void WriteAnimationToFile(KeyframedAnimation *animation, string filename);
 
@@ -88,7 +88,7 @@ internal void *LoadAndWriteModel(void *ptr, Arena *arena)
         Assert(!":(");
     }
 
-    filename         = RemoveFileExtension(filename);
+    filename                    = RemoveFileExtension(filename);
     aiMatrix4x4t<f32> transform = scene->mRootNode->mTransformation;
     model                       = LoadAllMeshes(arena, scene);
 
@@ -159,7 +159,7 @@ internal void *LoadAndWriteModel(void *ptr, Arena *arena)
 
     // Write vertex data & texture dependencies
     string outputModelPath = PushStr8F(arena, "%S%S.model", directory, filename);
-    WriteModelToFile(&model, outputModelPath);
+    WriteModelToFile(&model, directory, outputModelPath);
 
     ScratchEnd(scratch);
     return 0;
@@ -478,7 +478,7 @@ internal void AssimpLoadAnimation(Arena *arena, string filename, KeyframedAnimat
 //////////////////////////////
 // Convert
 //
-internal void WriteModelToFile(Model *model, string filename)
+internal void WriteModelToFile(Model *model, string directory, string filename)
 {
     StringBuilder builder = {};
     TempArena temp        = ScratchStart(0, 0);
@@ -496,26 +496,34 @@ internal void WriteModelToFile(Model *model, string filename)
         Put(&builder, model->materials[i].onePlusEndIndex);
         for (u32 j = 0; j < TextureType_Count; j++)
         {
+            Put(&builder, Str8Lit("marker"));
             if (model->materials[i].texture[j].size != 0)
             {
+                string output = StrConcat(temp.arena, directory, model->materials[i].texture[j]);
                 // Place the pointer to the string data
                 u64 offset = (u64)builder.totalSize;
                 offset += 16;
                 PutPointer(&builder, &offset);
-                PutPointer(&builder, &model->materials[i].texture[j].size);
+                PutPointer(&builder, &output.size);
                 Assert(builder.totalSize == offset);
-                Put(&builder, model->materials[i].texture[j]);
+                Put(&builder, output);
+            }
+            else
+            {
+                u64 offset = 0;
+                PutPointer(&builder, &offset);
             }
         }
     }
 
     // Add skeleton filename
-    u64 offset = builder.totalSize;
+    string output = StrConcat(temp.arena, directory, model->skeleton.filename);
+    u64 offset    = builder.totalSize;
     offset += 16;
     PutPointer(&builder, &offset);
-    PutPointer(&builder, &model->skeleton.filename.size);
+    PutPointer(&builder, &output.size);
     Assert(builder.totalSize == offset);
-    Put(&builder, model->skeleton.filename);
+    Put(&builder, output);
 
     b32 success = WriteEntireFile(&builder, filename);
     if (!success)

@@ -82,6 +82,7 @@ struct RenderVertex
 typedef u32 T_Handle;
 struct Material;
 struct LoadedSkeleton;
+struct LoadedModel;
 
 struct RenderCommand
 {
@@ -93,11 +94,14 @@ struct RenderCommand
     Material *materials;
     u32 numMaterials;
 
+    // TODO: not thrilled about these pointers
+    LoadedModel *loadedModel;
     LoadedSkeleton *skeleton;
     // R_Handle textureHandles[4];
     // u32 numHandles;
 };
 
+struct AS_CacheState;
 struct RenderState
 {
     Camera camera;
@@ -111,6 +115,7 @@ struct RenderState
     Array(RenderCommand) commands;
 
     DebugRenderer debugRenderer;
+    AS_CacheState *as_state;
 };
 
 internal void PushTexture(Model *model, u32 id);

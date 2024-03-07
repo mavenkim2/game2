@@ -89,6 +89,7 @@ internal void LoadModel(Model *model)
     if (!model->vbo)
     {
         // TODO: this shouldn't be necessary. render.cpp should just give the right data
+
         LoadedModel *loadedModel = GetModel(model->loadedModel);
         openGL->glGenBuffers(1, &model->vbo);
         openGL->glGenBuffers(1, &model->ebo);
@@ -396,6 +397,7 @@ internal void OpenGLEndFrame(RenderState *state, HDC deviceContext, int clientWi
 {
     // INITIALIZE
     {
+        as_state = state->as_state;
         glViewport(0, 0, clientWidth, clientHeight);
 
         glEnable(GL_DEPTH_TEST);
@@ -412,47 +414,6 @@ internal void OpenGLEndFrame(RenderState *state, HDC deviceContext, int clientWi
         // glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     }
-
-    // RENDER CUBES
-    // {
-    //     openGL->glUseProgram(openGL->cubeShader.base.id);
-    //     openGL->glBindVertexArray(openGL->vao);
-    //     openGL->glBindBuffer(GL_ARRAY_BUFFER, openGL->vertexBufferId);
-    //     openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(RenderVertex) * openGL->group.vertexCount,
-    //                          openGL->group.vertexArray, GL_STREAM_DRAW);
-    //
-    //     openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, openGL->indexBufferId);
-    //     openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(u16) * openGL->group.indexCount,
-    //                          openGL->group.indexArray, GL_STREAM_DRAW);
-    //
-    //     GLuint positionId = openGL->cubeShader.base.positionId_UNIFORMS);;
-    //     GLuint colorId    = openGL->cubeShader.colorId;
-    //     GLuint normalId   = openGL->cubeShader.base.normalId;
-    //     openGL->glEnableVertexAttribArray(positionId);
-    //     openGL->glVertexAttribPointer(positionId, 4, GL_FLOAT, GL_FALSE, sizeof(RenderVertex),
-    //                                   (void *)Offset(RenderVertex, p));
-    //
-    //     openGL->glEnableVertexAttribArray(colorId);
-    //     openGL->glVertexAttribPointer(colorId, 3, GL_FLOAT, GL_FALSE, sizeof(RenderVertex),
-    //                                   (void *)Offset(RenderVertex, color));
-    //
-    //     openGL->glEnableVertexAttribArray(normalId);
-    //     openGL->glVertexAttribPointer(normalId, 3, GL_FLOAT, GL_FALSE, sizeof(RenderVertex),
-    //                                   (void *)Offset(RenderVertex, n));
-    //
-    //     GLint transformLocation = openGL->glGetUniformLocation(openGL->cubeShader.base.id, "transform");
-    //     openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, openGL->transform.elements[0]);
-    //
-    //     GLint cameraPosition = openGL->glGetUniformLocation(openGL->cubeShader.base.id, "cameraPosition");
-    //     openGL->glUniform3fv(cameraPosition, 1, openGL->camera.position.elements);
-    //
-    //     glDrawElements(GL_TRIANGLES, 6 * openGL->group.quadCount, GL_UNSIGNED_SHORT, 0);
-    //
-    //     openGL->glUseProgram(0);
-    //     openGL->glDisableVertexAttribArray(positionId);
-    //     openGL->glDisableVertexAttribArray(colorId);
-    //     openGL->glDisableVertexAttribArray(normalId);
-    // }
 
     // RENDER MODEL
     {
@@ -540,7 +501,7 @@ internal void OpenGLEndFrame(RenderState *state, HDC deviceContext, int clientWi
             glBindTexture(GL_TEXTURE_2D, openGL->whiteTextureHandle);
             for (u32 i = 0; i < command->numMaterials; i++)
             {
-                Material *material = command->materials;
+                Material *material = command->materials + i;
                 for (u32 j = 0; j < TextureType_Count; j++)
                 {
                     R_Handle textureHandle = GetTextureRenderHandle(material->textureHandles[j]);
@@ -549,9 +510,7 @@ internal void OpenGLEndFrame(RenderState *state, HDC deviceContext, int clientWi
                     {
                         textureHandle = openGL->whiteTextureHandle;
                     }
-                    openGL->glActiveTexture(GL_TEXTURE0 + i);
-                    glBindTexture(GL_TEXTURE_2D, textureHandle);
-                    switch (texture->type)
+                    switch (j)
                     {
                         case TextureType_Diffuse:
                         {
@@ -567,12 +526,12 @@ internal void OpenGLEndFrame(RenderState *state, HDC deviceContext, int clientWi
                         }
                         default:
                         {
-                            break;
+                            continue;
                         }
                     }
-                    glDrawElements(GL_TRIANGLES, material->onePlusEndIndex - material->startIndex, GL_UNSIGNED_INT,
-                                   (void *)(sizeof(u32) * material->startIndex));
                 }
+                glDrawElements(GL_TRIANGLES, material->onePlusEndIndex - material->startIndex, GL_UNSIGNED_INT,
+                               (void *)(sizeof(u32) * material->startIndex));
             }
 
             // UNBIND

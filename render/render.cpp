@@ -143,22 +143,24 @@ internal void BeginRenderFrame(RenderState *state)
 
 internal void PushModel(RenderState *state, Model *model, Mat4 *finalTransforms = 0)
 {
-    RenderCommand command = {};
-    command.model         = model;
-    command.transform     = Identity();
-    if (finalTransforms)
+    if (!IsModelHandleNil(model->loadedModel))
     {
-        command.finalBoneTransforms = finalTransforms;
+        RenderCommand command    = {};
+        LoadedModel *loadedModel = GetModel(model->loadedModel);
+        command.model            = model;
+        command.transform        = Identity();
+        if (finalTransforms)
+        {
+            command.finalBoneTransforms = finalTransforms;
+        }
+
+        command.numMaterials = loadedModel->materialCount;
+        command.materials    = loadedModel->materials;
+        command.skeleton     = GetSkeleton(loadedModel->skeleton);
+        command.loadedModel  = loadedModel;
+
+        ArrayPush(&state->commands, command);
     }
-
-    // Add the opengl texture handles to the render command
-
-    LoadedModel *loadedModel = GetModel(model->loadedModel);
-    command.numMaterials     = loadedModel->materialCount;
-    command.materials        = loadedModel->materials;
-    command.skeleton         = GetSkeleton(loadedModel->skeleton);
-
-    ArrayPush(&state->commands, command);
 }
 
 internal void DrawLine(DebugRenderer *debug, V3 from, V3 to, V4 color)

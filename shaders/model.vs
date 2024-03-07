@@ -30,7 +30,7 @@ void main()
 
     V3 localPos = (model * V4(pos, 1.0)).xyz;
 
-    gl_Position = transform * boneTransform * V4(pos, 1.0);
+    gl_Position = transform * V4(localPos, 1.0);//transform * boneTransform * V4(pos, 1.0);
 
     // TODO: this should probably be calculated once on the cpu instead 
     // of for every vertex

@@ -171,7 +171,9 @@ internal b32 JS_PopJob(JS_Queue *queue, JS_Thread *thread)
         void *result = func(data, arena);
 
         // Decrement counter
-        AtomicDecrementU32(&counter->c);
+        if (counter) {
+            AtomicDecrementU32(&counter->c);
+        }
     }
     else
     {

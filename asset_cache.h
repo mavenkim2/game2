@@ -34,6 +34,7 @@ internal LoadedSkeleton *GetSkeletonFromModel(AS_Handle handle);
 internal LoadedModel *GetModel(AS_Handle handle);
 internal Texture *GetTexture(AS_Handle handle);
 internal R_Handle GetTextureRenderHandle(AS_Handle input);
+inline AS_Handle LoadAssetFile(string filename);
 
 struct AS_CacheState
 {
