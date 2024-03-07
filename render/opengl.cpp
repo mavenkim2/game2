@@ -702,16 +702,17 @@ R_TEXTURE_SUBMIT_2D(R_SubmitTexture2D)
     u32 glFormat = GL_RGB8;
     switch (format)
     {
-        case R_TexFormat_RGBA8:
-        {
-            glFormat = GL_RGBA8;
-        }
         case R_TexFormat_SRGB:
         {
             glFormat = openGL->defaultTextureFormat;
-        }
-        default:
             break;
+        }
+        case R_TexFormat_RGBA8:
+        default:
+        {
+            glFormat = GL_RGBA8;
+            break;
+        }
     }
 
     if (newTexture)

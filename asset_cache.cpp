@@ -325,6 +325,7 @@ JOB_CALLBACK(AS_LoadAsset)
             GetPointerValue(&tokenizer, &path.size);
             Advance(&tokenizer, (u32)path.size);
 
+            Printf("Skeleton file name: %S\n", path);
             AS_EnqueueFile(path);
             model->skeleton = AS_GetAssetHandle(path);
         }
@@ -357,10 +358,10 @@ JOB_CALLBACK(AS_LoadAsset)
             skeleton.names = PushArray(node->arena, string, skeleton.count);
             for (u32 i = 0; i < count; i++)
             {
-                string boneName;
-                boneName.str = GetPointer(&tokenizer, u8);
-                GetPointerValue(&tokenizer, &boneName.size);
-                Advance(&tokenizer, (u32)boneName.size);
+                string *boneName = &skeleton.names[i];
+                boneName->str    = GetPointer(&tokenizer, u8);
+                GetPointerValue(&tokenizer, &boneName->size);
+                Advance(&tokenizer, (u32)boneName->size);
             }
             skeleton.parents = GetTokenCursor(&tokenizer, i32);
             Advance(&tokenizer, sizeof(skeleton.parents[0]) * count);

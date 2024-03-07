@@ -9,10 +9,7 @@
 #endif
 
 #define MAX_MATRICES_PER_VERTEX 4
-#define MAX_BONES               200
 #define MAX_FRAMES              200
-
-#define MAX_TEXTURES 10
 
 typedef u32 R_Handle;
 

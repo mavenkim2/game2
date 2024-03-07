@@ -7,6 +7,7 @@
 #ifdef LSP_INCLUDE
 #include "asset.h"
 #include "asset_cache.h"
+#include "./render/opengl.cpp"
 #endif
 
 inline AnimationTransform MakeAnimTform(V3 position, Quat rotation, V3 scale)
@@ -277,8 +278,9 @@ internal void PlayCurrentAnimation(AnimationPlayer *player, f32 dT, AnimationTra
 internal void SkinModelToAnimation(AnimationPlayer *player, Model *model, const AnimationTransform *transforms,
                                    Mat4 *finalTransforms)
 {
-    Mat4 transformToParent[MAX_BONES];
+    TempArena temp           = ScratchStart(0, 0);
     LoadedSkeleton *skeleton = GetSkeletonFromModel(model->loadedModel);
+    Mat4 *transformToParent  = PushArray(temp.arena, Mat4, skeleton->count);
     i32 previousId           = -1;
 
     loopi(0, skeleton->count)
@@ -319,80 +321,36 @@ internal void SkinModelToAnimation(AnimationPlayer *player, Model *model, const 
         previousId          = id;
         finalTransforms[id] = transformToParent[id] * skeleton->inverseBindPoses[id];
     }
+    ScratchEnd(temp);
 }
 
-// internal void ReadModelFromFile(Arena *arena, Model *model, string filename)
-// {
-//     string directory = Str8PathChopPastLastSlash(filename);
-//
-//     Tokenizer tokenizer;
-//     tokenizer.input  = ReadEntireFile(filename);
-//     tokenizer.cursor = tokenizer.input.str;
-//
-//     GetPointer(&tokenizer, &model->vertexCount);
-//     GetPointer(&tokenizer, &model->indexCount);
-//
-//     // TODO: if the data is freed, this instantly goes bye bye. use a handle.
-//     // what I'm thinking is that the memory itself is wrapped in a structure that is pointed to by a handle,
-//     // instead of just pointing to the asset node which contains information you don't really need?
-//     model->vertices = GetTokenCursor(&tokenizer, MeshVertex);
-//     Advance(&tokenizer, sizeof(model->vertices[0]) * model->vertexCount);
-//     model->indices = GetTokenCursor(&tokenizer, u32);
-//     Advance(&tokenizer, sizeof(model->indices[0]) * model->indexCount);
-//
-//     // Materials
-//     for (u32 i = 0; i < model->materialCount; i++)
-//     {
-//         Material *material = model->materials + i;
-//         GetPointer(&tokenizer, &material->startIndex);
-//         GetPointer(&tokenizer, &material->onePlusEndIndex);
-//         for (u32 j = 0; j < TextureType_Count; j++)
-//         {
-//             string path;
-//             GetPointer(&tokenizer, &path.size);
-//             Get(&tokenizer, path.str, path.size);
-//             AS_EnqueueFile(path);
-//             model->materials[i].textureHandles[j] = AS_GetAssetHandle(path);
-//         }
-//     }
-//
-//     Assert(EndOfBuffer(&tokenizer));
-//
-//     OS_Release(tokenizer.input.str);
-// }
+internal void SkinModelToBindPose(Model *model, Mat4 *finalTransforms)
+{
+    TempArena temp           = ScratchStart(0, 0);
+    LoadedSkeleton *skeleton = GetSkeletonFromModel(model->loadedModel);
+    Mat4 *transformToParent  = PushArray(temp.arena, Mat4, skeleton->count);
+    i32 previousId           = -1;
 
-// internal void ReadSkeletonFromFile(Arena *arena, Skeleton *skeleton, string filename)
-// {
-//     Tokenizer tokenizer;
-//     tokenizer.input  = ReadEntireFile(filename);
-//     tokenizer.cursor = tokenizer.input.str;
-//
-//     u32 version;
-//     u32 count;
-//     GetPointer(&tokenizer, &version);
-//     GetPointer(&tokenizer, &count);
-//     skeleton->count = count;
-//     if (version == 1)
-//     {
-//         // TODO: is it weird that these names are a string pointer? who knows
-//         ArrayInit(arena, skeleton->names, string, count);
-//         ArrayInit(arena, skeleton->parents, i32, count);
-//         ArrayInit(arena, skeleton->inverseBindPoses, Mat4, count);
-//         ArrayInit(arena, skeleton->transformsToParent, Mat4, count);
-//         loopi(0, count)
-//         {
-//             string output            = ReadLine(&tokenizer);
-//             skeleton->names.items[i] = PushStr8Copy(arena, output);
-//         }
-//         skeleton->names.count = count;
-//         GetArray(&tokenizer, skeleton->parents, count);
-//         GetArray(&tokenizer, skeleton->inverseBindPoses, count);
-//         GetArray(&tokenizer, skeleton->transformsToParent, count);
-//
-//         Assert(EndOfBuffer(&tokenizer));
-//     }
-//     OS_Release(tokenizer.input.str);
-// }
+    for (i32 id = 0; id < (i32)skeleton->count; id++)
+    {
+        Mat4 parentTransform = skeleton->transformsToParent[id];
+        i32 parentId         = skeleton->parents[id];
+        if (parentId == -1)
+        {
+            transformToParent[id] = parentTransform;
+        }
+        else
+        {
+            Assert(!IsZero(transformToParent[parentId]));
+            transformToParent[id] = transformToParent[parentId] * parentTransform;
+        }
+
+        Assert(id > previousId);
+        previousId          = id;
+        finalTransforms[id] = transformToParent[id] * skeleton->inverseBindPoses[id];
+    }
+    ScratchEnd(temp);
+}
 
 global u32 animationFileVersion = 1;
 internal void WriteAnimationToFile(KeyframedAnimation *animation, string filename)

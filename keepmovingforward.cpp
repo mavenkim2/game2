@@ -909,6 +909,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         PlayCurrentAnimation(&gameState->animPlayer, input->dT, tforms);
 
         SkinModelToAnimation(&gameState->animPlayer, &gameState->model, tforms, finalTransforms);
+        // SkinModelToBindPose(&gameState->model, finalTransforms);
         DrawArrow(&renderState->debugRenderer, {0, 0, 0}, {5, 0, 0}, {1, 0, 0, 1}, 1.f);
         DrawArrow(&renderState->debugRenderer, {0, 0, 0}, {0, 5, 0}, {0, 1, 0, 1}, 1.f);
         DrawArrow(&renderState->debugRenderer, {0, 0, 0}, {0, 0, 5}, {0, 0, 1, 1}, 1.f);

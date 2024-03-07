@@ -33,4 +33,6 @@ void main()
     V3 specular = spec * color;
 
     FragColor = V4(ambient + diffuse + specular, 1.0);
+    // FragColor = V4(normal, 1.0);
+    // FragColor = V4(color, 1.0);
 }

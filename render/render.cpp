@@ -237,10 +237,11 @@ internal void DebugDrawSkeleton(DebugRenderer *debug, Model *model, Mat4 *finalT
         u32 parentId = skeleton->parents[i];
         if (parentId != -1)
         {
-            V3 childPoint =
-                model->transform * GetTranslation(finalTransform[i] * Inverse(skeleton->inverseBindPoses[i]));
-            V3 parentPoint = model->transform * GetTranslation(finalTransform[parentId] *
-                                                               Inverse(skeleton->inverseBindPoses[parentId]));
+            V3 childTranslation = GetTranslation(finalTransform[i] * Inverse(skeleton->inverseBindPoses[i]));
+            V3 childPoint       = model->transform * childTranslation;
+            V3 parentTranslation =
+                GetTranslation(finalTransform[parentId] * Inverse(skeleton->inverseBindPoses[parentId]));
+            V3 parentPoint = model->transform * parentTranslation;
             DrawLine(debug, parentPoint, childPoint, Color_Green);
         }
     }
