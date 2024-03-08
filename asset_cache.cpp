@@ -219,8 +219,6 @@ internal void AS_EntryPoint(void *p)
 // TODO BUG: every once in a while hot loading just fails? I'm pretty sure this is an issue with
 // how I'm checking the filetimes. also for some reason every time the file is modified, the
 // write time is modified twice sometimes
-// TODO IMPORTANT: After running the game for a bit, it just massively slows down now for some reason? this isn't
-// even related to anything in the asset system I don't think, it just happens.
 internal void AS_HotloadEntryPoint(void *p)
 {
     SetThreadName(Str8Lit("[AS] Hotload"));
@@ -235,12 +233,13 @@ internal void AS_HotloadEntryPoint(void *p)
                 for (AS_Node *node = slot->first; node != 0; node = node->next)
                 {
                     // If the asset was modified, its write time changes. Need to hotload.
-                    u64 lastModified = OS_GetLastWriteTime(node->path);
-                    if (lastModified != 0 && lastModified != node->lastModified)
+                    OS_FileAttributes attributes = OS_AttributesFromPath(node->path);
+                    if (attributes.lastModified != 0 && attributes.lastModified != node->lastModified &&
+                        attributes.size != node->data.size)
                     {
                         Printf("Old last modified: %u\nNew last modified: %u\n\n", node->lastModified,
-                               lastModified);
-                        node->lastModified = lastModified;
+                               attributes.lastModified);
+                        node->lastModified = attributes.lastModified;
                         AS_EnqueueFile(node->path);
                     }
                 }
@@ -431,22 +430,6 @@ internal void AS_UnloadAsset(AS_Node *node)
 // Handles
 //
 
-// TODO: this feels weird that the handle could be in three states:
-// 1. asset hasn't been loaded yet
-// 2. asset is valid, points to an AS_Node
-// 3. asset is no longer valid,
-//
-// ideas for later (wow my brain is actually capable of thinking?)
-// global handle table containing the handle struct which is:
-// struct Handle {
-//      enum type;
-//      u8* data
-// };
-// you cast the data to the handle type (how is this allocated? answer: it's not, it's just a fixed sized buffer,
-// like 60 bytes or something), then you use the handle. for example a handle to vertex data could be a mesh vertex
-// handle, which could contain a gen id, memory block ptr, and offset into the block. if the block's memory is
-// freed, its gen id increases. and the handle checks this id when accessing. the block could be a block allocator
-// (?) that only gives out fixed size blocks, some memory wastage will happen but that will be ok.
 internal AS_Handle AS_GetAssetHandle(string path)
 {
     u64 hash         = HashFromString(path);

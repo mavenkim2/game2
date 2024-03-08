@@ -82,6 +82,22 @@ enum AS_Status
     AS_Status_Loaded,
 };
 
+struct AS_Asset {
+    Arena *arena;
+    u64 hash;
+    u64 lastModified;
+    string path;
+    string data;
+    AS_Type type;
+    AS_Status status;
+
+    union
+    {
+        LoadedSkeleton skeleton;
+        Texture texture;
+        LoadedModel model;
+    };
+};
 struct AS_Node
 {
     // TODO: some sort of memory management scheme for this

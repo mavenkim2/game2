@@ -1,15 +1,4 @@
-#include "../keepmovingforward_common.h"
-#include "../keepmovingforward_math.h"
-#include "../keepmovingforward_memory.h"
-#include "../keepmovingforward_string.h"
-#include "../platform_inc.h"
-#include "../thread_context.h"
-#include "../job.h"
 #include "./asset_processing.h"
-
-#include "../third_party/assimp/Importer.hpp"
-#include "../third_party/assimp/scene.h"
-#include "../third_party/assimp/postprocess.h"
 
 #include "../platform_inc.cpp"
 #include "../thread_context.cpp"
@@ -38,8 +27,8 @@ internal void ProcessNode(Arena *arena, MeshNodeInfoArray *nodeArray, const aiNo
 //////////////////////////////
 // Animation Loading
 //
-internal void ProcessAnimations(Arena *arena, const aiScene *scene, KeyframedAnimation *animationChannel);
-internal void AssimpLoadAnimation(Arena *arena, string filename, KeyframedAnimation *animation);
+internal string ProcessAnimations(Arena *arena, KeyframedAnimation *outAnimation, aiAnimation *inAnimation);
+JOB_CALLBACK(ProcessAnimations);
 
 //////////////////////////////
 // File Output
@@ -47,6 +36,9 @@ internal void AssimpLoadAnimation(Arena *arena, string filename, KeyframedAnimat
 internal void WriteModelToFile(Model *model, string directory, string filename);
 internal void WriteSkeletonToFile(Skeleton *skeleton, string filename);
 internal void WriteAnimationToFile(KeyframedAnimation *animation, string filename);
+JOB_CALLBACK(WriteSkeletonToFile);
+JOB_CALLBACK(WriteModelToFile);
+JOB_CALLBACK(WriteAnimationToFile);
 
 //////////////////////////////
 // Helpers
@@ -69,10 +61,11 @@ inline AnimationTransform MakeAnimTform(V3 position, Quat rotation, V3 scale)
 //
 internal void *LoadAndWriteModel(void *ptr, Arena *arena)
 {
-    Data *data       = (Data *)ptr;
-    string directory = data->directory;
-    string filename  = data->filename;
-    string fullPath  = StrConcat(arena, directory, filename);
+    TempArena scratch = ScratchStart(0, 0);
+    Data *data        = (Data *)ptr;
+    string directory  = data->directory;
+    string filename   = data->filename;
+    string fullPath   = StrConcat(scratch.arena, directory, filename);
 
     Model model;
 
@@ -90,77 +83,105 @@ internal void *LoadAndWriteModel(void *ptr, Arena *arena)
 
     filename                    = RemoveFileExtension(filename);
     aiMatrix4x4t<f32> transform = scene->mRootNode->mTransformation;
-    model                       = LoadAllMeshes(arena, scene);
+    model                       = LoadAllMeshes(scratch.arena, scene);
 
     // Load skeleton
-    ArrayInit(arena, model.skeleton.parents, i32, scene->mMeshes[0]->mNumBones);
-    ArrayInit(arena, model.skeleton.transformsToParent, Mat4, scene->mMeshes[0]->mNumBones);
-
-    TempArena scratch = ScratchStart(&arena, 1);
+    ArrayInit(scratch.arena, model.skeleton.parents, i32, scene->mMeshes[0]->mNumBones);
+    ArrayInit(scratch.arena, model.skeleton.transformsToParent, Mat4, scene->mMeshes[0]->mNumBones);
 
     MeshNodeInfoArray infoArray;
     infoArray.items = PushArrayNoZero(scratch.arena, MeshNodeInfo, 200);
     infoArray.cap   = 200;
     infoArray.count = 0;
-    ProcessNode(arena, &infoArray, scene->mRootNode);
+    ProcessNode(scratch.arena, &infoArray, scene->mRootNode);
 
     // TODO: this is very janky because assimp doesn't have a continuity in count b/t
     // scene nodes, bones, and animation channels. probably need to get far away from assimp
     // asap
-    u32 shift = 0;
     {
-        MeshNodeInfo *info;
-        foreach (&infoArray, info)
+        u32 shift = 0;
         {
-            string name    = info->name;
-            b32 inSkeleton = false;
-            for (u32 i = 0; i < model.skeleton.names.count; i++)
+            MeshNodeInfo *info;
+            foreach (&infoArray, info)
             {
-                if (name == model.skeleton.names.items[i])
+                string name    = info->name;
+                b32 inSkeleton = false;
+                for (u32 i = 0; i < model.skeleton.names.count; i++)
                 {
-                    inSkeleton = true;
+                    if (name == model.skeleton.names.items[i])
+                    {
+                        inSkeleton = true;
+                        break;
+                    }
+                }
+                if (inSkeleton)
+                {
                     break;
                 }
+                shift++;
             }
-            if (inSkeleton)
-            {
-                break;
-            }
-            shift++;
         }
-    }
-    for (u32 i = 0; i < model.skeleton.names.count; i++)
-    {
-        MeshNodeInfo *info = &infoArray.items[i + shift];
-        string parentName  = info->parentName;
-        i32 parentId       = -1;
-        parentId           = FindNodeIndex(&model.skeleton, parentName);
-        ArrayPush(&model.skeleton.parents, parentId);
-        Mat4 parentTransform = info->transformToParent;
-        if (parentId == -1)
+        for (u32 i = 0; i < model.skeleton.names.count; i++)
         {
-            parentId = FindMeshNodeInfo(&infoArray, parentName);
-            while (parentId != -1)
+            MeshNodeInfo *info = &infoArray.items[i + shift];
+            string parentName  = info->parentName;
+            i32 parentId       = -1;
+            parentId           = FindNodeIndex(&model.skeleton, parentName);
+            ArrayPush(&model.skeleton.parents, parentId);
+            Mat4 parentTransform = info->transformToParent;
+            if (parentId == -1)
             {
-                info            = &infoArray.items[parentId];
-                parentTransform = info->transformToParent * parentTransform;
-                parentId        = FindMeshNodeInfo(&infoArray, info->parentName);
+                parentId = FindMeshNodeInfo(&infoArray, parentName);
+                while (parentId != -1)
+                {
+                    info            = &infoArray.items[parentId];
+                    parentTransform = info->transformToParent * parentTransform;
+                    parentId        = FindMeshNodeInfo(&infoArray, info->parentName);
+                }
             }
+            ArrayPush(&model.skeleton.transformsToParent, parentTransform);
         }
-        ArrayPush(&model.skeleton.transformsToParent, parentTransform);
     }
 
-    string outputSkelPath = PushStr8F(arena, "%S%S.skel", directory, filename);
-    WriteSkeletonToFile(&model.skeleton, outputSkelPath);
-    model.skeleton.filename = StrConcat(arena, filename, Str8Lit(".skel"));
+    JS_Counter counter = {};
+    // Process all animations and write to file
+    {
+        JS_Counter animationCounter    = {};
+        u32 numAnimations              = scene->mNumAnimations;
+        KeyframedAnimation *animations = PushArray(scratch.arena, KeyframedAnimation, numAnimations);
+        AnimationJobData *jobData      = PushArray(scratch.arena, AnimationJobData, numAnimations);
+        for (u32 i = 0; i < numAnimations; i++)
+        {
+            jobData[i].outAnimation = &animations[i];
+            jobData[i].inAnimation  = scene->mAnimations[i];
+            JS_Kick(ProcessAnimations, &jobData[i], 0, Priority_Normal, &animationCounter);
+        }
+        JS_Join(&animationCounter);
 
-    KeyframedAnimation *animation = PushStruct(arena, KeyframedAnimation);
-    ProcessAnimations(arena, scene, animation);
+        for (u32 i = 0; i < numAnimations; i++)
+        {
+            AnimationJobWriteData writeData = {};
+            writeData.animation             = &animations[i];
+            writeData.path                  = PushStr8F(scratch.arena, "%S%S.anim", directory, jobData[i].outName);
+            JS_Kick(WriteAnimationToFile, &writeData, 0, Priority_Normal, &counter);
+        }
+    }
 
-    // Write vertex data & texture dependencies
-    string outputModelPath = PushStr8F(arena, "%S%S.model", directory, filename);
-    WriteModelToFile(&model, directory, outputModelPath);
+    // Write skeleton file
+    SkeletonJobData skelData = {};
+    skelData.skeleton        = &model.skeleton;
+    skelData.path            = PushStr8F(scratch.arena, "%S%S.skel", directory, filename);
+    JS_Kick(WriteSkeletonToFile, &skelData, 0, Priority_Normal, &counter);
 
+    // Write model file (vertex data & dependencies)
+    model.skeleton.filename = StrConcat(scratch.arena, filename, Str8Lit(".skel"));
+    ModelJobData modelData  = {};
+    modelData.model         = &model;
+    modelData.directory     = directory;
+    modelData.path          = PushStr8F(scratch.arena, "%S%S.model", directory, filename);
+    JS_Kick(WriteModelToFile, &modelData, 0, Priority_Normal, &counter);
+
+    JS_Join(&counter);
     ScratchEnd(scratch);
     return 0;
 }
@@ -371,21 +392,17 @@ internal void ProcessNode(Arena *arena, MeshNodeInfoArray *nodeArray, const aiNo
 //////////////////////////////
 // Animation Loading
 //
-internal void ProcessAnimations(Arena *arena, const aiScene *scene, KeyframedAnimation *animationChannel)
+internal string ProcessAnimations(Arena *arena, KeyframedAnimation *outAnimation, aiAnimation *inAnimation)
 {
-    // for (u32 i = 0; i < scene->mNumAnimations; i++) {
-    //     aiAnimation* animation = scene->mAnimations[i]
-    // }
-    aiAnimation *animation      = scene->mAnimations[0];
-    animationChannel->duration  = (f32)animation->mDuration / (f32)animation->mTicksPerSecond;
-    animationChannel->numFrames = 0;
-    animationChannel->numNodes  = 0;
-    BoneChannel *boneChannels   = PushArray(arena, BoneChannel, animation->mNumChannels);
-    u32 boneCount               = 0;
-    for (u32 i = 0; i < animation->mNumChannels; i++)
+    outAnimation->duration    = (f32)inAnimation->mDuration / (f32)inAnimation->mTicksPerSecond;
+    outAnimation->numFrames   = 0;
+    outAnimation->numNodes    = 0;
+    BoneChannel *boneChannels = PushArray(arena, BoneChannel, inAnimation->mNumChannels);
+    u32 boneCount             = 0;
+    for (u32 i = 0; i < inAnimation->mNumChannels; i++)
     {
         BoneChannel boneChannel;
-        aiNodeAnim *channel = animation->mChannels[i];
+        aiNodeAnim *channel = inAnimation->mChannels[i];
         string name         = Str8((u8 *)channel->mNodeName.data, channel->mNodeName.length);
         name                = PushStr8Copy(arena, name);
 
@@ -393,9 +410,9 @@ internal void ProcessAnimations(Arena *arena, const aiScene *scene, KeyframedAni
 
         u32 iterateLength =
             Max(channel->mNumPositionKeys, Max(channel->mNumRotationKeys, channel->mNumScalingKeys));
-        if (animationChannel->numFrames == 0)
+        if (outAnimation->numFrames == 0)
         {
-            animationChannel->numFrames = iterateLength;
+            outAnimation->numFrames = iterateLength;
         }
         u32 positionIndex = 0;
         u32 scaleIndex    = 0;
@@ -456,23 +473,19 @@ internal void ProcessAnimations(Arena *arena, const aiScene *scene, KeyframedAni
         }
         boneChannels[boneCount++] = boneChannel;
     }
-    animationChannel->boneChannels = boneChannels;
-    animationChannel->numNodes     = boneCount;
+    outAnimation->boneChannels = boneChannels;
+    outAnimation->numNodes     = boneCount;
+
+    string animationName = {(u8 *)inAnimation->mName.data, inAnimation->mName.length};
+    animationName        = PushStr8Copy(arena, animationName);
+    return animationName;
 }
 
-internal void AssimpLoadAnimation(Arena *arena, string filename, KeyframedAnimation *animation)
+JOB_CALLBACK(ProcessAnimations)
 {
-    Assimp::Importer importer;
-    const char *file = (const char *)filename.str;
-    const aiScene *scene =
-        importer.ReadFile(file, aiProcess_Triangulate | aiProcess_FlipUVs | aiProcess_CalcTangentSpace);
-
-    if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode)
-    {
-        return;
-    }
-
-    ProcessAnimations(arena, scene, animation);
+    AnimationJobData *jobData = (AnimationJobData *)data;
+    jobData->outName          = ProcessAnimations(arena, jobData->outAnimation, jobData->inAnimation);
+    return 0;
 }
 
 //////////////////////////////
@@ -482,7 +495,7 @@ internal void WriteModelToFile(Model *model, string directory, string filename)
 {
     StringBuilder builder = {};
     TempArena temp        = ScratchStart(0, 0);
-    builder.scratch       = temp;
+    builder.arena         = temp.arena;
     Put(&builder, model->vertices.count);
     Put(&builder, model->indices.count);
     PutArray(&builder, model->vertices);
@@ -529,11 +542,18 @@ internal void WriteModelToFile(Model *model, string directory, string filename)
     ScratchEnd(temp);
 }
 
+JOB_CALLBACK(WriteModelToFile)
+{
+    ModelJobData *modelData = (ModelJobData *)data;
+    WriteModelToFile(modelData->model, modelData->directory, modelData->path);
+    return 0;
+}
+
 internal void WriteSkeletonToFile(Skeleton *skeleton, string filename)
 {
     StringBuilder builder = {};
     TempArena temp        = ScratchStart(0, 0);
-    builder.scratch       = temp;
+    builder.arena         = temp.arena;
     Put(&builder, skeletonVersionNumber);
     Put(&builder, skeleton->count);
 
@@ -553,15 +573,23 @@ internal void WriteSkeletonToFile(Skeleton *skeleton, string filename)
     if (!success)
     {
         Printf("Failed to write file %S\n", filename);
+        Assert(!"Failed");
     }
     ScratchEnd(temp);
+}
+
+JOB_CALLBACK(WriteSkeletonToFile)
+{
+    SkeletonJobData *jobData = (SkeletonJobData *)data;
+    WriteSkeletonToFile(jobData->skeleton, jobData->path);
+    return 0;
 }
 
 internal void WriteAnimationToFile(KeyframedAnimation *animation, string filename)
 {
     StringBuilder builder = {};
     TempArena temp        = ScratchStart(0, 0);
-    builder.scratch       = temp;
+    builder.arena         = temp.arena;
 
     Put(&builder, animationFileVersion);
     Put(&builder, animation->numNodes);
@@ -570,8 +598,9 @@ internal void WriteAnimationToFile(KeyframedAnimation *animation, string filenam
 
     loopi(0, animation->numNodes)
     {
-        BoneChannel *channel = animation->boneChannels + i;
-        string output        = PushStr8F(temp.arena, "%S\n", channel->name);
+        u64 bonePointerOffset = PutPointer(&builder, 8);
+        BoneChannel *channel  = animation->boneChannels + i;
+        string output         = PushStr8F(temp.arena, "%S\n", channel->name);
         Put(&builder, output);
         Put(&builder, channel->transforms, sizeof(channel->transforms[0]) * animation->numFrames);
     }
@@ -582,6 +611,13 @@ internal void WriteAnimationToFile(KeyframedAnimation *animation, string filenam
         Printf("Failed to write file %S\n", filename);
     }
     ScratchEnd(temp);
+}
+
+JOB_CALLBACK(WriteAnimationToFile)
+{
+    AnimationJobWriteData *jobData = (AnimationJobWriteData *)data;
+    WriteAnimationToFile(jobData->animation, jobData->path);
+    return 0;
 }
 
 //////////////////////////////
@@ -657,7 +693,6 @@ int main(int argc, char *argv[])
     // Write out using the file format
     // could recursively go through every directory, loading all gltfs and writing them to the same directory
 
-    Arena *arena       = ArenaAlloc(gigabytes(1));
     TempArena scratch  = ScratchStart(0, 0);
     JS_Counter counter = {};
 
@@ -685,7 +720,7 @@ int main(int argc, char *argv[])
                     Data *data      = PushStruct(scratch.arena, Data);
                     data->directory = directoryPath;
                     data->filename  = props.name;
-                    JS_Kick(LoadAndWriteModel, data, &arena, Priority_High, &counter);
+                    JS_Kick(LoadAndWriteModel, data, 0, Priority_High, &counter);
                 }
             }
             else

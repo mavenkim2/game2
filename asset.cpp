@@ -357,7 +357,7 @@ internal void WriteAnimationToFile(KeyframedAnimation *animation, string filenam
 {
     StringBuilder builder = {};
     TempArena temp        = ScratchStart(0, 0);
-    builder.scratch       = temp;
+    builder.arena = temp.arena;
 
     Put(&builder, animationFileVersion);
     Put(&builder, animation->numNodes);

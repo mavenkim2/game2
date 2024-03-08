@@ -337,7 +337,7 @@ internal u64 HashFromString(string string)
 }
 
 //////////////////////////////
-// String token building/reading
+// String reading
 //
 inline void Advance(Tokenizer *tokenizer, u32 size)
 {
@@ -377,81 +377,11 @@ internal string ReadLine(Tokenizer *tokenizer)
     return result;
 }
 
-internal void Put(StringBuilder *builder, void *data, u32 size)
-{
-    StringBuilderNode *node = PushStruct(builder->scratch.arena, StringBuilderNode);
-    node->str.str           = PushArray(builder->scratch.arena, u8, size);
-    node->str.size          = size;
-
-    builder->totalSize += size;
-
-    MemoryCopy(node->str.str, data, size);
-    QueuePush(builder->first, builder->last, node);
-}
-
-internal void Put(StringBuilder *builder, string str)
-{
-    StringBuilderNode *node = PushStruct(builder->scratch.arena, StringBuilderNode);
-    u32 size                = (u32)str.size;
-    node->str               = str;
-
-    builder->totalSize += size;
-    QueuePush(builder->first, builder->last, node);
-}
-
-internal void Put(StringBuilder *builder, u32 value)
-{
-    StringBuilderNode *node = PushStruct(builder->scratch.arena, StringBuilderNode);
-    u32 size                = sizeof(value);
-    node->str.str           = PushArray(builder->scratch.arena, u8, size);
-    node->str.size          = size;
-
-    MemoryCopy(node->str.str, &value, size);
-    builder->totalSize += size;
-    QueuePush(builder->first, builder->last, node);
-}
-
-internal void Prepend(StringBuilder *builder, void *data, u32 size)
-{
-    StringBuilderNode *node = PushStruct(builder->scratch.arena, StringBuilderNode);
-    node->str.str           = PushArray(builder->scratch.arena, u8, size);
-    node->str.size          = size;
-
-    builder->totalSize += size;
-
-    MemoryCopy(node->str.str, data, size);
-    StackPush(builder->first, node);
-}
-
-internal b32 WriteEntireFile(StringBuilder *builder, string filename)
-{
-    string result;
-    result.str  = PushArray(builder->scratch.arena, u8, builder->totalSize);
-    result.size = builder->totalSize;
-
-    u8 *cursor = result.str;
-    for (StringBuilderNode *node = builder->first; node != 0; node = node->next)
-    {
-        MemoryCopy(cursor, node->str.str, node->str.size);
-        cursor += node->str.size;
-    }
-    b32 success = WriteFile(filename, result.str, (u32)result.size);
-    return success;
-}
-
 internal void Get(Tokenizer *tokenizer, void *ptr, u32 size)
 {
     Assert(tokenizer->cursor + size <= tokenizer->input.str + tokenizer->input.size);
     MemoryCopy(ptr, tokenizer->cursor, size);
     Advance(tokenizer, size);
-}
-
-inline u64 PutPointer(StringBuilder *builder, u64 address)
-{
-    u64 offset = (u64)builder->totalSize;
-    offset += sizeof(offset) + address;
-    PutPointerValue(builder, &offset);
-    return offset;
 }
 
 inline u8 *GetPointer_(Tokenizer *tokenizer)
@@ -460,4 +390,77 @@ inline u8 *GetPointer_(Tokenizer *tokenizer)
     GetPointerValue(tokenizer, &offset);
     u8 *result = tokenizer->input.str + offset;
     return result;
+}
+
+//////////////////////////////
+// String writing
+//
+
+internal void Put(StringBuilder *builder, void *data, u64 size)
+{
+    StringBuilderChunkNode *chunkNode = builder->last;
+    if (chunkNode == 0 || chunkNode->count >= chunkNode->cap)
+    {
+        chunkNode = PushStruct(builder->arena, StringBuilderChunkNode);
+        QueuePush(builder->first, builder->last, chunkNode);
+        chunkNode->cap    = 256;
+        chunkNode->values = PushArray(builder->arena, StringBuilderNode, chunkNode->cap);
+    }
+    StringBuilderNode *node = &chunkNode->values[chunkNode->count];
+    node->str.str           = PushArray(builder->arena, u8, size);
+    node->str.size          = size;
+
+    builder->totalSize += size;
+
+    MemoryCopy(node->str.str, data, size);
+}
+
+internal void Put(StringBuilder *builder, string str)
+{
+    Assert((u32)str.size == str.size);
+    Put(builder, str.str, (u32)str.size);
+}
+
+internal void Put(StringBuilder *builder, u32 value)
+{
+    PutPointerValue(builder, &value);
+}
+
+internal StringBuilder ConcatBuilders(Arena *arena, StringBuilder *a, StringBuilder *b)
+{
+    StringBuilder result = {};
+    result.first         = a->first;
+    result.last          = b->last;
+    a->last->next        = b->first;
+    result.totalSize     = a->totalSize + b->totalSize;
+    result.arena         = arena;
+    return result;
+}
+
+internal b32 WriteEntireFile(StringBuilder *builder, string filename)
+{
+    string result;
+    result.str  = PushArray(builder->arena, u8, builder->totalSize);
+    result.size = builder->totalSize;
+
+    u8 *cursor = result.str;
+    for (StringBuilderChunkNode *node = builder->first; node != 0; node = node->next)
+    {
+        for (u32 i = 0; i < node->count; i++)
+        {
+            StringBuilderNode *n = &node->values[i];
+            MemoryCopy(cursor, n->str.str, n->str.size);
+            cursor += n->str.size;
+        }
+    }
+    b32 success = WriteFile(filename, result.str, (u32)result.size);
+    return success;
+}
+
+inline u64 PutPointer(StringBuilder *builder, u64 address)
+{
+    u64 offset = (u64)builder->totalSize;
+    offset += sizeof(offset) + address;
+    PutPointerValue(builder, &offset);
+    return offset;
 }

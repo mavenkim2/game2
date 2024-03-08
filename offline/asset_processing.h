@@ -1,3 +1,14 @@
+#include "../keepmovingforward_common.h"
+#include "../keepmovingforward_math.h"
+#include "../keepmovingforward_memory.h"
+#include "../keepmovingforward_string.h"
+#include "../platform_inc.h"
+#include "../thread_context.h"
+#include "../job.h"
+#include "../third_party/assimp/Importer.hpp"
+#include "../third_party/assimp/scene.h"
+#include "../third_party/assimp/postprocess.h"
+
 #define MAX_MATRICES_PER_VERTEX 4
 #define MAX_BONES               200
 #define MAX_FRAMES              200
@@ -149,4 +160,34 @@ struct Data
 {
     string directory;
     string filename;
+};
+
+//////////////////////////////
+// Job Data
+//
+struct SkeletonJobData
+{
+    Skeleton *skeleton;
+    string path;
+};
+
+struct ModelJobData
+{
+    Model *model;
+    string directory;
+    string path;
+};
+
+struct AnimationJobData
+{
+    aiAnimation *inAnimation;
+
+    KeyframedAnimation *outAnimation;
+    string outName;
+};
+
+struct AnimationJobWriteData
+{
+    KeyframedAnimation *animation;
+    string path;
 };

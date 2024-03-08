@@ -75,15 +75,24 @@ internal u64 HashFromString(string string);
 struct StringBuilderNode
 {
     string str;
-    StringBuilderNode *next;
+};
+
+struct StringBuilderChunkNode
+{
+    StringBuilderNode *values;
+    StringBuilderChunkNode *next;
+
+    u32 count;
+    u32 cap;
 };
 
 struct StringBuilder
 {
-    StringBuilderNode *first;
-    StringBuilderNode *last;
-    u32 totalSize;
-    TempArena scratch;
+    StringBuilderChunkNode *first;
+    StringBuilderChunkNode *last;
+
+    u64 totalSize;
+    Arena* arena;
 };
 
 struct Tokenizer
@@ -99,7 +108,7 @@ internal string ReadLine(Tokenizer *tokenizer);
 internal void Get(Tokenizer *tokenizer, void *ptr, u32 size);
 inline u8 *GetPointer_(Tokenizer *tokenizer);
 
-internal void Put(StringBuilder *builder, void *data, u32 size);
+internal void Put(StringBuilder *builder, void *data, u64 size);
 internal void Put(StringBuilder *builder, string str);
 internal void Put(StringBuilder *builder, u32 value);
 internal b32 WriteEntireFile(StringBuilder *builder, string filename);
@@ -109,7 +118,7 @@ inline u64 PutPointer(StringBuilder *builder, u64 address);
 #define PutArray(builder, array)      Put(builder, array.items, sizeof(array.items[0]) * array.count)
 
 #define GetPointerValue(tokenizer, ptr) Get(tokenizer, ptr, sizeof(*ptr))
-#define GetPointer(tokenizer, type) (type*)GetPointer_(tokenizer)
+#define GetPointer(tokenizer, type)     (type *)GetPointer_(tokenizer)
 #define GetArray(tokenizer, array, count_)                                                                        \
     do                                                                                                            \
     {                                                                                                             \
