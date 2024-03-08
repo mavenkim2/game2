@@ -357,7 +357,7 @@ internal void WriteAnimationToFile(KeyframedAnimation *animation, string filenam
 {
     StringBuilder builder = {};
     TempArena temp        = ScratchStart(0, 0);
-    builder.arena = temp.arena;
+    builder.arena         = temp.arena;
 
     Put(&builder, animationFileVersion);
     Put(&builder, animation->numNodes);
@@ -469,7 +469,7 @@ JOB_CALLBACK(LoadTextureCallback)
 {
     TextureOp *op = (TextureOp *)data;
     i32 width, height, nChannels;
-    u8 *texData = (u8 *)stbi_load_from_memory(op->assetNode->data.str, (i32)op->assetNode->data.size, &width,
+    u8 *texData = (u8 *)stbi_load_from_memory(GetAssetBuffer(op->assetNode), (i32)op->assetNode->size, &width,
                                               &height, &nChannels, 4);
     MemoryCopy(op->buffer, texData, width * height * 4);
     op->assetNode->texture.width  = width;

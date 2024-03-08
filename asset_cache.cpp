@@ -24,7 +24,7 @@ global readonly Texture textureNil;
 
 internal void AS_Init()
 {
-    Arena *arena    = ArenaAlloc(megabytes(8));
+    Arena *arena    = ArenaAlloc(megabytes(512));
     as_state        = PushStruct(arena, AS_CacheState);
     as_state->arena = arena;
 
@@ -44,6 +44,32 @@ internal void AS_Init()
         as_state->threads[i] = OS_ThreadStart(AS_EntryPoint, (void *)i);
     }
     as_state->hotloadThread = OS_ThreadStart(AS_HotloadEntryPoint, 0);
+
+    // Block allocator
+    // 64 2 megabyte blocks
+    // SEPARATE linked list of headers that point to spot in memory,
+    // TODO: growth strategy, it's probably possible
+    as_state->numBlocks           = 64;
+    as_state->blockSize           = megabytes(2);
+    as_state->blockBackingBuffer  = PushArray(arena, u8, as_state->numBlocks * as_state->blockSize);
+    as_state->memoryHeaderNodes   = PushArray(arena, AS_MemoryHeaderNode, as_state->numBlocks);
+    AS_MemoryHeaderNode *sentinel = &as_state->freeBlockSentinel;
+    sentinel->next                = sentinel;
+    sentinel->prev                = sentinel;
+    for (u32 i = 0; i < as_state->numBlocks; i++)
+    {
+        AS_MemoryHeaderNode *headerNode = &as_state->memoryHeaderNodes[i];
+        AS_MemoryHeader *header         = &headerNode->header;
+        header->buffer                  = as_state->blockBackingBuffer + as_state->blockSize * i;
+
+        // NOTE: This adds things in reverse order to the free list because why not. It means that the
+        // free blocks act as a queue (FIFO)
+        headerNode->next       = sentinel;
+        headerNode->prev       = sentinel->prev;
+        headerNode->next->prev = headerNode;
+        headerNode->prev->next = headerNode;
+    }
+    int wtfgoingon = 0;
 }
 
 internal u64 RingRead(u8 *base, u64 ringSize, u64 readPos, void *dest, u64 destSize)
@@ -198,14 +224,50 @@ internal void AS_EntryPoint(void *p)
             {
                 continue;
             }
-            ArenaRelease(n->arena);
+            // Puts on free list
+            FreeBlock(n->memoryBlock);
+            n->memoryBlock = 0;
         }
 
         // Update the node
         n->lastModified = attributes.lastModified;
-        n->arena        = ArenaAlloc(attributes.size);
-        n->data.str     = PushArrayNoZero(n->arena, u8, attributes.size + path.size);
-        n->data.size    = OS_ReadEntireFile(handle, n->data.str);
+        TicketMutexScope(&as_state->mutex)
+        {
+            AS_MemoryHeaderNode *sentinel = &as_state->freeBlockSentinel;
+            // Can't run out of blocks and grow yet
+            Assert(sentinel->next != 0);
+            // Only allocations of size 4 mb or less are supported for now
+            Assert(attributes.size <= 2 * as_state->blockSize);
+            // If block is small enough, just get off free list
+            if (attributes.size <= as_state->blockSize)
+            {
+                AS_MemoryHeaderNode *block = sentinel->next;
+                // Remove from free list
+
+                n->memoryBlock = AllocateBlock();
+            }
+            // Otherwise
+            else
+            {
+                for (u32 i = 0; i < as_state->numBlocks + 1; i++)
+                {
+                    AS_MemoryHeaderNode *n1 = &as_state->memoryHeaderNodes[i];
+                    AS_MemoryHeaderNode *n2 = &as_state->memoryHeaderNodes[i + 1];
+                    // If two contiguous blocks are free, then use them for allocation (next pointer being not 0
+                    // means it is in the free list)
+                    if (n1->next != 0 && n2->next != 0)
+                    {
+                        // Remove from free list
+                        AllocateBlock(n2);
+                        n->memoryBlock = AllocateBlock(n1);
+                        break;
+                    }
+                }
+            }
+        }
+
+        OS_ReadEntireFile(handle, GetAssetBuffer(n));
+        n->size = attributes.size;
         OS_CloseFile(handle);
 
         // TODO IMPORTANT: virtual protect the memory so it can only be read
@@ -234,8 +296,7 @@ internal void AS_HotloadEntryPoint(void *p)
                 {
                     // If the asset was modified, its write time changes. Need to hotload.
                     OS_FileAttributes attributes = OS_AttributesFromPath(node->path);
-                    if (attributes.lastModified != 0 && attributes.lastModified != node->lastModified &&
-                        attributes.size != node->data.size)
+                    if (attributes.lastModified != 0 && attributes.lastModified != node->lastModified)
                     {
                         Printf("Old last modified: %u\nNew last modified: %u\n\n", node->lastModified,
                                attributes.lastModified);
@@ -266,9 +327,9 @@ JOB_CALLBACK(AS_LoadAsset)
         node->type         = AS_Model;
 
         Tokenizer tokenizer;
-        // TODO: data could be freed out from under
-        tokenizer.input  = node->data;
-        tokenizer.cursor = tokenizer.input.str;
+        tokenizer.input.str  = GetAssetBuffer(node);
+        tokenizer.input.size = node->size;
+        tokenizer.cursor     = tokenizer.input.str;
 
         GetPointerValue(&tokenizer, &model->vertexCount);
         GetPointerValue(&tokenizer, &model->indexCount);
@@ -284,7 +345,7 @@ JOB_CALLBACK(AS_LoadAsset)
         // Materials
         GetPointerValue(&tokenizer, &model->materialCount);
         Printf("material count: %u\n", model->materialCount);
-        model->materials = PushArray(node->arena, Material, model->materialCount);
+        model->materials = PushArray(arena, Material, model->materialCount);
         for (u32 i = 0; i < model->materialCount; i++)
         {
             Material *material = model->materials + i;
@@ -338,8 +399,9 @@ JOB_CALLBACK(AS_LoadAsset)
     {
         LoadedSkeleton skeleton;
         Tokenizer tokenizer;
-        tokenizer.input  = node->data;
-        tokenizer.cursor = tokenizer.input.str;
+        tokenizer.input.str  = GetAssetBuffer(node);
+        tokenizer.input.size = node->size;
+        tokenizer.cursor     = tokenizer.input.str;
 
         u32 version;
         u32 count;
@@ -354,7 +416,7 @@ JOB_CALLBACK(AS_LoadAsset)
             // pointer location. For now, I am storing the string data right after the offset and size, but this
             // could theoretically be moved elsewhere.
             // TODO: get rid of these types of allocations
-            skeleton.names = PushArray(node->arena, string, skeleton.count);
+            skeleton.names = PushArray(arena, string, skeleton.count);
             for (u32 i = 0; i < count; i++)
             {
                 string *boneName = &skeleton.names[i];
@@ -533,5 +595,46 @@ inline b32 IsModelHandleNil(AS_Handle handle)
 {
     LoadedModel *model = GetModel(handle);
     b32 result         = (model == 0 || model == &modelNil);
+    return result;
+}
+
+//////////////////////////////
+// Memory Helpers
+//
+
+// Removes the first element from free list
+internal AS_MemoryHeaderNode *AllocateBlock()
+{
+    AS_MemoryHeaderNode *sentinel   = &as_state->freeBlockSentinel;
+    AS_MemoryHeaderNode *headerNode = sentinel->next;
+    headerNode->next->prev          = headerNode->prev;
+    headerNode->prev->next          = headerNode->next;
+    headerNode->next = headerNode->prev = 0;
+    return headerNode;
+}
+// Removes the input element from the free list (for >2MB block allocation)
+internal AS_MemoryHeaderNode *AllocateBlock(AS_MemoryHeaderNode *headerNode)
+{
+    headerNode->next->prev = headerNode->prev;
+    headerNode->prev->next = headerNode->next;
+    headerNode->next = headerNode->prev = 0;
+    return headerNode;
+}
+// Adds to free list
+internal void FreeBlock(AS_MemoryHeaderNode *headerNode)
+{
+    AS_MemoryHeaderNode *sentinel = &as_state->freeBlockSentinel;
+    headerNode->next              = sentinel;
+    headerNode->prev              = sentinel->prev;
+    headerNode->next->prev        = headerNode;
+    headerNode->prev->next        = headerNode;
+}
+inline u8 *GetAssetBuffer(AS_Node *node)
+{
+    u8 *result = 0;
+    if (node->memoryBlock)
+    {
+        result = node->memoryBlock->header.buffer;
+    }
     return result;
 }

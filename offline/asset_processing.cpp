@@ -163,6 +163,7 @@ internal void *LoadAndWriteModel(void *ptr, Arena *arena)
             AnimationJobWriteData writeData = {};
             writeData.animation             = &animations[i];
             writeData.path                  = PushStr8F(scratch.arena, "%S%S.anim", directory, jobData[i].outName);
+            Printf("Writing animation to file: %S", writeData.path);
             JS_Kick(WriteAnimationToFile, &writeData, 0, Priority_Normal, &counter);
         }
     }
@@ -171,6 +172,7 @@ internal void *LoadAndWriteModel(void *ptr, Arena *arena)
     SkeletonJobData skelData = {};
     skelData.skeleton        = &model.skeleton;
     skelData.path            = PushStr8F(scratch.arena, "%S%S.skel", directory, filename);
+    Printf("Writing skeleton to file: %S", skelData.path);
     JS_Kick(WriteSkeletonToFile, &skelData, 0, Priority_Normal, &counter);
 
     // Write model file (vertex data & dependencies)
@@ -179,6 +181,7 @@ internal void *LoadAndWriteModel(void *ptr, Arena *arena)
     modelData.model         = &model;
     modelData.directory     = directory;
     modelData.path          = PushStr8F(scratch.arena, "%S%S.model", directory, filename);
+    Printf("Writing model to file: %S", modelData.path);
     JS_Kick(WriteModelToFile, &modelData, 0, Priority_Normal, &counter);
 
     JS_Join(&counter);
@@ -513,6 +516,7 @@ internal void WriteModelToFile(Model *model, string directory, string filename)
             if (model->materials[i].texture[j].size != 0)
             {
                 string output = StrConcat(temp.arena, directory, model->materials[i].texture[j]);
+                Printf("Writing animation to file: %S", output);
                 // Place the pointer to the string data
                 u64 offset = PutPointer(&builder, 8);
                 PutPointerValue(&builder, &output.size);
@@ -598,6 +602,7 @@ internal void WriteAnimationToFile(KeyframedAnimation *animation, string filenam
 
     loopi(0, animation->numNodes)
     {
+        // TODO: is it time to finally have a pointer fix up table?
         u64 bonePointerOffset = PutPointer(&builder, 8);
         BoneChannel *channel  = animation->boneChannels + i;
         string output         = PushStr8F(temp.arena, "%S\n", channel->name);
