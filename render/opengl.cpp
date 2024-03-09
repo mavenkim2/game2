@@ -228,7 +228,7 @@ internal void HotloadShaders(OpenGLShader *shader)
 
 internal void OpenGLInit()
 {
-    openGL->arena = ArenaAllocDefault();
+    openGL->arena = ArenaAlloc();
     openGL->glGenVertexArrays(1, &openGL->vao);
     openGL->glBindVertexArray(openGL->vao);
 

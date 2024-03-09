@@ -680,9 +680,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     gameMemory.TransientStorageMemory =
         (u8 *)gameMemory.PersistentStorageMemory + gameMemory.PersistentStorageSize;
 
-    // TODO: this is bad, figure this out.
-    void *win32Memory = VirtualAlloc(0, kilobytes(256), MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-    Arena *win32Arena = ArenaAlloc(win32Memory, kilobytes(256));
+    Arena *win32Arena = ArenaAlloc();
 
     gameMemory.PlatformToggleCursor = PlatformToggleCursor;
     gameMemory.R_AllocateTexture2D  = R_AllocateTexture2D;

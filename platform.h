@@ -60,6 +60,8 @@ internal string ReadEntireFile(string filename);
 internal b32 WriteFile(string filename, void *fileMemory, u32 fileSize);
 internal u64 OS_PageSize();
 internal void *OS_Alloc(u64 size);
+internal void *OS_Reserve(u64 size);
+internal b8 OS_Commit(void *ptr, u64 size);
 internal void OS_Release(void *memory);
 
 /////////////////////////////////////////////////////

@@ -225,39 +225,40 @@ internal void AS_EntryPoint(void *p)
                 continue;
             }
             // Puts on free list
+            if (n->size >= as_state->blockSize)
+            {
+                AS_MemoryHeaderNode *nextNode = n->memoryBlock + 1;
+                FreeBlock(nextNode);
+            }
             FreeBlock(n->memoryBlock);
             n->memoryBlock = 0;
         }
 
         // Update the node
         n->lastModified = attributes.lastModified;
+
+        // Allocate memory
         TicketMutexScope(&as_state->mutex)
         {
             AS_MemoryHeaderNode *sentinel = &as_state->freeBlockSentinel;
-            // Can't run out of blocks and grow yet
             Assert(sentinel->next != 0);
-            // Only allocations of size 4 mb or less are supported for now
             Assert(attributes.size <= 2 * as_state->blockSize);
             // If block is small enough, just get off free list
             if (attributes.size <= as_state->blockSize)
             {
                 AS_MemoryHeaderNode *block = sentinel->next;
-                // Remove from free list
-
-                n->memoryBlock = AllocateBlock();
+                n->memoryBlock             = AllocateBlock();
             }
             // Otherwise
             else
             {
+                // This could be slow, but it only happens for large allocations so meh
                 for (u32 i = 0; i < as_state->numBlocks + 1; i++)
                 {
                     AS_MemoryHeaderNode *n1 = &as_state->memoryHeaderNodes[i];
                     AS_MemoryHeaderNode *n2 = &as_state->memoryHeaderNodes[i + 1];
-                    // If two contiguous blocks are free, then use them for allocation (next pointer being not 0
-                    // means it is in the free list)
                     if (n1->next != 0 && n2->next != 0)
                     {
-                        // Remove from free list
                         AllocateBlock(n2);
                         n->memoryBlock = AllocateBlock(n1);
                         break;
@@ -394,6 +395,28 @@ JOB_CALLBACK(AS_LoadAsset)
     }
     else if (extension == Str8Lit("anim"))
     {
+        // Tokenizer tokenizer;
+        // tokenizer.input  = ReadEntireFile(filename);
+        // tokenizer.cursor = tokenizer.input.str;
+        //
+        // u32 version;
+        // GetPointerValue(&tokenizer, &version);
+        // GetPointerValue(&tokenizer, &animation->numNodes);
+        // GetPointerValue(&tokenizer, &animation->duration);
+        // GetPointerValue(&tokenizer, &animation->numFrames);
+        //
+        // if (version == 1)
+        // {
+        //     animation->boneChannels = PushArray(arena, BoneChannel, animation->numNodes);
+        //     loopi(0, animation->numNodes)
+        //     {
+        //         BoneChannel *channel = animation->boneChannels + i;
+        //         string output        = ReadLine(&tokenizer);
+        //         channel->name        = PushStr8Copy(arena, output);
+        //         Get(&tokenizer, channel->transforms, sizeof(channel->transforms[0]) * animation->numFrames);
+        //     }
+        //     Assert(EndOfBuffer(&tokenizer));
+        // }
     }
     else if (extension == Str8Lit("skel"))
     {

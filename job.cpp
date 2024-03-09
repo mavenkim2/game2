@@ -30,12 +30,12 @@ internal void JS_Init()
 
     // Main thread
     js_state->threads[0].handle = {};
-    js_state->threads[0].arena  = ArenaAllocDefault();
+    js_state->threads[0].arena  = ArenaAlloc();
     SetThreadIndex(0);
     for (u64 i = 1; i < js_state->threadCount; i++)
     {
         js_state->threads[i].handle = OS_ThreadStart(JobThreadEntryPoint, (void *)i);
-        js_state->threads[i].arena  = ArenaAllocDefault();
+        js_state->threads[i].arena  = ArenaAlloc();
     }
 }
 
@@ -171,7 +171,8 @@ internal b32 JS_PopJob(JS_Queue *queue, JS_Thread *thread)
         void *result = func(data, arena);
 
         // Decrement counter
-        if (counter) {
+        if (counter)
+        {
             AtomicDecrementU32(&counter->c);
         }
     }

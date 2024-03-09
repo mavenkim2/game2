@@ -103,8 +103,6 @@ struct Model
 
     Skeleton skeleton;
 
-    u32 numTextures;
-
     // One material per mesh, each material can have multiple textures (normal, diffuse, etc.)
     Material materials[4];
     u32 materialCount;
@@ -118,7 +116,7 @@ struct Model
 struct BoneChannel
 {
     string name;
-    AnimationTransform transforms[MAX_FRAMES];
+    AnimationTransform *transforms;
 };
 
 struct KeyframedAnimation

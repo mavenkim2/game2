@@ -61,7 +61,7 @@ inline AnimationTransform MakeAnimTform(V3 position, Quat rotation, V3 scale)
 //
 internal void *LoadAndWriteModel(void *ptr, Arena *arena)
 {
-    TempArena scratch = ScratchStart(0, 0);
+    TempArena scratch = ScratchStart(&arena, 1);
     Data *data        = (Data *)ptr;
     string directory  = data->directory;
     string filename   = data->filename;
@@ -145,34 +145,35 @@ internal void *LoadAndWriteModel(void *ptr, Arena *arena)
 
     JS_Counter counter = {};
     // Process all animations and write to file
+    JS_Counter animationCounter    = {};
+    u32 numAnimations              = scene->mNumAnimations;
+    KeyframedAnimation *animations = PushArray(scratch.arena, KeyframedAnimation, numAnimations);
+    AnimationJobData *jobData      = PushArray(scratch.arena, AnimationJobData, numAnimations);
+    Printf("Number of animations: %u\n", numAnimations);
+    for (u32 i = 0; i < numAnimations; i++)
     {
-        JS_Counter animationCounter    = {};
-        u32 numAnimations              = scene->mNumAnimations;
-        KeyframedAnimation *animations = PushArray(scratch.arena, KeyframedAnimation, numAnimations);
-        AnimationJobData *jobData      = PushArray(scratch.arena, AnimationJobData, numAnimations);
-        for (u32 i = 0; i < numAnimations; i++)
-        {
-            jobData[i].outAnimation = &animations[i];
-            jobData[i].inAnimation  = scene->mAnimations[i];
-            JS_Kick(ProcessAnimations, &jobData[i], 0, Priority_Normal, &animationCounter);
-        }
-        JS_Join(&animationCounter);
+        jobData[i].outAnimation = &animations[i];
+        jobData[i].inAnimation  = scene->mAnimations[i];
+        Printf("Animation number: %u\n", i);
+        // problem: need to store position/rotation/scale keys sparsely
+        JS_Kick(ProcessAnimations, &jobData[i], 0, Priority_Normal, &animationCounter);
+    }
+    JS_Join(&animationCounter);
 
-        for (u32 i = 0; i < numAnimations; i++)
-        {
-            AnimationJobWriteData writeData = {};
-            writeData.animation             = &animations[i];
-            writeData.path                  = PushStr8F(scratch.arena, "%S%S.anim", directory, jobData[i].outName);
-            Printf("Writing animation to file: %S", writeData.path);
-            JS_Kick(WriteAnimationToFile, &writeData, 0, Priority_Normal, &counter);
-        }
+    for (u32 i = 0; i < numAnimations; i++)
+    {
+        AnimationJobWriteData writeData = {};
+        writeData.animation             = &animations[i];
+        writeData.path                  = PushStr8F(scratch.arena, "%S%S.anim", directory, jobData[i].outName);
+        Printf("Writing animation to file: %S", writeData.path);
+        JS_Kick(WriteAnimationToFile, &writeData, 0, Priority_Normal, &counter);
     }
 
     // Write skeleton file
     SkeletonJobData skelData = {};
     skelData.skeleton        = &model.skeleton;
     skelData.path            = PushStr8F(scratch.arena, "%S%S.skel", directory, filename);
-    Printf("Writing skeleton to file: %S", skelData.path);
+    Printf("Writing skeleton to file: %S\n", skelData.path);
     JS_Kick(WriteSkeletonToFile, &skelData, 0, Priority_Normal, &counter);
 
     // Write model file (vertex data & dependencies)
@@ -181,7 +182,7 @@ internal void *LoadAndWriteModel(void *ptr, Arena *arena)
     modelData.model         = &model;
     modelData.directory     = directory;
     modelData.path          = PushStr8F(scratch.arena, "%S%S.model", directory, filename);
-    Printf("Writing model to file: %S", modelData.path);
+    Printf("Writing model to file: %S\n", modelData.path);
     JS_Kick(WriteModelToFile, &modelData, 0, Priority_Normal, &counter);
 
     JS_Join(&counter);
@@ -397,13 +398,15 @@ internal void ProcessNode(Arena *arena, MeshNodeInfoArray *nodeArray, const aiNo
 //
 internal string ProcessAnimations(Arena *arena, KeyframedAnimation *outAnimation, aiAnimation *inAnimation)
 {
-    outAnimation->duration    = (f32)inAnimation->mDuration / (f32)inAnimation->mTicksPerSecond;
+    outAnimation->duration = (f32)inAnimation->mDuration / (f32)inAnimation->mTicksPerSecond;
+    Printf("Duration: %u\n", outAnimation->duration);
     outAnimation->numFrames   = 0;
     outAnimation->numNodes    = 0;
     BoneChannel *boneChannels = PushArray(arena, BoneChannel, inAnimation->mNumChannels);
     u32 boneCount             = 0;
     for (u32 i = 0; i < inAnimation->mNumChannels; i++)
     {
+        // Printf("Index: %u\n", i);
         BoneChannel boneChannel;
         aiNodeAnim *channel = inAnimation->mChannels[i];
         string name         = Str8((u8 *)channel->mNodeName.data, channel->mNodeName.length);
@@ -417,9 +420,10 @@ internal string ProcessAnimations(Arena *arena, KeyframedAnimation *outAnimation
         {
             outAnimation->numFrames = iterateLength;
         }
-        u32 positionIndex = 0;
-        u32 scaleIndex    = 0;
-        u32 rotationIndex = 0;
+        boneChannel.transforms = PushArray(arena, AnimationTransform, outAnimation->numFrames);
+        u32 positionIndex      = 0;
+        u32 scaleIndex         = 0;
+        u32 rotationIndex      = 0;
         for (u32 j = 0; j < iterateLength; j++)
         {
             aiVector3t<f32> aiPosition = channel->mPositionKeys[positionIndex].mValue;
@@ -501,6 +505,8 @@ internal void WriteModelToFile(Model *model, string directory, string filename)
     builder.arena         = temp.arena;
     Put(&builder, model->vertices.count);
     Put(&builder, model->indices.count);
+    Printf("Num vertices: %u\n", model->vertices.count);
+    Printf("Num indices: %u\n", model->indices.count);
     PutArray(&builder, model->vertices);
     PutArray(&builder, model->indices);
 
@@ -516,7 +522,7 @@ internal void WriteModelToFile(Model *model, string directory, string filename)
             if (model->materials[i].texture[j].size != 0)
             {
                 string output = StrConcat(temp.arena, directory, model->materials[i].texture[j]);
-                Printf("Writing animation to file: %S", output);
+                Printf("Writing texture filename: %S\n", output);
                 // Place the pointer to the string data
                 u64 offset = PutPointer(&builder, 8);
                 PutPointerValue(&builder, &output.size);
@@ -560,6 +566,7 @@ internal void WriteSkeletonToFile(Skeleton *skeleton, string filename)
     builder.arena         = temp.arena;
     Put(&builder, skeletonVersionNumber);
     Put(&builder, skeleton->count);
+    Printf("Num bones: %u\n", skeleton->count);
 
     string *name;
     foreach (&skeleton->names, name)
@@ -589,28 +596,65 @@ JOB_CALLBACK(WriteSkeletonToFile)
     return 0;
 }
 
+// struct KeyframedAnimation
+// {
+//     BoneChannel *boneChannels;
+//     u32 numNodes;
+//
+//     f32 duration;
+//     u32 numFrames;
+// };
 internal void WriteAnimationToFile(KeyframedAnimation *animation, string filename)
 {
     StringBuilder builder = {};
     TempArena temp        = ScratchStart(0, 0);
     builder.arena         = temp.arena;
 
-    Put(&builder, animationFileVersion);
-    Put(&builder, animation->numNodes);
-    PutPointerValue(&builder, &animation->duration);
-    Put(&builder, animation->numFrames);
+    // ok what I'm going to do is:
+    // I'm just going to write out the file like I normally do, copying the data of each member
+    // into a buffer. then I'm going to combine it so it's just a big fat block. then I guess I have to manually
+    // get the offsets of the data and write that out at the beginning. this will be hardcoded, but maybe in the
+    // future if introspection is implemented
+    // NOTE: what I'm doing here doesn't work I need to manually specify the size if it's an array
+    // this language sucks
+    //
+    // any variable ending in write is a location used for a pointer fix up
+    u64 animationWrite   = PutPointerValue(&builder, animation);
+    u64 boneChannelWrite = AppendArray(&builder, animation->boneChannels, animation->numNodes);
 
-    loopi(0, animation->numNodes)
+    u64 *stringDataWrites         = PushArray(builder.arena, u64, animation->numNodes);
+    u64 *animationTransformWrites = PushArray(builder.arena, u64, animation->numFrames);
+    for (u32 i = 0; i < animation->numNodes; i++)
     {
-        // TODO: is it time to finally have a pointer fix up table?
-        u64 bonePointerOffset = PutPointer(&builder, 8);
-        BoneChannel *channel  = animation->boneChannels + i;
-        string output         = PushStr8F(temp.arena, "%S\n", channel->name);
-        Put(&builder, output);
-        Put(&builder, channel->transforms, sizeof(channel->transforms[0]) * animation->numFrames);
+        stringDataWrites[i] = Put(&builder, animation->boneChannels[i].name);
+        animationTransformWrites[i] =
+            AppendArray(&builder, animation->boneChannels[i].transforms, animation->numFrames);
     }
 
-    b32 success = WriteEntireFile(&builder, filename);
+    string result = CombineBuilderNodes(&builder);
+    // FixPointer(u64 location, u64 offset)
+    FixPointer(result.str, animationWrite + Offset(KeyframedAnimation, boneChannels), boneChannelWrite);
+    for (u32 i = 0; i < animation->numNodes; i++)
+    {
+        FixPointer(result.str,
+                   boneChannelWrite + i * sizeof(BoneChannel) + Offset(BoneChannel, name) + Offset(string, str),
+                   stringDataWrites[i]);
+        FixPointer(result.str, boneChannelWrite + i * sizeof(BoneChannel) + Offset(BoneChannel, transforms),
+                   animationTransformWrites[i]);
+    }
+
+    // Put(&builder, animation->numNodes);
+    // PutPointerValue(&builder, &animation->duration);
+    // Put(&builder, animation->numFrames);
+    //
+    // loopi(0, animation->numNodes)
+    // {
+    //     BoneChannel *channel  = animation->boneChannels + i;
+    //     string output         = PushStr8F(temp.arena, "%S\n", channel->name);
+    //     Put(&builder, output);
+    //     Put(&builder, channel->transforms, sizeof(channel->transforms[0]) * animation->numFrames);
+    // }
+    b32 success = WriteFile(filename, result.str, (u32)result.size);
     if (!success)
     {
         Printf("Failed to write file %S\n", filename);
@@ -698,7 +742,9 @@ int main(int argc, char *argv[])
     // Write out using the file format
     // could recursively go through every directory, loading all gltfs and writing them to the same directory
 
-    TempArena scratch  = ScratchStart(0, 0);
+    TempArena scratch = ScratchStart(0, 0);
+    // Max asset size
+    Arena *arena       = ArenaAlloc(megabytes(4));
     JS_Counter counter = {};
 
     string directories[1024];

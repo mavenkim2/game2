@@ -7,47 +7,8 @@
 #include "keepmovingforward_common.h"
 #endif
 
-inline u32 Max(u32 a, u32 b)
-{
-    u32 result = a > b ? a : b;
-    return result;
-}
-
-inline u32 Min(u32 a, u32 b)
-{
-    u32 result = a < b ? a : b;
-    return result;
-}
-
-inline u64 Min(u64 a, u64 b)
-{
-    u64 result = a < b ? a : b;
-    return result;
-}
-
-inline f32 Max(f32 a, f32 b)
-{
-    f32 result = a > b ? a : b;
-    return result;
-}
-
-inline f32 Min(f32 a, f32 b)
-{
-    f32 result = a < b ? a : b;
-    return result;
-}
-
-inline f64 Max(f64 a, f64 b)
-{
-    f64 result = a > b ? a : b;
-    return result;
-}
-
-inline f64 Min(f64 a, f64 b)
-{
-    f64 result = a < b ? a : b;
-    return result;
-}
+#define Max(a, b) ((a) > (b) ? (a) : (b))
+#define Min(a, b) ((a) < (b) ? (a) : (b))
 
 inline u32 Clamp(u32 a, u32 low, u32 high)
 {
@@ -1070,7 +1031,7 @@ inline Mat4 Scale(V3 value)
 
 inline Mat4 Scale(f32 value)
 {
-    Mat4 result = Identity();
+    Mat4 result           = Identity();
     result.elements[0][0] = value;
     result.elements[1][1] = value;
     result.elements[2][2] = value;

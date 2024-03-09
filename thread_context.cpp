@@ -13,7 +13,7 @@ internal void ThreadContextInitialize(ThreadContext *t, b32 isMainThread = 0)
 {
     for (u32 i = 0; i < ArrayLength(t->arenas); i++)
     {
-        t->arenas[i] = ArenaAllocDefault();
+        t->arenas[i] = ArenaAlloc();
     }
     t->isMainThread = isMainThread;
     tLocalContext   = t;

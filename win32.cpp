@@ -188,7 +188,7 @@ internal b32 WriteFile(string filename, void *fileMemory, u32 fileSize)
 {
     b32 result = false;
     HANDLE fileHandle =
-        CreateFileA((char *)filename.str, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+        CreateFileA((char *)filename.str, GENERIC_WRITE, 0, 0, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
     if (fileHandle != INVALID_HANDLE_VALUE)
     {
         DWORD bytesToWrite;
@@ -305,6 +305,16 @@ internal void *OS_Alloc(u64 size)
     return ptr;
 }
 
+internal void *OS_Reserve(u64 size) {
+    void *ptr = VirtualAlloc(0, size, MEM_RESERVE, PAGE_READWRITE);
+    return ptr;
+}
+
+internal b8 OS_Commit(void *ptr, u64 size) {
+    b8 result = (VirtualAlloc(ptr, size, MEM_COMMIT, PAGE_READWRITE) != 0);
+    return result;
+}
+
 internal void OS_Release(void *memory)
 {
     VirtualFree(memory, 0, MEM_RELEASE);
@@ -316,7 +326,7 @@ internal void OS_Init()
 {
     if (Win32_arena == 0)
     {
-        Win32_arena = ArenaAllocDefault();
+        Win32_arena = ArenaAlloc();
     }
 }
 

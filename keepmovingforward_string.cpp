@@ -396,8 +396,9 @@ inline u8 *GetPointer_(Tokenizer *tokenizer)
 // String writing
 //
 
-internal void Put(StringBuilder *builder, void *data, u64 size)
+internal u64 Put(StringBuilder *builder, void *data, u64 size)
 {
+    u64 cursor                        = builder->totalSize;
     StringBuilderChunkNode *chunkNode = builder->last;
     if (chunkNode == 0 || chunkNode->count >= chunkNode->cap)
     {
@@ -406,24 +407,27 @@ internal void Put(StringBuilder *builder, void *data, u64 size)
         chunkNode->cap    = 256;
         chunkNode->values = PushArray(builder->arena, StringBuilderNode, chunkNode->cap);
     }
-    StringBuilderNode *node = &chunkNode->values[chunkNode->count];
+    StringBuilderNode *node = &chunkNode->values[chunkNode->count++];
     node->str.str           = PushArray(builder->arena, u8, size);
     node->str.size          = size;
 
     builder->totalSize += size;
 
     MemoryCopy(node->str.str, data, size);
+    return cursor;
 }
 
-internal void Put(StringBuilder *builder, string str)
+internal u64 Put(StringBuilder *builder, string str)
 {
     Assert((u32)str.size == str.size);
-    Put(builder, str.str, (u32)str.size);
+    u64 result = Put(builder, str.str, (u32)str.size);
+    return result;
 }
 
-internal void Put(StringBuilder *builder, u32 value)
+internal u64 Put(StringBuilder *builder, u32 value)
 {
-    PutPointerValue(builder, &value);
+    u64 result = PutPointerValue(builder, &value);
+    return result;
 }
 
 internal StringBuilder ConcatBuilders(Arena *arena, StringBuilder *a, StringBuilder *b)
@@ -437,7 +441,7 @@ internal StringBuilder ConcatBuilders(Arena *arena, StringBuilder *a, StringBuil
     return result;
 }
 
-internal b32 WriteEntireFile(StringBuilder *builder, string filename)
+internal string CombineBuilderNodes(StringBuilder *builder)
 {
     string result;
     result.str  = PushArray(builder->arena, u8, builder->totalSize);
@@ -453,14 +457,25 @@ internal b32 WriteEntireFile(StringBuilder *builder, string filename)
             cursor += n->str.size;
         }
     }
-    b32 success = WriteFile(filename, result.str, (u32)result.size);
+    return result;
+}
+
+internal b32 WriteEntireFile(StringBuilder *builder, string filename)
+{
+    string result = CombineBuilderNodes(builder);
+    b32 success   = WriteFile(filename, result.str, (u32)result.size);
     return success;
 }
 
 inline u64 PutPointer(StringBuilder *builder, u64 address)
 {
-    u64 offset = (u64)builder->totalSize;
+    u64 offset = builder->totalSize;
     offset += sizeof(offset) + address;
     PutPointerValue(builder, &offset);
     return offset;
+}
+
+inline void FixPointer(u8 *buffer, u64 location, u64 offset)
+{
+    MemoryCopy(buffer + location, &offset, sizeof(offset));
 }

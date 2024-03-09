@@ -468,9 +468,11 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     // Initialization
     if (!memory->isInitialized)
     {
-        gameState->frameArena = ArenaAllocDefault();
-        gameState->worldArena = ArenaAlloc((void *)((u8 *)(memory->PersistentStorageMemory) + sizeof(GameState)),
-                                           memory->PersistentStorageSize - sizeof(GameState));
+        gameState->frameArena = ArenaAlloc();
+        // gameState->worldArena = ArenaAlloc((void *)((u8 *)(memory->PersistentStorageMemory) +
+        // sizeof(GameState)),
+        //                                    memory->PersistentStorageSize - sizeof(GameState));
+        gameState->worldArena = ArenaAlloc();
 
         // TODO: have main thread initialization somewhere else
         ThreadContext *tctx = PushStruct(gameState->worldArena, ThreadContext);
@@ -499,7 +501,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         Mat4 rotate                = Rotate4(MakeV3(1, 0, 0), PI / 2);
         gameState->model.transform = translate * rotate * scale;
 
-        ReadAnimationFile(gameState->worldArena, animation, Str8Lit("data/dragon_attack_01.anim"));
+        // ReadAnimationFile(gameState->worldArena, animation, Str8Lit("data/dragon_attack_01.anim"));
 
         gameState->level      = PushStruct(gameState->worldArena, Level);
         gameState->cameraMode = CameraMode_Player;
@@ -528,7 +530,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         memory->isInitialized        = true;
 
         AnimationPlayer *aPlayer = &gameState->animPlayer;
-        StartLoopedAnimation(aPlayer, animation);
+        // StartLoopedAnimation(aPlayer, animation);
 
         // DumbData data    = {};
         // JS_Ticket ticket = JS_Kick(TestCall1, &data, 0, Priority_High);
@@ -906,10 +908,10 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         AnimationTransform *tforms = PushArray(gameState->frameArena, AnimationTransform, skeleton->count);
         Mat4 *finalTransforms      = PushArray(gameState->frameArena, Mat4, skeleton->count);
         // ANIMATION
-        PlayCurrentAnimation(&gameState->animPlayer, input->dT, tforms);
+        // PlayCurrentAnimation(&gameState->animPlayer, input->dT, tforms);
 
-        SkinModelToAnimation(&gameState->animPlayer, &gameState->model, tforms, finalTransforms);
-        // SkinModelToBindPose(&gameState->model, finalTransforms);
+        // SkinModelToAnimation(&gameState->animPlayer, &gameState->model, tforms, finalTransforms);
+        SkinModelToBindPose(&gameState->model, finalTransforms);
         DrawArrow(&renderState->debugRenderer, {0, 0, 0}, {5, 0, 0}, {1, 0, 0, 1}, 1.f);
         DrawArrow(&renderState->debugRenderer, {0, 0, 0}, {0, 5, 0}, {0, 1, 0, 1}, 1.f);
         DrawArrow(&renderState->debugRenderer, {0, 0, 0}, {0, 0, 5}, {0, 0, 1, 1}, 1.f);

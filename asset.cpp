@@ -352,61 +352,6 @@ internal void SkinModelToBindPose(Model *model, Mat4 *finalTransforms)
     ScratchEnd(temp);
 }
 
-global u32 animationFileVersion = 1;
-internal void WriteAnimationToFile(KeyframedAnimation *animation, string filename)
-{
-    StringBuilder builder = {};
-    TempArena temp        = ScratchStart(0, 0);
-    builder.arena         = temp.arena;
-
-    Put(&builder, animationFileVersion);
-    Put(&builder, animation->numNodes);
-    PutPointerValue(&builder, &animation->duration);
-    Put(&builder, animation->numFrames);
-
-    loopi(0, animation->numNodes)
-    {
-        BoneChannel *channel = animation->boneChannels + i;
-        string output        = PushStr8F(temp.arena, "%S\n", channel->name);
-        Put(&builder, output);
-        Put(&builder, channel->transforms, sizeof(channel->transforms[0]) * animation->numFrames);
-    }
-
-    b32 success = WriteEntireFile(&builder, filename);
-    if (!success)
-    {
-        Printf("Failed to write file %S\n", filename);
-    }
-    ScratchEnd(temp);
-}
-
-internal void ReadAnimationFile(Arena *arena, KeyframedAnimation *animation, string filename)
-{
-    Tokenizer tokenizer;
-    tokenizer.input  = ReadEntireFile(filename);
-    tokenizer.cursor = tokenizer.input.str;
-
-    u32 version;
-    GetPointerValue(&tokenizer, &version);
-    GetPointerValue(&tokenizer, &animation->numNodes);
-    GetPointerValue(&tokenizer, &animation->duration);
-    GetPointerValue(&tokenizer, &animation->numFrames);
-
-    if (version == 1)
-    {
-        animation->boneChannels = PushArray(arena, BoneChannel, animation->numNodes);
-        loopi(0, animation->numNodes)
-        {
-            BoneChannel *channel = animation->boneChannels + i;
-            string output        = ReadLine(&tokenizer);
-            channel->name        = PushStr8Copy(arena, output);
-            Get(&tokenizer, channel->transforms, sizeof(channel->transforms[0]) * animation->numFrames);
-        }
-        Assert(EndOfBuffer(&tokenizer));
-    }
-    OS_Release(tokenizer.input.str);
-}
-
 //////////////////////////////
 // Texture streaming
 //
@@ -457,7 +402,7 @@ global T_State *t_state;
 
 internal void T_Init()
 {
-    Arena *arena   = ArenaAllocDefault();
+    Arena *arena   = ArenaAlloc();
     t_state        = PushStruct(arena, T_State);
     t_state->arena = arena;
 

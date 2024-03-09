@@ -6,13 +6,20 @@
 #include "keepmovingforward_common.h"
 #endif
 
+#define ARENA_HEADER_SIZE  128
+#define ARENA_COMMIT_SIZE  kilobytes(64)
+#define ARENA_RESERVE_SIZE megabytes(64)
+
 struct Arena
 {
+    struct Arena *prev;
+    struct Arena *current;
+    u64 basePos;
     u64 pos;
-    u64 commitPos;
+    u64 cmt;
+    u64 res;
     u64 align;
-    u64 size;
-    u64 _unused_[5];
+    b8 grow;
 };
 
 struct TempArena
@@ -21,9 +28,9 @@ struct TempArena
     u64 pos;
 };
 
+internal Arena *ArenaAlloc(u64 resSize, u64 cmtSize);
 internal Arena *ArenaAlloc(u64 size);
-internal Arena *ArenaAllocDefault();
-internal Arena *ArenaAlloc(void *base, u64 size);
+internal Arena *ArenaAlloc();
 internal void *ArenaPushNoZero(Arena *arena, u64 size);
 internal void *ArenaPush(Arena *arena, u64 size);
 internal void ArenaPopTo(Arena *arena, u64 pos);
