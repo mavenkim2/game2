@@ -9,6 +9,7 @@
 // - Be able to asynchronously load multiple textures at the same time (using probably a list of PBOs).
 // - LRU for eviction
 #include "crack.h"
+#include "keepmovingforward_common.h"
 #ifdef LSP_INCLUDE
 #include "asset.h"
 #include "asset_cache.h"
@@ -21,6 +22,7 @@ global AS_CacheState *as_state = 0;
 global readonly LoadedSkeleton skeletonNil;
 global readonly LoadedModel modelNil;
 global readonly Texture textureNil;
+global readonly KeyframedAnimation animNil;
 
 internal void AS_Init()
 {
@@ -318,7 +320,11 @@ internal void AS_HotloadEntryPoint(void *p)
 // assets should either be loaded directly into main memory, or into a temp storage
 JOB_CALLBACK(AS_LoadAsset)
 {
-    AS_Node *node    = (AS_Node *)data;
+    AS_Node *node = (AS_Node *)data;
+    if (AtomicCompareExchangeU32(&node->status, AS_Status_Queued, AS_Status_Unloaded) != AS_Status_Unloaded)
+    {
+        return 0;
+    }
     string extension = GetFileExtension(node->path);
     if (extension == Str8Lit("model"))
     {
@@ -392,15 +398,30 @@ JOB_CALLBACK(AS_LoadAsset)
         }
 
         Assert(EndOfBuffer(&tokenizer));
+        WriteBarrier();
+        node->status = AS_Status_Loaded;
     }
     else if (extension == Str8Lit("anim"))
     {
-        // Tokenizer tokenizer;
-        // tokenizer.input  = ReadEntireFile(filename);
-        // tokenizer.cursor = tokenizer.input.str;
-        //
-        // u32 version;
-        // GetPointerValue(&tokenizer, &version);
+        node->type = AS_Anim;
+        u8 *buffer = GetAssetBuffer(node);
+
+        // NOTE: crazy town incoming
+        KeyframedAnimation **animation = &node->anim;
+        *animation                     = (KeyframedAnimation *)buffer;
+        KeyframedAnimation *a          = node->anim;
+        Printf("Num nodes: %u\n", a->numNodes);
+        Printf("offset: %u\n", (u64)(a->boneChannels));
+        a->boneChannels = (BoneChannel *)(buffer + (u64)(a->boneChannels));
+        for (u32 i = 0; i < a->numNodes; i++)
+        {
+            a->boneChannels[i].name.str   = (u8 *)(buffer + (u64)(a->boneChannels[i].name.str));
+            a->boneChannels[i].transforms = (AnimationTransform *)(buffer + (u64)(a->boneChannels[i].transforms));
+        }
+        // TODO: write barrier
+        WriteBarrier();
+        node->status = AS_Status_Loaded;
+
         // GetPointerValue(&tokenizer, &animation->numNodes);
         // GetPointerValue(&tokenizer, &animation->duration);
         // GetPointerValue(&tokenizer, &animation->numFrames);
@@ -458,6 +479,8 @@ JOB_CALLBACK(AS_LoadAsset)
         }
         node->type     = AS_Skeleton;
         node->skeleton = skeleton;
+        WriteBarrier();
+        node->status = AS_Status_Loaded;
     }
     else if (extension == Str8Lit("png"))
     {
@@ -541,7 +564,13 @@ internal AS_Node *AS_GetNodeFromHandle(AS_Handle handle)
             result = node;
         }
     }
+    if (result && result->status != AS_Status_Loaded)
+    {
+        result = 0;
+    }
     EndMutex(&slot->mutex);
+
+    // Read barrier here somehow
     return result;
 }
 
@@ -599,6 +628,17 @@ internal LoadedSkeleton *GetSkeletonFromModel(AS_Handle handle)
 
     return result;
 }
+internal KeyframedAnimation *GetAnim(AS_Handle handle)
+{
+    KeyframedAnimation *result = &animNil;
+    AS_Node *node              = AS_GetNodeFromHandle(handle);
+    if (node)
+    {
+        Assert(node->type == AS_Anim);
+        result = node->anim;
+    }
+    return result;
+}
 
 internal R_Handle GetTextureRenderHandle(AS_Handle input)
 {
@@ -618,6 +658,11 @@ inline b32 IsModelHandleNil(AS_Handle handle)
 {
     LoadedModel *model = GetModel(handle);
     b32 result         = (model == 0 || model == &modelNil);
+    return result;
+}
+inline b8 IsAnimNil(KeyframedAnimation *anim)
+{
+    b8 result = (anim == &animNil);
     return result;
 }
 

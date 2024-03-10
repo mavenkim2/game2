@@ -65,6 +65,7 @@ enum AS_Type
     AS_Mesh,
     AS_Texture,
     AS_Skeleton,
+    AS_Anim,
     AS_Model,
     AS_Shader,
     AS_GLTF,
@@ -88,11 +89,13 @@ struct AS_Asset
     AS_Type type;
     AS_Status status;
 
+    // TODO: these should be pointers so they are the same size
     union
     {
         LoadedSkeleton skeleton;
         Texture texture;
         LoadedModel model;
+        KeyframedAnimation *anim;
     };
 };
 
@@ -114,6 +117,7 @@ struct AS_Node
         LoadedSkeleton skeleton;
         Texture texture;
         LoadedModel model;
+        KeyframedAnimation *anim;
     };
 
     AS_Node *next;
@@ -148,10 +152,12 @@ internal AS_Handle AS_GetAssetHandle(u64 hash);
 internal AS_Handle AS_GetAssetHandle(string path);
 internal LoadedSkeleton *GetSkeleton(AS_Handle handle);
 internal LoadedSkeleton *GetSkeletonFromModel(AS_Handle handle);
+internal KeyframedAnimation *GetAnim(AS_Handle handle);
 internal LoadedModel *GetModel(AS_Handle handle);
 internal Texture *GetTexture(AS_Handle handle);
 internal R_Handle GetTextureRenderHandle(AS_Handle input);
 inline AS_Handle LoadAssetFile(string filename);
+inline b8 IsAnimNil(KeyframedAnimation *anim);
 
 //////////////////////////////
 // Helpers

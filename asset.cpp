@@ -215,17 +215,37 @@ internal Mat4 ConvertToMatrix(const AnimationTransform *transform)
 // ANIMATION
 //
 
-// TODO: is this too object oriented??
-internal void StartLoopedAnimation(AnimationPlayer *player, KeyframedAnimation *animation)
+internal b8 LoadAnimation(AnimationPlayer *player, AS_Handle handle)
 {
-    player->currentAnimation = animation;
-    player->duration         = animation->duration;
-    player->numFrames        = animation->numFrames;
-    player->isLooping        = true;
+    player->anim             = handle;
+    KeyframedAnimation *anim = GetAnim(handle);
+    b8 result                = 0;
+    if (!IsAnimNil(anim))
+    {
+        player->currentAnimation = anim;
+        player->duration         = anim->duration;
+        player->numFrames        = anim->numFrames;
+        player->isLooping        = true;
+        player->loaded           = true;
+        result                   = true;
+    }
+    return result;
+}
+internal void StartLoopedAnimation(AnimationPlayer *player, AS_Handle handle)
+{
+    LoadAnimation(player, handle);
 }
 
 internal void PlayCurrentAnimation(AnimationPlayer *player, f32 dT, AnimationTransform *transforms)
 {
+    if (!player->loaded)
+    {
+        LoadAnimation(player, player->anim);
+    }
+    if (IsAnimNil(player->currentAnimation))
+    {
+        return;
+    }
     u32 frame = (u32)((player->numFrames - 1) * (player->currentTime / player->duration));
     frame     = Clamp(frame, 0, player->numFrames - 1);
 
@@ -431,7 +451,9 @@ JOB_CALLBACK(LoadTextureCallback)
 internal void PushTextureQueue(AS_Node *node)
 {
     TextureQueue *queue = &t_state->queue;
-    if (AtomicCompareExchangeU32(&node->status, AS_Status_Queued, AS_Status_Unloaded) == AS_Status_Unloaded)
+    AS_Status status    = node->status;
+    ReadBarrier();
+    if (status == AS_Status_Queued)
     {
         TicketMutexScope(&queue->mutex)
         {

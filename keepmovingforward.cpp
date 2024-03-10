@@ -502,6 +502,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         gameState->model.transform = translate * rotate * scale;
 
         // ReadAnimationFile(gameState->worldArena, animation, Str8Lit("data/dragon_attack_01.anim"));
+        AS_Handle anim = LoadAssetFile(Str8Lit("data/dragon/Qishilong_attack01.anim"));
 
         gameState->level      = PushStruct(gameState->worldArena, Level);
         gameState->cameraMode = CameraMode_Player;
@@ -530,7 +531,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         memory->isInitialized        = true;
 
         AnimationPlayer *aPlayer = &gameState->animPlayer;
-        // StartLoopedAnimation(aPlayer, animation);
+        StartLoopedAnimation(aPlayer, anim);
 
         // DumbData data    = {};
         // JS_Ticket ticket = JS_Kick(TestCall1, &data, 0, Priority_High);
@@ -908,10 +909,10 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         AnimationTransform *tforms = PushArray(gameState->frameArena, AnimationTransform, skeleton->count);
         Mat4 *finalTransforms      = PushArray(gameState->frameArena, Mat4, skeleton->count);
         // ANIMATION
-        // PlayCurrentAnimation(&gameState->animPlayer, input->dT, tforms);
+        PlayCurrentAnimation(&gameState->animPlayer, input->dT, tforms);
 
-        // SkinModelToAnimation(&gameState->animPlayer, &gameState->model, tforms, finalTransforms);
-        SkinModelToBindPose(&gameState->model, finalTransforms);
+        SkinModelToAnimation(&gameState->animPlayer, &gameState->model, tforms, finalTransforms);
+        // SkinModelToBindPose(&gameState->model, finalTransforms);
         DrawArrow(&renderState->debugRenderer, {0, 0, 0}, {5, 0, 0}, {1, 0, 0, 1}, 1.f);
         DrawArrow(&renderState->debugRenderer, {0, 0, 0}, {0, 5, 0}, {0, 1, 0, 1}, 1.f);
         DrawArrow(&renderState->debugRenderer, {0, 0, 0}, {0, 0, 5}, {0, 0, 1, 1}, 1.f);

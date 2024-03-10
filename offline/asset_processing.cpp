@@ -610,15 +610,6 @@ internal void WriteAnimationToFile(KeyframedAnimation *animation, string filenam
     TempArena temp        = ScratchStart(0, 0);
     builder.arena         = temp.arena;
 
-    // ok what I'm going to do is:
-    // I'm just going to write out the file like I normally do, copying the data of each member
-    // into a buffer. then I'm going to combine it so it's just a big fat block. then I guess I have to manually
-    // get the offsets of the data and write that out at the beginning. this will be hardcoded, but maybe in the
-    // future if introspection is implemented
-    // NOTE: what I'm doing here doesn't work I need to manually specify the size if it's an array
-    // this language sucks
-    //
-    // any variable ending in write is a location used for a pointer fix up
     u64 animationWrite   = PutPointerValue(&builder, animation);
     u64 boneChannelWrite = AppendArray(&builder, animation->boneChannels, animation->numNodes);
 

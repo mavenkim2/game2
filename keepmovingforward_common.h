@@ -220,7 +220,8 @@ inline void *ArrayGrow(void *a, u32 size, u32 length, u32 minCap)
 #define AtomicDecrementU64(dest)   _InterlockedDecrement64((__int64 volatile *)dest)
 #define AtomicAddU32(dest, addend) _InterlockedExchangeAdd((long volatile *)dest, addend)
 #define AtomicAddU64(dest, addend) _InterlockedExchangeAdd64((__int64 volatile *)dest, addend)
-#define WriteBarrier()             _mm_sfence()
+#define WriteBarrier()             _WriteBarrier(); _mm_sfence();
+#define ReadBarrier()              _ReadBarrier();
 
 struct TicketMutex
 {

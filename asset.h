@@ -9,7 +9,6 @@
 #endif
 
 #define MAX_MATRICES_PER_VERTEX 4
-#define MAX_FRAMES              200
 
 typedef u32 R_Handle;
 
@@ -129,7 +128,7 @@ struct MeshNodeInfoArray
 struct BoneChannel
 {
     string name;
-    AnimationTransform transforms[MAX_FRAMES];
+    AnimationTransform *transforms;
 };
 
 struct KeyframedAnimation
@@ -145,12 +144,14 @@ struct KeyframedAnimation
 
 struct AnimationPlayer
 {
+    AS_Handle anim;
     KeyframedAnimation *currentAnimation;
     f32 currentTime;
     f32 duration;
     u32 numFrames;
 
     b32 isLooping;
+    b8 loaded;
 };
 
 struct Material
