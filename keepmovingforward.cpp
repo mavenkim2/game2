@@ -49,7 +49,6 @@ void RenderGradient(Gamebuffer *buffer, int xOffset, int yOffset)
         {
             // BB GG RR XX, because Windows!
             // Blue is first
-            // Memory: BB GG RR XX
             // Register: XX RR GG BB
             u8 blue = (u8)(x + xOffset);
             u8 green = (u8)(y + yOffset);
@@ -508,7 +507,9 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         gameState->model2.transform = translate * rotate * scale;
 
         // ReadAnimationFile(gameState->worldArena, animation, Str8Lit("data/dragon_attack_01.anim"));
-        AS_Handle anim = LoadAssetFile(Str8Lit("data/dragon/Qishilong_walk.anim"));
+        // AS_Handle anim = LoadAssetFile(Str8Lit("data/dragon/Qishilong_fly02.anim"));
+        AS_Handle anim = LoadAssetFile(Str8Lit("data/dragon/Qishilong_down.anim"));
+        
 
         gameState->level      = PushStruct(gameState->worldArena, Level);
         gameState->cameraMode = CameraMode_Player;
@@ -537,7 +538,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         memory->isInitialized        = true;
 
         AnimationPlayer *aPlayer = &gameState->animPlayer;
-        StartLoopedAnimation(aPlayer, anim);
+        StartLoopedAnimation(gameState->worldArena, aPlayer, anim);
 
         // DumbData data    = {};
         // JS_Ticket ticket = JS_Kick(TestCall1, &data, 0, Priority_High);
@@ -915,9 +916,11 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         Mat4 *finalTransforms      = PushArray(gameState->frameArena, Mat4, skeleton->count);
 
         LoadedSkeleton *skeleton2 = GetSkeletonFromModel(gameState->model2.loadedModel);
+        AnimationTransform *tforms2 = PushArray(gameState->frameArena, AnimationTransform, skeleton2->count);
         Mat4 *finalTransforms2    = PushArray(gameState->frameArena, Mat4, skeleton2->count);
         // ANIMATION
-        PlayCurrentAnimation(&gameState->animPlayer, input->dT, tforms);
+        // PlayCurrentAnimation(gameState->worldArena, &gameState->animPlayer, input->dT, tforms2);
+        PlayCurrentAnimation(gameState->worldArena, &gameState->animPlayer, input->dT, tforms);
 
         SkinModelToAnimation(&gameState->animPlayer, &gameState->model, tforms, finalTransforms);
 
@@ -929,6 +932,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         PushModel(renderState, &gameState->model, finalTransforms);
 
         SkinModelToBindPose(&gameState->model2, finalTransforms2);
+        // SkinModelToAnimation(&gameState->animPlayer, &gameState->model2, tforms2, finalTransforms2);
         PushModel(renderState, &gameState->model2, finalTransforms2);
     }
     // GameOutputSound(soundBuffer, gameState->toneHz);

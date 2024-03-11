@@ -154,14 +154,13 @@ struct AnimationPlayer
     f32 currentTime;
     f32 duration;
 
+    u32 currentPositionKey[300];
+    u32 currentScaleKey[300];
+    u32 currentRotationKey[300];
+
     // u32 *currentPositionKey;
     // u32 *currentScaleKey;
     // u32 *currentRotationKey;
-
-#define MAX_FRAMES 200
-    u32 currentPositionKey[MAX_FRAMES];
-    u32 currentScaleKey[MAX_FRAMES];
-    u32 currentRotationKey[MAX_FRAMES];
 
     b32 isLooping;
     b8 loaded;

@@ -28,6 +28,7 @@ internal void ProcessNode(Arena *arena, MeshNodeInfoArray *nodeArray, const aiNo
 // Animation Loading
 //
 internal string ProcessAnimation(Arena *arena, KeyframedAnimation *outAnimation, aiAnimation *inAnimation);
+
 JOB_CALLBACK(ProcessAnimation);
 
 //////////////////////////////
@@ -145,27 +146,27 @@ internal void *LoadAndWriteModel(void *ptr, Arena *arena)
 
     JS_Counter counter = {};
     // Process all animations and write to file
-    // TODO IMPORTANT: SOMEWHERE BETWEEN HERE AND
-    JS_Counter animationCounter    = {};
-    u32 numAnimations              = scene->mNumAnimations;
-    KeyframedAnimation *animations = PushArray(scratch.arena, KeyframedAnimation, numAnimations);
-    AnimationJobData *jobData      = PushArray(scratch.arena, AnimationJobData, numAnimations);
+    JS_Counter animationCounter = {};
+    u32 numAnimations           = scene->mNumAnimations;
+    // KeyframedAnimation *animations = PushArray(scratch.arena, KeyframedAnimation, numAnimations);
+    AnimationJobData *jobData = PushArray(scratch.arena, AnimationJobData, numAnimations);
     Printf("Number of animations: %u\n", numAnimations);
-    for (u32 i = 0; i < numAnimations; i++)
     {
-        jobData[i].outAnimation = &animations[i];
-        jobData[i].inAnimation  = scene->mAnimations[i];
-        JS_Kick(ProcessAnimation, &jobData[i], 0, Priority_Normal, &animationCounter);
+        for (u32 i = 0; i < numAnimations; i++)
+        {
+            jobData[i].outAnimation = PushStruct(scratch.arena, KeyframedAnimation);
+            jobData[i].inAnimation  = scene->mAnimations[i];
+            // ProcessAnimation(&jobData[i], scratch.arena);
+            JS_Kick(ProcessAnimation, &jobData[i], 0, Priority_Normal, &animationCounter);
+        }
+        JS_Join(&animationCounter);
     }
-    JS_Join(&animationCounter);
-
-    // TODO IMPORTANT: HERE SOMETHING BAD HAPPENS AND I HAVE NO IDEA WHY!
 
     // AnimationJobWriteData *writeData = PushArray(scratch.arena, AnimationJobWriteData, numAnimations);
     for (u32 i = 0; i < numAnimations; i++)
     {
         AnimationJobWriteData *data = PushStruct(scratch.arena, AnimationJobWriteData);
-        data->animation             = &animations[i];
+        data->animation             = jobData[i].outAnimation;
         data->path                  = PushStr8F(scratch.arena, "%S%S.anim", directory, jobData[i].outName);
         Printf("Writing animation to file: %S\n", data->path);
         JS_Kick(WriteAnimationToFile, data, 0, Priority_Normal, &counter);
@@ -399,14 +400,17 @@ internal void ProcessNode(Arena *arena, MeshNodeInfoArray *nodeArray, const aiNo
 // Animation Loading
 //
 internal string ProcessAnimation(Arena *arena, KeyframedAnimation *outAnimation, aiAnimation *inAnimation)
+
 {
     outAnimation->boneChannels = PushArray(arena, BoneChannel, inAnimation->mNumChannels);
     outAnimation->numNodes     = inAnimation->mNumChannels;
     outAnimation->duration     = (f32)inAnimation->mDuration / (f32)inAnimation->mTicksPerSecond;
     BoneChannel *boneChannels  = outAnimation->boneChannels;
+    f32 startTime              = FLT_MAX;
+    b8 change                  = 0;
     for (u32 i = 0; i < inAnimation->mNumChannels; i++)
     {
-        BoneChannel *boneChannel = boneChannels + i;
+        BoneChannel *boneChannel = &boneChannels[i];
         aiNodeAnim *channel      = inAnimation->mChannels[i];
         string name              = Str8((u8 *)channel->mNodeName.data, channel->mNodeName.length);
         name                     = PushStr8Copy(arena, name);
@@ -420,30 +424,45 @@ internal string ProcessAnimation(Arena *arena, KeyframedAnimation *outAnimation,
         boneChannel->numScalingKeys  = channel->mNumScalingKeys;
         boneChannel->numRotationKeys = channel->mNumRotationKeys;
 
+        f64 minTimeTest = Min(Min(channel->mPositionKeys[0].mTime, channel->mScalingKeys[0].mTime),
+                              channel->mRotationKeys[0].mTime);
+        f32 time        = (f32)minTimeTest / (f32)(inAnimation->mTicksPerSecond);
+        if (time < startTime)
+        {
+            if (!(change && time == 0))
+            {
+                startTime = time;
+                change++;
+            }
+        }
+
         for (u32 j = 0; j < channel->mNumPositionKeys; j++)
         {
             aiVector3t<f32> aiPosition  = channel->mPositionKeys[j].mValue;
             AnimationPosition *position = boneChannel->positions + j;
             position->position          = MakeV3(aiPosition.x, aiPosition.y, aiPosition.z);
-            position->time              = (f32)channel->mPositionKeys[j].mTime / (f32)inAnimation->mTicksPerSecond;
+            position->time = ((f32)channel->mPositionKeys[j].mTime / (f32)inAnimation->mTicksPerSecond - time);
         }
         for (u32 j = 0; j < channel->mNumScalingKeys; j++)
         {
             aiVector3t<f32> aiScale = channel->mScalingKeys[j].mValue;
             AnimationScale *scale   = boneChannel->scales + j;
             scale->scale            = MakeV3(aiScale.x, aiScale.y, aiScale.z);
-            scale->time             = (f32)channel->mScalingKeys[j].mTime / (f32)inAnimation->mTicksPerSecond;
+            scale->time = ((f32)channel->mScalingKeys[j].mTime / (f32)inAnimation->mTicksPerSecond - time);
         }
         for (u32 j = 0; j < channel->mNumRotationKeys; j++)
         {
             aiQuaterniont<f32> aiQuat   = channel->mRotationKeys[j].mValue;
             AnimationRotation *rotation = boneChannel->rotations + j;
             rotation->rotation          = MakeQuat(aiQuat.x, aiQuat.y, aiQuat.z, aiQuat.w);
-            rotation->time              = (f32)channel->mRotationKeys[j].mTime / (f32)inAnimation->mTicksPerSecond;
+            rotation->time = ((f32)channel->mRotationKeys[j].mTime / (f32)inAnimation->mTicksPerSecond - time);
         }
     }
+    outAnimation->duration -= startTime == FLT_MAX ? 0 : startTime;
+    Printf("Change: %i\n", change);
 
-    string animationName = {(u8 *)inAnimation->mName.data, inAnimation->mName.length};
+    // string animationName = {(u8 *)inAnimation->mName.data, inAnimation->mName.length};
+    string animationName = Str8((u8 *)inAnimation->mName.data, inAnimation->mName.length);
     animationName        = PushStr8Copy(arena, animationName);
     return animationName;
 }
@@ -451,7 +470,8 @@ internal string ProcessAnimation(Arena *arena, KeyframedAnimation *outAnimation,
 JOB_CALLBACK(ProcessAnimation)
 {
     AnimationJobData *jobData = (AnimationJobData *)data;
-    jobData->outName          = ProcessAnimation(arena, jobData->outAnimation, jobData->inAnimation);
+    string name               = ProcessAnimation(arena, jobData->outAnimation, jobData->inAnimation);
+    jobData->outName          = name;
     return 0;
 }
 
@@ -718,6 +738,8 @@ int main(int argc, char *argv[])
                     data->directory = directoryPath;
                     data->filename  = props.name;
                     JS_Kick(LoadAndWriteModel, data, 0, Priority_High, &counter);
+                    // NOTE: this asset loading library just does not play well with mutltithreading
+                    JS_Join(&counter);
                 }
             }
             else
@@ -729,6 +751,5 @@ int main(int argc, char *argv[])
         }
         OS_DirectoryIterEnd(&fileIter);
     }
-    JS_Join(&counter);
     ScratchEnd(scratch);
 }

@@ -215,7 +215,7 @@ internal Mat4 ConvertToMatrix(const AnimationTransform *transform)
 // ANIMATION
 //
 
-internal b8 LoadAnimation(AnimationPlayer *player, AS_Handle handle)
+internal b8 LoadAnimation(Arena *arena, AnimationPlayer *player, AS_Handle handle)
 {
     player->anim             = handle;
     KeyframedAnimation *anim = GetAnim(handle);
@@ -226,20 +226,23 @@ internal b8 LoadAnimation(AnimationPlayer *player, AS_Handle handle)
         player->duration  = anim->duration;
         player->isLooping = true;
         player->loaded    = true;
-        result            = true;
+        // player->currentPositionKey = PushArray(arena, u32, anim->numNodes);
+        // player->currentScaleKey    = PushArray(arena, u32, anim->numNodes);
+        // player->currentRotationKey = PushArray(arena, u32, anim->numNodes);
+        result = true;
     }
     return result;
 }
-internal void StartLoopedAnimation(AnimationPlayer *player, AS_Handle handle)
+internal void StartLoopedAnimation(Arena *arena, AnimationPlayer *player, AS_Handle handle)
 {
-    LoadAnimation(player, handle);
+    LoadAnimation(arena, player, handle);
 }
 
-internal void PlayCurrentAnimation(AnimationPlayer *player, f32 dT, AnimationTransform *transforms)
+internal void PlayCurrentAnimation(Arena *arena, AnimationPlayer *player, f32 dT, AnimationTransform *transforms)
 {
     if (!player->loaded)
     {
-        LoadAnimation(player, player->anim);
+        LoadAnimation(arena, player, player->anim);
         if (IsAnimNil(player->currentAnimation))
         {
             return;
@@ -273,16 +276,20 @@ internal void PlayCurrentAnimation(AnimationPlayer *player, f32 dT, AnimationTra
         u32 scaleKey                  = player->currentScaleKey[boneIndex];
         u32 rotationKey               = player->currentRotationKey[boneIndex];
 
-        AnimationPosition position = boneChannel->positions[positionKey % boneChannel->numPositionKeys];
+        Assert(boneChannel->numPositionKeys != 0);
+        Assert(boneChannel->numScalingKeys != 0);
+        Assert(boneChannel->numRotationKeys != 0);
+
+        AnimationPosition position = boneChannel->positions[positionKey];
         AnimationPosition pastPosition =
             boneChannel
                 ->positions[(boneChannel->numPositionKeys + positionKey - 1) % boneChannel->numPositionKeys];
 
-        AnimationScale scale = boneChannel->scales[scaleKey % boneChannel->numScalingKeys];
+        AnimationScale scale = boneChannel->scales[scaleKey];
         AnimationScale pastScale =
             boneChannel->scales[(boneChannel->numScalingKeys + scaleKey - 1) % boneChannel->numScalingKeys];
 
-        AnimationRotation rotation = boneChannel->rotations[rotationKey % boneChannel->numRotationKeys];
+        AnimationRotation rotation = boneChannel->rotations[rotationKey];
         AnimationRotation pastRotation =
             boneChannel
                 ->rotations[(boneChannel->numRotationKeys + rotationKey - 1) % boneChannel->numRotationKeys];

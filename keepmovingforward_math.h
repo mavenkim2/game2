@@ -882,15 +882,30 @@ inline Quat MatrixToQuat(Mat4 m)
     return result;
 }
 
-inline Quat Lerp(Quat a, Quat b, f32 t)
+inline Quat Lerp_(Quat a, Quat b, f32 t)
 {
     Quat result;
     result = (1 - t) * a + t * b;
     return result;
 }
+
 inline Quat Nlerp(Quat a, Quat b, f32 t)
 {
-    Quat result = Normalize(Lerp(a, b, t));
+    Quat result = Normalize(Lerp_(a, b, t));
+    return result;
+}
+
+inline Quat Lerp(Quat a, Quat b, f32 t)
+{
+    Quat result;
+    if (Dot(a, b) < 0)
+    {
+        result = Nlerp(-a, b, t);
+    }
+    else
+    {
+        result = Nlerp(a, b, t);
+    }
     return result;
 }
 

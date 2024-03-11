@@ -21,7 +21,7 @@ enum Priority
 
 struct JS_Counter
 {
-    u32 c;
+    u32 volatile c;
 };
 
 struct JS_Ticket

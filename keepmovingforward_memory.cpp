@@ -71,6 +71,10 @@ internal void *ArenaPushNoZero(Arena *arena, u64 size)
             currentAlignPos   = AlignPow2(current->pos, current->align);
             newPos            = currentAlignPos + size;
         }
+        else
+        {
+            Assert(!"Arena alloc failed");
+        }
     }
     if (current->cmt < newPos)
     {
@@ -78,10 +82,8 @@ internal void *ArenaPushNoZero(Arena *arena, u64 size)
         cmtAligned     = Min(cmtAligned, current->res);
         u64 cmtSize    = cmtAligned - current->cmt;
         b8 result      = OS_Commit((u8 *)current + current->cmt, cmtSize);
-        if (result)
-        {
-            current->cmt = cmtAligned;
-        }
+        Assert(result);
+        current->cmt = cmtAligned;
     }
     void *result = 0;
     if (current->cmt >= newPos)
