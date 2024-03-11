@@ -219,15 +219,14 @@ internal b8 LoadAnimation(AnimationPlayer *player, AS_Handle handle)
 {
     player->anim             = handle;
     KeyframedAnimation *anim = GetAnim(handle);
+    player->currentAnimation = anim;
     b8 result                = 0;
     if (!IsAnimNil(anim))
     {
-        player->currentAnimation = anim;
-        player->duration         = anim->duration;
-        player->numFrames        = anim->numFrames;
-        player->isLooping        = true;
-        player->loaded           = true;
-        result                   = true;
+        player->duration  = anim->duration;
+        player->isLooping = true;
+        player->loaded    = true;
+        result            = true;
     }
     return result;
 }
@@ -241,44 +240,73 @@ internal void PlayCurrentAnimation(AnimationPlayer *player, f32 dT, AnimationTra
     if (!player->loaded)
     {
         LoadAnimation(player, player->anim);
-    }
-    if (IsAnimNil(player->currentAnimation))
-    {
-        return;
-    }
-    u32 frame = (u32)((player->numFrames - 1) * (player->currentTime / player->duration));
-    frame     = Clamp(frame, 0, player->numFrames - 1);
-
-    // this gets how far into the current frame the animation is, in order to lerp
-    f32 fraction;
-    if (player->numFrames > 1)
-    {
-        f32 timePerSample = player->duration * (1.f / (f32)(player->numFrames - 1));
-        f32 timeBase      = player->duration * (frame / (f32)(player->numFrames - 1));
-        fraction          = (player->currentTime - timeBase) / (timePerSample);
-    }
-    else
-    {
-        fraction = 0.f;
-    }
-    fraction = Clamp(fraction, 0.f, 1.f);
-
-    b32 nextKeyframe = (frame + 1 < player->numFrames);
-    // TODO: wrap to the first keyframe when looping?
-    // bicubic interpolation
-    for (u32 boneIndex = 0; boneIndex < player->currentAnimation->numNodes; boneIndex++)
-    {
-        const AnimationTransform t1 = player->currentAnimation->boneChannels[boneIndex].transforms[frame];
-        Assert(!IsZero(t1));
-        if (!nextKeyframe)
+        if (IsAnimNil(player->currentAnimation))
         {
-            transforms[boneIndex] = t1;
+            return;
         }
-        else
+    }
+    KeyframedAnimation *animation = player->currentAnimation;
+
+    for (u32 boneIndex = 0; boneIndex < animation->numNodes; boneIndex++)
+    {
+        BoneChannel *boneChannel = animation->boneChannels + boneIndex;
+
+        // Move to next key if you've passed it
+        // TODO: this seems like just too much overhead
+        if (boneChannel->positions[player->currentPositionKey[boneIndex]].time < player->currentTime)
         {
-            const AnimationTransform t2 = player->currentAnimation->boneChannels[boneIndex].transforms[frame + 1];
-            transforms[boneIndex]       = Lerp(t1, t2, fraction);
+            player->currentPositionKey[boneIndex] =
+                (player->currentPositionKey[boneIndex] + 1) % boneChannel->numPositionKeys;
         }
+        if (boneChannel->scales[player->currentScaleKey[boneIndex]].time < player->currentTime)
+        {
+            player->currentScaleKey[boneIndex] =
+                (player->currentScaleKey[boneIndex] + 1) % boneChannel->numScalingKeys;
+        }
+        if (boneChannel->rotations[player->currentRotationKey[boneIndex]].time < player->currentTime)
+        {
+            player->currentRotationKey[boneIndex] =
+                (player->currentRotationKey[boneIndex] + 1) % boneChannel->numRotationKeys;
+        }
+        AnimationTransform *transform = transforms + boneIndex;
+        u32 positionKey               = player->currentPositionKey[boneIndex];
+        u32 scaleKey                  = player->currentScaleKey[boneIndex];
+        u32 rotationKey               = player->currentRotationKey[boneIndex];
+
+        AnimationPosition position = boneChannel->positions[positionKey % boneChannel->numPositionKeys];
+        AnimationPosition pastPosition =
+            boneChannel
+                ->positions[(boneChannel->numPositionKeys + positionKey - 1) % boneChannel->numPositionKeys];
+
+        AnimationScale scale = boneChannel->scales[scaleKey % boneChannel->numScalingKeys];
+        AnimationScale pastScale =
+            boneChannel->scales[(boneChannel->numScalingKeys + scaleKey - 1) % boneChannel->numScalingKeys];
+
+        AnimationRotation rotation = boneChannel->rotations[rotationKey % boneChannel->numRotationKeys];
+        AnimationRotation pastRotation =
+            boneChannel
+                ->rotations[(boneChannel->numRotationKeys + rotationKey - 1) % boneChannel->numRotationKeys];
+
+        f32 fraction = (player->currentTime - pastPosition.time) / (position.time - pastPosition.time);
+        if (position.time == pastPosition.time)
+        {
+            fraction = 0;
+        }
+        transform->translation = Lerp(pastPosition.position, position.position, fraction);
+
+        fraction = (player->currentTime - pastRotation.time) / (rotation.time - pastRotation.time);
+        if (rotation.time == pastRotation.time)
+        {
+            fraction = 0;
+        }
+        transform->rotation = Lerp(pastRotation.rotation, rotation.rotation, fraction);
+
+        fraction = (player->currentTime - pastScale.time) / (scale.time - pastScale.time);
+        if (scale.time == pastScale.time)
+        {
+            fraction = 0;
+        }
+        transform->scale = Lerp(pastScale.scale, scale.scale, fraction);
     }
 
     player->currentTime += dT;
@@ -287,6 +315,12 @@ internal void PlayCurrentAnimation(AnimationPlayer *player, f32 dT, AnimationTra
         if (player->isLooping)
         {
             player->currentTime -= player->duration;
+            for (u32 i = 0; i < animation->numNodes; i++)
+            {
+                player->currentPositionKey[i] = 0;
+                player->currentScaleKey[i]    = 0;
+                player->currentRotationKey[i] = 0;
+            }
         }
         else
         {
@@ -309,7 +343,7 @@ internal void SkinModelToAnimation(AnimationPlayer *player, Model *model, const 
         i32 id            = i;
 
         i32 animationId = -1;
-        for (u32 index = 0; index < skeleton->count; index++)
+        for (u32 index = 0; index < player->currentAnimation->numNodes; index++)
         {
             if (player->currentAnimation->boneChannels[index].name == name)
             {

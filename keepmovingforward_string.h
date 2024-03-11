@@ -114,11 +114,12 @@ internal u64 Put(StringBuilder *builder, u32 value);
 internal string CombineBuilderNodes(StringBuilder *builder);
 internal b32 WriteEntireFile(StringBuilder *builder, string filename);
 inline u64 PutPointer(StringBuilder *builder, u64 address);
-inline void FixPointer(u8 *data, u64 location, u64 offset);
+inline void ConvertPointerToOffset(u8 *buffer, u64 location, u64 offset);
 
-#define PutPointerValue(builder, ptr)    Put(builder, ptr, sizeof(*ptr))
-#define AppendArray(builder, ptr, count) Put(builder, ptr, sizeof(*ptr) * count)
-#define PutArray(builder, array)         Put(builder, array.items, sizeof(array.items[0]) * array.count)
+#define ConvertOffsetToPointer(buffer, ptr, type) (*(ptr)) = (type *)((u8 *)(buffer) + (u64)(*(ptr)))
+#define PutPointerValue(builder, ptr)             Put(builder, ptr, sizeof(*ptr))
+#define AppendArray(builder, ptr, count)          Put(builder, ptr, sizeof(*ptr) * count)
+#define PutArray(builder, array)                  Put(builder, array.items, sizeof(array.items[0]) * array.count)
 
 #define GetPointerValue(tokenizer, ptr) Get(tokenizer, ptr, sizeof(*ptr))
 #define GetPointer(tokenizer, type)     (type *)GetPointer_(tokenizer)

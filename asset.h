@@ -61,22 +61,6 @@ struct MeshVertex
     f32 boneWeights[MAX_MATRICES_PER_VERTEX];
 };
 
-// struct BoneInfo
-// {
-//     string name;
-//     u32 boneId;
-//     Mat4 convertToBoneSpaceMatrix;
-// };
-
-// struct Skeleton
-// {
-//     u32 count;
-//     Array(string) names;
-//     Array(i32) parents;
-//     Array(Mat4) inverseBindPoses;
-//     Array(Mat4) transformsToParent;
-// };
-
 struct LoadedSkeleton
 {
     u32 count;
@@ -125,10 +109,34 @@ struct MeshNodeInfoArray
     u32 cap;
 };
 
+struct AnimationPosition
+{
+    V3 position;
+    f32 time;
+};
+
+struct AnimationScale
+{
+    V3 scale;
+    f32 time;
+};
+
+struct AnimationRotation
+{
+    Quat rotation;
+    f32 time;
+};
+
 struct BoneChannel
 {
     string name;
-    AnimationTransform *transforms;
+    AnimationPosition *positions;
+    AnimationScale *scales;
+    AnimationRotation *rotations;
+
+    u32 numPositionKeys;
+    u32 numScalingKeys;
+    u32 numRotationKeys;
 };
 
 struct KeyframedAnimation
@@ -137,9 +145,6 @@ struct KeyframedAnimation
     u32 numNodes;
 
     f32 duration;
-    u32 numFrames;
-
-    // b32 isActive;
 };
 
 struct AnimationPlayer
@@ -148,7 +153,15 @@ struct AnimationPlayer
     KeyframedAnimation *currentAnimation;
     f32 currentTime;
     f32 duration;
-    u32 numFrames;
+
+    // u32 *currentPositionKey;
+    // u32 *currentScaleKey;
+    // u32 *currentRotationKey;
+
+#define MAX_FRAMES 200
+    u32 currentPositionKey[MAX_FRAMES];
+    u32 currentScaleKey[MAX_FRAMES];
+    u32 currentRotationKey[MAX_FRAMES];
 
     b32 isLooping;
     b8 loaded;

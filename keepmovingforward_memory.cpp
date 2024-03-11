@@ -118,11 +118,17 @@ internal void ArenaPopTo(Arena *arena, u64 pos)
     current->pos = newPos;
 }
 
+internal u64 ArenaPos(Arena *arena)
+{
+    Arena *current = arena->current;
+    u64 pos        = current->basePos + current->pos;
+    return pos;
+}
+
 internal TempArena TempBegin(Arena *arena)
 {
-    TempArena temp = {};
-    temp.arena     = arena;
-    temp.pos       = arena->pos;
+    u64 pos        = ArenaPos(arena);
+    TempArena temp = {arena, pos};
     return temp;
 }
 

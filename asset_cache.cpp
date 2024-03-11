@@ -64,8 +64,6 @@ internal void AS_Init()
         AS_MemoryHeader *header         = &headerNode->header;
         header->buffer                  = as_state->blockBackingBuffer + as_state->blockSize * i;
 
-        // NOTE: This adds things in reverse order to the free list because why not. It means that the
-        // free blocks act as a queue (FIFO)
         headerNode->next       = sentinel;
         headerNode->prev       = sentinel->prev;
         headerNode->next->prev = headerNode;
@@ -227,13 +225,16 @@ internal void AS_EntryPoint(void *p)
                 continue;
             }
             // Puts on free list
-            if (n->size >= as_state->blockSize)
+            TicketMutexScope(&as_state->mutex)
             {
-                AS_MemoryHeaderNode *nextNode = n->memoryBlock + 1;
-                FreeBlock(nextNode);
+                if (n->size >= as_state->blockSize)
+                {
+                    AS_MemoryHeaderNode *nextNode = n->memoryBlock + 1;
+                    FreeBlock(nextNode);
+                }
+                FreeBlock(n->memoryBlock);
+                n->memoryBlock = 0;
             }
-            FreeBlock(n->memoryBlock);
-            n->memoryBlock = 0;
         }
 
         // Update the node
@@ -301,8 +302,8 @@ internal void AS_HotloadEntryPoint(void *p)
                     OS_FileAttributes attributes = OS_AttributesFromPath(node->path);
                     if (attributes.lastModified != 0 && attributes.lastModified != node->lastModified)
                     {
-                        Printf("Old last modified: %u\nNew last modified: %u\n\n", node->lastModified,
-                               attributes.lastModified);
+                        // Printf("Old last modified: %u\nNew last modified: %u\n\n", node->lastModified,
+                        //        attributes.lastModified);
                         node->lastModified = attributes.lastModified;
                         AS_EnqueueFile(node->path);
                     }
@@ -351,37 +352,37 @@ JOB_CALLBACK(AS_LoadAsset)
 
         // Materials
         GetPointerValue(&tokenizer, &model->materialCount);
-        Printf("material count: %u\n", model->materialCount);
+        // Printf("material count: %u\n", model->materialCount);
         model->materials = PushArray(arena, Material, model->materialCount);
         for (u32 i = 0; i < model->materialCount; i++)
         {
             Material *material = model->materials + i;
             GetPointerValue(&tokenizer, &material->startIndex);
             GetPointerValue(&tokenizer, &material->onePlusEndIndex);
-            Printf("material start index: %u\n", material->startIndex);
-            Printf("material end index: %u\n", material->onePlusEndIndex);
+            // Printf("material start index: %u\n", material->startIndex);
+            // Printf("material end index: %u\n", material->onePlusEndIndex);
             for (u32 j = 0; j < TextureType_Count; j++)
             {
                 char marker[6];
                 Get(&tokenizer, &marker, 6);
-                Printf("Marker: %s\n", marker);
+                // Printf("Marker: %s\n", marker);
 
                 string path;
                 path.str = GetPointer(&tokenizer, u8);
-                Printf("Offset: %u\n", path.str);
+                // Printf("Offset: %u\n", path.str);
                 if (path.str != tokenizer.input.str)
                 {
                     GetPointerValue(&tokenizer, &path.size);
                     Advance(&tokenizer, (u32)path.size);
-                    Printf("Size: %u\n", path.size);
+                    // Printf("Size: %u\n", path.size);
                     model->materials[i].textureHandles[j] = LoadAssetFile(path);
-                    Printf("Texture Type: %u, File: %S\n", j, path);
+                    // Printf("Texture Type: %u, File: %S\n", j, path);
                 }
                 else
                 {
-                    Printf("Texture Type: %u Not found\n", j);
+                    // Printf("Texture Type: %u Not found\n", j);
                 }
-                Printf("\n");
+                // Printf("\n");
             }
         }
 
@@ -392,7 +393,7 @@ JOB_CALLBACK(AS_LoadAsset)
             GetPointerValue(&tokenizer, &path.size);
             Advance(&tokenizer, (u32)path.size);
 
-            Printf("Skeleton file name: %S\n", path);
+            // Printf("Skeleton file name: %S\n", path);
             AS_EnqueueFile(path);
             model->skeleton = AS_GetAssetHandle(path);
         }
@@ -411,33 +412,18 @@ JOB_CALLBACK(AS_LoadAsset)
         *animation                     = (KeyframedAnimation *)buffer;
         KeyframedAnimation *a          = node->anim;
         Printf("Num nodes: %u\n", a->numNodes);
-        Printf("offset: %u\n", (u64)(a->boneChannels));
+        // Printf("offset: %u\n", (u64)(a->boneChannels));
         a->boneChannels = (BoneChannel *)(buffer + (u64)(a->boneChannels));
         for (u32 i = 0; i < a->numNodes; i++)
         {
-            a->boneChannels[i].name.str   = (u8 *)(buffer + (u64)(a->boneChannels[i].name.str));
-            a->boneChannels[i].transforms = (AnimationTransform *)(buffer + (u64)(a->boneChannels[i].transforms));
+            BoneChannel *boneChannel = a->boneChannels + i;
+            ConvertOffsetToPointer(buffer, &boneChannel->name.str, u8);
+            ConvertOffsetToPointer(buffer, &boneChannel->positions, AnimationPosition);
+            ConvertOffsetToPointer(buffer, &boneChannel->scales, AnimationScale);
+            ConvertOffsetToPointer(buffer, &boneChannel->rotations, AnimationRotation);
         }
-        // TODO: write barrier
         WriteBarrier();
         node->status = AS_Status_Loaded;
-
-        // GetPointerValue(&tokenizer, &animation->numNodes);
-        // GetPointerValue(&tokenizer, &animation->duration);
-        // GetPointerValue(&tokenizer, &animation->numFrames);
-        //
-        // if (version == 1)
-        // {
-        //     animation->boneChannels = PushArray(arena, BoneChannel, animation->numNodes);
-        //     loopi(0, animation->numNodes)
-        //     {
-        //         BoneChannel *channel = animation->boneChannels + i;
-        //         string output        = ReadLine(&tokenizer);
-        //         channel->name        = PushStr8Copy(arena, output);
-        //         Get(&tokenizer, channel->transforms, sizeof(channel->transforms[0]) * animation->numFrames);
-        //     }
-        //     Assert(EndOfBuffer(&tokenizer));
-        // }
     }
     else if (extension == Str8Lit("skel"))
     {
@@ -662,7 +648,7 @@ inline b32 IsModelHandleNil(AS_Handle handle)
 }
 inline b8 IsAnimNil(KeyframedAnimation *anim)
 {
-    b8 result = (anim == &animNil);
+    b8 result = (anim == 0 || anim == &animNil);
     return result;
 }
 

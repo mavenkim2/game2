@@ -535,17 +535,17 @@ internal void OpenGLEndFrame(RenderState *state, HDC deviceContext, int clientWi
             }
 
             // UNBIND
-            openGL->glUseProgram(0);
-            glBindTexture(GL_TEXTURE_2D, 0);
-            openGL->glBindBuffer(GL_ARRAY_BUFFER, 0);
-            openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-            openGL->glDisableVertexAttribArray(positionId);
-            openGL->glDisableVertexAttribArray(normalId);
-            openGL->glDisableVertexAttribArray(uvId);
-            openGL->glDisableVertexAttribArray(tangentId);
-            openGL->glDisableVertexAttribArray(boneIdId);
-            openGL->glDisableVertexAttribArray(boneWeightId);
         }
+        openGL->glUseProgram(0);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        openGL->glBindBuffer(GL_ARRAY_BUFFER, 0);
+        openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+        openGL->glDisableVertexAttribArray(positionId);
+        openGL->glDisableVertexAttribArray(normalId);
+        openGL->glDisableVertexAttribArray(uvId);
+        openGL->glDisableVertexAttribArray(tangentId);
+        openGL->glDisableVertexAttribArray(boneIdId);
+        openGL->glDisableVertexAttribArray(boneWeightId);
 
         // DEBUG PASS
         DebugRenderer *renderer = &state->debugRenderer;
@@ -738,3 +738,5 @@ R_DELETE_TEXTURE_2D(R_DeleteTexture2D)
 {
     glDeleteTextures(1, &handle);
 }
+
+// R_MODEL_SUBMIT_2D

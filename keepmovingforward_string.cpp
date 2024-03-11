@@ -475,7 +475,7 @@ inline u64 PutPointer(StringBuilder *builder, u64 address)
     return offset;
 }
 
-inline void FixPointer(u8 *buffer, u64 location, u64 offset)
+inline void ConvertPointerToOffset(u8 *buffer, u64 location, u64 offset)
 {
     MemoryCopy(buffer + location, &offset, sizeof(offset));
 }

@@ -27,8 +27,8 @@ internal void ProcessNode(Arena *arena, MeshNodeInfoArray *nodeArray, const aiNo
 //////////////////////////////
 // Animation Loading
 //
-internal string ProcessAnimations(Arena *arena, KeyframedAnimation *outAnimation, aiAnimation *inAnimation);
-JOB_CALLBACK(ProcessAnimations);
+internal string ProcessAnimation(Arena *arena, KeyframedAnimation *outAnimation, aiAnimation *inAnimation);
+JOB_CALLBACK(ProcessAnimation);
 
 //////////////////////////////
 // File Output
@@ -145,6 +145,7 @@ internal void *LoadAndWriteModel(void *ptr, Arena *arena)
 
     JS_Counter counter = {};
     // Process all animations and write to file
+    // TODO IMPORTANT: SOMEWHERE BETWEEN HERE AND
     JS_Counter animationCounter    = {};
     u32 numAnimations              = scene->mNumAnimations;
     KeyframedAnimation *animations = PushArray(scratch.arena, KeyframedAnimation, numAnimations);
@@ -154,19 +155,20 @@ internal void *LoadAndWriteModel(void *ptr, Arena *arena)
     {
         jobData[i].outAnimation = &animations[i];
         jobData[i].inAnimation  = scene->mAnimations[i];
-        Printf("Animation number: %u\n", i);
-        // problem: need to store position/rotation/scale keys sparsely
-        JS_Kick(ProcessAnimations, &jobData[i], 0, Priority_Normal, &animationCounter);
+        JS_Kick(ProcessAnimation, &jobData[i], 0, Priority_Normal, &animationCounter);
     }
     JS_Join(&animationCounter);
 
+    // TODO IMPORTANT: HERE SOMETHING BAD HAPPENS AND I HAVE NO IDEA WHY!
+
+    // AnimationJobWriteData *writeData = PushArray(scratch.arena, AnimationJobWriteData, numAnimations);
     for (u32 i = 0; i < numAnimations; i++)
     {
-        AnimationJobWriteData writeData = {};
-        writeData.animation             = &animations[i];
-        writeData.path                  = PushStr8F(scratch.arena, "%S%S.anim", directory, jobData[i].outName);
-        Printf("Writing animation to file: %S", writeData.path);
-        JS_Kick(WriteAnimationToFile, &writeData, 0, Priority_Normal, &counter);
+        AnimationJobWriteData *data = PushStruct(scratch.arena, AnimationJobWriteData);
+        data->animation             = &animations[i];
+        data->path                  = PushStr8F(scratch.arena, "%S%S.anim", directory, jobData[i].outName);
+        Printf("Writing animation to file: %S\n", data->path);
+        JS_Kick(WriteAnimationToFile, data, 0, Priority_Normal, &counter);
     }
 
     // Write skeleton file
@@ -396,102 +398,60 @@ internal void ProcessNode(Arena *arena, MeshNodeInfoArray *nodeArray, const aiNo
 //////////////////////////////
 // Animation Loading
 //
-internal string ProcessAnimations(Arena *arena, KeyframedAnimation *outAnimation, aiAnimation *inAnimation)
+internal string ProcessAnimation(Arena *arena, KeyframedAnimation *outAnimation, aiAnimation *inAnimation)
 {
-    outAnimation->duration = (f32)inAnimation->mDuration / (f32)inAnimation->mTicksPerSecond;
-    Printf("Duration: %u\n", outAnimation->duration);
-    outAnimation->numFrames   = 0;
-    outAnimation->numNodes    = 0;
-    BoneChannel *boneChannels = PushArray(arena, BoneChannel, inAnimation->mNumChannels);
-    u32 boneCount             = 0;
+    outAnimation->boneChannels = PushArray(arena, BoneChannel, inAnimation->mNumChannels);
+    outAnimation->numNodes     = inAnimation->mNumChannels;
+    outAnimation->duration     = (f32)inAnimation->mDuration / (f32)inAnimation->mTicksPerSecond;
+    BoneChannel *boneChannels  = outAnimation->boneChannels;
     for (u32 i = 0; i < inAnimation->mNumChannels; i++)
     {
-        // Printf("Index: %u\n", i);
-        BoneChannel boneChannel;
-        aiNodeAnim *channel = inAnimation->mChannels[i];
-        string name         = Str8((u8 *)channel->mNodeName.data, channel->mNodeName.length);
-        name                = PushStr8Copy(arena, name);
+        BoneChannel *boneChannel = boneChannels + i;
+        aiNodeAnim *channel      = inAnimation->mChannels[i];
+        string name              = Str8((u8 *)channel->mNodeName.data, channel->mNodeName.length);
+        name                     = PushStr8Copy(arena, name);
 
-        boneChannel.name = name;
+        boneChannel->name      = name;
+        boneChannel->positions = PushArray(arena, AnimationPosition, channel->mNumPositionKeys);
+        boneChannel->scales    = PushArray(arena, AnimationScale, channel->mNumScalingKeys);
+        boneChannel->rotations = PushArray(arena, AnimationRotation, channel->mNumRotationKeys);
 
-        u32 iterateLength =
-            Max(channel->mNumPositionKeys, Max(channel->mNumRotationKeys, channel->mNumScalingKeys));
-        if (outAnimation->numFrames == 0)
+        boneChannel->numPositionKeys = channel->mNumPositionKeys;
+        boneChannel->numScalingKeys  = channel->mNumScalingKeys;
+        boneChannel->numRotationKeys = channel->mNumRotationKeys;
+
+        for (u32 j = 0; j < channel->mNumPositionKeys; j++)
         {
-            outAnimation->numFrames = iterateLength;
+            aiVector3t<f32> aiPosition  = channel->mPositionKeys[j].mValue;
+            AnimationPosition *position = boneChannel->positions + j;
+            position->position          = MakeV3(aiPosition.x, aiPosition.y, aiPosition.z);
+            position->time              = (f32)channel->mPositionKeys[j].mTime / (f32)inAnimation->mTicksPerSecond;
         }
-        boneChannel.transforms = PushArray(arena, AnimationTransform, outAnimation->numFrames);
-        u32 positionIndex      = 0;
-        u32 scaleIndex         = 0;
-        u32 rotationIndex      = 0;
-        for (u32 j = 0; j < iterateLength; j++)
+        for (u32 j = 0; j < channel->mNumScalingKeys; j++)
         {
-            aiVector3t<f32> aiPosition = channel->mPositionKeys[positionIndex].mValue;
-            V3 position                = MakeV3(aiPosition.x, aiPosition.y, aiPosition.z);
-            aiQuaterniont<f32> aiQuat  = channel->mRotationKeys[rotationIndex].mValue;
-            Quat rotation              = MakeQuat(aiQuat.x, aiQuat.y, aiQuat.z, aiQuat.w);
-            aiVector3t<f32> aiScale    = channel->mScalingKeys[scaleIndex].mValue;
-            V3 scale                   = MakeV3(aiScale.x, aiScale.y, aiScale.z);
-
-            Assert(!IsZero(scale));
-            Assert(!IsZero(rotation));
-            AnimationTransform transform = MakeAnimTform(position, rotation, scale);
-            boneChannel.transforms[j]    = transform;
-            positionIndex++;
-            rotationIndex++;
-            scaleIndex++;
-
-            if (positionIndex == channel->mNumPositionKeys)
-            {
-                positionIndex--;
-            }
-            if (rotationIndex == channel->mNumRotationKeys)
-            {
-                rotationIndex--;
-            }
-            if (scaleIndex == channel->mNumScalingKeys)
-            {
-                scaleIndex--;
-            }
-            // NOTE: cruft because converting from mTime to key frames
-
-            f64 positionTime = channel->mPositionKeys[positionIndex].mTime;
-            f64 rotationTime = channel->mRotationKeys[rotationIndex].mTime;
-            f64 scaleTime    = channel->mScalingKeys[scaleIndex].mTime;
-
-            if (channel->mNumPositionKeys < channel->mNumScalingKeys &&
-                channel->mNumPositionKeys < channel->mNumRotationKeys &&
-                (positionTime > rotationTime || positionTime > scaleTime))
-            {
-                positionIndex--;
-            }
-            if (channel->mNumRotationKeys < channel->mNumScalingKeys &&
-                channel->mNumRotationKeys < channel->mNumPositionKeys &&
-                (rotationTime > positionTime || rotationTime > scaleTime))
-            {
-                rotationIndex--;
-            }
-            if (channel->mNumScalingKeys < channel->mNumRotationKeys &&
-                channel->mNumScalingKeys < channel->mNumPositionKeys &&
-                (scaleTime > rotationTime || scaleTime > positionTime))
-            {
-                scaleIndex--;
-            }
+            aiVector3t<f32> aiScale = channel->mScalingKeys[j].mValue;
+            AnimationScale *scale   = boneChannel->scales + j;
+            scale->scale            = MakeV3(aiScale.x, aiScale.y, aiScale.z);
+            scale->time             = (f32)channel->mScalingKeys[j].mTime / (f32)inAnimation->mTicksPerSecond;
         }
-        boneChannels[boneCount++] = boneChannel;
+        for (u32 j = 0; j < channel->mNumRotationKeys; j++)
+        {
+            aiQuaterniont<f32> aiQuat   = channel->mRotationKeys[j].mValue;
+            AnimationRotation *rotation = boneChannel->rotations + j;
+            rotation->rotation          = MakeQuat(aiQuat.x, aiQuat.y, aiQuat.z, aiQuat.w);
+            rotation->time              = (f32)channel->mRotationKeys[j].mTime / (f32)inAnimation->mTicksPerSecond;
+        }
     }
-    outAnimation->boneChannels = boneChannels;
-    outAnimation->numNodes     = boneCount;
 
     string animationName = {(u8 *)inAnimation->mName.data, inAnimation->mName.length};
     animationName        = PushStr8Copy(arena, animationName);
     return animationName;
 }
 
-JOB_CALLBACK(ProcessAnimations)
+JOB_CALLBACK(ProcessAnimation)
 {
     AnimationJobData *jobData = (AnimationJobData *)data;
-    jobData->outName          = ProcessAnimations(arena, jobData->outAnimation, jobData->inAnimation);
+    jobData->outName          = ProcessAnimation(arena, jobData->outAnimation, jobData->inAnimation);
     return 0;
 }
 
@@ -596,14 +556,6 @@ JOB_CALLBACK(WriteSkeletonToFile)
     return 0;
 }
 
-// struct KeyframedAnimation
-// {
-//     BoneChannel *boneChannels;
-//     u32 numNodes;
-//
-//     f32 duration;
-//     u32 numFrames;
-// };
 internal void WriteAnimationToFile(KeyframedAnimation *animation, string filename)
 {
     StringBuilder builder = {};
@@ -613,38 +565,41 @@ internal void WriteAnimationToFile(KeyframedAnimation *animation, string filenam
     u64 animationWrite   = PutPointerValue(&builder, animation);
     u64 boneChannelWrite = AppendArray(&builder, animation->boneChannels, animation->numNodes);
 
-    u64 *stringDataWrites         = PushArray(builder.arena, u64, animation->numNodes);
-    u64 *animationTransformWrites = PushArray(builder.arena, u64, animation->numFrames);
+    u64 *stringDataWrites = PushArray(builder.arena, u64, animation->numNodes);
+    u64 *positionWrites   = PushArray(builder.arena, u64, animation->numNodes);
+    u64 *scalingWrites    = PushArray(builder.arena, u64, animation->numNodes);
+    u64 *rotationWrites   = PushArray(builder.arena, u64, animation->numNodes);
+
     for (u32 i = 0; i < animation->numNodes; i++)
     {
+        BoneChannel *boneChannel = animation->boneChannels + i;
+
         stringDataWrites[i] = Put(&builder, animation->boneChannels[i].name);
-        animationTransformWrites[i] =
-            AppendArray(&builder, animation->boneChannels[i].transforms, animation->numFrames);
+        positionWrites[i]   = AppendArray(&builder, boneChannel->positions, boneChannel->numPositionKeys);
+        scalingWrites[i]    = AppendArray(&builder, boneChannel->scales, boneChannel->numScalingKeys);
+        rotationWrites[i]   = AppendArray(&builder, boneChannel->rotations, boneChannel->numRotationKeys);
     }
 
     string result = CombineBuilderNodes(&builder);
-    // FixPointer(u64 location, u64 offset)
-    FixPointer(result.str, animationWrite + Offset(KeyframedAnimation, boneChannels), boneChannelWrite);
+    ConvertPointerToOffset(result.str, animationWrite + Offset(KeyframedAnimation, boneChannels),
+                           boneChannelWrite);
     for (u32 i = 0; i < animation->numNodes; i++)
     {
-        FixPointer(result.str,
-                   boneChannelWrite + i * sizeof(BoneChannel) + Offset(BoneChannel, name) + Offset(string, str),
-                   stringDataWrites[i]);
-        FixPointer(result.str, boneChannelWrite + i * sizeof(BoneChannel) + Offset(BoneChannel, transforms),
-                   animationTransformWrites[i]);
+        ConvertPointerToOffset(result.str,
+                               boneChannelWrite + i * sizeof(BoneChannel) + Offset(BoneChannel, name) +
+                                   Offset(string, str),
+                               stringDataWrites[i]);
+        ConvertPointerToOffset(result.str,
+                               boneChannelWrite + i * sizeof(BoneChannel) + Offset(BoneChannel, positions),
+                               positionWrites[i]);
+        ConvertPointerToOffset(result.str,
+                               boneChannelWrite + i * sizeof(BoneChannel) + Offset(BoneChannel, scales),
+                               scalingWrites[i]);
+        ConvertPointerToOffset(result.str,
+                               boneChannelWrite + i * sizeof(BoneChannel) + Offset(BoneChannel, rotations),
+                               rotationWrites[i]);
     }
 
-    // Put(&builder, animation->numNodes);
-    // PutPointerValue(&builder, &animation->duration);
-    // Put(&builder, animation->numFrames);
-    //
-    // loopi(0, animation->numNodes)
-    // {
-    //     BoneChannel *channel  = animation->boneChannels + i;
-    //     string output         = PushStr8F(temp.arena, "%S\n", channel->name);
-    //     Put(&builder, output);
-    //     Put(&builder, channel->transforms, sizeof(channel->transforms[0]) * animation->numFrames);
-    // }
     b32 success = WriteFile(filename, result.str, (u32)result.size);
     if (!success)
     {

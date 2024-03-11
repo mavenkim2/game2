@@ -492,7 +492,8 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
         // Load assets
 
-        gameState->model.loadedModel = LoadAssetFile(Str8Lit("data/dragon/scene.model"));
+        gameState->model.loadedModel  = LoadAssetFile(Str8Lit("data/dragon/scene.model"));
+        gameState->model2.loadedModel = LoadAssetFile(Str8Lit("data/hero/scene.model"));
 
         KeyframedAnimation *animation = PushStruct(gameState->worldArena, KeyframedAnimation);
 
@@ -501,8 +502,13 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         Mat4 rotate                = Rotate4(MakeV3(1, 0, 0), PI / 2);
         gameState->model.transform = translate * rotate * scale;
 
+        translate                   = Translate4(V3{0, 0, 30});
+        scale                       = Scale(V3{1, 1, 1});
+        rotate                      = Rotate4(MakeV3(1, 0, 0), PI / 2);
+        gameState->model2.transform = translate * rotate * scale;
+
         // ReadAnimationFile(gameState->worldArena, animation, Str8Lit("data/dragon_attack_01.anim"));
-        AS_Handle anim = LoadAssetFile(Str8Lit("data/dragon/Qishilong_attack01.anim"));
+        AS_Handle anim = LoadAssetFile(Str8Lit("data/dragon/Qishilong_walk.anim"));
 
         gameState->level      = PushStruct(gameState->worldArena, Level);
         gameState->cameraMode = CameraMode_Player;
@@ -544,7 +550,6 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         // JS_Join(ticket);
         // i32 breakhere = 0;
 
-        // AS_EnqueueFile(Str8C("data/dragon.skel"));
         renderState->as_state = as_state;
     }
 
@@ -908,17 +913,23 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         LoadedSkeleton *skeleton   = GetSkeletonFromModel(gameState->model.loadedModel);
         AnimationTransform *tforms = PushArray(gameState->frameArena, AnimationTransform, skeleton->count);
         Mat4 *finalTransforms      = PushArray(gameState->frameArena, Mat4, skeleton->count);
+
+        LoadedSkeleton *skeleton2 = GetSkeletonFromModel(gameState->model2.loadedModel);
+        Mat4 *finalTransforms2    = PushArray(gameState->frameArena, Mat4, skeleton2->count);
         // ANIMATION
         PlayCurrentAnimation(&gameState->animPlayer, input->dT, tforms);
 
         SkinModelToAnimation(&gameState->animPlayer, &gameState->model, tforms, finalTransforms);
+
         // SkinModelToBindPose(&gameState->model, finalTransforms);
         DrawArrow(&renderState->debugRenderer, {0, 0, 0}, {5, 0, 0}, {1, 0, 0, 1}, 1.f);
         DrawArrow(&renderState->debugRenderer, {0, 0, 0}, {0, 5, 0}, {0, 1, 0, 1}, 1.f);
         DrawArrow(&renderState->debugRenderer, {0, 0, 0}, {0, 0, 5}, {0, 0, 1, 1}, 1.f);
         DebugDrawSkeleton(&renderState->debugRenderer, &gameState->model, finalTransforms);
-
         PushModel(renderState, &gameState->model, finalTransforms);
+
+        SkinModelToBindPose(&gameState->model2, finalTransforms2);
+        PushModel(renderState, &gameState->model2, finalTransforms2);
     }
     // GameOutputSound(soundBuffer, gameState->toneHz);
 }

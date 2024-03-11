@@ -113,10 +113,34 @@ struct Model
 //////////////////////////////
 // Animation
 //
+struct AnimationPosition
+{
+    V3 position;
+    f32 time;
+};
+
+struct AnimationScale
+{
+    V3 scale;
+    f32 time;
+};
+
+struct AnimationRotation
+{
+    Quat rotation;
+    f32 time;
+};
+
 struct BoneChannel
 {
     string name;
-    AnimationTransform *transforms;
+    AnimationPosition *positions;
+    AnimationScale *scales;
+    AnimationRotation *rotations;
+
+    u32 numPositionKeys;
+    u32 numScalingKeys;
+    u32 numRotationKeys;
 };
 
 struct KeyframedAnimation
@@ -125,7 +149,6 @@ struct KeyframedAnimation
     u32 numNodes;
 
     f32 duration;
-    u32 numFrames;
 };
 
 //////////////////////////////

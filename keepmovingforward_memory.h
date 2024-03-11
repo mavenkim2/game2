@@ -33,6 +33,7 @@ internal Arena *ArenaAlloc(u64 size);
 internal Arena *ArenaAlloc();
 internal void *ArenaPushNoZero(Arena *arena, u64 size);
 internal void *ArenaPush(Arena *arena, u64 size);
+internal u64 ArenaPos(Arena *arena);
 internal void ArenaPopTo(Arena *arena, u64 pos);
 internal TempArena TempBegin(Arena *arena);
 internal void TempEnd(TempArena temp);
