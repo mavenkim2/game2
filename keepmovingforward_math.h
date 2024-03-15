@@ -10,6 +10,13 @@
 #define Max(a, b) ((a) > (b) ? (a) : (b))
 #define Min(a, b) ((a) < (b) ? (a) : (b))
 
+inline u32 SafeTruncateU64(u64 value)
+{
+    Assert(value <= 0xffffffff);
+    u32 result = (u32)value;
+    return result;
+}
+
 inline u32 Clamp(u32 a, u32 low, u32 high)
 {
     u32 result = Max(low, Min(a, high));

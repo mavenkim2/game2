@@ -40,19 +40,19 @@ internal void AS_Init()
     as_state->readSemaphore  = OS_CreateSemaphore(as_state->threadCount);
     as_state->writeSemaphore = OS_CreateSemaphore(as_state->threadCount);
 
-    as_state->threads = PushArray(arena, OS_Handle, as_state->threadCount);
+    as_state->threads = PushArray(arena, AS_Thread, as_state->threadCount);
     for (u64 i = 0; i < as_state->threadCount; i++)
     {
-        as_state->threads[i] = OS_ThreadStart(AS_EntryPoint, (void *)i);
+        as_state->threads[i].handle = OS_ThreadStart(AS_EntryPoint, (void *)i);
+        as_state->threads[i].arena  = ArenaAlloc();
     }
     as_state->hotloadThread = OS_ThreadStart(AS_HotloadEntryPoint, 0);
 
     // Block allocator
     // 64 2 megabyte blocks
     // SEPARATE linked list of headers that point to spot in memory,
-    // TODO: growth strategy, it's probably possible
-    as_state->numBlocks           = 64;
-    as_state->blockSize           = megabytes(2);
+    as_state->numBlocks           = 128;
+    as_state->blockSize           = megabytes(1);
     as_state->blockBackingBuffer  = PushArray(arena, u8, as_state->numBlocks * as_state->blockSize);
     as_state->memoryHeaderNodes   = PushArray(arena, AS_MemoryHeaderNode, as_state->numBlocks);
     AS_MemoryHeaderNode *sentinel = &as_state->freeBlockSentinel;
@@ -225,53 +225,17 @@ internal void AS_EntryPoint(void *p)
                 continue;
             }
             // Puts on free list
-            TicketMutexScope(&as_state->mutex)
-            {
-                if (n->size >= as_state->blockSize)
-                {
-                    AS_MemoryHeaderNode *nextNode = n->memoryBlock + 1;
-                    FreeBlock(nextNode);
-                }
-                FreeBlock(n->memoryBlock);
-                n->memoryBlock = 0;
-            }
+            FreeBlocks(n);
         }
 
         // Update the node
         n->lastModified = attributes.lastModified;
 
         // Allocate memory
-        TicketMutexScope(&as_state->mutex)
-        {
-            AS_MemoryHeaderNode *sentinel = &as_state->freeBlockSentinel;
-            Assert(sentinel->next != 0);
-            Assert(attributes.size <= 2 * as_state->blockSize);
-            // If block is small enough, just get off free list
-            if (attributes.size <= as_state->blockSize)
-            {
-                AS_MemoryHeaderNode *block = sentinel->next;
-                n->memoryBlock             = AllocateBlock();
-            }
-            // Otherwise
-            else
-            {
-                // This could be slow, but it only happens for large allocations so meh
-                for (u32 i = 0; i < as_state->numBlocks + 1; i++)
-                {
-                    AS_MemoryHeaderNode *n1 = &as_state->memoryHeaderNodes[i];
-                    AS_MemoryHeaderNode *n2 = &as_state->memoryHeaderNodes[i + 1];
-                    if (n1->next != 0 && n2->next != 0)
-                    {
-                        AllocateBlock(n2);
-                        n->memoryBlock = AllocateBlock(n1);
-                        break;
-                    }
-                }
-            }
-        }
+        n->memoryBlock = AllocateBlocks(attributes.size);
 
-        OS_ReadEntireFile(handle, GetAssetBuffer(n));
-        n->size = attributes.size;
+        n->size = OS_ReadEntireFile(handle, GetAssetBuffer(n));
+        Assert(n->size == attributes.size);
         OS_CloseFile(handle);
 
         // TODO IMPORTANT: virtual protect the memory so it can only be read
@@ -683,6 +647,85 @@ internal void FreeBlock(AS_MemoryHeaderNode *headerNode)
     headerNode->next->prev        = headerNode;
     headerNode->prev->next        = headerNode;
 }
+
+internal void FreeBlocks(AS_Node *n)
+{
+    TicketMutexScope(&as_state->mutex)
+    {
+        i32 numBlocks             = (i32)((n->size / as_state->blockSize) + (n->size % as_state->blockSize != 0));
+        AS_MemoryHeaderNode *node = n->memoryBlock;
+
+        Assert(node + numBlocks <= as_state->memoryHeaderNodes + as_state->numBlocks);
+        for (i32 i = 0; i < numBlocks; i++)
+        {
+            FreeBlock(node + i);
+        }
+        n->memoryBlock = 0;
+    }
+}
+
+internal AS_MemoryHeaderNode *AllocateBlocks(u64 size)
+{
+    AS_MemoryHeaderNode *result = 0;
+    TicketMutexScope(&as_state->mutex)
+    {
+        AS_MemoryHeaderNode *sentinel = &as_state->freeBlockSentinel;
+        Assert(sentinel->next != 0);
+        // Assert(attributes.size <= 2 * as_state->blockSize);
+        // If block is small enough, just get off free list
+        if (size <= as_state->blockSize)
+        {
+            AS_MemoryHeaderNode *block = sentinel->next;
+            result                     = AllocateBlock();
+        }
+        // Otherwise
+        else
+        {
+            u32 s = SafeTruncateU64(size);
+            // Find a set of consecutive blocks that fits the needed size
+            i32 numBlocks  = (i32)((s / as_state->blockSize) + (s % as_state->blockSize != 0));
+            i32 startIndex = -1;
+            i32 count      = 0;
+            for (i32 i = 0; i < (i32)as_state->numBlocks - (i32)numBlocks; i++)
+            {
+                AS_MemoryHeaderNode *n = &as_state->memoryHeaderNodes[i];
+                b32 isFree             = (n->next != 0);
+                b32 isChaining         = (startIndex != -1 && count != 0);
+                // Start a chain of contiguous blocks
+                if (isFree && !isChaining)
+                {
+                    startIndex = i;
+                    count      = 1;
+                }
+                // If there aren't enough contiguous blocks, restart
+                else if (!isFree && isChaining)
+                {
+                    startIndex = -1;
+                    count      = 0;
+                }
+                // If block is free and part of an ongoing chain, increment and continue
+                else if (isFree && isChaining)
+                {
+                    count += 1;
+                }
+                if (count == numBlocks)
+                {
+                    Assert(as_state->memoryHeaderNodes[startIndex].next != 0);
+                    Assert(&as_state->memoryHeaderNodes[startIndex] + count <=
+                           as_state->memoryHeaderNodes + as_state->numBlocks);
+                    for (i32 j = startIndex; j < startIndex + count; j++)
+                    {
+                        AllocateBlock(&as_state->memoryHeaderNodes[j]);
+                    }
+                    result = &as_state->memoryHeaderNodes[startIndex];
+                    break;
+                }
+            }
+        }
+    }
+    return result;
+}
+
 inline u8 *GetAssetBuffer(AS_Node *node)
 {
     u8 *result = 0;

@@ -6,6 +6,9 @@
 #include "../keepmovingforward_string.cpp"
 #include "../job.cpp"
 
+#define STB_TRUETYPE_IMPLEMENTATION
+#include "../third_party/stb_truetype.h"
+
 //////////////////////////////
 // Globals
 //
@@ -412,8 +415,11 @@ internal string ProcessAnimation(Arena *arena, KeyframedAnimation *outAnimation,
     {
         BoneChannel *boneChannel = &boneChannels[i];
         aiNodeAnim *channel      = inAnimation->mChannels[i];
-        string name              = Str8((u8 *)channel->mNodeName.data, channel->mNodeName.length);
-        name                     = PushStr8Copy(arena, name);
+        string name;
+        name.str  = PushArray(arena, u8, channel->mNodeName.length);
+        name.size = channel->mNodeName.length;
+        MemoryCopy(name.str, channel->mNodeName.data, name.size);
+        name = PushStr8Copy(arena, name);
 
         boneChannel->name      = name;
         boneChannel->positions = PushArray(arena, AnimationPosition, channel->mNumPositionKeys);

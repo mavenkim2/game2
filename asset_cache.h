@@ -24,6 +24,12 @@ struct AS_MemoryHeaderNode
     AS_MemoryHeaderNode *prev;
 };
 
+struct AS_Thread
+{
+    OS_Handle handle;
+    Arena *arena;
+};
+
 struct AS_CacheState
 {
     Arena *arena;
@@ -37,7 +43,7 @@ struct AS_CacheState
     TicketMutex mutex;
 
     // Threads
-    OS_Handle *threads;
+    AS_Thread *threads;
     u32 threadCount;
     OS_Handle hotloadThread;
 
@@ -164,7 +170,9 @@ inline b8 IsAnimNil(KeyframedAnimation *anim);
 //
 internal AS_MemoryHeaderNode *AllocateBlock();
 internal AS_MemoryHeaderNode *AllocateBlock(AS_MemoryHeaderNode *headerNode);
+internal AS_MemoryHeaderNode *AllocateBlocks(u64 size);
 internal void FreeBlock(AS_MemoryHeaderNode *headerNode);
+internal void FreeBlocks(AS_Node *node);
 inline u8 *GetAssetBuffer(AS_Node *node);
 
 #endif
