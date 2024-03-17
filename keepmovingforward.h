@@ -13,6 +13,7 @@
 #include "keepmovingforward_camera.h"
 #include "keepmovingforward_platform.h"
 #include "asset.h"
+#include "./offline/asset_processing.h"
 #include "asset_cache.h"
 #include "render/render.h"
 

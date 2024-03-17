@@ -15,7 +15,7 @@
 #include "render/render.h"
 #include "asset.h"
 #include "job.h"
-// TODO: remove below
+#include "./offline/asset_processing.h"
 #include "asset_cache.h"
 #include "win32_keepmovingforward.h"
 

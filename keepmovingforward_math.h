@@ -1315,6 +1315,20 @@ inline V3 Center(Rect3 a)
     return result;
 }
 
+inline b8 AlmostEqual(V3 a, V3 b, f32 epsilon)
+{
+    f32 diffx = a.x - b.x;
+    f32 diffy = a.y - b.y;
+    f32 diffz = a.z - b.z;
+    b8 result = 0;
+    if (diffx > -epsilon && diffx < epsilon && diffy > -epsilon && diffy < epsilon && diffz > -epsilon &&
+        diffz < epsilon)
+    {
+        result = 1;
+    }
+    return result;
+}
+
 /*
  * TRIANGLE
  */
@@ -1335,6 +1349,39 @@ inline V3 Barycentric(V2 a, V2 b, V2 c, V2 p)
     float u     = 1.0f - v - w;
 
     V3 result = {u, v, w};
+    return result;
+}
+
+//////////////////////////////
+// Quantize
+//
+internal u32 CompressUnitFloat(f32 a, u32 nBits)
+{
+    u32 intervals = 1 << nBits;
+    u32 quantized = (u32)(a * (intervals - 1) + 0.5f);
+
+    if (quantized > intervals - 1) quantized = intervals - 1;
+    return quantized;
+}
+
+internal f32 DecompressUnitFloat(u32 a, u32 nBits)
+{
+    u32 intervals = 1 << nBits;
+    Assert(a >= 0 && a < intervals);
+    f32 unitFloat = (f32)a / (f32)(intervals - 1);
+    return unitFloat;
+}
+
+inline u32 CompressFloat(f32 a, f32 min, f32 max, u32 nBits)
+{
+    f32 unitFloat = (a - min) / (max - min);
+    u32 result    = CompressUnitFloat(unitFloat, nBits);
+    return result;
+}
+
+inline f32 DecompressFloat(u32 a, f32 min, f32 max, u32 nBits)
+{
+    f32 result = DecompressUnitFloat(a, nBits) * (max - min) + min;
     return result;
 }
 

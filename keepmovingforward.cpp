@@ -507,7 +507,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         gameState->model2.transform = translate * rotate * scale;
 
         // ReadAnimationFile(gameState->worldArena, animation, Str8Lit("data/dragon_attack_01.anim"));
-        AS_Handle anim = LoadAssetFile(Str8Lit("data/dragon/Qishilong_fly2.anim"));
+        AS_Handle anim = LoadAssetFile(Str8Lit("data/dragon/Qishilong_attack01.anim"));
         // AS_Handle anim = LoadAssetFile(Str8Lit("data/dragon/Qishilong_attack02.anim"));
         
 

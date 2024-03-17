@@ -18,8 +18,8 @@ global i32 animationFileVersion  = 1;
 //////////////////////////////
 // Model Loading
 //
-internal Model LoadAllMeshes(Arena *arena, const aiScene *scene);
-internal void ProcessMesh(Arena *arena, Model *model, const aiScene *scene, const aiMesh *mesh);
+internal InputModel LoadAllMeshes(Arena *arena, const aiScene *scene);
+internal void ProcessMesh(Arena *arena, InputModel *model, const aiScene *scene, const aiMesh *mesh);
 
 //////////////////////////////
 // Skeleton Loading
@@ -30,16 +30,17 @@ internal void ProcessNode(Arena *arena, MeshNodeInfoArray *nodeArray, const aiNo
 //////////////////////////////
 // Animation Loading
 //
-internal string ProcessAnimation(Arena *arena, KeyframedAnimation *outAnimation, aiAnimation *inAnimation);
+internal string ProcessAnimation(Arena *arena, CompressedKeyframedAnimation *outAnimation,
+                                 aiAnimation *inAnimation);
 
 JOB_CALLBACK(ProcessAnimation);
 
 //////////////////////////////
 // File Output
 //
-internal void WriteModelToFile(Model *model, string directory, string filename);
+internal void WriteModelToFile(InputModel *model, string directory, string filename);
 internal void WriteSkeletonToFile(Skeleton *skeleton, string filename);
-internal void WriteAnimationToFile(KeyframedAnimation *animation, string filename);
+internal void WriteAnimationToFile(CompressedKeyframedAnimation *animation, string filename);
 JOB_CALLBACK(WriteSkeletonToFile);
 JOB_CALLBACK(WriteModelToFile);
 JOB_CALLBACK(WriteAnimationToFile);
@@ -71,7 +72,7 @@ internal void *LoadAndWriteModel(void *ptr, Arena *arena)
     string filename   = data->filename;
     string fullPath   = StrConcat(scratch.arena, directory, filename);
 
-    Model model;
+    InputModel model;
 
     // Load gltf file using Assimp
     Assimp::Importer importer;
@@ -151,15 +152,13 @@ internal void *LoadAndWriteModel(void *ptr, Arena *arena)
     // Process all animations and write to file
     JS_Counter animationCounter = {};
     u32 numAnimations           = scene->mNumAnimations;
-    // KeyframedAnimation *animations = PushArray(scratch.arena, KeyframedAnimation, numAnimations);
-    AnimationJobData *jobData = PushArray(scratch.arena, AnimationJobData, numAnimations);
+    AnimationJobData *jobData   = PushArray(scratch.arena, AnimationJobData, numAnimations);
     Printf("Number of animations: %u\n", numAnimations);
     {
         for (u32 i = 0; i < numAnimations; i++)
         {
-            jobData[i].outAnimation = PushStruct(scratch.arena, KeyframedAnimation);
+            jobData[i].outAnimation = PushStruct(scratch.arena, CompressedKeyframedAnimation);
             jobData[i].inAnimation  = scene->mAnimations[i];
-            // ProcessAnimation(&jobData[i], scratch.arena);
             JS_Kick(ProcessAnimation, &jobData[i], 0, Priority_Normal, &animationCounter);
         }
         JS_Join(&animationCounter);
@@ -196,12 +195,12 @@ internal void *LoadAndWriteModel(void *ptr, Arena *arena)
     return 0;
 }
 
-internal Model LoadAllMeshes(Arena *arena, const aiScene *scene)
+internal InputModel LoadAllMeshes(Arena *arena, const aiScene *scene)
 {
     TempArena scratch    = ScratchStart(&arena, 1);
     u32 totalVertexCount = 0;
     u32 totalFaceCount   = 0;
-    Model model          = {};
+    InputModel model     = {};
     loopi(0, scene->mNumMeshes)
     {
         aiMesh *mesh = scene->mMeshes[i];
@@ -253,7 +252,7 @@ internal Model LoadAllMeshes(Arena *arena, const aiScene *scene)
     return model;
 }
 
-internal void ProcessMesh(Arena *arena, Model *model, const aiScene *scene, const aiMesh *mesh)
+internal void ProcessMesh(Arena *arena, InputModel *model, const aiScene *scene, const aiMesh *mesh)
 {
     u32 baseVertex = model->vertices.count;
     u32 baseIndex  = model->indices.count;
@@ -297,7 +296,7 @@ internal void ProcessMesh(Arena *arena, Model *model, const aiScene *scene, cons
     aiMaterial *mMaterial = scene->mMaterials[mesh->mMaterialIndex];
     aiColor4D diffuse;
     aiGetMaterialColor(mMaterial, AI_MATKEY_COLOR_DIFFUSE, &diffuse);
-    Material *material        = &model->materials[model->materialCount++];
+    InputMaterial *material   = &model->materials[model->materialCount++];
     material->startIndex      = baseIndex;
     material->onePlusEndIndex = model->indices.count;
     // Diffuse
@@ -402,19 +401,20 @@ internal void ProcessNode(Arena *arena, MeshNodeInfoArray *nodeArray, const aiNo
 //////////////////////////////
 // Animation Loading
 //
-internal string ProcessAnimation(Arena *arena, KeyframedAnimation *outAnimation, aiAnimation *inAnimation)
+internal string ProcessAnimation(Arena *arena, CompressedKeyframedAnimation *outAnimation,
+                                 aiAnimation *inAnimation)
 
 {
-    outAnimation->boneChannels = PushArray(arena, BoneChannel, inAnimation->mNumChannels);
-    outAnimation->numNodes     = inAnimation->mNumChannels;
-    outAnimation->duration     = (f32)inAnimation->mDuration / (f32)inAnimation->mTicksPerSecond;
-    BoneChannel *boneChannels  = outAnimation->boneChannels;
-    f32 startTime              = FLT_MAX;
-    b8 change                  = 0;
+    outAnimation->boneChannels          = PushArray(arena, CompressedBoneChannel, inAnimation->mNumChannels);
+    outAnimation->numNodes              = inAnimation->mNumChannels;
+    outAnimation->duration              = (f32)inAnimation->mDuration / (f32)inAnimation->mTicksPerSecond;
+    CompressedBoneChannel *boneChannels = outAnimation->boneChannels;
+    f32 startTime                       = FLT_MAX;
+    b8 change                           = 0;
     for (u32 i = 0; i < inAnimation->mNumChannels; i++)
     {
-        BoneChannel *boneChannel = &boneChannels[i];
-        aiNodeAnim *channel      = inAnimation->mChannels[i];
+        CompressedBoneChannel *boneChannel = &boneChannels[i];
+        aiNodeAnim *channel                = inAnimation->mChannels[i];
         string name;
         name.str  = PushArray(arena, u8, channel->mNodeName.length);
         name.size = channel->mNodeName.length;
@@ -424,10 +424,10 @@ internal string ProcessAnimation(Arena *arena, KeyframedAnimation *outAnimation,
         boneChannel->name      = name;
         boneChannel->positions = PushArray(arena, AnimationPosition, channel->mNumPositionKeys);
         boneChannel->scales    = PushArray(arena, AnimationScale, channel->mNumScalingKeys);
-        boneChannel->rotations = PushArray(arena, AnimationRotation, channel->mNumRotationKeys);
+        boneChannel->rotations = PushArray(arena, CompressedAnimationRotation, channel->mNumRotationKeys);
 
-        boneChannel->numPositionKeys = channel->mNumPositionKeys;
-        boneChannel->numScalingKeys  = channel->mNumScalingKeys;
+        boneChannel->numPositionKeys = 1;
+        boneChannel->numScalingKeys  = 1;
         boneChannel->numRotationKeys = channel->mNumRotationKeys;
 
         f64 minTimeTest = Min(Min(channel->mPositionKeys[0].mTime, channel->mScalingKeys[0].mTime),
@@ -442,25 +442,44 @@ internal string ProcessAnimation(Arena *arena, KeyframedAnimation *outAnimation,
             }
         }
 
+        V3 firstPosition = MakeV3(channel->mPositionKeys[0].mValue.x, channel->mPositionKeys[0].mValue.y,
+                                  channel->mPositionKeys[0].mValue.z);
+        f32 epsilon      = 0.000001;
+
         for (u32 j = 0; j < channel->mNumPositionKeys; j++)
         {
             aiVector3t<f32> aiPosition  = channel->mPositionKeys[j].mValue;
             AnimationPosition *position = boneChannel->positions + j;
             position->position          = MakeV3(aiPosition.x, aiPosition.y, aiPosition.z);
+            if (!AlmostEqual(position->position, firstPosition, epsilon))
+            {
+                boneChannel->numPositionKeys = channel->mNumPositionKeys;
+            }
             position->time = ((f32)channel->mPositionKeys[j].mTime / (f32)inAnimation->mTicksPerSecond - time);
         }
+
+        V3 firstScale = MakeV3(channel->mScalingKeys[0].mValue.x, channel->mScalingKeys[0].mValue.y,
+                               channel->mScalingKeys[0].mValue.z);
         for (u32 j = 0; j < channel->mNumScalingKeys; j++)
         {
             aiVector3t<f32> aiScale = channel->mScalingKeys[j].mValue;
             AnimationScale *scale   = boneChannel->scales + j;
             scale->scale            = MakeV3(aiScale.x, aiScale.y, aiScale.z);
+            if (!AlmostEqual(scale->scale, firstScale, epsilon))
+            {
+                boneChannel->numScalingKeys = channel->mNumScalingKeys;
+            }
             scale->time = ((f32)channel->mScalingKeys[j].mTime / (f32)inAnimation->mTicksPerSecond - time);
         }
         for (u32 j = 0; j < channel->mNumRotationKeys; j++)
         {
-            aiQuaterniont<f32> aiQuat   = channel->mRotationKeys[j].mValue;
-            AnimationRotation *rotation = boneChannel->rotations + j;
-            rotation->rotation          = MakeQuat(aiQuat.x, aiQuat.y, aiQuat.z, aiQuat.w);
+            aiQuaterniont<f32> aiQuat             = channel->mRotationKeys[j].mValue;
+            CompressedAnimationRotation *rotation = boneChannel->rotations + j;
+            Quat r                                = Normalize(MakeQuat(aiQuat.x, aiQuat.y, aiQuat.z, aiQuat.w));
+            rotation->rotation[0]                 = CompressRotationChannel(r.x);
+            rotation->rotation[1]                 = CompressRotationChannel(r.y);
+            rotation->rotation[2]                 = CompressRotationChannel(r.z);
+            rotation->rotation[3]                 = CompressRotationChannel(r.w);
             rotation->time = ((f32)channel->mRotationKeys[j].mTime / (f32)inAnimation->mTicksPerSecond - time);
         }
     }
@@ -484,7 +503,7 @@ JOB_CALLBACK(ProcessAnimation)
 //////////////////////////////
 // Convert
 //
-internal void WriteModelToFile(Model *model, string directory, string filename)
+internal void WriteModelToFile(InputModel *model, string directory, string filename)
 {
     StringBuilder builder = {};
     TempArena temp        = ScratchStart(0, 0);
@@ -582,7 +601,7 @@ JOB_CALLBACK(WriteSkeletonToFile)
     return 0;
 }
 
-internal void WriteAnimationToFile(KeyframedAnimation *animation, string filename)
+internal void WriteAnimationToFile(CompressedKeyframedAnimation *animation, string filename)
 {
     StringBuilder builder = {};
     TempArena temp        = ScratchStart(0, 0);
@@ -598,7 +617,7 @@ internal void WriteAnimationToFile(KeyframedAnimation *animation, string filenam
 
     for (u32 i = 0; i < animation->numNodes; i++)
     {
-        BoneChannel *boneChannel = animation->boneChannels + i;
+        CompressedBoneChannel *boneChannel = animation->boneChannels + i;
 
         stringDataWrites[i] = Put(&builder, animation->boneChannels[i].name);
         positionWrites[i]   = AppendArray(&builder, boneChannel->positions, boneChannel->numPositionKeys);
@@ -607,22 +626,25 @@ internal void WriteAnimationToFile(KeyframedAnimation *animation, string filenam
     }
 
     string result = CombineBuilderNodes(&builder);
-    ConvertPointerToOffset(result.str, animationWrite + Offset(KeyframedAnimation, boneChannels),
+    ConvertPointerToOffset(result.str, animationWrite + Offset(CompressedKeyframedAnimation, boneChannels),
                            boneChannelWrite);
     for (u32 i = 0; i < animation->numNodes; i++)
     {
         ConvertPointerToOffset(result.str,
-                               boneChannelWrite + i * sizeof(BoneChannel) + Offset(BoneChannel, name) +
-                                   Offset(string, str),
+                               boneChannelWrite + i * sizeof(CompressedBoneChannel) +
+                                   Offset(CompressedBoneChannel, name) + Offset(string, str),
                                stringDataWrites[i]);
         ConvertPointerToOffset(result.str,
-                               boneChannelWrite + i * sizeof(BoneChannel) + Offset(BoneChannel, positions),
+                               boneChannelWrite + i * sizeof(CompressedBoneChannel) +
+                                   Offset(CompressedBoneChannel, positions),
                                positionWrites[i]);
         ConvertPointerToOffset(result.str,
-                               boneChannelWrite + i * sizeof(BoneChannel) + Offset(BoneChannel, scales),
+                               boneChannelWrite + i * sizeof(CompressedBoneChannel) +
+                                   Offset(CompressedBoneChannel, scales),
                                scalingWrites[i]);
         ConvertPointerToOffset(result.str,
-                               boneChannelWrite + i * sizeof(BoneChannel) + Offset(BoneChannel, rotations),
+                               boneChannelWrite + i * sizeof(CompressedBoneChannel) +
+                                   Offset(CompressedBoneChannel, rotations),
                                rotationWrites[i]);
     }
 

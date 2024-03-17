@@ -5,6 +5,7 @@
 #include "../platform_inc.h"
 #include "../thread_context.h"
 #include "../job.h"
+#include "../asset.h"
 #include "../third_party/assimp/Importer.hpp"
 #include "../third_party/assimp/scene.h"
 #include "../third_party/assimp/postprocess.h"
@@ -12,31 +13,6 @@
 #define MAX_MATRICES_PER_VERTEX 4
 #define MAX_BONES               200
 #define MAX_FRAMES              200
-
-//////////////////////////////
-// Node Info
-//
-struct AnimationTransform
-{
-    V3 translation;
-    Quat rotation;
-    V3 scale;
-};
-
-struct MeshNodeInfo
-{
-    string name;
-    string parentName;
-    b32 hasParent;
-    Mat4 transformToParent;
-};
-
-struct MeshNodeInfoArray
-{
-    MeshNodeInfo *items;
-    u32 count;
-    u32 cap;
-};
 
 //////////////////////////////
 // Skeleton/ Node Info
@@ -64,39 +40,16 @@ struct Skeleton
 };
 
 //////////////////////////////
-// Texture Info
-//
-enum TextureType
-{
-    TextureType_Diffuse,
-    TextureType_Normal,
-    TextureType_Specular,
-    TextureType_Height,
-    TextureType_Count,
-};
-
-//////////////////////////////
 // Mesh Info
 //
-struct MeshVertex
-{
-    V3 position;
-    V3 normal;
-    V2 uv;
-    V3 tangent;
-
-    u32 boneIds[MAX_MATRICES_PER_VERTEX];
-    f32 boneWeights[MAX_MATRICES_PER_VERTEX];
-};
-
-struct Material
+struct InputMaterial
 {
     u32 startIndex;
     u32 onePlusEndIndex;
     string texture[TextureType_Count];
 };
 
-struct Model
+struct InputModel
 {
     Array(MeshVertex) vertices;
     Array(u32) indices;
@@ -104,7 +57,7 @@ struct Model
     Skeleton skeleton;
 
     // One material per mesh, each material can have multiple textures (normal, diffuse, etc.)
-    Material materials[4];
+    InputMaterial materials[4];
     u32 materialCount;
 
     Mat4 transform;
@@ -113,39 +66,40 @@ struct Model
 //////////////////////////////
 // Animation
 //
-struct AnimationPosition
+// struct AnimationPosition
+// {
+//     V3 position;
+//     f32 time;
+// };
+//
+// struct AnimationScale
+// {
+//     V3 scale;
+//     f32 time;
+// };
+
+struct CompressedAnimationRotation
 {
-    V3 position;
+    u16 rotation[4];
+    // Quat rotation;
     f32 time;
 };
 
-struct AnimationScale
-{
-    V3 scale;
-    f32 time;
-};
-
-struct AnimationRotation
-{
-    Quat rotation;
-    f32 time;
-};
-
-struct BoneChannel
+struct CompressedBoneChannel
 {
     string name;
     AnimationPosition *positions;
     AnimationScale *scales;
-    AnimationRotation *rotations;
+    CompressedAnimationRotation *rotations;
 
     u32 numPositionKeys;
     u32 numScalingKeys;
     u32 numRotationKeys;
 };
 
-struct KeyframedAnimation
+struct CompressedKeyframedAnimation
 {
-    BoneChannel *boneChannels;
+    CompressedBoneChannel *boneChannels;
     u32 numNodes;
 
     f32 duration;
@@ -162,12 +116,6 @@ struct AssimpSkeletonAsset
     Array(i32) parents;
     Array(Mat4) inverseBindPoses;
     Array(VertexBoneInfo) vertexBoneInfo;
-};
-
-struct ModelOutput
-{
-    Model model;
-    KeyframedAnimation *animation;
 };
 
 struct BoneInfo
@@ -194,7 +142,7 @@ struct SkeletonJobData
 
 struct ModelJobData
 {
-    Model *model;
+    InputModel *model;
     string directory;
     string path;
 };
@@ -203,12 +151,12 @@ struct AnimationJobData
 {
     aiAnimation *inAnimation;
 
-    KeyframedAnimation *outAnimation;
+    CompressedKeyframedAnimation *outAnimation;
     string outName;
 };
 
 struct AnimationJobWriteData
 {
-    KeyframedAnimation *animation;
+    CompressedKeyframedAnimation *animation;
     string path;
 };

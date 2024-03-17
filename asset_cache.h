@@ -55,6 +55,7 @@ struct AS_CacheState
     AS_Slot *assetSlots;
 
     // Block allocator for assets
+    // TODO: make this striped
     u32 numBlocks;
     u32 blockSize;
     u8 *blockBackingBuffer;
@@ -174,5 +175,6 @@ internal AS_MemoryHeaderNode *AllocateBlocks(u64 size);
 internal void FreeBlock(AS_MemoryHeaderNode *headerNode);
 internal void FreeBlocks(AS_Node *node);
 inline u8 *GetAssetBuffer(AS_Node *node);
+inline void EndTemporaryMemory(AS_Node *node);
 
 #endif

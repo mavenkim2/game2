@@ -13,6 +13,7 @@
 #ifdef LSP_INCLUDE
 #include "asset.h"
 #include "asset_cache.h"
+#include "./offline/asset_processing.h"
 #endif
 
 //////////////////////////////
@@ -69,7 +70,6 @@ internal void AS_Init()
         headerNode->next->prev = headerNode;
         headerNode->prev->next = headerNode;
     }
-    int wtfgoingon = 0;
 }
 
 internal u64 RingRead(u8 *base, u64 ringSize, u64 readPos, void *dest, u64 destSize)
@@ -375,6 +375,8 @@ JOB_CALLBACK(AS_LoadAsset)
         KeyframedAnimation **animation = &node->anim;
         *animation                     = (KeyframedAnimation *)buffer;
         KeyframedAnimation *a          = node->anim;
+
+        // CompressedKeyframedAnimation *a = (CompressedKeyframedAnimation *)buffer;
         Printf("Num nodes: %u\n", a->numNodes);
         // Printf("offset: %u\n", (u64)(a->boneChannels));
         a->boneChannels = (BoneChannel *)(buffer + (u64)(a->boneChannels));
@@ -740,4 +742,9 @@ inline u8 *GetAssetBuffer(AS_Node *node)
         result = node->memoryBlock->header.buffer;
     }
     return result;
+}
+
+inline void EndTemporaryMemory(AS_Node *node)
+{
+    FreeBlocks(node);
 }

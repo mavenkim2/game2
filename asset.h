@@ -123,7 +123,8 @@ struct AnimationScale
 
 struct AnimationRotation
 {
-    Quat rotation;
+    // Quat rotation;
+    u16 rotation[4];
     f32 time;
 };
 
@@ -228,17 +229,23 @@ struct TGAResult
     u32 height;
 };
 
-struct ModelOutput
-{
-    Model model;
-    KeyframedAnimation *animation;
-};
-
 //////////////////////////////
 // Function
 //
 struct AS_Node;
-internal void PushTextureQueue(AS_Node *node);
+internal void PushTextureQueue(u8 *inputBuffer);
 internal void LoadTextureOps();
+
+inline u16 CompressRotationChannel(f32 q)
+{
+    u16 result = (u16)CompressFloat(q, -1.f, 1.f, 16u);
+    return result;
+}
+
+inline f32 DecompressRotationChannel(u16 q)
+{
+    f32 result = DecompressFloat((u32)q, -1.f, 1.f, 16u);
+    return result;
+}
 
 #endif

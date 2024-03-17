@@ -211,10 +211,9 @@ internal Mat4 ConvertToMatrix(const AnimationTransform *transform)
     return result;
 }
 
+//////////////////////////////
+// Animation
 //
-// ANIMATION
-//
-
 internal b8 LoadAnimation(Arena *arena, AnimationPlayer *player, AS_Handle handle)
 {
     player->anim             = handle;
@@ -290,9 +289,20 @@ internal void PlayCurrentAnimation(Arena *arena, AnimationPlayer *player, f32 dT
             boneChannel->scales[(boneChannel->numScalingKeys + scaleKey - 1) % boneChannel->numScalingKeys];
 
         AnimationRotation rotation = boneChannel->rotations[rotationKey];
+        Quat uncompressedRot;
+        uncompressedRot.x = DecompressRotationChannel(rotation.rotation[0]);
+        uncompressedRot.y = DecompressRotationChannel(rotation.rotation[1]);
+        uncompressedRot.z = DecompressRotationChannel(rotation.rotation[2]);
+        uncompressedRot.w = DecompressRotationChannel(rotation.rotation[3]);
         AnimationRotation pastRotation =
             boneChannel
                 ->rotations[(boneChannel->numRotationKeys + rotationKey - 1) % boneChannel->numRotationKeys];
+
+        Quat uncompressedPastRot;
+        uncompressedPastRot.x = DecompressRotationChannel(pastRotation.rotation[0]);
+        uncompressedPastRot.y = DecompressRotationChannel(pastRotation.rotation[1]);
+        uncompressedPastRot.z = DecompressRotationChannel(pastRotation.rotation[2]);
+        uncompressedPastRot.w = DecompressRotationChannel(pastRotation.rotation[3]);
 
         f32 fraction = (player->currentTime - pastPosition.time) / (position.time - pastPosition.time);
         if (position.time == pastPosition.time)
@@ -306,7 +316,7 @@ internal void PlayCurrentAnimation(Arena *arena, AnimationPlayer *player, f32 dT
         {
             fraction = 0;
         }
-        transform->rotation = Lerp(pastRotation.rotation, rotation.rotation, fraction);
+        transform->rotation = Lerp(uncompressedPastRot, uncompressedRot, fraction);
 
         fraction = (player->currentTime - pastScale.time) / (scale.time - pastScale.time);
         if (scale.time == pastScale.time)
@@ -562,6 +572,7 @@ internal void LoadTextureOps()
                 R_SubmitTexture2D(&texture->handle, op->pboHandle, texture->width, texture->height, format);
                 texture->loaded = true;
                 queue->finalizePos++;
+                EndTemporaryMemory(op->assetNode);
                 // TODO: may need a write barrier here
                 // also since texture data doesn't have to be in main memory, should have to free it
                 op->status            = T_LoadStatus_Empty;
