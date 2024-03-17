@@ -182,7 +182,7 @@ internal void AS_EntryPoint(void *p)
         AS_Slot *slot = &as_state->assetSlots[(hash & (as_state->numSlots - 1))];
         AS_Node *n    = 0;
         // Find node with matching filename
-        BeginMutex(&slot->mutex);
+        BeginRMutex(&slot->mutex);
         for (AS_Node *node = slot->first; node != 0; node = node->next)
         {
             if (node->hash == hash)
@@ -191,7 +191,7 @@ internal void AS_EntryPoint(void *p)
                 break;
             }
         }
-        EndMutex(&slot->mutex);
+        EndRMutex(&slot->mutex);
 
         // If node doesn't exist, add it to the hash table
         if (n == 0)
@@ -210,10 +210,10 @@ internal void AS_EntryPoint(void *p)
                 n->path = PushStr8Copy(as_state->arena, path);
             }
 
-            MutexScope(&slot->mutex)
-            {
-                QueuePush(slot->first, slot->last, n);
-            }
+            BeginWMutex(&slot->mutex);
+            QueuePush(slot->first, slot->last, n);
+            EndWMutex(&slot->mutex);
+
             n->hash = hash;
         }
         // If node does exist, then it needs to be hot reloaded.
@@ -445,6 +445,15 @@ JOB_CALLBACK(AS_LoadAsset)
         }
         PushTextureQueue(node);
     }
+    else if (extension == Str8Lit("ttf"))
+    {
+        // u8 *buffer = GetAssetBuffer(node);
+        // stbtt_fontinfo font;
+        //
+        // i32 width, height, xOffset, yOffset;
+        // stbtt_InitFont(&font, buffer, stbtt_GetFontOffsetForIndex(buffer, 0));
+        // u8 *bitmap = stbtt_GetCodepointBitmap(&font, 0, stbtt_ScaleForPixelHeight(&font, s), c, &w, &h, 0, 0);
+    }
     else if (extension == Str8Lit("vs"))
     {
     }
@@ -477,8 +486,6 @@ internal void AS_UnloadAsset(AS_Node *node)
             break;
         case AS_Shader:
             break;
-        case AS_GLTF:
-            break;
         default:
             Assert(!"Invalid asset type");
     }
@@ -506,7 +513,7 @@ internal AS_Node *AS_GetNodeFromHandle(AS_Handle handle)
     AS_Node *result = 0;
 
     // TODO: can this be lockless?
-    BeginMutex(&slot->mutex);
+    BeginRMutex(&slot->mutex);
     for (AS_Node *node = slot->first; node != 0; node = node->next)
     {
         if (node->hash == hash)
@@ -514,13 +521,12 @@ internal AS_Node *AS_GetNodeFromHandle(AS_Handle handle)
             result = node;
         }
     }
+    EndRMutex(&slot->mutex);
     if (result && result->status != AS_Status_Loaded)
     {
         result = 0;
     }
-    EndMutex(&slot->mutex);
 
-    // Read barrier here somehow
     return result;
 }
 

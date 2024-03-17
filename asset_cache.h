@@ -70,11 +70,11 @@ enum AS_Type
     AS_Null,
     AS_Mesh,
     AS_Texture,
+    AS_Font,
     AS_Skeleton,
     AS_Anim,
     AS_Model,
     AS_Shader,
-    AS_GLTF,
     AS_Count,
 };
 

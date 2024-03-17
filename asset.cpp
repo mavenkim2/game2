@@ -562,6 +562,8 @@ internal void LoadTextureOps()
                 R_SubmitTexture2D(&texture->handle, op->pboHandle, texture->width, texture->height, format);
                 texture->loaded = true;
                 queue->finalizePos++;
+                // TODO: may need a write barrier here
+                // also since texture data doesn't have to be in main memory, should have to free it
                 op->status            = T_LoadStatus_Empty;
                 op->assetNode->status = AS_Status_Loaded;
             }

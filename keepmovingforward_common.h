@@ -2,6 +2,7 @@
 #define COMMON_H
 
 #include <cstdlib>
+#include <emmintrin.h>
 #include <stdint.h>
 
 #if _MSC_VER
@@ -220,8 +221,10 @@ inline void *ArrayGrow(void *a, u32 size, u32 length, u32 minCap)
 #define AtomicDecrementU64(dest)   _InterlockedDecrement64((__int64 volatile *)dest)
 #define AtomicAddU32(dest, addend) _InterlockedExchangeAdd((long volatile *)dest, addend)
 #define AtomicAddU64(dest, addend) _InterlockedExchangeAdd64((__int64 volatile *)dest, addend)
-#define WriteBarrier()             _WriteBarrier(); _mm_sfence();
-#define ReadBarrier()              _ReadBarrier();
+#define WriteBarrier()                                                                                            \
+    _WriteBarrier();                                                                                              \
+    _mm_sfence();
+#define ReadBarrier() _ReadBarrier();
 
 struct TicketMutex
 {
@@ -245,7 +248,7 @@ inline void EndTicketMutex(TicketMutex *mutex)
 
 struct Mutex
 {
-    u32 count;
+    u32 volatile count;
 };
 
 inline void BeginMutex(Mutex *mutex)
@@ -263,31 +266,44 @@ inline void EndMutex(Mutex *mutex)
     mutex->count = 0;
 }
 
-// #define WriteLock 1 << 63
-//
-// inline void BeginRLock(ReadWriteLock *lock)
-// {
-//     while (lock->count & WriteLock)
-//         _mm_pause();
-//
-//     AtomicIncrementU64(&lock->count);
-// }
-//
-// inline void EndRLock(ReadWriteLock *lock)
-// {
-//     AtomicDecrementU64(&lock->count);
-// }
-//
-// inline void BeginWLock(ReadWriteLock *lock)
-// {
-//     while (AtomicCompareExchangeU64(lock->count, WriteLock, 0))
-//         _mm_pause();
-// }
-//
-// inline void EndWLock(ReadWriteLock *lock)
-// {
-//     lock->count = 0;
-// }
+inline void BeginRMutex(Mutex *mutex)
+{
+    for (;;)
+    {
+        u32 oldValue = (mutex->count & 0x7fffffff);
+        u32 newValue = oldValue + 1;
+        if (AtomicCompareExchangeU32(&mutex->count, newValue, oldValue) == (i32)oldValue)
+        {
+            break;
+        }
+        _mm_pause();
+    }
+}
+
+inline void EndRMutex(Mutex *mutex)
+{
+    // TODO: this doesn't have to be a full barier I don't think
+    u32 out = AtomicDecrementU32(&mutex->count);
+    Assert(out >= 0);
+}
+
+inline void BeginWMutex(Mutex *mutex)
+{
+    while (AtomicCompareExchangeU32(&mutex->count, 0x80000000, 0))
+    {
+        _mm_pause();
+    }
+}
+
+inline void EndWMutex(Mutex *mutex)
+{
+    // TODO: this doesn't have to be a full barrier I don't think
+    // also are these reads/writes atomic?
+    Assert(mutex->count == 0x80000000);
+    WriteBarrier();
+    mutex->count = 0;
+}
+
 #else
 #error Atomics not supported
 #endif
