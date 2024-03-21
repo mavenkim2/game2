@@ -34,58 +34,6 @@ internal void VSyncToggle(b32 enable)
 #endif
 }
 
-#if 0
-internal OpenGLShader OpenGLCreateProgram(char *defines, char *vertexCode, char *fragmentCode)
-{
-    GLuint vertexShaderId      = openGL->glCreateShader(GL_VERTEX_SHADER);
-    GLchar *vertexShaderCode[] = {
-        defines,
-        vertexCode,
-    };
-    openGL->glShaderSource(vertexShaderId, ArrayLength(vertexShaderCode), vertexShaderCode, 0);
-    openGL->glCompileShader(vertexShaderId);
-
-    GLuint fragmentShaderId      = openGL->glCreateShader(GL_FRAGMENT_SHADER);
-    GLchar *fragmentShaderCode[] = {
-        defines,
-        fragmentCode,
-    };
-    openGL->glShaderSource(fragmentShaderId, ArrayLength(fragmentShaderCode), fragmentShaderCode, 0);
-    openGL->glCompileShader(fragmentShaderId);
-
-    GLuint shaderProgramId = openGL->glCreateProgram();
-    openGL->glAttachShader(shaderProgramId, vertexShaderId);
-    openGL->glAttachShader(shaderProgramId, fragmentShaderId);
-    openGL->glLinkProgram(shaderProgramId);
-
-    openGL->glValidateProgram(shaderProgramId);
-    GLint success = false;
-    openGL->glGetProgramiv(shaderProgramId, GL_LINK_STATUS, &success);
-    if (!success)
-    {
-        char vertexShaderErrors[4096];
-        char fragmentShaderErrors[4096];
-        char programErrors[4096];
-        openGL->glGetShaderInfoLog(vertexShaderId, 4096, 0, vertexShaderErrors);
-        openGL->glGetShaderInfoLog(fragmentShaderId, 4096, 0, fragmentShaderErrors);
-        openGL->glGetProgramInfoLog(shaderProgramId, 4096, 0, programErrors);
-
-        Printf("Vertex shader errors: %s\n", vertexShaderErrors);
-        Printf("Fragment shader errors: %s\n", fragmentShaderErrors);
-        Printf("Program errors: %s\n", programErrors);
-    }
-
-    openGL->glDeleteShader(vertexShaderId);
-    openGL->glDeleteShader(fragmentShaderId);
-
-    OpenGLShader result;
-    result.id         = shaderProgramId;
-    result.positionId = openGL->glGetAttribLocation(shaderProgramId, "pos");
-    result.normalId   = openGL->glGetAttribLocation(shaderProgramId, "n");
-    return result;
-}
-#endif
-
 internal GLuint R_OpenGL_CompileShader(char *globals, char *vs, char *fs)
 {
     GLuint vertexShaderId      = openGL->glCreateShader(GL_VERTEX_SHADER);
@@ -132,6 +80,24 @@ internal GLuint R_OpenGL_CompileShader(char *globals, char *vs, char *fs)
     return shaderProgramId;
 }
 
+internal GLuint R_OpenGL_CreateShader(string globalsPath, string vsPath, string fsPath, string preprocess)
+{
+    TempArena temp = ScratchStart(0, 0);
+
+    Printf("Vertex shader: %S\n", vsPath);
+    Printf("Fragment shader: %S\n", fsPath);
+    string gTemp = OS_ReadEntireFile(temp.arena, globalsPath);
+    string vs    = OS_ReadEntireFile(temp.arena, vsPath);
+    string fs    = OS_ReadEntireFile(temp.arena, fsPath);
+
+    string globals = StrConcat(temp.arena, gTemp, preprocess);
+
+    GLuint id = R_OpenGL_CompileShader((char *)globals.str, (char *)vs.str, (char *)fs.str);
+
+    ScratchEnd(temp);
+    return id;
+}
+
 internal void LoadModel(Model *model)
 {
     // NOTE: must be 0
@@ -151,22 +117,6 @@ internal void LoadModel(Model *model)
         openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(loadedModel->indices[0]) * loadedModel->indexCount,
                              loadedModel->indices, GL_STREAM_DRAW);
     }
-}
-
-internal GLuint R_OpenGL_CreateShader(string globalsPath, string vsPath, string fsPath, string preprocess)
-{
-    TempArena temp = ScratchStart(0, 0);
-
-    string gTemp = OS_ReadEntireFile(temp.arena, globalsPath);
-    string vs    = OS_ReadEntireFile(temp.arena, vsPath);
-    string fs    = OS_ReadEntireFile(temp.arena, fsPath);
-
-    string globals = StrConcat(temp.arena, gTemp, preprocess);
-
-    GLuint id = R_OpenGL_CompileShader((char *)globals.str, (char *)vs.str, (char *)fs.str);
-
-    ScratchEnd(temp);
-    return id;
 }
 
 // internal void ReloadShader(OpenGLShader *shader)
@@ -265,6 +215,10 @@ internal void R_OpenGL_Init()
                 {
                     preprocess = Str8Lit("#define INSTANCED 1\n");
                     break;
+                }
+                case R_ShaderType_StaticMesh:
+                {
+                    continue;
                 }
                 default:
                     break;
@@ -574,7 +528,6 @@ internal void R_EndFrame(RenderState *state, HDC deviceContext, int clientWidth,
         openGL->glDisableVertexAttribArray(5);
     }
 
-    // DEBUG PASS
     for (R_PassType type = (R_PassType)0; type < R_PassType_Count; type = (R_PassType)(type + 1))
     {
         R_Pass *pass = &state->passes[type];
@@ -677,7 +630,8 @@ internal void R_EndFrame(RenderState *state, HDC deviceContext, int clientWidth,
                             openGL->glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0,
                                                     sizeof(group->params.indices[0]) * group->params.indexCount,
                                                     group->params.indices);
-                            totalOffset += sizeof(V3) * group->params.vertexCount;
+
+                            totalOffset += sizeof(group->params.vertices[0]) * group->params.vertexCount;
                             for (R_BatchNode *node = group->batchList.first; node != 0; node = node->next)
                             {
                                 openGL->glBufferSubData(GL_ARRAY_BUFFER, totalOffset, node->val.byteCount,
@@ -691,6 +645,8 @@ internal void R_EndFrame(RenderState *state, HDC deviceContext, int clientWidth,
                             R_OpenGL_EndShader(R_ShaderType_Instanced3D);
                             break;
                         }
+                        default:
+                            Assert(!"Not implemented");
                     }
                 }
 
@@ -747,6 +703,7 @@ internal void R_OpenGL_StartShader(RenderState *state, R_ShaderType type, void *
             openGL->glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(group->params.vertices[0]), 0);
             openGL->glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, group->batchList.bytesPerInstance,
                                           (void *)(instanceOffsetStart));
+            openGL->glVertexAttribDivisor(1, 1);
 
             openGL->glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, group->batchList.bytesPerInstance,
                                           (void *)(instanceOffsetStart + sizeof(V4)));
