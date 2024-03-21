@@ -147,8 +147,9 @@ internal string OS_ReadEntireFile(Arena *arena, string path)
     OS_Handle handle = OS_OpenFile(OS_AccessFlag_Read | OS_AccessFlag_ShareRead, path);
 
     string result;
-    result.size = OS_AttributesFromPath(path).size;
-    result.str  = PushArray(arena, u8, result.size);
+    result.size             = OS_AttributesFromPath(path).size;
+    result.str              = PushArray(arena, u8, result.size + 1);
+    result.str[result.size] = 0;
 
     u64 size = OS_ReadEntireFile(handle, result.str);
     Assert(size == result.size);

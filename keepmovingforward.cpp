@@ -929,11 +929,11 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         DrawArrow({0, 0, 0}, {0, 5, 0}, {0, 1, 0, 1}, 1.f);
         DrawArrow({0, 0, 0}, {0, 0, 5}, {0, 0, 1, 1}, 1.f);
         DebugDrawSkeleton(&gameState->model, finalTransforms);
-        PushModel(renderState, &gameState->model, finalTransforms);
+        PushModel(&gameState->model, finalTransforms);
 
         SkinModelToBindPose(&gameState->model2, finalTransforms2);
         // SkinModelToAnimation(&gameState->animPlayer, &gameState->model2, tforms2, finalTransforms2);
-        PushModel(renderState, &gameState->model2, finalTransforms2);
+        PushModel(&gameState->model2, finalTransforms2);
     }
     // GameOutputSound(soundBuffer, gameState->toneHz);
 }

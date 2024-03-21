@@ -240,8 +240,6 @@ struct RenderState
     AS_CacheState *as_state;
 };
 
-internal void PushTexture(Model *model, u32 id);
-internal void PushModel(RenderState *state, Model *model, Mat4 *finalTransforms);
-internal void DrawRectangle();
+internal void PushModel(Model *model, Mat4 *finalTransforms);
 
 #endif

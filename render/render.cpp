@@ -122,8 +122,8 @@ internal void D_Init(RenderState *state)
 
                 f32 theta = 0;
 
-                u32 vertexCount = sectors * stacks;
-                u32 indexCount  = (sectors - 1) * (stacks - 1) * 4;
+                u32 vertexCount = (sectors + 1) * (stacks + 1);
+                u32 indexCount  = sectors  * stacks  * 4;
 
                 u32 vertexIndex = 0;
                 u32 indexIndex  = 0;
@@ -203,8 +203,9 @@ internal void D_BeginFrame()
     state->commands.count = 0;
 }
 
-internal void PushModel(RenderState *state, Model *model, Mat4 *finalTransforms = 0)
+internal void PushModel(Model *model, Mat4 *finalTransforms = 0)
 {
+    RenderState *state = d_state->state;
     if (!IsModelHandleNil(model->loadedModel))
     {
         RenderCommand command    = {};
