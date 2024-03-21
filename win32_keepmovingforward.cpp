@@ -10,9 +10,9 @@
 #include "keepmovingforward_string.h"
 #include "platform_inc.h"
 #include "thread_context.h"
-#include "render/opengl.h"
 #include "keepmovingforward_camera.h"
 #include "render/render.h"
+#include "render/opengl.h"
 #include "asset.h"
 #include "job.h"
 #include "./offline/asset_processing.h"
@@ -652,14 +652,6 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     f32 expectedSecondsPerFrame = 1.f / (f32)gameUpdateHz;
 
     //
-    // GRAPHICS
-    //
-    // INIT RENDER STATE
-    //
-    RenderState renderState = {};
-    Win32InitOpenGL(windowHandle);
-
-    //
     // GAME MEMORY
     //
 
@@ -686,18 +678,8 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     gameMemory.R_AllocateTexture2D  = R_AllocateTexture2D;
     gameMemory.R_SubmitTexture2D    = R_SubmitTexture2D;
     gameMemory.R_DeleteTexture2D    = R_DeleteTexture2D;
-#if 0
-    gameMemory.DebugPlatformFreeFile      = DebugPlatformFreeFile;
-    gameMemory.DebugPlatformReadFile      = DebugPlatformReadFile;
-    gameMemory.DebugPlatformWriteFile     = DebugPlatformWriteFile;
-    gameMemory.DebugPlatformGetResolution = DebugPlatformGetResolution;
 
-    DebugPlatformHandle handle;
-    handle.handle     = windowHandle;
-    gameMemory.handle = handle;
-#endif
-
-    //
+    //////////////////////////////
     // AUDIO
     //
     // for 1 sec buffer, samplesPerSecond = samplesPerBuffer
@@ -709,7 +691,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     // 3 sound buffers
     i16 *samples = (i16 *)VirtualAlloc(sampleBaseAddress, bufferSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 
-    //
+    //////////////////////////////
     // INPUT
     //
     GameInput oldInput = {};
@@ -719,6 +701,19 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     win32State.arena           = win32Arena;
     win32State.memory          = gameMemory.PersistentStorageMemory;
     win32State.binaryDirectory = Win32GetBinaryDirectory(&win32State);
+
+    //////////////////////////////
+    // Thread Context
+    //
+    ThreadContext *tctx = PushStruct(win32Arena, ThreadContext);
+    ThreadContextInitialize(tctx);
+    SetThreadName(Str8Lit("[Main Thread Platform]"));
+
+    //////////////////////////////
+    // Render
+    //
+    RenderState renderState = {};
+    R_Init(windowHandle);
 
     // TODO: FIX
     string sourceDLLFilename = Win32GetFilePathInBinaryDirectory(&win32State, Str8Lit("keepmovingforward.dll"));
@@ -782,7 +777,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
         }
 
         V2 dimension = Win32GetWindowDimension(windowHandle);
-        OpenGLBeginFrame((i32)dimension.x, (i32)dimension.y);
+        R_BeginFrame((i32)dimension.x, (i32)dimension.y);
 
         newInput    = {};
         newInput.dT = expectedSecondsPerFrame;
@@ -872,7 +867,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
         lastPerformanceCount = endPerformanceCount;
 
         HDC deviceContext = GetDC(windowHandle);
-        OpenGLEndFrame(&renderState, deviceContext, (i32)(dimension.x), (i32)(dimension.y));
+        R_EndFrame(&renderState, deviceContext, (i32)(dimension.x), (i32)(dimension.y));
         ReleaseDC(windowHandle, deviceContext);
 
         oldInput = newInput;

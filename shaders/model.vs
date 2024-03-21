@@ -1,10 +1,9 @@
-in V3 pos;
-in V3 n;
-in V2 uv;
-in V3 tangent;
-in V3 bitangent;
-in uvec4 boneIds;
-in vec4 boneWeights;
+layout (location = 0) in V3 pos;
+layout (location = 1) in V3 n;
+layout (location = 2) in V2 uv;
+layout (location = 3) in V3 tangent;
+layout (location = 4) in uvec4 boneIds;
+layout (location = 5) in vec4 boneWeights;
 
 out V2 outUv;
 out V3 tangentLightDir;

@@ -3,6 +3,7 @@
 #include "../asset.h"
 #include "../asset_cache.h"
 #include "./render.h"
+#include "./opengl.h"
 #endif
 
 global i32 win32OpenGLAttribs[] = {
@@ -33,6 +34,7 @@ internal void VSyncToggle(b32 enable)
 #endif
 }
 
+#if 0
 internal OpenGLShader OpenGLCreateProgram(char *defines, char *vertexCode, char *fragmentCode)
 {
     GLuint vertexShaderId      = openGL->glCreateShader(GL_VERTEX_SHADER);
@@ -82,6 +84,53 @@ internal OpenGLShader OpenGLCreateProgram(char *defines, char *vertexCode, char 
     result.normalId   = openGL->glGetAttribLocation(shaderProgramId, "n");
     return result;
 }
+#endif
+
+internal GLuint R_OpenGL_CompileShader(char *globals, char *vs, char *fs)
+{
+    GLuint vertexShaderId      = openGL->glCreateShader(GL_VERTEX_SHADER);
+    GLchar *vertexShaderCode[] = {
+        globals,
+        vs,
+    };
+    openGL->glShaderSource(vertexShaderId, ArrayLength(vertexShaderCode), vertexShaderCode, 0);
+    openGL->glCompileShader(vertexShaderId);
+
+    GLuint fragmentShaderId      = openGL->glCreateShader(GL_FRAGMENT_SHADER);
+    GLchar *fragmentShaderCode[] = {
+        globals,
+        fs,
+    };
+    openGL->glShaderSource(fragmentShaderId, ArrayLength(fragmentShaderCode), fragmentShaderCode, 0);
+    openGL->glCompileShader(fragmentShaderId);
+
+    GLuint shaderProgramId = openGL->glCreateProgram();
+    openGL->glAttachShader(shaderProgramId, vertexShaderId);
+    openGL->glAttachShader(shaderProgramId, fragmentShaderId);
+    openGL->glLinkProgram(shaderProgramId);
+
+    openGL->glValidateProgram(shaderProgramId);
+    GLint success = false;
+    openGL->glGetProgramiv(shaderProgramId, GL_LINK_STATUS, &success);
+    if (!success)
+    {
+        char vertexShaderErrors[4096];
+        char fragmentShaderErrors[4096];
+        char programErrors[4096];
+        openGL->glGetShaderInfoLog(vertexShaderId, 4096, 0, vertexShaderErrors);
+        openGL->glGetShaderInfoLog(fragmentShaderId, 4096, 0, fragmentShaderErrors);
+        openGL->glGetProgramInfoLog(shaderProgramId, 4096, 0, programErrors);
+
+        Printf("Vertex shader errors: %s\n", vertexShaderErrors);
+        Printf("Fragment shader errors: %s\n", fragmentShaderErrors);
+        Printf("Program errors: %s\n", programErrors);
+    }
+
+    openGL->glDeleteShader(vertexShaderId);
+    openGL->glDeleteShader(fragmentShaderId);
+
+    return shaderProgramId;
+}
 
 internal void LoadModel(Model *model)
 {
@@ -104,136 +153,94 @@ internal void LoadModel(Model *model)
     }
 }
 
-internal void CompileCubeProgram(b32 instanced = false)
+internal GLuint R_OpenGL_CreateShader(string globalsPath, string vsPath, string fsPath, string preprocess)
 {
-    TempArena scratch     = ScratchBegin(openGL->arena);
-    string globalFilename = Str8Lit("src/shaders/global.glsl");
-    string vsFilename     = Str8Lit("src/shaders/basic_3d.vs");
-    string fsFilename     = Str8Lit("src/shaders/basic_3d.fs");
+    TempArena temp = ScratchStart(0, 0);
 
-    string g  = ReadEntireFile(globalFilename);
-    string vs = ReadEntireFile(vsFilename);
-    string fs = ReadEntireFile(fsFilename);
+    string gTemp = OS_ReadEntireFile(temp.arena, globalsPath);
+    string vs    = OS_ReadEntireFile(temp.arena, vsPath);
+    string fs    = OS_ReadEntireFile(temp.arena, fsPath);
 
-    CubeShader *shader = &openGL->cubeShader;
+    string globals = StrConcat(temp.arena, gTemp, preprocess);
 
-    string globals;
-    if (instanced)
-    {
-        globals = PushStr8F(scratch.arena, "%S#define INSTANCED 1\n", g);
-        shader  = &openGL->instancedBasicShader;
-    }
-    else
-    {
-        globals = g;
-    }
+    GLuint id = R_OpenGL_CompileShader((char *)globals.str, (char *)vs.str, (char *)fs.str);
 
-    shader->base    = OpenGLCreateProgram((char *)globals.str, (char *)vs.str, (char *)fs.str);
-    shader->colorId = openGL->glGetAttribLocation(shader->base.id, "colorIn");
-
-    shader->base.globalsFile      = globalFilename;
-    shader->base.vsFile           = vsFilename;
-    shader->base.fsFile           = fsFilename;
-    shader->base.globalsWriteTime = OS_GetLastWriteTime(globalFilename);
-    shader->base.vsWriteTime      = OS_GetLastWriteTime(vsFilename);
-    shader->base.fsWriteTime      = OS_GetLastWriteTime(fsFilename);
-
-    OS_Release(vs.str);
-    OS_Release(fs.str);
-    OS_Release(g.str);
-    ScratchEnd(scratch);
+    ScratchEnd(temp);
+    return id;
 }
 
-internal void CompileModelProgram()
-{
-    string globalFilename = Str8Lit("src/shaders/global.glsl");
-    string vsFilename     = Str8Lit("src/shaders/model.vs");
-    string fsFilename     = Str8Lit("src/shaders/model.fs");
+// internal void ReloadShader(OpenGLShader *shader)
+// {
+//     i32 type = -1;
+//     if (shader->id == openGL->cubeShader.base.id)
+//     {
+//         type = OGL_Shader_Basic;
+//     }
+//     else if (shader->id == openGL->modelShader.base.id)
+//     {
+//         type = OGL_Shader_Model;
+//     }
+//     else if (shader->id == openGL->instancedBasicShader.base.id)
+//     {
+//         type = OGL_Shader_Instanced;
+//     }
+//
+//     if (shader->id)
+//     {
+//         openGL->glDeleteProgram(shader->id);
+//     }
+//     switch (type)
+//     {
+//         case OGL_Shader_Basic:
+//             CompileCubeProgram();
+//             break;
+//         case OGL_Shader_Instanced:
+//             CompileCubeProgram(true);
+//             break;
+//         case OGL_Shader_Model:
+//             CompileModelProgram();
+//             break;
+//         default:
+//             break;
+//     }
+// }
 
-    string globals = ReadEntireFile(globalFilename);
-    string vs      = ReadEntireFile(vsFilename);
-    string fs      = ReadEntireFile(fsFilename);
+// internal void HotloadShaders(OpenGLShader *shader)
+// {
+//     if (OS_GetLastWriteTime(shader->globalsFile) != shader->globalsWriteTime ||
+//         OS_GetLastWriteTime(shader->vsFile) != shader->vsWriteTime ||
+//         OS_GetLastWriteTime(shader->fsFile) != shader->fsWriteTime)
+//     {
+//         ReloadShader(shader);
+//     }
+// }
 
-    ModelShader *modelShader  = &openGL->modelShader;
-    modelShader->base         = OpenGLCreateProgram((char *)globals.str, (char *)vs.str, (char *)fs.str);
-    modelShader->uvId         = openGL->glGetAttribLocation(modelShader->base.id, "uv");
-    modelShader->boneIdId     = openGL->glGetAttribLocation(modelShader->base.id, "boneIds");
-    modelShader->boneWeightId = openGL->glGetAttribLocation(modelShader->base.id, "boneWeights");
-    modelShader->tangentId    = openGL->glGetAttribLocation(modelShader->base.id, "tangent");
+global string r_opengl_g_globalsPath = Str8Lit("src/shaders/global.glsl");
 
-    modelShader->base.globalsFile      = globalFilename;
-    modelShader->base.vsFile           = vsFilename;
-    modelShader->base.fsFile           = fsFilename;
-    modelShader->base.globalsWriteTime = OS_GetLastWriteTime(globalFilename);
-    modelShader->base.vsWriteTime      = OS_GetLastWriteTime(vsFilename);
-    modelShader->base.fsWriteTime      = OS_GetLastWriteTime(fsFilename);
+global string r_opengl_g_vsPath[] = {Str8Lit("src/shaders/basic_3d.vs"), Str8Lit("src/shaders/basic_3d.vs"),
+                                     Str8Lit(""), Str8Lit("src/shaders/model.vs")};
+global string r_opengl_g_fsPath[] = {Str8Lit("src/shaders/basic_3d.fs"), Str8Lit("src/shaders/basic_3d.fs"),
+                                     Str8Lit(""), Str8Lit("src/shaders/model.fs")};
 
-    OS_Release(globals.str);
-    OS_Release(vs.str);
-    OS_Release(fs.str);
-}
-
-enum ShaderType
-{
-    OGL_Shader_Basic,
-    OGL_Shader_Instanced,
-    OGL_Shader_Model,
-};
-
-internal void ReloadShader(OpenGLShader *shader)
-{
-    i32 type = -1;
-    if (shader->id == openGL->cubeShader.base.id)
-    {
-        type = OGL_Shader_Basic;
-    }
-    else if (shader->id == openGL->modelShader.base.id)
-    {
-        type = OGL_Shader_Model;
-    }
-    else if (shader->id == openGL->instancedBasicShader.base.id)
-    {
-        type = OGL_Shader_Instanced;
-    }
-
-    if (shader->id)
-    {
-        openGL->glDeleteProgram(shader->id);
-    }
-    switch (type)
-    {
-        case OGL_Shader_Basic:
-            CompileCubeProgram();
-            break;
-        case OGL_Shader_Instanced:
-            CompileCubeProgram(true);
-            break;
-        case OGL_Shader_Model:
-            CompileModelProgram();
-            break;
-        default:
-            break;
-    }
-}
-
-internal void HotloadShaders(OpenGLShader *shader)
-{
-    if (OS_GetLastWriteTime(shader->globalsFile) != shader->globalsWriteTime ||
-        OS_GetLastWriteTime(shader->vsFile) != shader->vsWriteTime ||
-        OS_GetLastWriteTime(shader->fsFile) != shader->fsWriteTime)
-    {
-        ReloadShader(shader);
-    }
-}
-
-internal void OpenGLInit()
+internal void R_OpenGL_Init()
 {
     openGL->arena = ArenaAlloc();
-    openGL->glGenVertexArrays(1, &openGL->vao);
-    openGL->glBindVertexArray(openGL->vao);
 
-    openGL->glGenBuffers(1, &openGL->vertexBufferId);
-    openGL->glGenBuffers(1, &openGL->indexBufferId);
+    // Initialize scratch buffers
+    {
+        openGL->glGenBuffers(1, &openGL->scratchVbo);
+        openGL->glGenBuffers(1, &openGL->scratchEbo);
+        openGL->glBindBuffer(GL_ARRAY_BUFFER, openGL->scratchVbo);
+        openGL->scratchVboSize = kilobytes(64);
+        openGL->glBufferData(GL_ARRAY_BUFFER, openGL->scratchVboSize, 0, GL_DYNAMIC_DRAW);
+
+        openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, openGL->scratchEbo);
+        openGL->scratchEboSize = kilobytes(64);
+        openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, openGL->scratchEboSize, 0, GL_DYNAMIC_DRAW);
+
+        openGL->glBindBuffer(GL_ARRAY_BUFFER, 0);
+        openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+    }
 
     // Pbos
     openGL->glGenBuffers(ArrayLength(openGL->pbos), openGL->pbos);
@@ -247,18 +254,39 @@ internal void OpenGLInit()
         openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
     }
 
+    // Shaders
+    {
+        for (R_ShaderType type = (R_ShaderType)0; type < R_ShaderType_Count; type = (R_ShaderType)(type + 1))
+        {
+            string preprocess = Str8Lit("");
+            switch (type)
+            {
+                case R_ShaderType_Instanced3D:
+                {
+                    preprocess = Str8Lit("#define INSTANCED 1\n");
+                    break;
+                }
+                default:
+                    break;
+            }
+            openGL->shaders[type].id = R_OpenGL_CreateShader(r_opengl_g_globalsPath, r_opengl_g_vsPath[type],
+                                                             r_opengl_g_fsPath[type], preprocess);
+            openGL->shaders[type].globalsLastModified = OS_GetLastWriteTime(r_opengl_g_globalsPath);
+            openGL->shaders[type].vsLastModfiied      = OS_GetLastWriteTime(r_opengl_g_vsPath[type]);
+            openGL->shaders[type].fsLastModified      = OS_GetLastWriteTime(r_opengl_g_fsPath[type]);
+        }
+    }
+
     // Default white texture
-    u32 data   = 0xffffffff;
-    u8 *buffer = 0;
-    u64 pbo    = R_AllocateTexture2D(&buffer);
-    MemoryCopy(buffer, &data, sizeof(data));
-    R_SubmitTexture2D(&openGL->whiteTextureHandle, pbo, 1, 1, R_TexFormat_RGBA8);
+    {
+        u32 data   = 0xffffffff;
+        u8 *buffer = 0;
+        u64 pbo    = R_AllocateTexture2D(&buffer);
+        MemoryCopy(buffer, &data, sizeof(data));
+        R_SubmitTexture2D(&openGL->whiteTextureHandle, pbo, 1, 1, R_TexFormat_RGBA8);
+    }
 
     VSyncToggle(1);
-
-    CompileCubeProgram();
-    CompileCubeProgram(true);
-    CompileModelProgram();
 }
 
 struct OpenGLInfo
@@ -290,9 +318,16 @@ internal void OpenGLGetInfo()
     }
 };
 
-internal void Win32GetOpenGLExtensions() {}
+internal void R_Init(HWND window)
+{
+#if WINDOWS
+    R_Win32_OpenGL_Init(window);
+#else
+#error OS not implemented
+#endif
+}
 
-internal void Win32InitOpenGL(HWND window)
+internal void R_Win32_OpenGL_Init(HWND window)
 {
     HDC dc = GetDC(window);
 
@@ -378,11 +413,11 @@ internal void Win32InitOpenGL(HWND window)
     {
         Unreachable;
     }
-    OpenGLInit();
+    R_OpenGL_Init();
     ReleaseDC(window, dc);
 };
 
-internal void OpenGLBeginFrame(i32 width, i32 height)
+internal void R_BeginFrame(i32 width, i32 height)
 {
     // openGL->width      = width;
     // openGL->height     = height;
@@ -392,8 +427,7 @@ internal void OpenGLBeginFrame(i32 width, i32 height)
     // group->quadCount   = 0;
 }
 
-// TODO: not having to hardcode shaders and vertex attribs would be nice
-internal void OpenGLEndFrame(RenderState *state, HDC deviceContext, int clientWidth, int clientHeight)
+internal void R_EndFrame(RenderState *state, HDC deviceContext, int clientWidth, int clientHeight)
 {
     // INITIALIZE
     {
@@ -417,14 +451,8 @@ internal void OpenGLEndFrame(RenderState *state, HDC deviceContext, int clientWi
 
     // RENDER MODEL
     {
-        openGL->glUseProgram(openGL->modelShader.base.id);
-
-        GLuint positionId   = openGL->modelShader.base.positionId;
-        GLuint normalId     = openGL->modelShader.base.normalId;
-        GLuint uvId         = openGL->modelShader.uvId;
-        GLuint boneIdId     = openGL->modelShader.boneIdId;
-        GLuint boneWeightId = openGL->modelShader.boneWeightId;
-        GLuint tangentId    = openGL->modelShader.tangentId;
+        GLuint modelProgramId = openGL->shaders[R_ShaderType_SkinnedMesh].id;
+        openGL->glUseProgram(modelProgramId);
 
         RenderCommand *command;
         foreach (&state->commands, command)
@@ -440,61 +468,59 @@ internal void OpenGLEndFrame(RenderState *state, HDC deviceContext, int clientWi
             openGL->glBindBuffer(GL_ARRAY_BUFFER, model->vbo);
             openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, model->ebo);
 
-            openGL->glEnableVertexAttribArray(positionId);
-            openGL->glVertexAttribPointer(positionId, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
+            openGL->glEnableVertexAttribArray(0);
+            openGL->glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
                                           (void *)Offset(MeshVertex, position));
 
-            openGL->glEnableVertexAttribArray(normalId);
-            openGL->glVertexAttribPointer(normalId, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
+            openGL->glEnableVertexAttribArray(1);
+            openGL->glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
                                           (void *)Offset(MeshVertex, normal));
 
-            openGL->glEnableVertexAttribArray(uvId);
-            openGL->glVertexAttribPointer(uvId, 2, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
+            openGL->glEnableVertexAttribArray(2);
+            openGL->glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
                                           (void *)Offset(MeshVertex, uv));
 
-            openGL->glEnableVertexAttribArray(tangentId);
-            openGL->glVertexAttribPointer(tangentId, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
+            openGL->glEnableVertexAttribArray(3);
+            openGL->glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
                                           (void *)Offset(MeshVertex, tangent));
 
-            if (skeleton)
-            {
-                openGL->glEnableVertexAttribArray(boneIdId);
-                openGL->glVertexAttribIPointer(boneIdId, 4, GL_UNSIGNED_INT, sizeof(MeshVertex),
-                                               (void *)Offset(MeshVertex, boneIds));
+            openGL->glEnableVertexAttribArray(4);
+            openGL->glVertexAttribIPointer(4, 4, GL_UNSIGNED_INT, sizeof(MeshVertex),
+                                           (void *)Offset(MeshVertex, boneIds));
 
-                openGL->glEnableVertexAttribArray(boneWeightId);
-                openGL->glVertexAttribPointer(boneWeightId, 4, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
-                                              (void *)Offset(MeshVertex, boneWeights));
-            }
+            openGL->glEnableVertexAttribArray(5);
+            openGL->glVertexAttribPointer(5, 4, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
+                                          (void *)Offset(MeshVertex, boneWeights));
 
+            // TODO: uniform blocks so we can just push a struct or something instead of having to do these all
+            // manually
             Mat4 newTransform       = state->transform * model->transform;
-            GLint transformLocation = openGL->glGetUniformLocation(openGL->modelShader.base.id, "transform");
+            GLint transformLocation = openGL->glGetUniformLocation(modelProgramId, "transform");
             openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, newTransform.elements[0]);
 
             if (command->finalBoneTransforms)
             {
-                GLint boneTformLocation =
-                    openGL->glGetUniformLocation(openGL->modelShader.base.id, "boneTransforms");
+                GLint boneTformLocation = openGL->glGetUniformLocation(modelProgramId, "boneTransforms");
                 openGL->glUniformMatrix4fv(boneTformLocation, skeleton->count, GL_FALSE,
                                            command->finalBoneTransforms->elements[0]);
             }
 
-            GLint modelLoc = openGL->glGetUniformLocation(openGL->modelShader.base.id, "model");
+            GLint modelLoc = openGL->glGetUniformLocation(modelProgramId, "model");
             openGL->glUniformMatrix4fv(modelLoc, 1, GL_FALSE, model->transform.elements[0]);
 
             V3 lightPosition  = MakeV3(5, 5, 0);
-            GLint lightPosLoc = openGL->glGetUniformLocation(openGL->modelShader.base.id, "lightPos");
+            GLint lightPosLoc = openGL->glGetUniformLocation(modelProgramId, "lightPos");
             openGL->glUniform3fv(lightPosLoc, 1, lightPosition.elements);
 
-            GLint viewPosLoc = openGL->glGetUniformLocation(openGL->modelShader.base.id, "viewPos");
+            GLint viewPosLoc = openGL->glGetUniformLocation(modelProgramId, "viewPos");
             openGL->glUniform3fv(viewPosLoc, 1, state->camera.position.elements);
 
             // TEXTURE MAP
-            GLint textureLoc = openGL->glGetUniformLocation(openGL->modelShader.base.id, "diffuseMap");
+            GLint textureLoc = openGL->glGetUniformLocation(modelProgramId, "diffuseMap");
             openGL->glUniform1i(textureLoc, 0);
 
             // NORMAL MAP
-            GLint nmapLoc = openGL->glGetUniformLocation(openGL->modelShader.base.id, "normalMap");
+            GLint nmapLoc = openGL->glGetUniformLocation(modelProgramId, "normalMap");
             openGL->glUniform1i(nmapLoc, 1);
 
             openGL->glActiveTexture(GL_TEXTURE0);
@@ -540,125 +566,244 @@ internal void OpenGLEndFrame(RenderState *state, HDC deviceContext, int clientWi
         glBindTexture(GL_TEXTURE_2D, 0);
         openGL->glBindBuffer(GL_ARRAY_BUFFER, 0);
         openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-        openGL->glDisableVertexAttribArray(positionId);
-        openGL->glDisableVertexAttribArray(normalId);
-        openGL->glDisableVertexAttribArray(uvId);
-        openGL->glDisableVertexAttribArray(tangentId);
-        openGL->glDisableVertexAttribArray(boneIdId);
-        openGL->glDisableVertexAttribArray(boneWeightId);
-
-        // DEBUG PASS
-        DebugRenderer *renderer = &state->debugRenderer;
-        openGL->glUseProgram(openGL->cubeShader.base.id);
-        if (!renderer->vbo)
-        {
-            openGL->glGenBuffers(1, &renderer->vbo);
-            openGL->glGenBuffers(1, &renderer->instanceVbo);
-            openGL->glGenBuffers(1, &renderer->instanceVbo2);
-            openGL->glGenBuffers(1, &renderer->ebo);
-        }
-
-        glLineWidth(4.f);
-        openGL->glBindBuffer(GL_ARRAY_BUFFER, renderer->vbo);
-        openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(renderer->lines.items[0]) * renderer->lines.count,
-                             renderer->lines.items, GL_DYNAMIC_DRAW);
-        openGL->glEnableVertexAttribArray(0);
-        openGL->glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(DebugVertex),
-                                      (void *)Offset(DebugVertex, pos));
-        openGL->glEnableVertexAttribArray(1);
-        openGL->glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(DebugVertex),
-                                      (void *)Offset(DebugVertex, color));
-
-        GLint transformLocation = openGL->glGetUniformLocation(openGL->cubeShader.base.id, "transform");
-        openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, state->transform.elements[0]);
-
-        // Lines
-        glDrawArrays(GL_LINES, 0, renderer->lines.count);
-
-        // Points
-        glPointSize(4.f);
-        openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(renderer->points.items[0]) * renderer->points.count,
-                             renderer->points.items, GL_DYNAMIC_DRAW);
-        glDrawArrays(GL_POINTS, 0, renderer->points.count);
-
-        // Indexed lines
-        openGL->glUseProgram(openGL->instancedBasicShader.base.id);
-        transformLocation = openGL->glGetUniformLocation(openGL->instancedBasicShader.base.id, "transform");
-        openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, state->transform.elements[0]);
-        glLineWidth(4.f);
-
-        openGL->glBindBuffer(GL_ARRAY_BUFFER, renderer->vbo);
-        openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(renderer->indexLines.items[0]) * renderer->indexLines.count,
-                             renderer->indexLines.items, GL_DYNAMIC_DRAW);
-        openGL->glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(V3), 0);
-        openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, renderer->ebo);
-
-        openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(u32) * renderer->indices.count,
-                             renderer->indices.items, GL_DYNAMIC_DRAW);
-
-        u32 vertexCount = 0;
-        u32 indexCount  = 0;
-        Primitive *primitive;
-        // TODO: shouldn't have to blit every frame, only need to upload the instance data
-        forEach(renderer->primitives, primitive)
-        {
-            u64 totalSize = sizeof(primitive->colors[0]) * ArrayLen(primitive->colors) +
-                            sizeof(primitive->transforms[0]) * ArrayLen(primitive->transforms);
-
-            openGL->glBindBuffer(GL_ARRAY_BUFFER, renderer->instanceVbo);
-            openGL->glBufferData(GL_ARRAY_BUFFER, totalSize, 0, GL_DYNAMIC_DRAW);
-
-            u64 totalOffset = 0;
-            // Set color of primitive
-            openGL->glBufferSubData(GL_ARRAY_BUFFER, totalOffset, sizeof(V4) * ArrayLen(primitive->colors),
-                                    primitive->colors);
-            totalOffset += sizeof(V4) * ArrayLen(primitive->colors);
-            openGL->glBufferSubData(GL_ARRAY_BUFFER, totalOffset, sizeof(Mat4) * ArrayLen(primitive->transforms),
-                                    primitive->transforms);
-            openGL->glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(V4), 0);
-            openGL->glVertexAttribDivisor(1, 1);
-
-            // Set transform of primitive
-            loopi(0, 4)
-            {
-                openGL->glEnableVertexAttribArray(2 + i);
-                openGL->glVertexAttribPointer(2 + i, 4, GL_FLOAT, GL_FALSE, sizeof(Mat4),
-                                              (void *)(totalOffset + sizeof(V4) * i));
-                openGL->glVertexAttribDivisor(2 + i, 1);
-            }
-            // Draw
-            openGL->glDrawElementsInstancedBaseVertex(GL_LINES, primitive->indexCount, GL_UNSIGNED_INT,
-                                                      (GLvoid *)(indexCount * sizeof(u32)),
-                                                      ArrayLen(primitive->transforms), vertexCount);
-            // Prep for next primitive draw
-            vertexCount += primitive->vertexCount;
-            indexCount += primitive->indexCount;
-        }
-        // TODO: Draw the rest of the indexed lines?
-        openGL->glBindBuffer(GL_ARRAY_BUFFER, 0);
-        openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-
-        openGL->glUseProgram(0);
         openGL->glDisableVertexAttribArray(0);
         openGL->glDisableVertexAttribArray(1);
         openGL->glDisableVertexAttribArray(2);
         openGL->glDisableVertexAttribArray(3);
         openGL->glDisableVertexAttribArray(4);
         openGL->glDisableVertexAttribArray(5);
-        openGL->glVertexAttribDivisor(1, 0);
-        openGL->glVertexAttribDivisor(2, 0);
-        openGL->glVertexAttribDivisor(3, 0);
-        openGL->glVertexAttribDivisor(4, 0);
-        openGL->glVertexAttribDivisor(5, 0);
-
-        // HOT RELOAD! this probably shouldnt' be here
-        HotloadShaders(&openGL->modelShader.base);
-        HotloadShaders(&openGL->cubeShader.base);
-        HotloadShaders(&openGL->instancedBasicShader.base);
     }
+
+    // DEBUG PASS
+    for (R_PassType type = (R_PassType)0; type < R_PassType_Count; type = (R_PassType)(type + 1))
+    {
+        R_Pass *pass = &state->passes[type];
+        switch (type)
+        {
+            case R_PassType_UI:
+            {
+                break;
+            }
+            case R_PassType_StaticMesh:
+            {
+                break;
+            }
+            case R_PassType_SkinnedMesh:
+            {
+                break;
+            }
+            case R_PassType_3D:
+            {
+                R_Pass3D *pass3D = pass->pass3D;
+                for (u32 i = 0; i < pass3D->numGroups; i++)
+                {
+                    R_Batch3DGroup *group = &pass3D->groups[i];
+                    GLuint topology;
+                    {
+                        switch (group->params.topology)
+                        {
+                            case R_Topology_Points:
+                            {
+                                topology = GL_POINTS;
+                                break;
+                            }
+                            case R_Topology_Lines:
+                            {
+                                topology = GL_LINES;
+                                break;
+                            }
+                            case R_Topology_TriangleStrip:
+                            {
+                                topology = GL_TRIANGLE_STRIP;
+                                break;
+                            }
+                            case R_Topology_Triangles:
+                            default:
+                            {
+                                topology = GL_TRIANGLES;
+                                break;
+                            }
+                        }
+                    }
+                    switch (group->params.primType)
+                    {
+                        case R_Primitive_Lines:
+                        {
+                            openGL->glBindBuffer(GL_ARRAY_BUFFER, openGL->scratchVbo);
+                            u32 totalOffset = 0;
+                            for (R_BatchNode *node = group->batchList.first; node != 0; node = node->next)
+                            {
+                                openGL->glBufferSubData(GL_ARRAY_BUFFER, totalOffset, node->val.byteCount,
+                                                        node->val.data);
+                                totalOffset += node->val.byteCount;
+                            }
+                            R_OpenGL_StartShader(state, R_ShaderType_3D, 0);
+                            glDrawArrays(topology, 0, group->batchList.numInstances * 2);
+                            R_OpenGL_EndShader(R_ShaderType_3D);
+                            break;
+                        }
+                        case R_Primitive_Points:
+                        {
+                            openGL->glBindBuffer(GL_ARRAY_BUFFER, openGL->scratchVbo);
+                            u32 totalOffset = 0;
+                            for (R_BatchNode *node = group->batchList.first; node != 0; node = node->next)
+                            {
+                                openGL->glBufferSubData(GL_ARRAY_BUFFER, totalOffset, node->val.byteCount,
+                                                        node->val.data);
+                                totalOffset += node->val.byteCount;
+                            }
+                            R_OpenGL_StartShader(state, R_ShaderType_3D, 0);
+                            glDrawArrays(topology, 0, group->batchList.numInstances);
+                            R_OpenGL_EndShader(R_ShaderType_3D);
+                            break;
+                        }
+                        case R_Primitive_Sphere:
+                        case R_Primitive_Cube:
+                        {
+                            u32 totalOffset = 0;
+                            // Assert that the total size can fit in the scratch buffers
+                            Assert(group->batchList.numInstances * group->batchList.bytesPerInstance +
+                                       sizeof(group->params.vertices[0]) * group->params.vertexCount <
+                                   openGL->scratchVboSize);
+                            Assert(sizeof(group->params.indices[0]) * group->params.indexCount <
+                                   openGL->scratchEboSize);
+
+                            openGL->glBindBuffer(GL_ARRAY_BUFFER, openGL->scratchVbo);
+                            openGL->glBufferSubData(GL_ARRAY_BUFFER, totalOffset,
+                                                    sizeof(group->params.vertices[0]) * group->params.vertexCount,
+                                                    group->params.vertices);
+
+                            openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, openGL->scratchEbo);
+                            openGL->glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0,
+                                                    sizeof(group->params.indices[0]) * group->params.indexCount,
+                                                    group->params.indices);
+                            totalOffset += sizeof(V3) * group->params.vertexCount;
+                            for (R_BatchNode *node = group->batchList.first; node != 0; node = node->next)
+                            {
+                                openGL->glBufferSubData(GL_ARRAY_BUFFER, totalOffset, node->val.byteCount,
+                                                        node->val.data);
+                                totalOffset += node->val.byteCount;
+                            }
+
+                            R_OpenGL_StartShader(state, R_ShaderType_Instanced3D, group);
+                            openGL->glDrawElementsInstanced(topology, group->params.indexCount, GL_UNSIGNED_INT, 0,
+                                                            group->batchList.numInstances);
+                            R_OpenGL_EndShader(R_ShaderType_Instanced3D);
+                            break;
+                        }
+                    }
+                }
+
+                break;
+            }
+            default:
+            {
+                Assert(!"Invalid default case");
+            }
+        }
+    }
+
+    // HOT RELOAD! this probably shouldnt' be here
+    // HotloadShaders(&openGL->modelShader.base);
+    // HotloadShaders(&openGL->cubeShader.base);
+    // HotloadShaders(&openGL->instancedBasicShader.base);
 
     // DOUBLE BUFFER SWAP
     SwapBuffers(deviceContext);
+}
+
+internal void R_OpenGL_StartShader(RenderState *state, R_ShaderType type, void *inputGroup)
+{
+    switch (type)
+    {
+        case R_ShaderType_3D:
+        {
+            Assert(inputGroup == 0);
+            GLuint id = openGL->shaders[R_ShaderType_3D].id;
+            openGL->glUseProgram(id);
+            openGL->glEnableVertexAttribArray(0);
+            openGL->glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(DebugVertex),
+                                          (void *)Offset(DebugVertex, pos));
+            openGL->glEnableVertexAttribArray(1);
+            openGL->glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, sizeof(DebugVertex),
+                                          (void *)Offset(DebugVertex, color));
+            GLint transformLocation = openGL->glGetUniformLocation(id, "transform");
+            openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, state->transform.elements[0]);
+            break;
+        }
+        case R_ShaderType_Instanced3D:
+        {
+            GLuint id = openGL->shaders[R_ShaderType_Instanced3D].id;
+            openGL->glUseProgram(id);
+            R_Batch3DGroup *group = (R_Batch3DGroup *)inputGroup;
+            openGL->glEnableVertexAttribArray(0);
+            openGL->glEnableVertexAttribArray(1);
+            openGL->glEnableVertexAttribArray(2);
+            openGL->glEnableVertexAttribArray(3);
+            openGL->glEnableVertexAttribArray(4);
+            openGL->glEnableVertexAttribArray(5);
+
+            u64 instanceOffsetStart = sizeof(group->params.vertices[0]) * group->params.vertexCount;
+            openGL->glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(group->params.vertices[0]), 0);
+            openGL->glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, group->batchList.bytesPerInstance,
+                                          (void *)(instanceOffsetStart));
+
+            openGL->glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, group->batchList.bytesPerInstance,
+                                          (void *)(instanceOffsetStart + sizeof(V4)));
+            openGL->glVertexAttribDivisor(2, 1);
+
+            openGL->glVertexAttribPointer(3, 4, GL_FLOAT, GL_FALSE, group->batchList.bytesPerInstance,
+                                          (void *)(instanceOffsetStart + sizeof(V4) * 2));
+            openGL->glVertexAttribDivisor(3, 1);
+
+            openGL->glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, group->batchList.bytesPerInstance,
+                                          (void *)(instanceOffsetStart + sizeof(V4) * 3));
+            openGL->glVertexAttribDivisor(4, 1);
+
+            openGL->glVertexAttribPointer(5, 4, GL_FLOAT, GL_FALSE, group->batchList.bytesPerInstance,
+                                          (void *)(instanceOffsetStart + sizeof(V4) * 4));
+            openGL->glVertexAttribDivisor(5, 1);
+
+            GLint transformLocation =
+                openGL->glGetUniformLocation(openGL->shaders[R_ShaderType_Instanced3D].id, "transform");
+            openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, state->transform.elements[0]);
+
+            break;
+        }
+    }
+}
+
+internal void R_OpenGL_EndShader(R_ShaderType type)
+{
+    switch (type)
+    {
+        case R_ShaderType_3D:
+        {
+            openGL->glUseProgram(0);
+            openGL->glDisableVertexAttribArray(0);
+            openGL->glDisableVertexAttribArray(1);
+            openGL->glBindBuffer(GL_ARRAY_BUFFER, 0);
+            break;
+        }
+        case R_ShaderType_Instanced3D:
+        {
+            openGL->glUseProgram(0);
+            openGL->glDisableVertexAttribArray(0);
+            openGL->glDisableVertexAttribArray(1);
+            openGL->glDisableVertexAttribArray(2);
+            openGL->glDisableVertexAttribArray(3);
+            openGL->glDisableVertexAttribArray(4);
+            openGL->glDisableVertexAttribArray(5);
+            openGL->glVertexAttribDivisor(1, 0);
+            openGL->glVertexAttribDivisor(2, 0);
+            openGL->glVertexAttribDivisor(3, 0);
+            openGL->glVertexAttribDivisor(4, 0);
+            openGL->glVertexAttribDivisor(5, 0);
+            openGL->glBindBuffer(GL_ARRAY_BUFFER, 0);
+            openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+            break;
+        }
+    }
 }
 
 //////////////////////////////
@@ -737,6 +882,20 @@ R_TEXTURE_SUBMIT_2D(R_SubmitTexture2D)
 R_DELETE_TEXTURE_2D(R_DeleteTexture2D)
 {
     glDeleteTextures(1, &handle);
+}
+
+//////////////////////////////
+// HANDLES
+//
+internal b8 R_Handle_Match(R_Handle a, R_Handle b)
+{
+    b8 result = (a == b);
+    return result;
+}
+internal R_Handle R_Handle_Zero()
+{
+    R_Handle handle = 0;
+    return handle;
 }
 
 // R_MODEL_SUBMIT_2D

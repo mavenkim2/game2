@@ -84,6 +84,7 @@ internal void OS_CloseFile(OS_Handle input);
 internal OS_FileAttributes OS_AtributesFromFile(OS_Handle input);
 internal u64 OS_ReadEntireFile(OS_Handle handle, void *out);
 internal u64 OS_ReadEntireFile(string path, void *out);
+internal string OS_ReadEntireFile(Arena *arena, string path);
 
 /////////////////////////////////////////////////////
 // Threads

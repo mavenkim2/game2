@@ -1,6 +1,11 @@
 #ifndef OPENGL_H
 #define OPENGL_H
 
+#include "../crack.h"
+#ifdef LSP_INCLUDE
+#include "./render.h"
+#endif
+
 #if WINDOWS
 #include <windows.h>
 #include <gl/GL.h>
@@ -245,38 +250,22 @@ global wgl_create_context_attribs_arb *wglCreateContextAttribsARB;
 
 #define OpenGLFunction(name) type_##name *name
 
-R_ALLOC_TEXTURE_2D(R_AllocateTexture2D);
-R_TEXTURE_SUBMIT_2D(R_SubmitTexture2D);
-R_DELETE_TEXTURE_2D(R_DeleteTexture2D);
+enum R_ShaderType
+{
+    R_ShaderType_3D,
+    R_ShaderType_Instanced3D,
+    R_ShaderType_StaticMesh,
+    R_ShaderType_SkinnedMesh,
+    R_ShaderType_Count,
+};
 
-struct OpenGLShader
+struct R_Shader
 {
     GLuint id;
-    GLuint positionId;
-    GLuint normalId;
 
-    string globalsFile;
-    string vsFile;
-    string fsFile;
-
-    u64 globalsWriteTime;
-    u64 vsWriteTime;
-    u64 fsWriteTime;
-};
-
-struct CubeShader
-{
-    OpenGLShader base;
-    GLuint colorId;
-};
-
-struct ModelShader
-{
-    OpenGLShader base;
-    GLuint uvId;
-    GLuint boneIdId;
-    GLuint boneWeightId;
-    GLuint tangentId;
+    u64 globalsLastModified;
+    u64 vsLastModfiied;
+    u64 fsLastModified;
 };
 
 struct OpenGL
@@ -288,14 +277,15 @@ struct OpenGL
     u64 pboIndex;
     u64 firstUsedPboIndex;
 
-    GLuint vertexBufferId;
-    GLuint indexBufferId;
-    CubeShader cubeShader;
-    CubeShader instancedBasicShader;
-    ModelShader modelShader;
+    R_Shader shaders[R_ShaderType_Count];
 
     R_Handle whiteTextureHandle;
     u32 defaultTextureFormat;
+
+    GLuint scratchVbo;
+    u64 scratchVboSize;
+    GLuint scratchEbo;
+    u64 scratchEboSize;
 
     OpenGLFunction(glGenBuffers);
     OpenGLFunction(glBindBuffer);
@@ -338,5 +328,21 @@ struct OpenGL
 
 global OpenGL _openGL;
 global OpenGL *openGL = &_openGL;
+
+//////////////////////////////
+// Functions
+//
+internal void R_Init(HWND window);
+internal void R_OpenGL_Init();
+internal void R_Win32_OpenGL_Init(HWND window);
+internal GLuint R_OpenGL_CreateShader(string globalsPath, string vsPath, string fsPath, string preprocess);
+internal GLuint R_OpenGL_CompileShader(char *globals, char *vs, char *fs);
+internal b8 R_Handle_Match(R_Handle a, R_Handle b);
+internal R_Handle R_Handle_Zero();
+R_ALLOC_TEXTURE_2D(R_AllocateTexture2D);
+R_TEXTURE_SUBMIT_2D(R_SubmitTexture2D);
+R_DELETE_TEXTURE_2D(R_DeleteTexture2D);
+internal void R_OpenGL_StartShader(RenderState *state, R_ShaderType type, void *group);
+internal void R_OpenGL_EndShader(R_ShaderType type);
 
 #endif

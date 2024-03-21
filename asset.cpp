@@ -225,10 +225,7 @@ internal b8 LoadAnimation(Arena *arena, AnimationPlayer *player, AS_Handle handl
         player->duration  = anim->duration;
         player->isLooping = true;
         player->loaded    = true;
-        // player->currentPositionKey = PushArray(arena, u32, anim->numNodes);
-        // player->currentScaleKey    = PushArray(arena, u32, anim->numNodes);
-        // player->currentRotationKey = PushArray(arena, u32, anim->numNodes);
-        result = true;
+        result            = true;
     }
     return result;
 }

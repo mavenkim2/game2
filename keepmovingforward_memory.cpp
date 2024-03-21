@@ -120,6 +120,21 @@ internal void ArenaPopTo(Arena *arena, u64 pos)
     current->pos = newPos;
 }
 
+internal void ArenaPopToZero(Arena *arena, u64 pos)
+{
+    pos            = Max(ARENA_HEADER_SIZE, pos);
+    Arena *current = arena->current;
+    for (Arena *prev = 0; current->basePos >= pos; current = prev)
+    {
+        prev = current->prev;
+        OS_Release(current);
+    }
+    Assert(current);
+    u64 newPos = pos - current->basePos;
+    Assert(newPos <= current->pos);
+    current->pos = newPos;
+}
+
 internal u64 ArenaPos(Arena *arena)
 {
     Arena *current = arena->current;

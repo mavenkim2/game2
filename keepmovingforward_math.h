@@ -1375,6 +1375,7 @@ internal f32 DecompressUnitFloat(u32 a, u32 nBits)
 inline u32 CompressFloat(f32 a, f32 min, f32 max, u32 nBits)
 {
     f32 unitFloat = (a - min) / (max - min);
+    Assert(unitFloat >= -1.f && unitFloat <= 1.f);
     u32 result    = CompressUnitFloat(unitFloat, nBits);
     return result;
 }

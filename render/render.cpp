@@ -5,140 +5,202 @@
 #include "render.h"
 #endif
 
-global V4 Color_Red   = {1, 0, 0, 1};
-global V4 Color_Green = {0, 1, 0, 1};
-global V4 Color_Blue  = {0, 0, 1, 1};
-global V4 Color_Black = {0, 0, 0, 1};
+global const V4 Color_Red               = {1, 0, 0, 1};
+global const V4 Color_Green             = {0, 1, 0, 1};
+global const V4 Color_Blue              = {0, 0, 1, 1};
+global const V4 Color_Black             = {0, 0, 0, 1};
+global const u32 r_primitiveSizeTable[] = {sizeof(R_LineInst), sizeof(DebugVertex), sizeof(R_PrimitiveInst),
+                                           sizeof(R_PrimitiveInst)};
 #define DEFAULT_SECTORS 12
 #define DEFAULT_STACKS  12
 
-internal void InitializeRenderer(Arena *arena, RenderState *state)
+struct D_State
 {
+    Arena *arena;
+    u64 frameStartPos;
+    RenderState *state;
+};
+global D_State *d_state;
+
+internal void D_Init(RenderState *state)
+{
+    Arena *arena   = ArenaAlloc();
+    d_state        = PushStruct(arena, D_State);
+    d_state->arena = arena;
+    d_state->state = state;
     ArrayInit(arena, state->commands, RenderCommand, MAX_COMMANDS);
-    DebugRenderer *debug = &state->debugRenderer;
+
+    // DebugRenderer *debug = &state->debugRenderer;
 
     // Create sphere primitive
-    ArrayInit(arena, debug->lines, DebugVertex, MAX_DEBUG_VERTICES);
-    ArrayInit(arena, debug->points, DebugVertex, MAX_DEBUG_VERTICES);
-    ArrayInit(arena, debug->indexLines, V3, MAX_DEBUG_VERTICES);
-    ArrayInit(arena, debug->indices, u32, MAX_DEBUG_VERTICES * 5);
-
-    u32 sectors = DEFAULT_SECTORS;
-    u32 stacks  = DEFAULT_STACKS;
-
-    f32 x, y, z;
-    f32 sectorStep = 2 * PI / sectors;
-    f32 stackStep  = PI / stacks;
-
-    f32 theta = 0;
-
-    // Vertices
-    loopi(0, sectors + 1)
+    for (R_PassType type = (R_PassType)0; type < R_PassType_Count; type = (R_PassType)(type + 1))
     {
-        f32 phi = -PI / 2;
-        loopj(0, stacks + 1)
+        switch (type)
         {
-            x = Cos(phi) * Cos(theta);
-            y = Cos(phi) * Sin(theta);
-            z = Sin(phi);
-
-            ArrayPush(&debug->indexLines, MakeV3(x, y, z));
-
-            phi += stackStep;
-        }
-        theta += sectorStep;
-    }
-
-    // Indices
-    loopi(0, sectors)
-    {
-        u32 i1 = i * (stacks + 1);
-        u32 i2 = i1 + (stacks + 1);
-        loopj(0, stacks)
-        {
-            ArrayPush(&debug->indices, i1);
-            ArrayPush(&debug->indices, i2);
-            ArrayPush(&debug->indices, i1);
-            ArrayPush(&debug->indices, i1 + 1);
-            i1++;
-            i2++;
+            case R_PassType_UI:
+            {
+                state->passes[type].passUI = PushStruct(arena, R_PassUI);
+                break;
+            }
+            case R_PassType_3D:
+            {
+                state->passes[type].pass3D = PushStruct(arena, R_Pass3D);
+                break;
+            }
+            case R_PassType_StaticMesh:
+            {
+                state->passes[type].passStatic = PushStruct(arena, R_PassStaticMesh);
+                break;
+            }
+            case R_PassType_SkinnedMesh:
+            {
+                state->passes[type].passSkinned = PushStruct(arena, R_PassSkinnedMesh);
+                break;
+            }
+            default:
+                Assert(!"Invalid default case");
         }
     }
+    R_Pass3D *pass  = state->passes[R_PassType_3D].pass3D;
+    pass->numGroups = R_Primitive_Count;
+    pass->groups    = PushArray(arena, R_Batch3DGroup, pass->numGroups);
+    for (R_Primitive type = (R_Primitive)0; type < R_Primitive_Count; type = (R_Primitive)(type + 1))
+    {
+        R_Batch3DGroup *group = &pass->groups[type];
+        switch (type)
+        {
+            case R_Primitive_Lines:
+            {
+                group->params.topology            = R_Topology_Lines;
+                group->params.primType            = type;
+                group->batchList.bytesPerInstance = r_primitiveSizeTable[type];
+                break;
+            }
+            case R_Primitive_Points:
+            {
+                group->params.topology            = R_Topology_Points;
+                group->params.primType            = type;
+                group->batchList.bytesPerInstance = r_primitiveSizeTable[type];
+                break;
+            }
+            case R_Primitive_Cube:
+            {
+                f32 point         = 1;
+                V3 cubeVertices[] = {
+                    {-point, -point, -point}, {point, -point, -point}, {point, point, -point},
+                    {-point, point, -point},  {-point, -point, point}, {point, -point, point},
+                    {point, point, point},    {-point, point, point},
+                };
 
-    // Cube
-    Primitive p;
-    p.vertexCount = debug->indexLines.count;
-    p.indexCount  = debug->indices.count;
-    ArrayPut(debug->primitives, p);
+                u32 cubeIndices[] = {
+                    3, 0, 0, 4, 4, 7, 7, 3, 1, 2, 2, 6, 6, 5, 5, 1, 0, 1, 2, 3, 4, 5, 6, 7,
+                };
+                u32 vertexCount         = ArrayLength(cubeVertices);
+                u32 indexCount          = ArrayLength(cubeIndices);
+                R_Batch3DParams *params = &group->params;
+                params->vertices        = PushArray(arena, V3, vertexCount);
+                params->indices         = PushArray(arena, u32, indexCount);
+                MemoryCopy(params->vertices, &cubeVertices, sizeof(cubeVertices));
+                MemoryCopy(params->indices, &cubeIndices, sizeof(cubeIndices));
+                params->vertexCount = vertexCount;
+                params->indexCount  = indexCount;
+                params->topology    = R_Topology_Lines;
+                params->primType    = type;
 
-    // Create cube primitive
-    f32 point = 1;
-    V3 p0     = {-point, -point, -point};
-    V3 p1     = {point, -point, -point};
-    V3 p2     = {point, point, -point};
-    V3 p3     = {-point, point, -point};
-    V3 p4     = {-point, -point, point};
-    V3 p5     = {point, -point, point};
-    V3 p6     = {point, point, point};
-    V3 p7     = {-point, point, point};
+                group->batchList.bytesPerInstance = r_primitiveSizeTable[type];
 
-    // TODO: be able to change topology
-    ArrayPush(&debug->indexLines, p0);
-    ArrayPush(&debug->indexLines, p1);
-    ArrayPush(&debug->indexLines, p2);
-    ArrayPush(&debug->indexLines, p3);
-    ArrayPush(&debug->indexLines, p4);
-    ArrayPush(&debug->indexLines, p5);
-    ArrayPush(&debug->indexLines, p6);
-    ArrayPush(&debug->indexLines, p7);
+                break;
+            }
+            case R_Primitive_Sphere:
+            {
+                u32 sectors = DEFAULT_SECTORS;
+                u32 stacks  = DEFAULT_STACKS;
 
-    // -X
-    ArrayPush(&debug->indices, 3);
-    ArrayPush(&debug->indices, 0);
-    ArrayPush(&debug->indices, 0);
-    ArrayPush(&debug->indices, 4);
-    ArrayPush(&debug->indices, 4);
-    ArrayPush(&debug->indices, 7);
-    ArrayPush(&debug->indices, 7);
-    ArrayPush(&debug->indices, 3);
-    // +X
-    ArrayPush(&debug->indices, 1);
-    ArrayPush(&debug->indices, 2);
-    ArrayPush(&debug->indices, 2);
-    ArrayPush(&debug->indices, 6);
-    ArrayPush(&debug->indices, 6);
-    ArrayPush(&debug->indices, 5);
-    ArrayPush(&debug->indices, 5);
-    ArrayPush(&debug->indices, 1);
+                f32 x, y, z;
+                f32 sectorStep = 2 * PI / sectors;
+                f32 stackStep  = PI / stacks;
 
-    // -Z
-    ArrayPush(&debug->indices, 0);
-    ArrayPush(&debug->indices, 1);
-    ArrayPush(&debug->indices, 2);
-    ArrayPush(&debug->indices, 3);
+                f32 theta = 0;
 
-    // +Z
-    ArrayPush(&debug->indices, 4);
-    ArrayPush(&debug->indices, 5);
-    ArrayPush(&debug->indices, 6);
-    ArrayPush(&debug->indices, 7);
+                u32 vertexCount = sectors * stacks;
+                u32 indexCount  = (sectors - 1) * (stacks - 1) * 4;
 
-    p.vertexCount = 8;
-    p.indexCount  = 24;
-    ArrayPut(debug->primitives, p);
+                u32 vertexIndex = 0;
+                u32 indexIndex  = 0;
+
+                R_Batch3DParams *params           = &group->params;
+                params->vertices                  = PushArray(arena, V3, vertexCount);
+                params->indices                   = PushArray(arena, u32, indexCount);
+                params->vertexCount               = vertexCount;
+                params->indexCount                = indexCount;
+                params->topology                  = R_Topology_Lines;
+                params->primType                  = type;
+                group->batchList.bytesPerInstance = r_primitiveSizeTable[type];
+
+                for (u32 i = 0; i < sectors + 1; i++)
+                {
+                    f32 phi = -PI / 2;
+                    for (u32 j = 0; j < stacks + 1; j++)
+                    {
+                        x = Cos(phi) * Cos(theta);
+                        y = Cos(phi) * Sin(theta);
+                        z = Sin(phi);
+
+                        params->vertices[vertexIndex++] = MakeV3(x, y, z);
+
+                        phi += stackStep;
+                    }
+                    theta += sectorStep;
+                }
+
+                // Indices
+                for (u32 i = 0; i < sectors; i++)
+                {
+                    u32 i1 = i * (stacks + 1);
+                    u32 i2 = i1 + (stacks + 1);
+                    for (u32 j = 0; j < stacks; j++)
+                    {
+                        params->indices[indexIndex++] = i1;
+                        params->indices[indexIndex++] = i2;
+                        params->indices[indexIndex++] = i1;
+                        params->indices[indexIndex++] = i1 + 1;
+                        i1++;
+                        i2++;
+                    }
+                }
+                break;
+            }
+        }
+    }
+    d_state->frameStartPos = ArenaPos(arena);
 }
 
-internal void BeginRenderFrame(RenderState *state)
+internal void D_BeginFrame()
 {
-    state->commands.count             = 0;
-    state->debugRenderer.lines.count  = 0;
-    state->debugRenderer.points.count = 0;
-    Primitive *primitive;
-    forEach(state->debugRenderer.primitives, primitive)
+    RenderState *state = d_state->state;
+    ArenaPopTo(d_state->arena, d_state->frameStartPos);
+    for (R_PassType type = (R_PassType)0; type < R_PassType_Count; type = (R_PassType)(type + 1))
     {
-        ArraySetLen(primitive->transforms, 0);
-        ArraySetLen(primitive->colors, 0);
+        switch (type)
+        {
+            case R_PassType_3D:
+            {
+                R_Pass3D *pass3D = state->passes[type].pass3D;
+                for (u32 i = 0; i < pass3D->numGroups; i++)
+                {
+                    R_Batch3DGroup *group         = &pass3D->groups[i];
+                    group->batchList.numInstances = 0;
+                    group->batchList.first = group->batchList.last = 0;
+                }
+                break;
+            }
+            default:
+            {
+                break;
+            }
+        }
     }
+    state->commands.count = 0;
 }
 
 internal void PushModel(RenderState *state, Model *model, Mat4 *finalTransforms = 0)
@@ -163,7 +225,30 @@ internal void PushModel(RenderState *state, Model *model, Mat4 *finalTransforms 
     }
 }
 
-internal void DrawLine(DebugRenderer *debug, V3 from, V3 to, V4 color)
+inline R_Pass *R_GetPassFromKind(R_PassType type)
+{
+    RenderState *state = d_state->state;
+    R_Pass *result     = &state->passes[type];
+    return result;
+}
+
+internal u8 *R_BatchListPush(R_BatchList *list, u32 instCap)
+{
+    R_BatchNode *node = list->last;
+    if (node == 0 || node->val.byteCount + list->bytesPerInstance > node->val.byteCap)
+    {
+        node              = PushStruct(d_state->arena, R_BatchNode);
+        node->val.byteCap = instCap * list->bytesPerInstance;
+        node->val.data    = PushArray(d_state->arena, u8, node->val.byteCap);
+        QueuePush(list->first, list->last, node);
+    }
+    u8 *inst = node->val.data + node->val.byteCount;
+    node->val.byteCount += list->bytesPerInstance;
+    list->numInstances += 1;
+    return inst;
+}
+
+internal void DrawLine(V3 from, V3 to, V4 color)
 {
     DebugVertex v1;
     v1.pos   = from;
@@ -172,21 +257,25 @@ internal void DrawLine(DebugRenderer *debug, V3 from, V3 to, V4 color)
     v2.pos   = to;
     v2.color = color;
 
-    ArrayPush(&debug->lines, v1);
-    ArrayPush(&debug->lines, v2);
+    R_Pass3D *pass3D      = R_GetPassFromKind(R_PassType_3D)->pass3D;
+    R_Batch3DGroup *group = &pass3D->groups[R_Primitive_Lines];
+    R_LineInst *output    = (R_LineInst *)R_BatchListPush(&group->batchList, 256);
+    output->v[0]          = v1;
+    output->v[1]          = v2;
 }
 
-internal void DrawPoint(DebugRenderer *debug, V3 point, V4 color)
+internal void DrawPoint(V3 point, V4 color)
 {
-    DebugVertex p;
-    p.pos   = point;
-    p.color = color;
-    ArrayPush(&debug->points, p);
+    R_Pass3D *pass3D      = R_GetPassFromKind(R_PassType_3D)->pass3D;
+    R_Batch3DGroup *group = &pass3D->groups[R_Primitive_Points];
+    DebugVertex *output   = (DebugVertex *)R_BatchListPush(&group->batchList, 256);
+    output->pos           = point;
+    output->color         = color;
 }
 
-internal void DrawArrow(DebugRenderer *debug, V3 from, V3 to, V4 color, f32 size)
+internal void DrawArrow(V3 from, V3 to, V4 color, f32 size)
 {
-    DrawLine(debug, from, to, color);
+    DrawLine(from, to, color);
 
     if (size > 0.f)
     {
@@ -201,8 +290,8 @@ internal void DrawArrow(DebugRenderer *debug, V3 from, V3 to, V4 color, f32 size
         }
         V3 perp = Normalize(Cross(Cross(dir, up), dir));
 
-        DrawLine(debug, to - dir + perp, to, color);
-        DrawLine(debug, to - dir - perp, to, color);
+        DrawLine(to - dir + perp, to, color);
+        DrawLine(to - dir - perp, to, color);
     }
 }
 
@@ -213,23 +302,27 @@ enum PrimitiveType
     Primitive_MAX,
 };
 
-internal void DrawBox(DebugRenderer *debug, V3 offset, V3 scale, V4 color)
+internal void DrawBox(V3 offset, V3 scale, V4 color)
 {
-    Mat4 transform = Translate(Scale(scale), offset);
-    ArrayPut(debug->primitives[Primitive_Box].transforms, transform);
-    ArrayPut(debug->primitives[Primitive_Box].colors, color);
+    Mat4 transform        = Translate(Scale(scale), offset);
+    R_Pass3D *pass3D      = R_GetPassFromKind(R_PassType_3D)->pass3D;
+    R_Batch3DGroup *group = &pass3D->groups[R_Primitive_Cube];
+    R_PrimitiveInst *inst = (R_PrimitiveInst *)R_BatchListPush(&group->batchList, 256);
+    inst->color           = color;
+    inst->transform       = transform;
 }
 
-// TODO: LOD
-internal void DrawSphere(DebugRenderer *debug, V3 offset, f32 radius, V4 color)
+internal void DrawSphere(V3 offset, f32 radius, V4 color)
 {
-    // TODO: hard code
-    Mat4 transform = Translate(Scale(radius), offset);
-    ArrayPut(debug->primitives[Primitive_Sphere].transforms, transform);
-    ArrayPut(debug->primitives[Primitive_Sphere].colors, color);
+    Mat4 transform        = Translate(Scale(radius), offset);
+    R_Pass3D *pass3D      = R_GetPassFromKind(R_PassType_3D)->pass3D;
+    R_Batch3DGroup *group = &pass3D->groups[R_Primitive_Sphere];
+    R_PrimitiveInst *inst = (R_PrimitiveInst *)R_BatchListPush(&group->batchList, 256);
+    inst->color           = color;
+    inst->transform       = transform;
 }
 
-internal void DebugDrawSkeleton(DebugRenderer *debug, Model *model, Mat4 *finalTransform)
+internal void DebugDrawSkeleton(Model *model, Mat4 *finalTransform)
 {
     LoadedSkeleton *skeleton = GetSkeletonFromModel(model->loadedModel);
     loopi(0, skeleton->count)
@@ -242,10 +335,20 @@ internal void DebugDrawSkeleton(DebugRenderer *debug, Model *model, Mat4 *finalT
             V3 parentTranslation =
                 GetTranslation(finalTransform[parentId] * Inverse(skeleton->inverseBindPoses[parentId]));
             V3 parentPoint = model->transform * parentTranslation;
-            DrawLine(debug, parentPoint, childPoint, Color_Green);
+            DrawLine(parentPoint, childPoint, Color_Green);
         }
     }
 }
+
+//////////////////////////////
+// UI
+//
+
+// internal void DrawRectangle(RenderState* renderState, V2 min, V2 max) {
+//     renderState->
+//         DrawRectangle(&renderState, V2(0, 0), V2(renderState.width / 10, renderState.height / 10));
+// }
+
 /* internal RenderGroup BeginRenderGroup(OpenGL* openGL) {
     RenderGroup* group = &openGL->group;
     // TODO: if the number is any higher, then u16 index cannot represent

@@ -476,7 +476,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         // TODO: have main thread initialization somewhere else
         ThreadContext *tctx = PushStruct(gameState->worldArena, ThreadContext);
         ThreadContextInitialize(tctx, 1);
-        SetThreadName(Str8Lit("[Main Thread]"));
+        SetThreadName(Str8Lit("[Main Thread Game]"));
 
         OS_Init();
         JS_Init();
@@ -487,7 +487,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         R_SubmitTexture2D   = memory->R_SubmitTexture2D;
         R_DeleteTexture2D   = memory->R_DeleteTexture2D;
 
-        InitializeRenderer(gameState->worldArena, renderState);
+        D_Init(renderState);
 
         // Load assets
 
@@ -509,7 +509,6 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         // ReadAnimationFile(gameState->worldArena, animation, Str8Lit("data/dragon_attack_01.anim"));
         AS_Handle anim = LoadAssetFile(Str8Lit("data/dragon/Qishilong_attack01.anim"));
         // AS_Handle anim = LoadAssetFile(Str8Lit("data/dragon/Qishilong_attack02.anim"));
-        
 
         gameState->level      = PushStruct(gameState->worldArena, Level);
         gameState->cameraMode = CameraMode_Player;
@@ -856,7 +855,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
 #endif
 
-    BeginRenderFrame(renderState);
+    D_BeginFrame();
     // Physics
     {
         // ConvexShape a;
@@ -896,11 +895,11 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             color = Color_Green;
         }
 
-        DrawSphere(&renderState->debugRenderer, sphereA.center, sphereA.radius, color);
-        DrawSphere(&renderState->debugRenderer, sphereB.center, sphereB.radius, color);
+        DrawSphere(sphereA.center, sphereA.radius, color);
+        DrawSphere(sphereB.center, sphereB.radius, color);
 
-        DrawBox(&renderState->debugRenderer, {5, 1, 1}, {2, 1, 1}, Color_Black);
-        DrawBox(&renderState->debugRenderer, {8, 3, 3}, {1, 4, 2}, Color_Green);
+        DrawBox({5, 1, 1}, {2, 1, 1}, Color_Black);
+        DrawBox({8, 3, 3}, {1, 4, 2}, Color_Green);
     }
 
     // Render
@@ -910,14 +909,15 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         //     PushCube(&openGL->group, entity->pos, entity->size, entity->color);
         // }
         // PushCube(&openGL->group, player->pos, player->size, player->color);
+        // DrawRectangle(&renderState, V2(0, 0), V2(renderState.width / 10, renderState.height / 10));
 
         LoadedSkeleton *skeleton   = GetSkeletonFromModel(gameState->model.loadedModel);
         AnimationTransform *tforms = PushArray(gameState->frameArena, AnimationTransform, skeleton->count);
         Mat4 *finalTransforms      = PushArray(gameState->frameArena, Mat4, skeleton->count);
 
-        LoadedSkeleton *skeleton2 = GetSkeletonFromModel(gameState->model2.loadedModel);
+        LoadedSkeleton *skeleton2   = GetSkeletonFromModel(gameState->model2.loadedModel);
         AnimationTransform *tforms2 = PushArray(gameState->frameArena, AnimationTransform, skeleton2->count);
-        Mat4 *finalTransforms2    = PushArray(gameState->frameArena, Mat4, skeleton2->count);
+        Mat4 *finalTransforms2      = PushArray(gameState->frameArena, Mat4, skeleton2->count);
         // ANIMATION
         // PlayCurrentAnimation(gameState->worldArena, &gameState->animPlayer, input->dT, tforms2);
         PlayCurrentAnimation(gameState->worldArena, &gameState->animPlayer, input->dT, tforms);
@@ -925,10 +925,10 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         SkinModelToAnimation(&gameState->animPlayer, &gameState->model, tforms, finalTransforms);
 
         // SkinModelToBindPose(&gameState->model, finalTransforms);
-        DrawArrow(&renderState->debugRenderer, {0, 0, 0}, {5, 0, 0}, {1, 0, 0, 1}, 1.f);
-        DrawArrow(&renderState->debugRenderer, {0, 0, 0}, {0, 5, 0}, {0, 1, 0, 1}, 1.f);
-        DrawArrow(&renderState->debugRenderer, {0, 0, 0}, {0, 0, 5}, {0, 0, 1, 1}, 1.f);
-        DebugDrawSkeleton(&renderState->debugRenderer, &gameState->model, finalTransforms);
+        DrawArrow({0, 0, 0}, {5, 0, 0}, {1, 0, 0, 1}, 1.f);
+        DrawArrow({0, 0, 0}, {0, 5, 0}, {0, 1, 0, 1}, 1.f);
+        DrawArrow({0, 0, 0}, {0, 0, 5}, {0, 0, 1, 1}, 1.f);
+        DebugDrawSkeleton(&gameState->model, finalTransforms);
         PushModel(renderState, &gameState->model, finalTransforms);
 
         SkinModelToBindPose(&gameState->model2, finalTransforms2);

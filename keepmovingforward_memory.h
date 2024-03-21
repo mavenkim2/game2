@@ -35,6 +35,7 @@ internal void *ArenaPushNoZero(Arena *arena, u64 size);
 internal void *ArenaPush(Arena *arena, u64 size);
 internal u64 ArenaPos(Arena *arena);
 internal void ArenaPopTo(Arena *arena, u64 pos);
+internal void ArenaPopToZero(Arena *arena, u64 pos);
 internal TempArena TempBegin(Arena *arena);
 internal void TempEnd(TempArena temp);
 internal b32 CheckZero(u32 size, u8 *instance);

@@ -142,6 +142,20 @@ internal u64 OS_ReadEntireFile(string path, void *out)
     return result;
 }
 
+internal string OS_ReadEntireFile(Arena *arena, string path)
+{
+    OS_Handle handle = OS_OpenFile(OS_AccessFlag_Read | OS_AccessFlag_ShareRead, path);
+
+    string result;
+    result.size = OS_AttributesFromPath(path).size;
+    result.str  = PushArray(arena, u8, result.size);
+
+    u64 size = OS_ReadEntireFile(handle, result.str);
+    Assert(size == result.size);
+
+    return result;
+}
+
 internal string ReadEntireFile(string filename)
 {
     string output     = {};
@@ -305,12 +319,14 @@ internal void *OS_Alloc(u64 size)
     return ptr;
 }
 
-internal void *OS_Reserve(u64 size) {
+internal void *OS_Reserve(u64 size)
+{
     void *ptr = VirtualAlloc(0, size, MEM_RESERVE, PAGE_READWRITE);
     return ptr;
 }
 
-internal b8 OS_Commit(void *ptr, u64 size) {
+internal b8 OS_Commit(void *ptr, u64 size)
+{
     b8 result = (VirtualAlloc(ptr, size, MEM_COMMIT, PAGE_READWRITE) != 0);
     return result;
 }
