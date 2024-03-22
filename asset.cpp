@@ -343,11 +343,11 @@ internal void PlayCurrentAnimation(Arena *arena, AnimationPlayer *player, f32 dT
     }
 }
 
-internal void SkinModelToAnimation(AnimationPlayer *player, Model *model, const AnimationTransform *transforms,
+internal void SkinModelToAnimation(AnimationPlayer *player, AS_Handle model, const AnimationTransform *transforms,
                                    Mat4 *finalTransforms)
 {
     TempArena temp           = ScratchStart(0, 0);
-    LoadedSkeleton *skeleton = GetSkeletonFromModel(model->loadedModel);
+    LoadedSkeleton *skeleton = GetSkeletonFromModel(model);
     Mat4 *transformToParent  = PushArray(temp.arena, Mat4, skeleton->count);
     i32 previousId           = -1;
 
@@ -392,10 +392,10 @@ internal void SkinModelToAnimation(AnimationPlayer *player, Model *model, const 
     ScratchEnd(temp);
 }
 
-internal void SkinModelToBindPose(Model *model, Mat4 *finalTransforms)
+internal void SkinModelToBindPose(AS_Handle model, Mat4 *finalTransforms)
 {
     TempArena temp           = ScratchStart(0, 0);
-    LoadedSkeleton *skeleton = GetSkeletonFromModel(model->loadedModel);
+    LoadedSkeleton *skeleton = GetSkeletonFromModel(model);
     Mat4 *transformToParent  = PushArray(temp.arena, Mat4, skeleton->count);
     i32 previousId           = -1;
 

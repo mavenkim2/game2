@@ -98,26 +98,26 @@ internal GLuint R_OpenGL_CreateShader(string globalsPath, string vsPath, string 
     return id;
 }
 
-internal void LoadModel(Model *model)
-{
-    // NOTE: must be 0
-    if (!model->vbo)
-    {
-        // TODO: this shouldn't be necessary. render.cpp should just give the right data
-
-        LoadedModel *loadedModel = GetModel(model->loadedModel);
-        openGL->glGenBuffers(1, &model->vbo);
-        openGL->glGenBuffers(1, &model->ebo);
-
-        openGL->glBindBuffer(GL_ARRAY_BUFFER, model->vbo);
-        openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(loadedModel->vertices[0]) * loadedModel->vertexCount,
-                             loadedModel->vertices, GL_STREAM_DRAW);
-
-        openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, model->ebo);
-        openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(loadedModel->indices[0]) * loadedModel->indexCount,
-                             loadedModel->indices, GL_STREAM_DRAW);
-    }
-}
+// internal void LoadModel(Model *model)
+// {
+//     // NOTE: must be 0
+//     if (!model->vbo)
+//     {
+//         // TODO: this shouldn't be necessary. render.cpp should just give the right data
+//
+//         LoadedModel *loadedModel = GetModel(model->loadedModel);
+//         openGL->glGenBuffers(1, &model->vbo);
+//         openGL->glGenBuffers(1, &model->ebo);
+//
+//         openGL->glBindBuffer(GL_ARRAY_BUFFER, model->vbo);
+//         openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(loadedModel->vertices[0]) * loadedModel->vertexCount,
+//                              loadedModel->vertices, GL_STREAM_DRAW);
+//
+//         openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, model->ebo);
+//         openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(loadedModel->indices[0]) * loadedModel->indexCount,
+//                              loadedModel->indices, GL_STREAM_DRAW);
+//     }
+// }
 
 // internal void ReloadShader(OpenGLShader *shader)
 // {
@@ -404,129 +404,6 @@ internal void R_EndFrame(RenderState *state, HDC deviceContext, int clientWidth,
     }
 
     // RENDER MODEL
-    {
-        GLuint modelProgramId = openGL->shaders[R_ShaderType_SkinnedMesh].id;
-        openGL->glUseProgram(modelProgramId);
-
-        RenderCommand *command;
-        foreach (&state->commands, command)
-        {
-            Model *model             = command->model;
-            LoadedSkeleton *skeleton = command->skeleton;
-            if (!model->vbo)
-            {
-                LoadModel(model);
-            }
-            openGL->glActiveTexture(GL_TEXTURE0);
-
-            openGL->glBindBuffer(GL_ARRAY_BUFFER, model->vbo);
-            openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, model->ebo);
-
-            openGL->glEnableVertexAttribArray(0);
-            openGL->glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
-                                          (void *)Offset(MeshVertex, position));
-
-            openGL->glEnableVertexAttribArray(1);
-            openGL->glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
-                                          (void *)Offset(MeshVertex, normal));
-
-            openGL->glEnableVertexAttribArray(2);
-            openGL->glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
-                                          (void *)Offset(MeshVertex, uv));
-
-            openGL->glEnableVertexAttribArray(3);
-            openGL->glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
-                                          (void *)Offset(MeshVertex, tangent));
-
-            openGL->glEnableVertexAttribArray(4);
-            openGL->glVertexAttribIPointer(4, 4, GL_UNSIGNED_INT, sizeof(MeshVertex),
-                                           (void *)Offset(MeshVertex, boneIds));
-
-            openGL->glEnableVertexAttribArray(5);
-            openGL->glVertexAttribPointer(5, 4, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
-                                          (void *)Offset(MeshVertex, boneWeights));
-
-            // TODO: uniform blocks so we can just push a struct or something instead of having to do these all
-            // manually
-            Mat4 newTransform       = state->transform * model->transform;
-            GLint transformLocation = openGL->glGetUniformLocation(modelProgramId, "transform");
-            openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, newTransform.elements[0]);
-
-            if (command->finalBoneTransforms)
-            {
-                GLint boneTformLocation = openGL->glGetUniformLocation(modelProgramId, "boneTransforms");
-                openGL->glUniformMatrix4fv(boneTformLocation, skeleton->count, GL_FALSE,
-                                           command->finalBoneTransforms->elements[0]);
-            }
-
-            GLint modelLoc = openGL->glGetUniformLocation(modelProgramId, "model");
-            openGL->glUniformMatrix4fv(modelLoc, 1, GL_FALSE, model->transform.elements[0]);
-
-            V3 lightPosition  = MakeV3(5, 5, 0);
-            GLint lightPosLoc = openGL->glGetUniformLocation(modelProgramId, "lightPos");
-            openGL->glUniform3fv(lightPosLoc, 1, lightPosition.elements);
-
-            GLint viewPosLoc = openGL->glGetUniformLocation(modelProgramId, "viewPos");
-            openGL->glUniform3fv(viewPosLoc, 1, state->camera.position.elements);
-
-            // TEXTURE MAP
-            GLint textureLoc = openGL->glGetUniformLocation(modelProgramId, "diffuseMap");
-            openGL->glUniform1i(textureLoc, 0);
-
-            // NORMAL MAP
-            GLint nmapLoc = openGL->glGetUniformLocation(modelProgramId, "normalMap");
-            openGL->glUniform1i(nmapLoc, 1);
-
-            openGL->glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_2D, openGL->whiteTextureHandle);
-            for (u32 i = 0; i < command->numMaterials; i++)
-            {
-                Material *material = command->materials + i;
-                for (u32 j = 0; j < TextureType_Count; j++)
-                {
-                    R_Handle textureHandle = GetTextureRenderHandle(material->textureHandles[j]);
-                    Texture *texture       = GetTexture(material->textureHandles[j]);
-                    if (textureHandle == 0)
-                    {
-                        textureHandle = openGL->whiteTextureHandle;
-                    }
-                    switch (j)
-                    {
-                        case TextureType_Diffuse:
-                        {
-                            openGL->glActiveTexture(GL_TEXTURE0);
-                            glBindTexture(GL_TEXTURE_2D, textureHandle);
-                            break;
-                        }
-                        case TextureType_Normal:
-                        {
-                            openGL->glActiveTexture(GL_TEXTURE0 + 1);
-                            glBindTexture(GL_TEXTURE_2D, textureHandle);
-                            break;
-                        }
-                        default:
-                        {
-                            continue;
-                        }
-                    }
-                }
-                glDrawElements(GL_TRIANGLES, material->onePlusEndIndex - material->startIndex, GL_UNSIGNED_INT,
-                               (void *)(sizeof(u32) * material->startIndex));
-            }
-
-            // UNBIND
-        }
-        openGL->glUseProgram(0);
-        glBindTexture(GL_TEXTURE_2D, 0);
-        openGL->glBindBuffer(GL_ARRAY_BUFFER, 0);
-        openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-        openGL->glDisableVertexAttribArray(0);
-        openGL->glDisableVertexAttribArray(1);
-        openGL->glDisableVertexAttribArray(2);
-        openGL->glDisableVertexAttribArray(3);
-        openGL->glDisableVertexAttribArray(4);
-        openGL->glDisableVertexAttribArray(5);
-    }
 
     for (R_PassType type = (R_PassType)0; type < R_PassType_Count; type = (R_PassType)(type + 1))
     {
@@ -543,6 +420,93 @@ internal void R_EndFrame(RenderState *state, HDC deviceContext, int clientWidth,
             }
             case R_PassType_SkinnedMesh:
             {
+                GLuint modelProgramId = openGL->shaders[R_ShaderType_SkinnedMesh].id;
+                openGL->glUseProgram(modelProgramId);
+
+                R_SkinnedMeshParamsList *list = &pass->passSkinned->list;
+                for (R_SkinnedMeshParamsNode *node = list->first; node != 0; node = node->next)
+                {
+                    R_SkinnedMeshParams *params = &node->val;
+                    AS_Handle handle            = params->loadedModel;
+                    LoadedModel *model          = GetModel(handle);
+                    // if (!model->vbo)
+                    // {
+                    //     LoadModel(model);
+                    // }
+                    openGL->glActiveTexture(GL_TEXTURE0);
+
+                    openGL->glBindBuffer(GL_ARRAY_BUFFER, model->vertexBuffer);
+                    openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, model->indexBuffer);
+
+                    R_OpenGL_StartShader(state, R_ShaderType_SkinnedMesh, 0);
+                    // TODO: uniform blocks so we can just push a struct or something instead of having to do
+                    // these all manually
+
+                    // MVP matrix
+                    Mat4 newTransform       = state->transform * params->transform;
+                    GLint transformLocation = openGL->glGetUniformLocation(modelProgramId, "transform");
+                    openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, newTransform.elements[0]);
+
+                    // Skinning matrices
+                    GLint boneTformLocation = openGL->glGetUniformLocation(modelProgramId, "boneTransforms");
+                    openGL->glUniformMatrix4fv(boneTformLocation, params->skinningMatricesCount, GL_FALSE,
+                                               params->skinningMatrices[0].elements[0]);
+
+                    GLint modelLoc = openGL->glGetUniformLocation(modelProgramId, "model");
+                    openGL->glUniformMatrix4fv(modelLoc, 1, GL_FALSE, params->transform.elements[0]);
+
+                    V3 lightPosition  = MakeV3(5, 5, 0);
+                    GLint lightPosLoc = openGL->glGetUniformLocation(modelProgramId, "lightPos");
+                    openGL->glUniform3fv(lightPosLoc, 1, lightPosition.elements);
+
+                    GLint viewPosLoc = openGL->glGetUniformLocation(modelProgramId, "viewPos");
+                    openGL->glUniform3fv(viewPosLoc, 1, state->camera.position.elements);
+
+                    // TEXTURE MAP
+                    GLint textureLoc = openGL->glGetUniformLocation(modelProgramId, "diffuseMap");
+                    openGL->glUniform1i(textureLoc, 0);
+
+                    // NORMAL MAP
+                    GLint nmapLoc = openGL->glGetUniformLocation(modelProgramId, "normalMap");
+                    openGL->glUniform1i(nmapLoc, 1);
+
+                    openGL->glActiveTexture(GL_TEXTURE0);
+                    glBindTexture(GL_TEXTURE_2D, openGL->whiteTextureHandle);
+                    for (u32 i = 0; i < model->materialCount; i++)
+                    {
+                        Material *material = model->materials + i;
+                        for (u32 j = 0; j < TextureType_Count; j++)
+                        {
+                            R_Handle textureHandle = GetTextureRenderHandle(material->textureHandles[j]);
+                            if (textureHandle == 0)
+                            {
+                                textureHandle = openGL->whiteTextureHandle;
+                            }
+                            switch (j)
+                            {
+                                case TextureType_Diffuse:
+                                {
+                                    openGL->glActiveTexture(GL_TEXTURE0);
+                                    glBindTexture(GL_TEXTURE_2D, textureHandle);
+                                    break;
+                                }
+                                case TextureType_Normal:
+                                {
+                                    openGL->glActiveTexture(GL_TEXTURE0 + 1);
+                                    glBindTexture(GL_TEXTURE_2D, textureHandle);
+                                    break;
+                                }
+                                default:
+                                {
+                                    continue;
+                                }
+                            }
+                        }
+                        glDrawElements(GL_TRIANGLES, material->onePlusEndIndex - material->startIndex,
+                                       GL_UNSIGNED_INT, (void *)(sizeof(u32) * material->startIndex));
+                    }
+                }
+                R_OpenGL_EndShader(R_ShaderType_SkinnedMesh);
                 break;
             }
             case R_PassType_3D:
@@ -727,6 +691,33 @@ internal void R_OpenGL_StartShader(RenderState *state, R_ShaderType type, void *
 
             break;
         }
+        case R_ShaderType_SkinnedMesh:
+        {
+            openGL->glEnableVertexAttribArray(0);
+            openGL->glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
+                                          (void *)Offset(MeshVertex, position));
+
+            openGL->glEnableVertexAttribArray(1);
+            openGL->glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
+                                          (void *)Offset(MeshVertex, normal));
+
+            openGL->glEnableVertexAttribArray(2);
+            openGL->glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
+                                          (void *)Offset(MeshVertex, uv));
+
+            openGL->glEnableVertexAttribArray(3);
+            openGL->glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
+                                          (void *)Offset(MeshVertex, tangent));
+
+            openGL->glEnableVertexAttribArray(4);
+            openGL->glVertexAttribIPointer(4, 4, GL_UNSIGNED_INT, sizeof(MeshVertex),
+                                           (void *)Offset(MeshVertex, boneIds));
+
+            openGL->glEnableVertexAttribArray(5);
+            openGL->glVertexAttribPointer(5, 4, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
+                                          (void *)Offset(MeshVertex, boneWeights));
+            break;
+        }
     }
 }
 
@@ -758,6 +749,20 @@ internal void R_OpenGL_EndShader(R_ShaderType type)
             openGL->glVertexAttribDivisor(5, 0);
             openGL->glBindBuffer(GL_ARRAY_BUFFER, 0);
             openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+            break;
+        }
+        case R_ShaderType_SkinnedMesh:
+        {
+            openGL->glUseProgram(0);
+            glBindTexture(GL_TEXTURE_2D, 0);
+            openGL->glBindBuffer(GL_ARRAY_BUFFER, 0);
+            openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+            openGL->glDisableVertexAttribArray(0);
+            openGL->glDisableVertexAttribArray(1);
+            openGL->glDisableVertexAttribArray(2);
+            openGL->glDisableVertexAttribArray(3);
+            openGL->glDisableVertexAttribArray(4);
+            openGL->glDisableVertexAttribArray(5);
             break;
         }
     }

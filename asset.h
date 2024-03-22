@@ -169,30 +169,26 @@ struct AnimationPlayer
 
 struct Material
 {
+    AS_Handle textureHandles[TextureType_Count];
     u32 startIndex;
     u32 onePlusEndIndex;
-    AS_Handle textureHandles[TextureType_Count];
 };
 
 struct LoadedModel
 {
-    u32 vertexCount;
-    u32 indexCount;
+    AS_Handle skeleton;
     MeshVertex *vertices;
     u32 *indices;
-
-    AS_Handle skeleton;
-
-    u32 materialCount;
     Material *materials;
-};
 
-struct Model
-{
-    AS_Handle loadedModel;
-    Mat4 transform;
-    u32 vbo;
-    u32 ebo;
+    u32 vertexCount;
+    u32 indexCount;
+    u32 materialCount;
+
+    R_Handle vertexBuffer;
+    R_Handle indexBuffer;
+
+    u32 _pad[1];
 };
 
 // NOTE: Temporary hash

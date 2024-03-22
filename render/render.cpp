@@ -28,7 +28,6 @@ internal void D_Init(RenderState *state)
     d_state        = PushStruct(arena, D_State);
     d_state->arena = arena;
     d_state->state = state;
-    ArrayInit(arena, state->commands, RenderCommand, MAX_COMMANDS);
 
     // DebugRenderer *debug = &state->debugRenderer;
 
@@ -123,7 +122,7 @@ internal void D_Init(RenderState *state)
                 f32 theta = 0;
 
                 u32 vertexCount = (sectors + 1) * (stacks + 1);
-                u32 indexCount  = sectors  * stacks  * 4;
+                u32 indexCount  = sectors * stacks * 4;
 
                 u32 vertexIndex = 0;
                 u32 indexIndex  = 0;
@@ -200,29 +199,32 @@ internal void D_BeginFrame()
             }
         }
     }
-    state->commands.count = 0;
 }
 
-internal void PushModel(Model *model, Mat4 *finalTransforms = 0)
+internal void D_PushModel(AS_Handle loadedModel, Mat4 transform, Mat4 *skinningMatrices = 0,
+                          u32 skinningMatricesCount = 0)
 {
     RenderState *state = d_state->state;
-    if (!IsModelHandleNil(model->loadedModel))
+    if (!IsModelHandleNil(loadedModel))
     {
-        RenderCommand command    = {};
-        LoadedModel *loadedModel = GetModel(model->loadedModel);
-        command.model            = model;
-        command.transform        = Identity();
-        if (finalTransforms)
+        if (skinningMatrices)
         {
-            command.finalBoneTransforms = finalTransforms;
+            R_PassSkinnedMesh *pass         = R_GetPassFromKind(R_PassType_SkinnedMesh)->passSkinned;
+            R_SkinnedMeshParamsNode *node   = PushStruct(d_state->arena, R_SkinnedMeshParamsNode);
+            node->val.loadedModel           = loadedModel;
+            node->val.transform             = transform;
+            node->val.skinningMatrices      = skinningMatrices;
+            node->val.skinningMatricesCount = skinningMatricesCount;
+            QueuePush(pass->list.first, pass->list.last, node);
         }
-
-        command.numMaterials = loadedModel->materialCount;
-        command.materials    = loadedModel->materials;
-        command.skeleton     = GetSkeleton(loadedModel->skeleton);
-        command.loadedModel  = loadedModel;
-
-        ArrayPush(&state->commands, command);
+        else
+        {
+            R_PassStaticMesh *pass       = R_GetPassFromKind(R_PassType_StaticMesh)->passStatic;
+            R_StaticMeshParamsNode *node = PushStruct(d_state->arena, R_StaticMeshParamsNode);
+            node->val.transform          = transform;
+            node->val.mesh               = loadedModel;
+            QueuePush(pass->list.first, pass->list.last, node);
+        }
     }
 }
 
@@ -323,19 +325,19 @@ internal void DrawSphere(V3 offset, f32 radius, V4 color)
     inst->transform       = transform;
 }
 
-internal void DebugDrawSkeleton(Model *model, Mat4 *finalTransform)
+internal void DebugDrawSkeleton(AS_Handle model, Mat4 transform, Mat4 *skinningMatrices)
 {
-    LoadedSkeleton *skeleton = GetSkeletonFromModel(model->loadedModel);
+    LoadedSkeleton *skeleton = GetSkeletonFromModel(model);
     loopi(0, skeleton->count)
     {
         u32 parentId = skeleton->parents[i];
         if (parentId != -1)
         {
-            V3 childTranslation = GetTranslation(finalTransform[i] * Inverse(skeleton->inverseBindPoses[i]));
-            V3 childPoint       = model->transform * childTranslation;
+            V3 childTranslation = GetTranslation(skinningMatrices[i] * Inverse(skeleton->inverseBindPoses[i]));
+            V3 childPoint       = transform * childTranslation;
             V3 parentTranslation =
-                GetTranslation(finalTransform[parentId] * Inverse(skeleton->inverseBindPoses[parentId]));
-            V3 parentPoint = model->transform * parentTranslation;
+                GetTranslation(skinningMatrices[parentId] * Inverse(skeleton->inverseBindPoses[parentId]));
+            V3 parentPoint = transform * parentTranslation;
             DrawLine(parentPoint, childPoint, Color_Green);
         }
     }

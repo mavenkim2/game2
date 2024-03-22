@@ -84,8 +84,8 @@ struct GameState
     // AnimationTransform *tforms;
     // Mat4 *finalTransforms;
 
-    Model model;
-    Model model2;
+    AS_Handle model;
+    AS_Handle model2;
 };
 
 global r_allocate_texture_2D *R_AllocateTexture2D;

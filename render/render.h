@@ -191,13 +191,62 @@ struct R_Pass3D
     u32 numGroups;
 };
 
-struct R_PassStaticMesh
+struct R_SkinnedMeshParams
 {
+    Mat4 transform;
+    AS_Handle loadedModel;
+
+    Mat4 *skinningMatrices;
+    u32 skinningMatricesCount;
+};
+
+struct R_SkinnedMeshParamsNode
+{
+    R_SkinnedMeshParams val;
+    R_SkinnedMeshParamsNode *next;
+};
+
+struct R_SkinnedMeshParamsList
+{
+    R_SkinnedMeshParamsNode *first;
+    R_SkinnedMeshParamsNode *last;
 };
 
 struct R_PassSkinnedMesh
 {
+    R_SkinnedMeshParamsList list;
 };
+
+struct R_StaticMeshParams
+{
+    Mat4 transform;
+    AS_Handle mesh;
+};
+
+struct R_StaticMeshParamsNode
+{
+    R_StaticMeshParams val;
+    R_StaticMeshParamsNode *next;
+};
+
+struct R_StaticMeshParamsList
+{
+    R_StaticMeshParamsNode *first;
+    R_StaticMeshParamsNode *last;
+};
+
+struct R_PassStaticMesh
+{
+    R_StaticMeshParamsList list;
+};
+
+// struct Model
+// {
+//     AS_Handle loadedModel;
+//     Mat4 transform;
+//     u32 vbo;
+//     u32 ebo;
+// };
 
 struct R_Pass
 {
@@ -230,16 +279,14 @@ struct RenderState
     i32 width;
     i32 height;
 
-    // TODO: switch to push buffer w/ headers instead of array, to allow for different types of
-    // commands
-    // u8 commands[65536];
-    Array(RenderCommand) commands;
     R_Pass passes[R_PassType_Count];
 
-    // DebugRenderer debugRenderer;
     AS_CacheState *as_state;
 };
 
-internal void PushModel(Model *model, Mat4 *finalTransforms);
+internal void D_PushModel(AS_Handle loadedModel, Mat4 transform, Mat4 *skinningMatrices,
+                          u32 skinningMatricesCount);
+inline R_Pass *R_GetPassFromKind(R_PassType type);
+internal u8 *R_BatchListPush(R_BatchList *list, u32 instCap);
 
 #endif

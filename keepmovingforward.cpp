@@ -491,20 +491,10 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
         // Load assets
 
-        gameState->model.loadedModel  = LoadAssetFile(Str8Lit("data/dragon/scene.model"));
-        gameState->model2.loadedModel = LoadAssetFile(Str8Lit("data/hero/scene.model"));
+        gameState->model  = LoadAssetFile(Str8Lit("data/dragon/scene.model"));
+        gameState->model2 = LoadAssetFile(Str8Lit("data/hero/scene.model"));
 
         KeyframedAnimation *animation = PushStruct(gameState->worldArena, KeyframedAnimation);
-
-        Mat4 translate             = Translate4(V3{0, 0, 5});
-        Mat4 scale                 = Scale(V3{0.5f, 0.5f, 0.5f});
-        Mat4 rotate                = Rotate4(MakeV3(1, 0, 0), PI / 2);
-        gameState->model.transform = translate * rotate * scale;
-
-        translate                   = Translate4(V3{0, 0, 30});
-        scale                       = Scale(V3{1, 1, 1});
-        rotate                      = Rotate4(MakeV3(1, 0, 0), PI / 2);
-        gameState->model2.transform = translate * rotate * scale;
 
         // ReadAnimationFile(gameState->worldArena, animation, Str8Lit("data/dragon_attack_01.anim"));
         AS_Handle anim = LoadAssetFile(Str8Lit("data/dragon/Qishilong_attack01.anim"));
@@ -900,6 +890,9 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
         DrawBox({5, 1, 1}, {2, 1, 1}, Color_Black);
         DrawBox({8, 3, 3}, {1, 4, 2}, Color_Green);
+        DrawArrow({0, 0, 0}, {5, 0, 0}, {1, 0, 0, 1}, 1.f);
+        DrawArrow({0, 0, 0}, {0, 5, 0}, {0, 1, 0, 1}, 1.f);
+        DrawArrow({0, 0, 0}, {0, 0, 5}, {0, 0, 1, 1}, 1.f);
     }
 
     // Render
@@ -911,29 +904,34 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         // PushCube(&openGL->group, player->pos, player->size, player->color);
         // DrawRectangle(&renderState, V2(0, 0), V2(renderState.width / 10, renderState.height / 10));
 
-        LoadedSkeleton *skeleton   = GetSkeletonFromModel(gameState->model.loadedModel);
-        AnimationTransform *tforms = PushArray(gameState->frameArena, AnimationTransform, skeleton->count);
-        Mat4 *finalTransforms      = PushArray(gameState->frameArena, Mat4, skeleton->count);
+        // Model 1
+        Mat4 translate  = Translate4(V3{0, 0, 5});
+        Mat4 scale      = Scale(V3{0.5f, 0.5f, 0.5f});
+        Mat4 rotate     = Rotate4(MakeV3(1, 0, 0), PI / 2);
+        Mat4 transform1 = translate * rotate * scale;
 
-        LoadedSkeleton *skeleton2   = GetSkeletonFromModel(gameState->model2.loadedModel);
-        AnimationTransform *tforms2 = PushArray(gameState->frameArena, AnimationTransform, skeleton2->count);
-        Mat4 *finalTransforms2      = PushArray(gameState->frameArena, Mat4, skeleton2->count);
-        // ANIMATION
-        // PlayCurrentAnimation(gameState->worldArena, &gameState->animPlayer, input->dT, tforms2);
-        PlayCurrentAnimation(gameState->worldArena, &gameState->animPlayer, input->dT, tforms);
-
-        SkinModelToAnimation(&gameState->animPlayer, &gameState->model, tforms, finalTransforms);
-
+        LoadedSkeleton *skeleton    = GetSkeletonFromModel(gameState->model);
+        AnimationTransform *tforms1 = PushArray(gameState->frameArena, AnimationTransform, skeleton->count);
+        Mat4 *skinningMatrices1     = PushArray(gameState->frameArena, Mat4, skeleton->count);
+        PlayCurrentAnimation(gameState->worldArena, &gameState->animPlayer, input->dT, tforms1);
+        SkinModelToAnimation(&gameState->animPlayer, gameState->model, tforms1, skinningMatrices1);
+        DebugDrawSkeleton(gameState->model, transform1, skinningMatrices1);
         // SkinModelToBindPose(&gameState->model, finalTransforms);
-        DrawArrow({0, 0, 0}, {5, 0, 0}, {1, 0, 0, 1}, 1.f);
-        DrawArrow({0, 0, 0}, {0, 5, 0}, {0, 1, 0, 1}, 1.f);
-        DrawArrow({0, 0, 0}, {0, 0, 5}, {0, 0, 1, 1}, 1.f);
-        DebugDrawSkeleton(&gameState->model, finalTransforms);
-        PushModel(&gameState->model, finalTransforms);
+        D_PushModel(gameState->model, transform1, skinningMatrices1, skeleton->count);
 
-        SkinModelToBindPose(&gameState->model2, finalTransforms2);
+        // Model 2
+        translate       = Translate4(V3{0, 0, 30});
+        scale           = Scale(V3{1, 1, 1});
+        rotate          = Rotate4(MakeV3(1, 0, 0), PI / 2);
+        Mat4 transform2 = translate * rotate * scale;
+
+        LoadedSkeleton *skeleton2   = GetSkeletonFromModel(gameState->model2);
+        AnimationTransform *tforms2 = PushArray(gameState->frameArena, AnimationTransform, skeleton2->count);
+        Mat4 *skinningMatrices2     = PushArray(gameState->frameArena, Mat4, skeleton2->count);
+        // PlayCurrentAnimation(gameState->worldArena, &gameState->animPlayer, input->dT, tforms2);
         // SkinModelToAnimation(&gameState->animPlayer, &gameState->model2, tforms2, finalTransforms2);
-        PushModel(&gameState->model2, finalTransforms2);
+        SkinModelToBindPose(gameState->model2, skinningMatrices2);
+        D_PushModel(gameState->model2, transform2, skinningMatrices2, skeleton2->count);
     }
     // GameOutputSound(soundBuffer, gameState->toneHz);
 }

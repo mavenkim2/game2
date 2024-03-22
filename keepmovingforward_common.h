@@ -153,60 +153,6 @@ typedef i64 b64;
 #define DLLInsert(f, l, p, n) DLLInsert_NPZ(f, l, p, n, next, prev, CheckNull, SetNull)
 #define DLLRemove(f, l, n)    DLLRemove_NPZ(f, l, n, next, prev, CheckNull, SetNull)
 
-////////////////////////////////////////////////////////////////////////////////////////
-// Array List
-// TODO: probably going to get rid of this
-struct AHeader
-{
-    u32 count;
-    u32 cap;
-};
-
-inline void *ArrayGrow(void *a, u32 size, u32 length, u32 minCap);
-
-#define ArrayHeader(a)      ((AHeader *)(a)-1)
-#define ArrayPut(a, item)   (ArrayMayGrow((a), 1), (a)[ArrayHeader(a)->count++] = item)
-#define ArrayLen(a)         ((a) ? ArrayHeader(a)->count : 0)
-#define ArrayCap(a)         ((a) ? ArrayHeader(a)->cap : 0)
-#define ArraySetCap(a, cap) (ArrayGrowWrap(a, 0, cap))
-#define ArraySetLen(a, len)                                                                                       \
-    ((ArrayCap(a) < (len) ? ArraySetCap((a), (len)), 0 : 0), (a) ? (ArrayHeader(a)->count = (len)) : 0)
-
-#define ArrayMayGrow(a, n)                                                                                        \
-    ((!(a) || (ArrayHeader(a)->count) + (n) > ArrayHeader(a)->cap) ? (ArrayGrowWrap((a), (n), 0), 0) : 0)
-#define ArrayGrowWrap(a, b, c) ((a) = ArrayGrowWrapper((a), (sizeof(*a)), (b), (c)))
-
-template <class T> internal T *ArrayGrowWrapper(T *a, u32 size, u32 length, u32 minCap)
-{
-    return (T *)ArrayGrow(a, size, length, minCap);
-}
-
-inline void *ArrayGrow(void *a, u32 size, u32 length, u32 minCap)
-{
-    void *b;
-    u32 minCount = ArrayLen(a) + length;
-    if (minCap < minCount)
-    {
-        minCap = minCount;
-    }
-    if (minCap < 2 * ArrayCap(a)) minCap = 2 * ArrayCap(a);
-    else if (minCap < 4) minCap = 4;
-
-    b = realloc((a) ? ArrayHeader(a) : 0, size * minCap + sizeof(AHeader));
-    b = (u8 *)b + sizeof(AHeader);
-    if (a == 0)
-    {
-        ArrayHeader(b)->count = 0;
-    }
-    ArrayHeader(b)->cap = minCap;
-    return b;
-}
-
-#define forEach(array, ptr)                                                                                       \
-    for (u32 STRING_JOIN(i, __LINE__) = 0; STRING_JOIN(i, __LINE__) < ArrayLen(array);                            \
-         STRING_JOIN(i, __LINE__)++)                                                                              \
-        if ((ptr = (array) + STRING_JOIN(i, __LINE__)) != 0)
-
 // Atomics
 #if COMPILER_MSVC
 #define AtomicCompareExchangeU32(dest, src, expected)                                                             \
