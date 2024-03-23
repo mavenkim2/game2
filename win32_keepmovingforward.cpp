@@ -4,7 +4,6 @@
 
 #include "keepmovingforward_common.h"
 #include "keepmovingforward_math.h"
-#include "keepmovingforward_platform.h"
 
 #include "keepmovingforward_memory.h"
 #include "keepmovingforward_string.h"
@@ -12,11 +11,13 @@
 #include "thread_context.h"
 #include "keepmovingforward_camera.h"
 #include "job.h"
+#include "render/render_core.h"
 #include "asset.h"
 #include "asset_cache.h"
 #include "render/render.h"
 #include "render/opengl.h"
 #include "./offline/asset_processing.h"
+#include "keepmovingforward_platform.h"
 #include "win32_keepmovingforward.h"
 
 #include "platform_inc.cpp"
@@ -24,9 +25,13 @@
 #include "keepmovingforward_memory.cpp"
 #include "keepmovingforward_string.cpp"
 #include "job.cpp"
-#include "asset.cpp"
+// #include "asset.cpp"
 #include "asset_cache.cpp"
 #include "render/opengl.cpp"
+
+#include "crack.h"
+#ifdef LSP_INCLUDE
+#endif
 
 global b32 RUNNING = true;
 
@@ -678,6 +683,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     gameMemory.R_AllocateTexture2D  = R_AllocateTexture2D;
     gameMemory.R_SubmitTexture2D    = R_SubmitTexture2D;
     gameMemory.R_DeleteTexture2D    = R_DeleteTexture2D;
+    gameMemory.R_AllocateBuffer     = R_AllocateBuffer;
 
     //////////////////////////////
     // AUDIO

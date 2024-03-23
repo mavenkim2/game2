@@ -481,11 +481,12 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         OS_Init();
         JS_Init();
         AS_Init();
-        T_Init();
+        A_Init();
 
         R_AllocateTexture2D = memory->R_AllocateTexture2D;
         R_SubmitTexture2D   = memory->R_SubmitTexture2D;
         R_DeleteTexture2D   = memory->R_DeleteTexture2D;
+        R_AllocateBuffer    = memory->R_AllocateBuffer;
 
         D_Init(renderState);
 
@@ -544,10 +545,11 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
     }
 
     ArenaClear(gameState->frameArena);
-    //
+
+    //////////////////////////////
     // Assets
     //
-    LoadTextureOps();
+    A_LoadTextures();
 
     Level *level                = gameState->level;
     GameInput *playerController = input;

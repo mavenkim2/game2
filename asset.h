@@ -10,8 +10,6 @@
 
 #define MAX_MATRICES_PER_VERTEX 4
 
-typedef u32 R_Handle;
-
 union AS_Handle
 {
     u64 u64[2];
@@ -229,8 +227,9 @@ struct TGAResult
 // Function
 //
 struct AS_Node;
-internal void PushTextureQueue(u8 *inputBuffer);
-internal void LoadTextureOps();
+JOB_CALLBACK(A_LoadTextureCallback);
+internal void A_PushTextureOp(AS_Node *node);
+internal void A_LoadTextures();
 
 inline u16 CompressRotationChannel(f32 q)
 {

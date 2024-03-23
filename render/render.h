@@ -46,32 +46,6 @@ struct DebugVertex
     V4 color;
 };
 
-struct Primitive
-{
-    u32 vertexCount;
-    u32 indexCount;
-    // For instancing
-    Mat4 *transforms = 0;
-    V4 *colors       = 0;
-};
-
-struct DebugRenderer
-{
-    Array(DebugVertex) lines;
-    Array(DebugVertex) points;
-
-    Array(V3) indexLines;
-    Array(u32) indices;
-
-    Primitive *primitives = 0;
-
-    u32 vbo;
-    u32 ebo;
-
-    u32 instanceVao;
-    u32 instanceVbo;
-    u32 instanceVbo2;
-};
 struct RenderVertex
 {
     V4 p;
@@ -283,6 +257,28 @@ struct RenderState
 
     AS_CacheState *as_state;
 };
+
+enum R_BufferType
+{
+    R_BufferType_Vertex,
+    R_BufferType_Index,
+};
+
+#define R_ALLOCATE_TEXTURE_2D(name) u64 name(u8 **out)
+typedef R_ALLOCATE_TEXTURE_2D(r_allocate_texture_2D);
+#define R_TEXTURE_SUBMIT_2D(name)                                                                                 \
+    R_Handle name(u64 pboHandle, u32 width, u32 height, R_TexFormat format)
+typedef R_TEXTURE_SUBMIT_2D(r_submit_texture_2D);
+#define R_DELETE_TEXTURE_2D(name) void name(R_Handle handle)
+typedef R_DELETE_TEXTURE_2D(r_delete_texture_2D);
+
+#define R_ALLOCATE_BUFFER(name) R_Handle name(R_BufferType type, void *data, u64 size)
+typedef R_ALLOCATE_BUFFER(r_allocate_buffer);
+
+R_ALLOCATE_TEXTURE_2D(R_AllocateTexture2D);
+R_TEXTURE_SUBMIT_2D(R_SubmitTexture2D);
+R_DELETE_TEXTURE_2D(R_DeleteTexture2D);
+R_ALLOCATE_BUFFER(R_AllocateBuffer);
 
 internal void D_PushModel(AS_Handle loadedModel, Mat4 transform, Mat4 *skinningMatrices,
                           u32 skinningMatricesCount);

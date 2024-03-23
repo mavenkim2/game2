@@ -35,6 +35,7 @@
 #define global   static
 #define internal static
 #define U32Max   0xffffffff
+#define U64Max   0xffffffffffffffff
 
 typedef int8_t i8;
 typedef int16_t i16;
@@ -85,6 +86,7 @@ typedef i64 b64;
 #define MemoryCopy            memcpy
 #define MemorySet             memset
 #define MemoryZero(ptr, size) MemorySet((ptr), 0, (size))
+#define MemoryZeroStruct(ptr) MemorySet((ptr), 0, sizeof(*(ptr)))
 
 #define ArrayInit(arena, array, type, _cap)                                                                       \
     do                                                                                                            \
@@ -156,7 +158,7 @@ typedef i64 b64;
 // Atomics
 #if COMPILER_MSVC
 #define AtomicCompareExchangeU32(dest, src, expected)                                                             \
-    _InterlockedCompareExchange((long volatile *)dest, src, expected)
+    (u32)(_InterlockedCompareExchange((long volatile *)dest, src, expected))
 #define AtomicCompareExchangeU64(dest, src, expected)                                                             \
     _InterlockedCompareExchange64((__int64 volatile *)dest, src, expected)
 

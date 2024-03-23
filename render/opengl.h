@@ -268,6 +268,16 @@ struct R_Shader
     u64 fsLastModified;
 };
 
+struct R_OpenGL_Buffer
+{
+    R_OpenGL_Buffer *next;
+    u64 size;
+    u64 generation;
+
+    GLuint id;
+    R_BufferType type;
+};
+
 struct OpenGL
 {
     Arena *arena;
@@ -279,13 +289,15 @@ struct OpenGL
 
     R_Shader shaders[R_ShaderType_Count];
 
-    R_Handle whiteTextureHandle;
+    GLuint whiteTextureHandle;
     u32 defaultTextureFormat;
 
     GLuint scratchVbo;
-    u64 scratchVboSize;
     GLuint scratchEbo;
+    u64 scratchVboSize;
     u64 scratchEboSize;
+
+    R_OpenGL_Buffer *freeBuffers;
 
     OpenGLFunction(glGenBuffers);
     OpenGLFunction(glBindBuffer);
@@ -337,12 +349,15 @@ internal void R_OpenGL_Init();
 internal void R_Win32_OpenGL_Init(HWND window);
 internal GLuint R_OpenGL_CreateShader(string globalsPath, string vsPath, string fsPath, string preprocess);
 internal GLuint R_OpenGL_CompileShader(char *globals, char *vs, char *fs);
-internal b8 R_Handle_Match(R_Handle a, R_Handle b);
-internal R_Handle R_Handle_Zero();
-R_ALLOC_TEXTURE_2D(R_AllocateTexture2D);
-R_TEXTURE_SUBMIT_2D(R_SubmitTexture2D);
-R_DELETE_TEXTURE_2D(R_DeleteTexture2D);
 internal void R_OpenGL_StartShader(RenderState *state, R_ShaderType type, void *group);
 internal void R_OpenGL_EndShader(R_ShaderType type);
 
+//////////////////////////////
+// Handle
+//
+global R_OpenGL_Buffer r_opengl_bufferNil = {&r_opengl_bufferNil};
+internal b8 R_HandleMatch(R_Handle a, R_Handle b);
+internal R_Handle R_HandleZero();
+internal R_Handle R_OpenGL_HandleFromBuffer(R_OpenGL_Buffer *buffer);
+internal R_OpenGL_Buffer* R_OpenGL_BufferFromHandle(R_Handle handle);
 #endif

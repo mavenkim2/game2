@@ -98,27 +98,6 @@ internal GLuint R_OpenGL_CreateShader(string globalsPath, string vsPath, string 
     return id;
 }
 
-// internal void LoadModel(Model *model)
-// {
-//     // NOTE: must be 0
-//     if (!model->vbo)
-//     {
-//         // TODO: this shouldn't be necessary. render.cpp should just give the right data
-//
-//         LoadedModel *loadedModel = GetModel(model->loadedModel);
-//         openGL->glGenBuffers(1, &model->vbo);
-//         openGL->glGenBuffers(1, &model->ebo);
-//
-//         openGL->glBindBuffer(GL_ARRAY_BUFFER, model->vbo);
-//         openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(loadedModel->vertices[0]) * loadedModel->vertexCount,
-//                              loadedModel->vertices, GL_STREAM_DRAW);
-//
-//         openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, model->ebo);
-//         openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(loadedModel->indices[0]) * loadedModel->indexCount,
-//                              loadedModel->indices, GL_STREAM_DRAW);
-//     }
-// }
-
 // internal void ReloadShader(OpenGLShader *shader)
 // {
 //     i32 type = -1;
@@ -424,6 +403,7 @@ internal void R_EndFrame(RenderState *state, HDC deviceContext, int clientWidth,
                 openGL->glUseProgram(modelProgramId);
 
                 R_SkinnedMeshParamsList *list = &pass->passSkinned->list;
+                // TODO: remove reference to material in here
                 for (R_SkinnedMeshParamsNode *node = list->first; node != 0; node = node->next)
                 {
                     R_SkinnedMeshParams *params = &node->val;
@@ -433,10 +413,13 @@ internal void R_EndFrame(RenderState *state, HDC deviceContext, int clientWidth,
                     // {
                     //     LoadModel(model);
                     // }
+                    R_OpenGL_Buffer *vertexBuffer = R_OpenGL_BufferFromHandle(model->vertexBuffer);
+                    R_OpenGL_Buffer *indexBuffer  = R_OpenGL_BufferFromHandle(model->indexBuffer);
+
                     openGL->glActiveTexture(GL_TEXTURE0);
 
-                    openGL->glBindBuffer(GL_ARRAY_BUFFER, model->vertexBuffer);
-                    openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, model->indexBuffer);
+                    openGL->glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer->id);
+                    openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBuffer->id);
 
                     R_OpenGL_StartShader(state, R_ShaderType_SkinnedMesh, 0);
                     // TODO: uniform blocks so we can just push a struct or something instead of having to do
@@ -778,7 +761,7 @@ inline GLuint GetPbo(u64 handle)
     return pbo;
 }
 
-R_ALLOC_TEXTURE_2D(R_AllocateTexture2D)
+R_ALLOCATE_TEXTURE_2D(R_AllocateTexture2D)
 {
     u64 handle         = 0;
     u64 availableSlots = ArrayLength(openGL->pbos) - (openGL->pboIndex - openGL->firstUsedPboIndex);
@@ -846,18 +829,82 @@ R_DELETE_TEXTURE_2D(R_DeleteTexture2D)
     glDeleteTextures(1, &handle);
 }
 
+R_ALLOCATE_BUFFER(R_AllocateBuffer)
+{
+    R_OpenGL_Buffer *buffer = openGL->freeBuffers;
+    if (buffer)
+    {
+        u64 gen = buffer->generation;
+        StackPop(openGL->freeBuffers);
+        MemoryZeroStruct(buffer);
+        buffer->generation = gen;
+    }
+    else
+    {
+        buffer = PushStruct(openGL->arena, R_OpenGL_Buffer);
+        openGL->glGenBuffers(1, &buffer->id);
+    }
+    buffer->size = size;
+    buffer->generation += 1;
+    buffer->type = type;
+
+    GLenum bufferType;
+    switch (type)
+    {
+        case R_BufferType_Vertex:
+        {
+            bufferType = GL_ARRAY_BUFFER;
+            break;
+        }
+        case R_BufferType_Index:
+        {
+            bufferType = GL_ELEMENT_ARRAY_BUFFER;
+            break;
+        }
+        default:
+        {
+            Assert(!"Invalid default");
+        }
+    }
+    openGL->glBindBuffer(bufferType, buffer->id);
+    openGL->glBufferData(bufferType, size, data, GL_STATIC_DRAW);
+    R_Handle result = R_OpenGL_HandleFromBuffer(buffer);
+    return result;
+}
+
+#if 0
+R_DELETE_BUFFER
+#endif
+
 //////////////////////////////
 // HANDLES
 //
-internal b8 R_Handle_Match(R_Handle a, R_Handle b)
+internal b8 R_HandleMatch(R_Handle a, R_Handle b)
 {
-    b8 result = (a == b);
+    b8 result = (a.u64[0] == b.u64[0] && a.u64[1] == b.u64[1]);
     return result;
 }
-internal R_Handle R_Handle_Zero()
+internal R_Handle R_HandleZero()
 {
-    R_Handle handle = 0;
+    R_Handle handle = {};
     return handle;
+}
+
+internal R_Handle R_OpenGL_HandleFromBuffer(R_OpenGL_Buffer *buffer)
+{
+    R_Handle handle;
+    handle.u64[0] = (u64)(buffer);
+    handle.u64[1] = buffer->generation;
+}
+
+internal R_OpenGL_Buffer* R_OpenGL_BufferFromHandle(R_Handle handle)
+{
+    R_OpenGL_Buffer *buffer = (R_OpenGL_Buffer *)handle.u64[0];
+    if (buffer == 0 || buffer->generation != handle.u64[1])
+    {
+        buffer = &r_opengl_bufferNil;
+    }
+    return buffer;
 }
 
 // R_MODEL_SUBMIT_2D

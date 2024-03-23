@@ -12,6 +12,7 @@
 #include "physics.h"
 #include "keepmovingforward_camera.h"
 #include "keepmovingforward_platform.h"
+#include "render/render_core.h"
 #include "asset.h"
 #include "./offline/asset_processing.h"
 #include "asset_cache.h"
@@ -63,7 +64,7 @@ enum CameraMode
 
 struct GameState
 {
-    Arena* frameArena;
+    Arena *frameArena;
 
     u64 entity_id_gen;
     Entity player;
@@ -91,5 +92,6 @@ struct GameState
 global r_allocate_texture_2D *R_AllocateTexture2D;
 global r_submit_texture_2D *R_SubmitTexture2D;
 global r_delete_texture_2D *R_DeleteTexture2D;
+global r_allocate_buffer *R_AllocateBuffer;
 
-#endif 
+#endif

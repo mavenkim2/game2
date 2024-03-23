@@ -445,7 +445,7 @@ JOB_CALLBACK(AS_LoadAsset)
         {
             node->texture.type = TextureType_Normal;
         }
-        PushTextureQueue(node);
+        A_PushTextureOp(node);
     }
     else if (extension == Str8Lit("ttf"))
     {
@@ -505,28 +505,41 @@ internal AS_Handle AS_GetAssetHandle(string path)
     return result;
 }
 
+// TODO IMPORTANT: get the nodes directly from the handle instead of having to do this dance every time
+// also need to do model loading similar to how texture loading is done
+#define AS_NodeFoundBit 0xf000000000000000
 internal AS_Node *AS_GetNodeFromHandle(AS_Handle handle)
 {
-    Assert(sizeof(handle) <= 16);
-
-    u64 hash        = handle.u64[0];
-    u32 slotIndex   = hash & (as_state->numSlots - 1);
-    AS_Slot *slot   = as_state->assetSlots + slotIndex;
     AS_Node *result = 0;
-
-    // TODO: can this be lockless?
-    BeginRMutex(&slot->mutex);
-    for (AS_Node *node = slot->first; node != 0; node = node->next)
+    Assert(sizeof(handle) <= 16);
+    if (handle.u64[2] & AS_NodeFoundBit)
     {
-        if (node->hash == hash)
+        result = (AS_Node *)handle.u64[0];
+        if (handle.u64[2] != result->generation)
         {
-            result = node;
+            result = 0;
         }
     }
-    EndRMutex(&slot->mutex);
-    if (result && result->status != AS_Status_Loaded)
+    else
     {
-        result = 0;
+        u64 hash      = handle.u64[0];
+        u32 slotIndex = hash & (as_state->numSlots - 1);
+        AS_Slot *slot = as_state->assetSlots + slotIndex;
+
+        // TODO: can this be lockless?
+        BeginRMutex(&slot->mutex);
+        for (AS_Node *node = slot->first; node != 0; node = node->next)
+        {
+            if (node->hash == hash)
+            {
+                result = node;
+            }
+        }
+        EndRMutex(&slot->mutex);
+        if (result && result->status != AS_Status_Loaded)
+        {
+            result = 0;
+        }
     }
 
     return result;

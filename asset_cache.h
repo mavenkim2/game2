@@ -110,6 +110,7 @@ struct AS_Node
 {
     u64 hash;
     u64 lastModified;
+    u64 generation;
     string path;
     u64 size;
     AS_Status status;

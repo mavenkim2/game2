@@ -8,6 +8,7 @@
 #include "asset.h"
 #include "asset_cache.h"
 #include "./render/opengl.cpp"
+#include "keepmovingforward.h"
 #endif
 
 inline AnimationTransform MakeAnimTform(V3 position, Quat rotation, V3 scale)
@@ -423,64 +424,73 @@ internal void SkinModelToBindPose(AS_Handle model, Mat4 *finalTransforms)
 //////////////////////////////
 // Texture streaming
 //
-enum T_LoadStatus
+enum A_TextureLoadStatus
 {
-    T_LoadStatus_Empty,
-    T_LoadStatus_Unloaded,
-    T_LoadStatus_Loading,
-    T_LoadStatus_Loaded,
+    A_TextureLoadStatus_Unloaded,
+    A_TextureLoadStatus_Loading,
+    A_TextureLoadStatus_Loaded,
 };
 
-struct TextureOp
+struct A_TextureOp
 {
-    T_LoadStatus status;
+    A_TextureLoadStatus status;
     AS_Node *assetNode;
 
     u8 *buffer;
-
-    TextureOp *next;
-    TextureOp *prev;
-
     u64 pboHandle;
 };
 
-struct TextureQueue
+struct A_TextureQueue
 {
-    TextureOp ops[64];
+    A_TextureOp ops[64];
     u32 numOps;
 
     // Loaded -> GPU
     u32 finalizePos;
     // Unloaded -> Loading
     u32 loadPos;
-
-    // Add Unloaded Textures to be loaded
     u32 writePos;
-
-    TicketMutex mutex;
+    u32 endPos;
 };
 
-struct T_State
+struct A_BufferOp
+{
+    AS_Node *node;
+};
+
+struct A_BufferQueue
+{
+    A_BufferOp ops[64];
+    u32 numOps;
+
+    u32 readPos;
+    u32 writePos;
+    u32 endPos;
+};
+
+// L for loading, probably going to have to change this name (asset?)
+struct A_State
 {
     Arena *arena;
-    TextureQueue queue;
+    A_TextureQueue textureQueue;
+    A_BufferQueue bufferQueue;
 };
 
-global T_State *t_state;
+global A_State *a_state;
 
-internal void T_Init()
+internal void A_Init()
 {
-    Arena *arena   = ArenaAlloc();
-    t_state        = PushStruct(arena, T_State);
-    t_state->arena = arena;
+    Arena *arena = ArenaAlloc();
+    a_state      = PushStruct(arena, A_State);
 
     // Push free texture ops to use
-    t_state->queue.numOps = 64;
+    a_state->textureQueue.numOps = 64;
+    a_state->bufferQueue.numOps  = 64;
 }
 
-JOB_CALLBACK(LoadTextureCallback)
+JOB_CALLBACK(A_LoadTextureCallback)
 {
-    TextureOp *op = (TextureOp *)data;
+    A_TextureOp *op = (A_TextureOp *)data;
     i32 width, height, nChannels;
     u8 *texData = (u8 *)stbi_load_from_memory(GetAssetBuffer(op->assetNode), (i32)op->assetNode->size, &width,
                                               &height, &nChannels, 4);
@@ -490,101 +500,144 @@ JOB_CALLBACK(LoadTextureCallback)
     stbi_image_free(texData);
 
     WriteBarrier();
-    op->status = T_LoadStatus_Loaded;
+    op->status = A_TextureLoadStatus_Loaded;
 
     return 0;
 }
 
-// NOTE: if there isn't space it just won't push
-internal void PushTextureQueue(AS_Node *node)
+internal void A_PushTextureOp(AS_Node *node)
 {
-    TextureQueue *queue = &t_state->queue;
-    AS_Status status    = node->status;
-    ReadBarrier();
+    A_TextureQueue *queue = &a_state->textureQueue;
+    AS_Status status      = node->status;
     if (status == AS_Status_Queued)
     {
-        TicketMutexScope(&queue->mutex)
+        for (;;)
         {
-            for (;;)
+            u32 writePos       = AtomicIncrementU32(&queue->writePos) - 1;
+            u32 availableSpots = queue->numOps - (writePos - queue->finalizePos);
+            if (availableSpots >= 1)
             {
-                u32 availableSpots = queue->numOps - (queue->writePos - queue->finalizePos);
-                if (availableSpots >= 1)
+                u32 ringIndex   = (writePos & (queue->numOps - 1));
+                A_TextureOp *op = queue->ops + ringIndex;
+                op->status      = A_TextureLoadStatus_Unloaded;
+                op->assetNode   = node;
+                while (AtomicCompareExchangeU32(&queue->endPos, writePos + 1, writePos) != writePos)
                 {
-                    u32 ringIndex = (queue->writePos++ & (queue->numOps - 1));
-                    TextureOp *op = queue->ops + ringIndex;
-                    op->status    = T_LoadStatus_Unloaded;
-                    op->assetNode = node;
-                    break;
+                    _mm_pause();
                 }
-                _mm_pause();
+                break;
             }
+            _mm_pause();
         }
     }
 }
 
-internal void LoadTextureOps()
+internal void A_LoadTextures()
 {
-    TextureQueue *queue = &t_state->queue;
+    A_TextureQueue *queue = &a_state->textureQueue;
 
-    TicketMutexScope(&queue->mutex)
+    u32 endPos = queue->endPos;
+    // Gets the Pixel Buffer Object to map to
+    while (queue->loadPos != endPos)
     {
-        // Gets the Pixel Buffer Object to map to
-        while (queue->loadPos != queue->writePos)
+        u32 ringIndex   = queue->loadPos & (queue->numOps - 1);
+        A_TextureOp *op = queue->ops + ringIndex;
+        Assert(queue->ops[ringIndex].status == A_TextureLoadStatus_Unloaded);
+        op->buffer    = 0;
+        op->pboHandle = R_AllocateTexture2D(&op->buffer);
+        if (op->buffer)
         {
-            u32 ringIndex = queue->loadPos & (queue->numOps - 1);
-            TextureOp *op = queue->ops + ringIndex;
-            Assert(queue->ops[ringIndex].status == T_LoadStatus_Unloaded);
-            op->buffer    = 0;
-            op->pboHandle = R_AllocateTexture2D(&op->buffer);
-            if (op->buffer)
-            {
-                op->status = T_LoadStatus_Loading;
-                queue->loadPos++;
-                JS_Kick(LoadTextureCallback, op, 0, Priority_Low);
-            }
-            else
-            {
-                break;
-            }
+            op->status = A_TextureLoadStatus_Loading;
+            queue->loadPos++;
+            JS_Kick(A_LoadTextureCallback, op, 0, Priority_Low);
         }
-        // Submits PBO to OpenGL
-        while (queue->finalizePos != queue->loadPos)
+        else
         {
-            u32 ringIndex = queue->finalizePos & (queue->numOps - 1);
-            TextureOp *op = queue->ops + ringIndex;
-            if (op->status == T_LoadStatus_Loaded)
+            break;
+        }
+    }
+    // Submits PBO to OpenGL
+    while (queue->finalizePos != queue->loadPos)
+    {
+        u32 ringIndex   = queue->finalizePos & (queue->numOps - 1);
+        A_TextureOp *op = queue->ops + ringIndex;
+        if (op->status == A_TextureLoadStatus_Loaded)
+        {
+            Texture *texture   = &op->assetNode->texture;
+            R_TexFormat format = R_TexFormat_Nil;
+            switch (texture->type)
             {
-                Texture *texture   = &op->assetNode->texture;
-                R_TexFormat format = R_TexFormat_Nil;
-                switch (texture->type)
-                {
-                    case TextureType_Diffuse:
-                        format = R_TexFormat_SRGB;
-                        break;
-                    case TextureType_Normal:
-                    default:
-                        format = R_TexFormat_RGBA8;
-                        break;
-                }
-                R_SubmitTexture2D(&texture->handle, op->pboHandle, texture->width, texture->height, format);
-                texture->loaded = true;
-                queue->finalizePos++;
-                EndTemporaryMemory(op->assetNode);
-                // TODO: may need a write barrier here
-                // also since texture data doesn't have to be in main memory, should have to free it
-                op->status            = T_LoadStatus_Empty;
-                op->assetNode->status = AS_Status_Loaded;
+                case TextureType_Diffuse:
+                    format = R_TexFormat_SRGB;
+                    break;
+                case TextureType_Normal:
+                default:
+                    format = R_TexFormat_RGBA8;
+                    break;
             }
-            else
-            {
-                break;
-            }
+            R_SubmitTexture2D(&texture->handle, op->pboHandle, texture->width, texture->height, format);
+            texture->loaded = true;
+            queue->finalizePos++;
+            EndTemporaryMemory(op->assetNode);
+            // TODO: may need a write barrier here
+            WriteBarrier();
+            op->assetNode->status = AS_Status_Loaded;
+        }
+        else
+        {
+            break;
         }
     }
 }
 
+//////////////////////////////
+// Vertex Buffer/Index Buffer Allocations
+//
+internal void A_PushBufferOp(AS_Node *node)
+{
+    A_BufferQueue *queue = &a_state->bufferQueue;
+    AS_Status status     = node->status;
+    if (status == AS_Status_Queued)
+    {
+        for (;;)
+        {
+            u32 writePos       = AtomicIncrementU32(&queue->writePos) - 1;
+            u32 availableSpots = queue->numOps - (writePos - queue->readPos);
+            if (availableSpots >= 1)
+            {
+                u32 ringIndex  = (writePos & (queue->numOps - 1));
+                A_BufferOp *op = queue->ops + ringIndex;
+                op->node       = node;
+                while (AtomicCompareExchangeU32(&queue->endPos, writePos + 1, writePos) != writePos)
+                {
+                    _mm_pause();
+                }
+                break;
+            }
+            _mm_pause();
+        }
+    }
+}
+
+internal void A_LoadBufferOps()
+{
+    A_BufferQueue *queue = &a_state->bufferQueue;
+    u32 endPos           = queue->endPos;
+    while (queue->readPos != endPos)
+    {
+        A_BufferOp *op        = &queue->ops[queue->readPos++];
+        LoadedModel *model    = &op->node->model;
+        R_Handle vertexBuffer = R_AllocateBuffer(R_BufferType_Vertex, model->vertices,
+                                                 sizeof(model->vertices[0]) * model->vertexCount);
+        R_Handle indexBuffer =
+            R_AllocateBuffer(R_BufferType_Index, model->indices, sizeof(model->indices[0]) * model->indexCount);
+        model->vertexBuffer = vertexBuffer;
+        model->indexBuffer  = indexBuffer;
+        WriteBarrier();
+        op->node.status = AS_Status_Loaded;
+    }
+}
 #if 0
-// TODO: i really don't like using function pointers for platform layer stuff
 // NOTE: array of nodes, each with a parent index and a name
 // you know i think I'm just goin to use assimp to load the file once, write it in an easier format to use,
 // and then use that format

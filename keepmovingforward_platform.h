@@ -1,6 +1,11 @@
 #ifndef KEEPMOVINGFORWARD_PLATFORM_H
 #define KEEPMOVINGFORWARD_PLATFORM_H
 
+#include "crack.h"
+#ifdef LSP_INCLUDE
+#include "render/render.h"
+#endif
+
 #if INTERNAL
 struct DebugPlatformHandle
 {
@@ -13,16 +18,6 @@ typedef DEBUG_PLATFORM_GET_RESOLUTION(DebugPlatformGetResolutionFunctionType);
 
 // Forward declarations
 struct RenderState;
-enum R_TexFormat;
-typedef u32 R_Handle;
-
-#define R_ALLOC_TEXTURE_2D(name) u64 name(u8 **out)
-typedef R_ALLOC_TEXTURE_2D(r_allocate_texture_2D);
-#define R_TEXTURE_SUBMIT_2D(name)                                                                                 \
-    void name(R_Handle *textureHandle, u64 pboHandle, u32 width, u32 height, R_TexFormat format)
-typedef R_TEXTURE_SUBMIT_2D(r_submit_texture_2D);
-#define R_DELETE_TEXTURE_2D(name) void name(R_Handle handle)
-typedef R_DELETE_TEXTURE_2D(r_delete_texture_2D);
 
 typedef void PlatformToggleCursorFunctionType(b32 value);
 
@@ -43,6 +38,7 @@ struct GameMemory
     r_allocate_texture_2D *R_AllocateTexture2D;
     r_submit_texture_2D *R_SubmitTexture2D;
     r_delete_texture_2D *R_DeleteTexture2D;
+    r_allocate_buffer *R_AllocateBuffer;
 };
 
 struct GameOffscreenBuffer
