@@ -1,4 +1,4 @@
-#version 330 core
+#version 460 core
 #define f32 float
 #define V2 vec2
 #define V3 vec3

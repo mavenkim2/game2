@@ -56,8 +56,7 @@ internal void D_Init(RenderState *state)
                 state->passes[type].passSkinned = PushStruct(arena, R_PassSkinnedMesh);
                 break;
             }
-            default:
-                Assert(!"Invalid default case");
+            default: Assert(!"Invalid default case");
         }
     }
     R_Pass3D *pass  = state->passes[R_PassType_3D].pass3D;
@@ -192,6 +191,11 @@ internal void D_BeginFrame()
                     group->batchList.first = group->batchList.last = 0;
                 }
                 break;
+            }
+            case R_PassType_SkinnedMesh:
+            {
+                R_PassSkinnedMesh *pass = state->passes[type].passSkinned;
+                pass->list.first = pass->list.last = 0;
             }
             default:
             {

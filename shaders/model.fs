@@ -6,6 +6,7 @@ in V2 outUv;
 in V3 tangentLightDir;
 in V3 tangentViewPos;
 in V3 tangentFragPos;
+flat in int drawId;
 
 in V3 outN;
 
@@ -17,9 +18,12 @@ out V4 FragColor;
 
 void main()
 {
-    V3 normal = normalize(texture(textureMaps[TEXTURES_PER_MATERIAL * gl_DrawId + NORMAL_INDEX], outUv).rgb * 2 - 1);
+    V3 normal = normalize(texture(textureMaps[TEXTURES_PER_MATERIAL * drawId + NORMAL_INDEX], outUv).rgb * 2 - 1);
 
-    V3 color = texture(textureMaps[TEXTURES_PER_MATERIAL * gl_DrawId + DIFFUSE_INDEX], outUv).rgb;
+    V3 color = texture(textureMaps[TEXTURES_PER_MATERIAL * drawId + DIFFUSE_INDEX], outUv).rgb;
+
+    // V3 normal = normalize(texture(normalMap, outUv).rgb * 2 - 1);
+    // V3 color = texture(diffuseMap, outUv).rgb;
 
     // Direction Phong Light
     V3 lightDir = normalize(tangentLightDir);

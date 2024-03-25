@@ -300,7 +300,7 @@ enum R_TextureLoadStatus
 struct R_OpenGL_TextureOp
 {
     u8 *buffer;
-    u8 *data;
+    void *data;
     R_OpenGL_Texture *texture;
 
     R_TextureLoadStatus status;
@@ -322,7 +322,8 @@ struct R_OpenGL_TextureQueue
 
 struct R_OpenGL_BufferOp
 {
-    AS_Node *node;
+    void *data;
+    R_OpenGL_Buffer *buffer;
 };
 
 struct R_OpenGL_BufferQueue
@@ -417,6 +418,9 @@ internal void R_OpenGL_StartShader(RenderState *state, R_ShaderType type, void *
 internal void R_OpenGL_EndShader(R_ShaderType type);
 
 R_ALLOCATE_TEXTURE_2D(R_AllocateTexture2D);
+R_ALLOCATE_BUFFER(R_AllocateBuffer);
+internal void R_OpenGL_LoadBuffers();
+internal void R_OpenGL_LoadTextures();
 
 //////////////////////////////
 // Handle

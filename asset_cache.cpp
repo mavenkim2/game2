@@ -190,7 +190,7 @@ internal void AS_EntryPoint(void *p)
         BeginRMutex(&slot->mutex);
         for (AS_Node *node = slot->first; node != 0; node = node->next)
         {
-            if (node->hash == hash)
+            if (node->asset.hash == hash)
             {
                 n = node;
                 break;
@@ -212,20 +212,21 @@ internal void AS_EntryPoint(void *p)
                 {
                     StackPop(as_state->freeNode);
                 }
-                n->path = PushStr8Copy(as_state->arena, path);
+                n->asset.path = PushStr8Copy(as_state->arena, path);
             }
 
             BeginWMutex(&slot->mutex);
             QueuePush(slot->first, slot->last, n);
             EndWMutex(&slot->mutex);
 
-            n->hash = hash;
+            n->asset.hash = hash;
         }
         // If node does exist, then it needs to be hot reloaded.
         else
         {
             // Don't hot load if the texture is loading.
-            if (AtomicCompareExchangeU32(&n->status, AS_Status_Unloaded, AS_Status_Loaded) != AS_Status_Loaded)
+            if (AtomicCompareExchangeU32(&n->asset.status, AS_Status_Unloaded, AS_Status_Loaded) !=
+                AS_Status_Loaded)
             {
                 continue;
             }
@@ -234,13 +235,13 @@ internal void AS_EntryPoint(void *p)
         }
 
         // Update the node
-        n->lastModified = attributes.lastModified;
+        n->asset.lastModified = attributes.lastModified;
 
         // Allocate memory
-        n->memoryBlock = AllocateBlocks(attributes.size);
+        n->asset.memoryBlock = AllocateBlocks(attributes.size);
 
-        n->size = OS_ReadEntireFile(handle, GetAssetBuffer(n));
-        Assert(n->size == attributes.size);
+        n->asset.size = OS_ReadEntireFile(handle, GetAssetBuffer(n));
+        Assert(n->asset.size == attributes.size);
         OS_CloseFile(handle);
 
         // TODO IMPORTANT: virtual protect the memory so it can only be read
@@ -268,13 +269,13 @@ internal void AS_HotloadEntryPoint(void *p)
                 for (AS_Node *node = slot->first; node != 0; node = node->next)
                 {
                     // If the asset was modified, its write time changes. Need to hotload.
-                    OS_FileAttributes attributes = OS_AttributesFromPath(node->path);
-                    if (attributes.lastModified != 0 && attributes.lastModified != node->lastModified)
+                    OS_FileAttributes attributes = OS_AttributesFromPath(node->asset.path);
+                    if (attributes.lastModified != 0 && attributes.lastModified != node->asset.lastModified)
                     {
                         // Printf("Old last modified: %u\nNew last modified: %u\n\n", node->lastModified,
                         //        attributes.lastModified);
-                        node->lastModified = attributes.lastModified;
-                        AS_EnqueueFile(node->path);
+                        node->asset.lastModified = attributes.lastModified;
+                        AS_EnqueueFile(node->asset.path);
                     }
                 }
             }
@@ -291,21 +292,21 @@ internal void AS_HotloadEntryPoint(void *p)
 JOB_CALLBACK(AS_LoadAsset)
 {
     AS_Node *node = (AS_Node *)data;
-    if (AtomicCompareExchangeU32(&node->status, AS_Status_Queued, AS_Status_Unloaded) != AS_Status_Unloaded)
+    if (AtomicCompareExchangeU32(&node->asset.status, AS_Status_Queued, AS_Status_Unloaded) != AS_Status_Unloaded)
     {
         return 0;
     }
-    string extension = GetFileExtension(node->path);
+    string extension = GetFileExtension(node->asset.path);
     if (extension == Str8Lit("model"))
     {
-        string directory = Str8PathChopPastLastSlash(node->path);
+        string directory = Str8PathChopPastLastSlash(node->asset.path);
 
-        LoadedModel *model = &node->model;
-        node->type         = AS_Model;
+        LoadedModel *model = &node->asset.model;
+        node->asset.type   = AS_Model;
 
         Tokenizer tokenizer;
         tokenizer.input.str  = GetAssetBuffer(node);
-        tokenizer.input.size = node->size;
+        tokenizer.input.size = node->asset.size;
         tokenizer.cursor     = tokenizer.input.str;
 
         GetPointerValue(&tokenizer, &model->vertexCount);
@@ -368,18 +369,24 @@ JOB_CALLBACK(AS_LoadAsset)
         }
 
         Assert(EndOfBuffer(&tokenizer));
+
+        model->vertexBuffer = R_AllocateBuffer(R_BufferType_Vertex, model->vertices,
+                                               sizeof(model->vertices[0]) * model->vertexCount);
+        model->indexBuffer =
+            R_AllocateBuffer(R_BufferType_Index, model->indices, sizeof(model->indices[0]) * model->indexCount);
+
         WriteBarrier();
-        node->status = AS_Status_Loaded;
+        node->asset.status = AS_Status_Loaded;
     }
     else if (extension == Str8Lit("anim"))
     {
-        node->type = AS_Anim;
-        u8 *buffer = GetAssetBuffer(node);
+        node->asset.type = AS_Anim;
+        u8 *buffer       = GetAssetBuffer(node);
 
         // NOTE: crazy town incoming
-        KeyframedAnimation **animation = &node->anim;
+        KeyframedAnimation **animation = &node->asset.anim;
         *animation                     = (KeyframedAnimation *)buffer;
-        KeyframedAnimation *a          = node->anim;
+        KeyframedAnimation *a          = node->asset.anim;
 
         // CompressedKeyframedAnimation *a = (CompressedKeyframedAnimation *)buffer;
         Printf("Num nodes: %u\n", a->numNodes);
@@ -394,14 +401,14 @@ JOB_CALLBACK(AS_LoadAsset)
             ConvertOffsetToPointer(buffer, &boneChannel->rotations, AnimationRotation);
         }
         WriteBarrier();
-        node->status = AS_Status_Loaded;
+        node->asset.status = AS_Status_Loaded;
     }
     else if (extension == Str8Lit("skel"))
     {
         LoadedSkeleton skeleton;
         Tokenizer tokenizer;
         tokenizer.input.str  = GetAssetBuffer(node);
-        tokenizer.input.size = node->size;
+        tokenizer.input.size = node->asset.size;
         tokenizer.cursor     = tokenizer.input.str;
 
         u32 version;
@@ -434,38 +441,39 @@ JOB_CALLBACK(AS_LoadAsset)
 
             Assert(EndOfBuffer(&tokenizer));
         }
-        node->type     = AS_Skeleton;
-        node->skeleton = skeleton;
+        node->asset.type     = AS_Skeleton;
+        node->asset.skeleton = skeleton;
         WriteBarrier();
-        node->status = AS_Status_Loaded;
+        node->asset.status = AS_Status_Loaded;
     }
     else if (extension == Str8Lit("png"))
     {
-        node->type = AS_Texture;
-        if (FindSubstring(node->path, Str8Lit("diffuse"), 0, MatchFlag_CaseInsensitive) != node->path.size)
+        node->asset.type = AS_Texture;
+        if (FindSubstring(node->asset.path, Str8Lit("diffuse"), 0, MatchFlag_CaseInsensitive) !=
+            node->asset.path.size)
         {
-            node->texture.type = TextureType_Diffuse;
+            node->asset.texture.type = TextureType_Diffuse;
         }
-        else if (FindSubstring(node->path, Str8Lit("normal"), 0, MatchFlag_CaseInsensitive) != node->path.size)
+        else if (FindSubstring(node->asset.path, Str8Lit("normal"), 0, MatchFlag_CaseInsensitive) !=
+                 node->asset.path.size)
         {
-            node->texture.type = TextureType_Normal;
+            node->asset.texture.type = TextureType_Normal;
         }
         R_TexFormat format = R_TexFormat_RGBA8;
-        switch (node->texture.type)
+        switch (node->asset.texture.type)
         {
             case TextureType_Diffuse: format = R_TexFormat_SRGB; break;
             case TextureType_Normal:
             default: format = R_TexFormat_RGBA8; break;
         }
-        AS_Handle handle = AS_HandleFromAsset(node);
         i32 width, height, nComponents;
-        u8 *texData =
-            stbi_load_from_memory(GetAssetBuffer(node), (i32)node->size, &width, &height, &nComponents, 4);
-        node->texture.width  = width;
-        node->texture.height = height;
+        void *texData =
+            stbi_load_from_memory(GetAssetBuffer(node), (i32)node->asset.size, &width, &height, &nComponents, 4);
+        node->asset.texture.width  = width;
+        node->asset.texture.height = height;
 
-        node->texture.handle = R_AllocateTexture2D(texData, width, height, format);
-        node->status         = AS_Status_Loaded;
+        node->asset.texture.handle = R_AllocateTexture2D(texData, width, height, format);
+        node->asset.status         = AS_Status_Loaded;
     }
     else if (extension == Str8Lit("ttf"))
     {
@@ -493,7 +501,7 @@ internal AS_Handle AS_HandleFromAsset(AS_Node *node)
 {
     AS_Handle result = {};
     result.u64[0]    = (u64)(node);
-    result.u64[1]    = node->generation;
+    result.u64[1]    = node->asset.generation;
     return result;
 }
 
@@ -501,7 +509,7 @@ global readonly AS_Node as_nodeNil;
 internal AS_Node *AS_AssetFromHandle(AS_Handle handle)
 {
     AS_Node *node = (AS_Node *)(handle.u64[0]);
-    if (node == 0 || node->generation != handle.u64[1])
+    if (node == 0 || node->asset.generation != handle.u64[1])
     {
         node = &as_nodeNil;
     }
@@ -510,7 +518,7 @@ internal AS_Node *AS_AssetFromHandle(AS_Handle handle)
 
 internal void AS_UnloadAsset(AS_Node *node)
 {
-    switch (node->type)
+    switch (node->asset.type)
     {
         case AS_Null: break;
         case AS_Mesh: break;
@@ -538,41 +546,27 @@ internal AS_Handle AS_GetAssetHandle(string path)
     return result;
 }
 
-// TODO IMPORTANT: get the nodes directly from the handle instead of having to do this dance every time
-// also need to do model loading similar to how texture loading is done
-#define AS_NodeFoundBit 0xf000000000000000
 internal AS_Node *AS_GetNodeFromHandle(AS_Handle handle)
 {
     AS_Node *result = 0;
     Assert(sizeof(handle) <= 16);
-    if (handle.u64[2] & AS_NodeFoundBit)
+    u64 hash      = handle.u64[0];
+    u32 slotIndex = hash & (as_state->numSlots - 1);
+    AS_Slot *slot = as_state->assetSlots + slotIndex;
+
+    // TODO: can this be lockless?
+    BeginRMutex(&slot->mutex);
+    for (AS_Node *node = slot->first; node != 0; node = node->next)
     {
-        result = (AS_Node *)handle.u64[0];
-        if (handle.u64[2] != result->generation)
+        if (node->asset.hash == hash)
         {
-            result = 0;
+            result = node;
         }
     }
-    else
+    EndRMutex(&slot->mutex);
+    if (result && result->asset.status != AS_Status_Loaded)
     {
-        u64 hash      = handle.u64[0];
-        u32 slotIndex = hash & (as_state->numSlots - 1);
-        AS_Slot *slot = as_state->assetSlots + slotIndex;
-
-        // TODO: can this be lockless?
-        BeginRMutex(&slot->mutex);
-        for (AS_Node *node = slot->first; node != 0; node = node->next)
-        {
-            if (node->hash == hash)
-            {
-                result = node;
-            }
-        }
-        EndRMutex(&slot->mutex);
-        if (result && result->status != AS_Status_Loaded)
-        {
-            result = 0;
-        }
+        result = 0;
     }
 
     return result;
@@ -584,8 +578,8 @@ internal LoadedSkeleton *GetSkeleton(AS_Handle handle)
     AS_Node *node          = AS_GetNodeFromHandle(handle);
     if (node)
     {
-        Assert(node->type == AS_Skeleton);
-        result = &node->skeleton;
+        Assert(node->asset.type == AS_Skeleton);
+        result = &node->asset.skeleton;
     }
 
     return result;
@@ -597,8 +591,8 @@ internal Texture *GetTexture(AS_Handle handle)
     AS_Node *node   = AS_GetNodeFromHandle(handle);
     if (node)
     {
-        Assert(node->type == AS_Texture);
-        result = &node->texture;
+        Assert(node->asset.type == AS_Texture);
+        result = &node->asset.texture;
     }
     return result;
 }
@@ -609,8 +603,8 @@ internal LoadedModel *GetModel(AS_Handle handle)
     AS_Node *node       = AS_GetNodeFromHandle(handle);
     if (node)
     {
-        Assert(node->type == AS_Model);
-        result = &node->model;
+        Assert(node->asset.type == AS_Model);
+        result = &node->asset.model;
     }
     return result;
 }
@@ -625,8 +619,8 @@ internal LoadedSkeleton *GetSkeletonFromModel(AS_Handle handle)
     }
     else
     {
-        Assert(node->type == AS_Model);
-        model  = &node->model;
+        Assert(node->asset.type == AS_Model);
+        model  = &node->asset.model;
         result = GetSkeleton(model->skeleton);
     }
 
@@ -638,8 +632,8 @@ internal KeyframedAnimation *GetAnim(AS_Handle handle)
     AS_Node *node              = AS_GetNodeFromHandle(handle);
     if (node)
     {
-        Assert(node->type == AS_Anim);
-        result = node->anim;
+        Assert(node->asset.type == AS_Anim);
+        result = node->asset.anim;
     }
     return result;
 }
@@ -706,15 +700,15 @@ internal void FreeBlocks(AS_Node *n)
 {
     TicketMutexScope(&as_state->mutex)
     {
-        i32 numBlocks             = (i32)((n->size / as_state->blockSize) + (n->size % as_state->blockSize != 0));
-        AS_MemoryHeaderNode *node = n->memoryBlock;
+        i32 numBlocks = (i32)((n->asset.size / as_state->blockSize) + (n->asset.size % as_state->blockSize != 0));
+        AS_MemoryHeaderNode *node = n->asset.memoryBlock;
 
         Assert(node + numBlocks <= as_state->memoryHeaderNodes + as_state->numBlocks);
         for (i32 i = 0; i < numBlocks; i++)
         {
             FreeBlock(node + i);
         }
-        n->memoryBlock = 0;
+        n->asset.memoryBlock = 0;
     }
 }
 
@@ -783,9 +777,9 @@ internal AS_MemoryHeaderNode *AllocateBlocks(u64 size)
 inline u8 *GetAssetBuffer(AS_Node *node)
 {
     u8 *result = 0;
-    if (node->memoryBlock)
+    if (node->asset.memoryBlock)
     {
-        result = node->memoryBlock->header.buffer;
+        result = node->asset.memoryBlock->header.buffer;
     }
     return result;
 }

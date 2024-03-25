@@ -1,3 +1,5 @@
+#extension GL_ARB_shader_draw_parameters : enable
+
 layout (location = 0) in V3 pos;
 layout (location = 1) in V3 n;
 layout (location = 2) in V2 uv;
@@ -10,6 +12,7 @@ out V3 tangentLightDir;
 out V3 tangentViewPos;
 out V3 tangentFragPos;
 out V3 outN;
+flat out int drawId;
 
 const int MAX_BONES = 200;
 
@@ -46,4 +49,5 @@ void main()
     tangentViewPos = tbn * viewPos;
     tangentFragPos = tbn * localPos;
     outUv = uv;
+    drawId = gl_DrawID;
 }

@@ -262,7 +262,7 @@ enum R_BufferType
     R_BufferType_Index,
 };
 
-#define R_ALLOCATE_TEXTURE_2D(name) R_Handle name(u8 *data, i32 width, i32 height, R_TexFormat format)
+#define R_ALLOCATE_TEXTURE_2D(name) R_Handle name(void *data, i32 width, i32 height, R_TexFormat format)
 typedef R_ALLOCATE_TEXTURE_2D(r_allocate_texture_2D);
 #define R_DELETE_TEXTURE_2D(name) void name(R_Handle handle)
 typedef R_DELETE_TEXTURE_2D(r_delete_texture_2D);

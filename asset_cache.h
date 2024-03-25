@@ -88,27 +88,6 @@ enum AS_Status
 
 struct AS_Asset
 {
-    Arena *arena;
-    u64 hash;
-    u64 lastModified;
-    string path;
-    string data;
-    AS_Type type;
-    AS_Status status;
-
-    // TODO: these should be pointers so they are the same size
-    union
-    {
-        LoadedSkeleton skeleton;
-        Texture texture;
-        LoadedModel model;
-        KeyframedAnimation *anim;
-    };
-};
-
-struct AS_Node
-{
-    AS_Node *next;
     // Memory
     AS_MemoryHeaderNode *memoryBlock;
 
@@ -128,6 +107,12 @@ struct AS_Node
         LoadedModel model;
         KeyframedAnimation *anim;
     };
+};
+
+struct AS_Node
+{
+    AS_Node *next;
+    AS_Asset asset;
 };
 
 struct AS_Slot
