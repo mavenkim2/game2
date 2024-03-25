@@ -199,8 +199,7 @@ internal void R_OpenGL_Init()
                 {
                     continue;
                 }
-                default:
-                    break;
+                default: break;
             }
             openGL->shaders[type].id = R_OpenGL_CreateShader(r_opengl_g_globalsPath, r_opengl_g_vsPath[type],
                                                              r_opengl_g_fsPath[type], preprocess);
@@ -212,11 +211,8 @@ internal void R_OpenGL_Init()
 
     // Default white texture
     {
-        u32 data   = 0xffffffff;
-        u8 *buffer = 0;
-        u64 pbo    = R_AllocateTexture2D(&buffer);
-        MemoryCopy(buffer, &data, sizeof(data));
-        R_SubmitTexture2D(&openGL->whiteTextureHandle, pbo, 1, 1, R_TexFormat_RGBA8);
+        u32 data                   = 0xffffffff;
+        openGL->whiteTextureHandle = R_AllocateTexture2D((u8 *)&data, 1, 1, R_TexFormat_RGBA8);
     }
 
     VSyncToggle(1);
@@ -333,6 +329,8 @@ internal void R_Win32_OpenGL_Init(HWND window)
         Win32GetOpenGLFunction(glBufferSubData);
         Win32GetOpenGLFunction(glMapBuffer);
         Win32GetOpenGLFunction(glUnmapBuffer);
+        Win32GetOpenGLFunction(glMultiDrawElements);
+        Win32GetOpenGLFunction(glUniform1iv);
 
         OpenGLGetInfo();
 
@@ -362,6 +360,7 @@ internal void R_BeginFrame(i32 width, i32 height)
 
 internal void R_EndFrame(RenderState *state, HDC deviceContext, int clientWidth, int clientHeight)
 {
+    TempArena temp = ScratchStart(0, 0);
     // INITIALIZE
     {
         as_state = state->as_state;
@@ -406,13 +405,8 @@ internal void R_EndFrame(RenderState *state, HDC deviceContext, int clientWidth,
                 // TODO: remove reference to material in here
                 for (R_SkinnedMeshParamsNode *node = list->first; node != 0; node = node->next)
                 {
-                    R_SkinnedMeshParams *params = &node->val;
-                    AS_Handle handle            = params->loadedModel;
-                    LoadedModel *model          = GetModel(handle);
-                    // if (!model->vbo)
-                    // {
-                    //     LoadModel(model);
-                    // }
+                    R_SkinnedMeshParams *params   = &node->val;
+                    LoadedModel *model            = GetModel(params->model);
                     R_OpenGL_Buffer *vertexBuffer = R_OpenGL_BufferFromHandle(model->vertexBuffer);
                     R_OpenGL_Buffer *indexBuffer  = R_OpenGL_BufferFromHandle(model->indexBuffer);
 
@@ -446,37 +440,43 @@ internal void R_EndFrame(RenderState *state, HDC deviceContext, int clientWidth,
                     openGL->glUniform3fv(viewPosLoc, 1, state->camera.position.elements);
 
                     // TEXTURE MAP
+                    static readonly GLint samplerIds[16] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
                     GLint textureLoc = openGL->glGetUniformLocation(modelProgramId, "diffuseMap");
-                    openGL->glUniform1i(textureLoc, 0);
-
-                    // NORMAL MAP
-                    GLint nmapLoc = openGL->glGetUniformLocation(modelProgramId, "normalMap");
-                    openGL->glUniform1i(nmapLoc, 1);
+                    openGL->glUniform1iv(textureLoc, ArrayLength(samplerIds), samplerIds);
 
                     openGL->glActiveTexture(GL_TEXTURE0);
-                    glBindTexture(GL_TEXTURE_2D, openGL->whiteTextureHandle);
+                    R_OpenGL_Texture *whiteTexture = R_OpenGL_TextureFromHandle(openGL->whiteTextureHandle);
+                    glBindTexture(GL_TEXTURE_2D, whiteTexture->id);
+
+#define TEXTURES_PER_MATERIAL 2
+                    u32 baseTexture     = 0;
+                    GLsizei *counts     = PushArray(temp.arena, GLsizei, model->materialCount);
+                    void **startIndices = PushArray(temp.arena, void *, model->materialCount);
                     for (u32 i = 0; i < model->materialCount; i++)
                     {
                         Material *material = model->materials + i;
+                        counts[i]          = material->onePlusEndIndex - material->startIndex;
+                        startIndices[i]    = (void *)(sizeof(material->startIndex) * material->startIndex);
                         for (u32 j = 0; j < TextureType_Count; j++)
                         {
                             R_Handle textureHandle = GetTextureRenderHandle(material->textureHandles[j]);
-                            if (textureHandle == 0)
+                            if (R_HandleMatch(textureHandle, R_HandleZero()))
                             {
                                 textureHandle = openGL->whiteTextureHandle;
                             }
+                            GLuint id = R_OpenGL_TextureFromHandle(textureHandle)->id;
                             switch (j)
                             {
                                 case TextureType_Diffuse:
                                 {
-                                    openGL->glActiveTexture(GL_TEXTURE0);
-                                    glBindTexture(GL_TEXTURE_2D, textureHandle);
+                                    openGL->glActiveTexture(GL_TEXTURE0 + baseTexture);
+                                    glBindTexture(GL_TEXTURE_2D, id);
                                     break;
                                 }
                                 case TextureType_Normal:
                                 {
-                                    openGL->glActiveTexture(GL_TEXTURE0 + 1);
-                                    glBindTexture(GL_TEXTURE_2D, textureHandle);
+                                    openGL->glActiveTexture(GL_TEXTURE0 + baseTexture + 1);
+                                    glBindTexture(GL_TEXTURE_2D, id);
                                     break;
                                 }
                                 default:
@@ -485,9 +485,13 @@ internal void R_EndFrame(RenderState *state, HDC deviceContext, int clientWidth,
                                 }
                             }
                         }
-                        glDrawElements(GL_TRIANGLES, material->onePlusEndIndex - material->startIndex,
-                                       GL_UNSIGNED_INT, (void *)(sizeof(u32) * material->startIndex));
+                        baseTexture += TEXTURES_PER_MATERIAL;
+
+                        // glDrawElements(GL_TRIANGLES, material->onePlusEndIndex - material->startIndex,
+                        //                GL_UNSIGNED_INT, (void *)(sizeof(u32) * material->startIndex));
                     }
+                    openGL->glMultiDrawElements(GL_TRIANGLES, counts, GL_UNSIGNED_INT, startIndices,
+                                                model->materialCount);
                 }
                 R_OpenGL_EndShader(R_ShaderType_SkinnedMesh);
                 break;
@@ -592,8 +596,7 @@ internal void R_EndFrame(RenderState *state, HDC deviceContext, int clientWidth,
                             R_OpenGL_EndShader(R_ShaderType_Instanced3D);
                             break;
                         }
-                        default:
-                            Assert(!"Not implemented");
+                        default: Assert(!"Not implemented");
                     }
                 }
 
@@ -605,6 +608,8 @@ internal void R_EndFrame(RenderState *state, HDC deviceContext, int clientWidth,
             }
         }
     }
+
+    ScratchEnd(temp);
 
     // HOT RELOAD! this probably shouldnt' be here
     // HotloadShaders(&openGL->modelShader.base);
@@ -754,75 +759,63 @@ internal void R_OpenGL_EndShader(R_ShaderType type)
 //////////////////////////////
 // Externally called functions
 //
-inline GLuint GetPbo(u64 handle)
+inline GLuint GetPbo(u32 index)
 {
-    u64 ringIndex = handle & (ArrayLength(openGL->pbos) - 1);
+    u64 ringIndex = index & (ArrayLength(openGL->pbos) - 1);
     GLuint pbo    = openGL->pbos[ringIndex];
     return pbo;
 }
 
 R_ALLOCATE_TEXTURE_2D(R_AllocateTexture2D)
 {
-    u64 handle         = 0;
-    u64 availableSlots = ArrayLength(openGL->pbos) - (openGL->pboIndex - openGL->firstUsedPboIndex);
-    if (availableSlots >= 1)
+    R_OpenGL_Texture *texture = openGL->freeTextures;
+    while (texture && AtomicCompareExchangePtr(&openGL->freeTextures, texture->next, texture) != texture)
     {
-        handle     = openGL->pboIndex++;
-        GLuint pbo = GetPbo(handle);
-        openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
-        *out = (u8 *)openGL->glMapBuffer(GL_PIXEL_UNPACK_BUFFER, GL_WRITE_ONLY);
-        openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+        texture = texture->next;
     }
-    return handle;
-}
-
-R_TEXTURE_SUBMIT_2D(R_SubmitTexture2D)
-{
-    b32 newTexture = 0;
-    if (*textureHandle == 0)
+    if (texture)
     {
-        glGenTextures(1, textureHandle);
-        newTexture = 1;
-    }
-    glBindTexture(GL_TEXTURE_2D, *textureHandle);
-
-    openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, GetPbo(pboHandle));
-    openGL->glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER);
-
-    u32 glFormat = GL_RGB8;
-    switch (format)
-    {
-        case R_TexFormat_SRGB:
-        {
-            glFormat = openGL->defaultTextureFormat;
-            break;
-        }
-        case R_TexFormat_RGBA8:
-        default:
-        {
-            glFormat = GL_RGBA8;
-            break;
-        }
-    }
-
-    if (newTexture)
-    {
-        glTexImage2D(GL_TEXTURE_2D, 0, glFormat, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+        u64 gen = texture->generation;
+        MemoryZeroStruct(texture);
+        texture->generation = gen;
     }
     else
     {
-        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+        BeginTicketMutex(&openGL->mutex);
+        texture = PushStruct(openGL->arena, R_OpenGL_Texture);
+        EndTicketMutex(&openGL->mutex);
+    }
+    texture->width  = width;
+    texture->height = height;
+    texture->generation += 1;
+    texture->format = format;
+
+    R_OpenGL_TextureQueue *queue = &openGL->textureQueue;
+    for (;;)
+    {
+        u32 writePos       = AtomicIncrementU32(&queue->writePos) - 1;
+        u32 availableSpots = queue->numOps - (writePos - queue->finalizePos);
+        if (availableSpots >= 1)
+        {
+            u32 ringIndex          = (writePos & (queue->numOps - 1));
+            R_OpenGL_TextureOp *op = queue->ops + ringIndex;
+            op->data               = data;
+            op->status             = R_TextureLoadStatus_Untransferred;
+            while (AtomicCompareExchangeU32(&queue->endPos, writePos + 1, writePos) != writePos)
+            {
+                _mm_pause();
+            }
+            break;
+        }
+        _mm_pause();
     }
 
-    // TODO: pass these in as params
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-    glBindTexture(GL_TEXTURE_2D, 0);
-    openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
-    openGL->firstUsedPboIndex++;
+    return handle;
 }
+
+//////////////////////////////
+// Texture Queues
+//
 
 R_DELETE_TEXTURE_2D(R_DeleteTexture2D)
 {
@@ -851,20 +844,9 @@ R_ALLOCATE_BUFFER(R_AllocateBuffer)
     GLenum bufferType;
     switch (type)
     {
-        case R_BufferType_Vertex:
-        {
-            bufferType = GL_ARRAY_BUFFER;
-            break;
-        }
-        case R_BufferType_Index:
-        {
-            bufferType = GL_ELEMENT_ARRAY_BUFFER;
-            break;
-        }
-        default:
-        {
-            Assert(!"Invalid default");
-        }
+        case R_BufferType_Vertex: bufferType = GL_ARRAY_BUFFER; break;
+        case R_BufferType_Index: bufferType = GL_ELEMENT_ARRAY_BUFFER; break;
+        default: Assert(!"Invalid default");
     }
     openGL->glBindBuffer(bufferType, buffer->id);
     openGL->glBufferData(bufferType, size, data, GL_STATIC_DRAW);
@@ -873,9 +855,101 @@ R_ALLOCATE_BUFFER(R_AllocateBuffer)
 }
 
 #if 0
-R_DELETE_BUFFER
+JOB_CALLBACK(R_OpenGL_LoadTextureCallback)
+{
+    A_TextureOp *op = (A_TextureOp *)data;
+    i32 width, height, nChannels;
+    u8 *texData = (u8 *)stbi_load_from_memory(GetAssetBuffer(op->assetNode), (i32)op->assetNode->size, &width,
+                                              &height, &nChannels, 4);
+    MemoryCopy(op->buffer, texData, width * height * 4);
+    op->assetNode->texture.width  = width;
+    op->assetNode->texture.height = height;
+    stbi_image_free(texData);
+
+    WriteBarrier();
+    op->status = A_TextureLoadStatus_Loaded;
+
+    return 0;
+}
 #endif
 
+// status,
+internal void R_OpenGL_LoadTextures()
+{
+    R_OpenGL_TextureQueue *queue = &openGL->textureQueue;
+
+    u32 endPos      = queue->endPos;
+    u32 loadPos     = queue->loadPos;
+    u32 finalizePos = queue->finalizePos;
+    // Gets the Pixel Buffer Object to map to
+    while (loadPos != endPos)
+    {
+        u32 ringIndex          = loadPos++ & (queue->numOps - 1);
+        R_OpenGL_TextureOp *op = queue->ops + ringIndex;
+        Assert(op->status == R_TextureLoadStatus_Untransferred);
+        if (op->texture.generation == 1)
+        {
+            openGL->glGenTextures(1, &op->texture.id);
+        }
+
+        for (;;)
+        {
+            u64 availableSlots = ArrayLength(openGL->pbos) - (openGL->pboIndex - openGL->firstUsedPboIndex);
+            if (availableSlots >= 1)
+            {
+                op->pboIndex = openGL->pboIndex++;
+                GLuint pbo   = GetPbo(op->pboIndex);
+                openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
+                op->buffer = (u8 *)openGL->glMapBuffer(GL_PIXEL_UNPACK_BUFFER, GL_WRITE_ONLY);
+                // TODO: use a table to get the number of components
+                MemoryCopy(op->buffer, op->data, op->texture->width * op->texture->height * 4);
+                openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+                break;
+            }
+        }
+        op->status = R_TextureLoadStatus_Transferred;
+    }
+    // Submits PBO to OpenGL
+    while (finalizePos != queue->loadPos)
+    {
+        u32 ringIndex          = finalizePos++ & (queue->numOps - 1);
+        R_OpenGL_TextureOp *op = queue->ops + ringIndex;
+        if (op->status == R_TextureLoadStatus_Transferred)
+        {
+            R_OpenGL_Texture *texture = op->texture;
+            glBindTexture(GL_TEXTURE_2D, texture->id);
+
+            openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, GetPbo(op->pboIndex));
+            openGL->glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER);
+
+            u32 glFormat;
+            switch (texture->format)
+            {
+                case R_TexFormat_SRGB: glFormat = openGL->defaultTextureFormat; break;
+                case R_TexFormat_RGBA8:
+                default: glFormat = GL_RGBA8; break;
+            }
+
+            glTexImage2D(GL_TEXTURE_2D, 0, glFormat, texture->width, texture->height, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                         0);
+
+            // TODO: pass these in as params
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+            glBindTexture(GL_TEXTURE_2D, 0);
+            openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+            openGL->firstUsedPboIndex++;
+        }
+        else
+        {
+            break;
+        }
+    }
+    queue->loadPos     = loadPos;
+    queue->finalizePos = finalizePos;
+}
 //////////////////////////////
 // HANDLES
 //
@@ -897,7 +971,7 @@ internal R_Handle R_OpenGL_HandleFromBuffer(R_OpenGL_Buffer *buffer)
     handle.u64[1] = buffer->generation;
 }
 
-internal R_OpenGL_Buffer* R_OpenGL_BufferFromHandle(R_Handle handle)
+internal R_OpenGL_Buffer *R_OpenGL_BufferFromHandle(R_Handle handle)
 {
     R_OpenGL_Buffer *buffer = (R_OpenGL_Buffer *)handle.u64[0];
     if (buffer == 0 || buffer->generation != handle.u64[1])
@@ -905,6 +979,15 @@ internal R_OpenGL_Buffer* R_OpenGL_BufferFromHandle(R_Handle handle)
         buffer = &r_opengl_bufferNil;
     }
     return buffer;
+}
+internal R_OpenGL_Texture *R_OpenGL_TextureFromHandle(R_Handle handle)
+{
+    R_OpenGL_Texture *texture = (R_OpenGL_Texture *)(handle.u64[0]);
+    if (texture == 0 || texture->generation != handle.u64[1])
+    {
+        texture = &r_opengl_textureNil;
+    }
+    return texture;
 }
 
 // R_MODEL_SUBMIT_2D

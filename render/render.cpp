@@ -207,12 +207,12 @@ internal void D_PushModel(AS_Handle loadedModel, Mat4 transform, Mat4 *skinningM
     RenderState *state = d_state->state;
     if (!IsModelHandleNil(loadedModel))
     {
-        if (skinningMatrices)
+        if (skinningMatricesCount)
         {
             R_PassSkinnedMesh *pass         = R_GetPassFromKind(R_PassType_SkinnedMesh)->passSkinned;
             R_SkinnedMeshParamsNode *node   = PushStruct(d_state->arena, R_SkinnedMeshParamsNode);
-            node->val.loadedModel           = loadedModel;
             node->val.transform             = transform;
+            node->val.model                 = loadedModel;
             node->val.skinningMatrices      = skinningMatrices;
             node->val.skinningMatricesCount = skinningMatricesCount;
             QueuePush(pass->list.first, pass->list.last, node);

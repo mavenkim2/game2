@@ -9,12 +9,17 @@
 // - Be able to asynchronously load multiple textures at the same time (using probably a list of PBOs).
 // - LRU for eviction
 #include "crack.h"
-#include "keepmovingforward_common.h"
 #ifdef LSP_INCLUDE
+#include "keepmovingforward_common.h"
+#include "render/render.h"
 #include "asset.h"
 #include "asset_cache.h"
 #include "./offline/asset_processing.h"
 #endif
+
+#define STB_IMAGE_IMPLEMENTATION
+#define STBI_ONLY_PNG
+#include "third_party/stb_image.h"
 
 //////////////////////////////
 // Globals
@@ -445,7 +450,22 @@ JOB_CALLBACK(AS_LoadAsset)
         {
             node->texture.type = TextureType_Normal;
         }
-        A_PushTextureOp(node);
+        R_TexFormat format = R_TexFormat_RGBA8;
+        switch (node->texture.type)
+        {
+            case TextureType_Diffuse: format = R_TexFormat_SRGB; break;
+            case TextureType_Normal:
+            default: format = R_TexFormat_RGBA8; break;
+        }
+        AS_Handle handle = AS_HandleFromAsset(node);
+        i32 width, height, nComponents;
+        u8 *texData =
+            stbi_load_from_memory(GetAssetBuffer(node), (i32)node->size, &width, &height, &nComponents, 4);
+        node->texture.width  = width;
+        node->texture.height = height;
+
+        node->texture.handle = R_AllocateTexture2D(texData, width, height, format);
+        node->status         = AS_Status_Loaded;
     }
     else if (extension == Str8Lit("ttf"))
     {
@@ -469,27 +489,40 @@ JOB_CALLBACK(AS_LoadAsset)
     return 0;
 }
 
+internal AS_Handle AS_HandleFromAsset(AS_Node *node)
+{
+    AS_Handle result = {};
+    result.u64[0]    = (u64)(node);
+    result.u64[1]    = node->generation;
+    return result;
+}
+
+global readonly AS_Node as_nodeNil;
+internal AS_Node *AS_AssetFromHandle(AS_Handle handle)
+{
+    AS_Node *node = (AS_Node *)(handle.u64[0]);
+    if (node == 0 || node->generation != handle.u64[1])
+    {
+        node = &as_nodeNil;
+    }
+    return node;
+}
+
 internal void AS_UnloadAsset(AS_Node *node)
 {
     switch (node->type)
     {
-        case AS_Null:
-            break;
-        case AS_Mesh:
-            break;
+        case AS_Null: break;
+        case AS_Mesh: break;
         case AS_Texture:
         {
             // R_DeleteTexture2D(node->texture.handle);
             break;
         }
-        case AS_Skeleton:
-            break;
-        case AS_Model:
-            break;
-        case AS_Shader:
-            break;
-        default:
-            Assert(!"Invalid asset type");
+        case AS_Skeleton: break;
+        case AS_Model: break;
+        case AS_Shader: break;
+        default: Assert(!"Invalid asset type");
     }
 }
 

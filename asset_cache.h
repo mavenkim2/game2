@@ -108,15 +108,16 @@ struct AS_Asset
 
 struct AS_Node
 {
+    AS_Node *next;
+    // Memory
+    AS_MemoryHeaderNode *memoryBlock;
+
     u64 hash;
     u64 lastModified;
     u64 generation;
     string path;
     u64 size;
     AS_Status status;
-
-    // Memory
-    AS_MemoryHeaderNode *memoryBlock;
 
     // Asset type
     AS_Type type;
@@ -127,8 +128,6 @@ struct AS_Node
         LoadedModel model;
         KeyframedAnimation *anim;
     };
-
-    AS_Node *next;
 };
 
 struct AS_Slot
@@ -156,6 +155,8 @@ internal void AS_UnloadAsset(AS_Node *node);
 //////////////////////////////
 // Handles
 //
+internal AS_Handle AS_HandleFromAsset(AS_Node *node);
+internal AS_Node *AS_AssetFromHandle(AS_Handle handle);
 internal AS_Handle AS_GetAssetHandle(u64 hash);
 internal AS_Handle AS_GetAssetHandle(string path);
 internal LoadedSkeleton *GetSkeleton(AS_Handle handle);

@@ -27,8 +27,8 @@ enum TextureType
 struct Texture
 {
     R_Handle handle;
-    u32 width;
-    u32 height;
+    i32 width;
+    i32 height;
     TextureType type;
     b32 loaded;
 };

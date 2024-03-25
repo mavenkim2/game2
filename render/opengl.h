@@ -239,6 +239,9 @@ typedef void WINAPI type_glVertexAttribDivisor(GLuint index, GLuint divisor);
 typedef void WINAPI type_glBufferSubData(GLenum target, GLintptr offset, GLsizeiptr size, const GLvoid *data);
 typedef void *WINAPI type_glMapBuffer(GLenum target, GLenum access);
 typedef GLboolean WINAPI type_glUnmapBuffer(GLenum target);
+typedef void WINAPI type_glMultiDrawElements(GLenum mode, const GLsizei *count, GLenum type,
+                                             const GLvoid *const *indices, GLsizei drawcount);
+typedef void WINAPI type_glUniform1iv(GLint location, GLsizei count, const GLint *value);
 
 typedef BOOL WINAPI wgl_swap_interval_ext(int interval);
 global wgl_swap_interval_ext *wglSwapIntervalEXT;
@@ -278,6 +281,60 @@ struct R_OpenGL_Buffer
     R_BufferType type;
 };
 
+struct R_OpenGL_Texture
+{
+    R_OpenGL_Texture *next;
+    u64 generation;
+    u32 width;
+    u32 height;
+    GLuint id;
+    R_TexFormat format;
+};
+
+enum R_TextureLoadStatus
+{
+    R_TextureLoadStatus_Untransferred,
+    R_TextureLoadStatus_Transferred,
+};
+
+struct R_OpenGL_TextureOp
+{
+    u8 *buffer;
+    u8 *data;
+    R_OpenGL_Texture *texture;
+
+    R_TextureLoadStatus status;
+    u32 pboIndex;
+};
+
+struct R_OpenGL_TextureQueue
+{
+    R_OpenGL_TextureOp ops[64];
+    u32 numOps;
+
+    // Loaded -> GPU
+    u32 finalizePos;
+    // Unloaded -> Loading
+    u32 loadPos;
+    u32 writePos;
+    u32 endPos;
+};
+
+struct R_OpenGL_BufferOp
+{
+    AS_Node *node;
+};
+
+struct R_OpenGL_BufferQueue
+{
+    R_OpenGL_BufferOp ops[64];
+    u32 numOps;
+
+    u32 readPos;
+    u32 writePos;
+    u32 endPos;
+};
+
 struct OpenGL
 {
     Arena *arena;
@@ -289,7 +346,7 @@ struct OpenGL
 
     R_Shader shaders[R_ShaderType_Count];
 
-    GLuint whiteTextureHandle;
+    R_Handle whiteTextureHandle;
     u32 defaultTextureFormat;
 
     GLuint scratchVbo;
@@ -297,7 +354,12 @@ struct OpenGL
     u64 scratchVboSize;
     u64 scratchEboSize;
 
+    TicketMutex mutex;
     R_OpenGL_Buffer *freeBuffers;
+    R_OpenGL_Texture *freeTextures;
+
+    R_OpenGL_TextureQueue textureQueue;
+    R_OpenGL_BufferQueue bufferQueue;
 
     OpenGLFunction(glGenBuffers);
     OpenGLFunction(glBindBuffer);
@@ -336,6 +398,8 @@ struct OpenGL
     OpenGLFunction(glBufferSubData);
     OpenGLFunction(glMapBuffer);
     OpenGLFunction(glUnmapBuffer);
+    OpenGLFunction(glMultiDrawElements);
+    OpenGLFunction(glUniform1iv);
 };
 
 global OpenGL _openGL;
@@ -355,9 +419,12 @@ internal void R_OpenGL_EndShader(R_ShaderType type);
 //////////////////////////////
 // Handle
 //
-global R_OpenGL_Buffer r_opengl_bufferNil = {&r_opengl_bufferNil};
+global R_OpenGL_Buffer r_opengl_bufferNil   = {&r_opengl_bufferNil};
+global R_OpenGL_Texture r_opengl_textureNil = {&r_opengl_textureNil};
+
 internal b8 R_HandleMatch(R_Handle a, R_Handle b);
 internal R_Handle R_HandleZero();
 internal R_Handle R_OpenGL_HandleFromBuffer(R_OpenGL_Buffer *buffer);
-internal R_OpenGL_Buffer* R_OpenGL_BufferFromHandle(R_Handle handle);
+internal R_OpenGL_Buffer *R_OpenGL_BufferFromHandle(R_Handle handle);
+internal R_OpenGL_Texture *R_OpenGL_TextureFromHandle(R_Handle handle);
 #endif

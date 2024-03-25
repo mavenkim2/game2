@@ -1,5 +1,6 @@
-uniform sampler2D diffuseMap;
-uniform sampler2D normalMap;
+// uniform sampler2D diffuseMap;
+// uniform sampler2D normalMap;
+uniform sampler2D textureMaps[16];
 
 in V2 outUv;
 in V3 tangentLightDir;
@@ -10,11 +11,15 @@ in V3 outN;
 
 out V4 FragColor;
 
+#define TEXTURES_PER_MATERIAL 2
+#define DIFFUSE_INDEX 0
+#define NORMAL_INDEX 1
+
 void main()
 {
-    V3 normal = normalize(texture(normalMap, outUv).rgb * 2 - 1);
+    V3 normal = normalize(texture(textureMaps[TEXTURES_PER_MATERIAL * gl_DrawId + NORMAL_INDEX], outUv).rgb * 2 - 1);
 
-    V3 color = texture(diffuseMap, outUv).rgb;
+    V3 color = texture(textureMaps[TEXTURES_PER_MATERIAL * gl_DrawId + DIFFUSE_INDEX], outUv).rgb;
 
     // Direction Phong Light
     V3 lightDir = normalize(tangentLightDir);

@@ -35,7 +35,6 @@ struct Model;
 
 enum R_TexFormat
 {
-    R_TexFormat_Nil,
     R_TexFormat_RGBA8,
     R_TexFormat_SRGB,
     R_TexFormat_Count,
@@ -168,8 +167,7 @@ struct R_Pass3D
 struct R_SkinnedMeshParams
 {
     Mat4 transform;
-    AS_Handle loadedModel;
-
+    AS_Handle model;
     Mat4 *skinningMatrices;
     u32 skinningMatricesCount;
 };
@@ -264,11 +262,8 @@ enum R_BufferType
     R_BufferType_Index,
 };
 
-#define R_ALLOCATE_TEXTURE_2D(name) u64 name(u8 **out)
+#define R_ALLOCATE_TEXTURE_2D(name) R_Handle name(u8 *data, i32 width, i32 height, R_TexFormat format)
 typedef R_ALLOCATE_TEXTURE_2D(r_allocate_texture_2D);
-#define R_TEXTURE_SUBMIT_2D(name)                                                                                 \
-    R_Handle name(u64 pboHandle, u32 width, u32 height, R_TexFormat format)
-typedef R_TEXTURE_SUBMIT_2D(r_submit_texture_2D);
 #define R_DELETE_TEXTURE_2D(name) void name(R_Handle handle)
 typedef R_DELETE_TEXTURE_2D(r_delete_texture_2D);
 
@@ -276,7 +271,6 @@ typedef R_DELETE_TEXTURE_2D(r_delete_texture_2D);
 typedef R_ALLOCATE_BUFFER(r_allocate_buffer);
 
 R_ALLOCATE_TEXTURE_2D(R_AllocateTexture2D);
-R_TEXTURE_SUBMIT_2D(R_SubmitTexture2D);
 R_DELETE_TEXTURE_2D(R_DeleteTexture2D);
 R_ALLOCATE_BUFFER(R_AllocateBuffer);
 

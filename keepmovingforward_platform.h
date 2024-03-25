@@ -36,7 +36,6 @@ struct GameMemory
     PlatformToggleCursorFunctionType *PlatformToggleCursor;
 
     r_allocate_texture_2D *R_AllocateTexture2D;
-    r_submit_texture_2D *R_SubmitTexture2D;
     r_delete_texture_2D *R_DeleteTexture2D;
     r_allocate_buffer *R_AllocateBuffer;
 };
