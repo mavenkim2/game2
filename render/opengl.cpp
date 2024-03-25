@@ -410,12 +410,10 @@ internal void R_EndFrame(RenderState *state, HDC deviceContext, int clientWidth,
                     R_OpenGL_Buffer *vertexBuffer = R_OpenGL_BufferFromHandle(model->vertexBuffer);
                     R_OpenGL_Buffer *indexBuffer  = R_OpenGL_BufferFromHandle(model->indexBuffer);
 
-                    openGL->glActiveTexture(GL_TEXTURE0);
-
                     openGL->glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer->id);
                     openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBuffer->id);
-
                     R_OpenGL_StartShader(state, R_ShaderType_SkinnedMesh, 0);
+
                     // TODO: uniform blocks so we can just push a struct or something instead of having to do
                     // these all manually
 
@@ -689,7 +687,6 @@ internal void R_OpenGL_StartShader(RenderState *state, R_ShaderType type, void *
         }
         case R_ShaderType_SkinnedMesh:
         {
-            openGL->glUseProgram(openGL->shaders[R_ShaderType_SkinnedMesh].id);
             openGL->glEnableVertexAttribArray(0);
             openGL->glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
                                           (void *)Offset(MeshVertex, position));
@@ -834,7 +831,6 @@ R_DELETE_TEXTURE_2D(R_DeleteTexture2D)
     }
 }
 
-// status,
 internal void R_OpenGL_LoadTextures()
 {
     R_OpenGL_TextureQueue *queue = &openGL->textureQueue;
@@ -917,7 +913,7 @@ internal void R_OpenGL_LoadTextures()
 }
 
 //////////////////////////////
-// Buffers
+// Buffer loading
 //
 R_ALLOCATE_BUFFER(R_AllocateBuffer)
 {
@@ -980,9 +976,17 @@ internal void R_OpenGL_LoadBuffers()
         {
             openGL->glGenBuffers(1, &op->buffer->id);
         }
-        openGL->glBindBuffer(op->buffer->type, op->buffer->id);
-        openGL->glBufferData(op->buffer->type, op->buffer->size, op->data, GL_DYNAMIC_DRAW);
-        openGL->glBindBuffer(op->buffer->type, 0);
+
+        GLenum format;
+        switch (op->buffer->type)
+        {
+            case R_BufferType_Vertex: format = GL_ARRAY_BUFFER; break;
+            case R_BufferType_Index: format = GL_ELEMENT_ARRAY_BUFFER; break;
+            default: Assert(!"Invalid");
+        }
+        openGL->glBindBuffer(format, op->buffer->id);
+        openGL->glBufferData(format, op->buffer->size, op->data, GL_DYNAMIC_DRAW);
+        openGL->glBindBuffer(format, 0);
     }
     queue->readPos = readPos;
 }
@@ -1032,5 +1036,3 @@ internal R_OpenGL_Texture *R_OpenGL_TextureFromHandle(R_Handle handle)
     }
     return texture;
 }
-
-// R_MODEL_SUBMIT_2D
