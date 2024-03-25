@@ -1,6 +1,7 @@
 #ifndef KEEPMOVINGFORWARD_PLATFORM_H
 #define KEEPMOVINGFORWARD_PLATFORM_H
 
+// TODO: this file needs to go
 #include "crack.h"
 #ifdef LSP_INCLUDE
 #include "render/render.h"

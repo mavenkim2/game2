@@ -11,12 +11,12 @@
 #include "keepmovingforward_math.h"
 #include "physics.h"
 #include "keepmovingforward_camera.h"
-#include "keepmovingforward_platform.h"
 #include "render/render_core.h"
 #include "asset.h"
 #include "./offline/asset_processing.h"
 #include "asset_cache.h"
 #include "render/render.h"
+#include "keepmovingforward_platform.h"
 
 #include "keepmovingforward_entity.h"
 #include "keepmovingforward_level.h"
@@ -78,19 +78,13 @@ struct GameState
 
     CameraMode cameraMode;
 
-    // TODO IMPORTANT: TEMPORARY, move transforms into animation related struct
-    // also mesh node hierarchy should use id's for parent name.
-    // also need to use the same hierarchy for animation/skeleton/mesh
     AnimationPlayer animPlayer;
-    // AnimationTransform *tforms;
-    // Mat4 *finalTransforms;
 
     AS_Handle model;
     AS_Handle model2;
 };
 
 global r_allocate_texture_2D *R_AllocateTexture2D;
-global r_submit_texture_2D *R_SubmitTexture2D;
 global r_delete_texture_2D *R_DeleteTexture2D;
 global r_allocate_buffer *R_AllocateBuffer;
 

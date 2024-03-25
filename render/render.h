@@ -270,9 +270,9 @@ typedef R_DELETE_TEXTURE_2D(r_delete_texture_2D);
 #define R_ALLOCATE_BUFFER(name) R_Handle name(R_BufferType type, void *data, u64 size)
 typedef R_ALLOCATE_BUFFER(r_allocate_buffer);
 
-R_ALLOCATE_TEXTURE_2D(R_AllocateTexture2D);
-R_DELETE_TEXTURE_2D(R_DeleteTexture2D);
-R_ALLOCATE_BUFFER(R_AllocateBuffer);
+// R_ALLOCATE_TEXTURE_2D(R_AllocateTexture2D);
+// R_DELETE_TEXTURE_2D(R_DeleteTexture2D);
+// R_ALLOCATE_BUFFER(R_AllocateBuffer);
 
 internal void D_PushModel(AS_Handle loadedModel, Mat4 transform, Mat4 *skinningMatrices,
                           u32 skinningMatricesCount);

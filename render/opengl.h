@@ -341,7 +341,7 @@ struct OpenGL
     GLuint vao;
 
     GLuint pbos[4];
-    u64 pboIndex;
+    u32 pboIndex;
     u64 firstUsedPboIndex;
 
     R_Shader shaders[R_ShaderType_Count];
@@ -416,6 +416,8 @@ internal GLuint R_OpenGL_CompileShader(char *globals, char *vs, char *fs);
 internal void R_OpenGL_StartShader(RenderState *state, R_ShaderType type, void *group);
 internal void R_OpenGL_EndShader(R_ShaderType type);
 
+R_ALLOCATE_TEXTURE_2D(R_AllocateTexture2D);
+
 //////////////////////////////
 // Handle
 //
@@ -426,5 +428,6 @@ internal b8 R_HandleMatch(R_Handle a, R_Handle b);
 internal R_Handle R_HandleZero();
 internal R_Handle R_OpenGL_HandleFromBuffer(R_OpenGL_Buffer *buffer);
 internal R_OpenGL_Buffer *R_OpenGL_BufferFromHandle(R_Handle handle);
+internal R_Handle R_OpenGL_HandleFromTexture(R_OpenGL_Texture *texture);
 internal R_OpenGL_Texture *R_OpenGL_TextureFromHandle(R_Handle handle);
 #endif

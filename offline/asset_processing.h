@@ -5,6 +5,7 @@
 #include "../platform_inc.h"
 #include "../thread_context.h"
 #include "../job.h"
+#include "../render/render_core.h"
 #include "../asset.h"
 #include "../third_party/assimp/Importer.hpp"
 #include "../third_party/assimp/scene.h"

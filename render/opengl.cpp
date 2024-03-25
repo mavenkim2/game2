@@ -363,7 +363,7 @@ internal void R_EndFrame(RenderState *state, HDC deviceContext, int clientWidth,
     TempArena temp = ScratchStart(0, 0);
     // INITIALIZE
     {
-        as_state = state->as_state;
+        // as_state = state->as_state;
         glViewport(0, 0, clientWidth, clientHeight);
 
         glEnable(GL_DEPTH_TEST);
@@ -757,7 +757,7 @@ internal void R_OpenGL_EndShader(R_ShaderType type)
 }
 
 //////////////////////////////
-// Externally called functions
+// Texture loading
 //
 inline GLuint GetPbo(u32 index)
 {
@@ -810,68 +810,19 @@ R_ALLOCATE_TEXTURE_2D(R_AllocateTexture2D)
         _mm_pause();
     }
 
+    R_Handle handle = R_OpenGL_HandleFromTexture(texture);
     return handle;
 }
 
-//////////////////////////////
-// Texture Queues
-//
-
 R_DELETE_TEXTURE_2D(R_DeleteTexture2D)
 {
-    glDeleteTextures(1, &handle);
-}
-
-R_ALLOCATE_BUFFER(R_AllocateBuffer)
-{
-    R_OpenGL_Buffer *buffer = openGL->freeBuffers;
-    if (buffer)
+    R_OpenGL_Texture *texture = R_OpenGL_TextureFromHandle(handle);
+    texture->next             = openGL->freeTextures;
+    while (AtomicCompareExchangePtr(openGL->freeTextures, texture, texture->next) != texture->next)
     {
-        u64 gen = buffer->generation;
-        StackPop(openGL->freeBuffers);
-        MemoryZeroStruct(buffer);
-        buffer->generation = gen;
+        texture->next = openGL->freeTextures;
     }
-    else
-    {
-        buffer = PushStruct(openGL->arena, R_OpenGL_Buffer);
-        openGL->glGenBuffers(1, &buffer->id);
-    }
-    buffer->size = size;
-    buffer->generation += 1;
-    buffer->type = type;
-
-    GLenum bufferType;
-    switch (type)
-    {
-        case R_BufferType_Vertex: bufferType = GL_ARRAY_BUFFER; break;
-        case R_BufferType_Index: bufferType = GL_ELEMENT_ARRAY_BUFFER; break;
-        default: Assert(!"Invalid default");
-    }
-    openGL->glBindBuffer(bufferType, buffer->id);
-    openGL->glBufferData(bufferType, size, data, GL_STATIC_DRAW);
-    R_Handle result = R_OpenGL_HandleFromBuffer(buffer);
-    return result;
 }
-
-#if 0
-JOB_CALLBACK(R_OpenGL_LoadTextureCallback)
-{
-    A_TextureOp *op = (A_TextureOp *)data;
-    i32 width, height, nChannels;
-    u8 *texData = (u8 *)stbi_load_from_memory(GetAssetBuffer(op->assetNode), (i32)op->assetNode->size, &width,
-                                              &height, &nChannels, 4);
-    MemoryCopy(op->buffer, texData, width * height * 4);
-    op->assetNode->texture.width  = width;
-    op->assetNode->texture.height = height;
-    stbi_image_free(texData);
-
-    WriteBarrier();
-    op->status = A_TextureLoadStatus_Loaded;
-
-    return 0;
-}
-#endif
 
 // status,
 internal void R_OpenGL_LoadTextures()
@@ -887,9 +838,9 @@ internal void R_OpenGL_LoadTextures()
         u32 ringIndex          = loadPos++ & (queue->numOps - 1);
         R_OpenGL_TextureOp *op = queue->ops + ringIndex;
         Assert(op->status == R_TextureLoadStatus_Untransferred);
-        if (op->texture.generation == 1)
+        if (op->texture->generation == 1)
         {
-            openGL->glGenTextures(1, &op->texture.id);
+            glGenTextures(1, &op->texture->id);
         }
 
         for (;;)
@@ -904,6 +855,7 @@ internal void R_OpenGL_LoadTextures()
                 // TODO: use a table to get the number of components
                 MemoryCopy(op->buffer, op->data, op->texture->width * op->texture->height * 4);
                 openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+                stbi_image_free(op->data);
                 break;
             }
         }
@@ -950,6 +902,42 @@ internal void R_OpenGL_LoadTextures()
     queue->loadPos     = loadPos;
     queue->finalizePos = finalizePos;
 }
+
+//////////////////////////////
+// Buffers
+//
+R_ALLOCATE_BUFFER(R_AllocateBuffer)
+{
+    R_OpenGL_Buffer *buffer = openGL->freeBuffers;
+    if (buffer)
+    {
+        u64 gen = buffer->generation;
+        StackPop(openGL->freeBuffers);
+        MemoryZeroStruct(buffer);
+        buffer->generation = gen;
+    }
+    else
+    {
+        buffer = PushStruct(openGL->arena, R_OpenGL_Buffer);
+        openGL->glGenBuffers(1, &buffer->id);
+    }
+    buffer->size = size;
+    buffer->generation += 1;
+    buffer->type = type;
+
+    GLenum bufferType;
+    switch (type)
+    {
+        case R_BufferType_Vertex: bufferType = GL_ARRAY_BUFFER; break;
+        case R_BufferType_Index: bufferType = GL_ELEMENT_ARRAY_BUFFER; break;
+        default: Assert(!"Invalid default");
+    }
+    openGL->glBindBuffer(bufferType, buffer->id);
+    openGL->glBufferData(bufferType, size, data, GL_STATIC_DRAW);
+    R_Handle result = R_OpenGL_HandleFromBuffer(buffer);
+    return result;
+}
+
 //////////////////////////////
 // HANDLES
 //
@@ -969,6 +957,7 @@ internal R_Handle R_OpenGL_HandleFromBuffer(R_OpenGL_Buffer *buffer)
     R_Handle handle;
     handle.u64[0] = (u64)(buffer);
     handle.u64[1] = buffer->generation;
+    return handle;
 }
 
 internal R_OpenGL_Buffer *R_OpenGL_BufferFromHandle(R_Handle handle)
@@ -979,6 +968,11 @@ internal R_OpenGL_Buffer *R_OpenGL_BufferFromHandle(R_Handle handle)
         buffer = &r_opengl_bufferNil;
     }
     return buffer;
+}
+internal R_Handle R_OpenGL_HandleFromTexture(R_OpenGL_Texture *texture)
+{
+    R_Handle handle = {(u64)(texture), texture->generation};
+    return handle;
 }
 internal R_OpenGL_Texture *R_OpenGL_TextureFromHandle(R_Handle handle)
 {

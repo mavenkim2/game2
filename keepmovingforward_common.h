@@ -161,9 +161,10 @@ typedef i64 b64;
     (u32)(_InterlockedCompareExchange((long volatile *)dest, src, expected))
 #define AtomicCompareExchangeU64(dest, src, expected)                                                             \
     _InterlockedCompareExchange64((__int64 volatile *)dest, src, expected)
-// typedef void *pvoid;
+
+typedef void* PVOID;
 #define AtomicCompareExchangePtr(dest, src, expected)                                                             \
-    _InterlockedCompareExchangePointer((volatile void **)dest, src, expected)
+    _InterlockedCompareExchangePointer((volatile PVOID*)dest, src, expected)
 
 #define AtomicIncrementU32(dest) _InterlockedIncrement((long volatile *)dest)
 #define AtomicIncrementU64(dest) _InterlockedIncrement64((__int64 volatile *)dest)

@@ -25,7 +25,7 @@
 #include "keepmovingforward_memory.cpp"
 #include "keepmovingforward_string.cpp"
 #include "job.cpp"
-// #include "asset.cpp"
+#include "asset.cpp"
 #include "asset_cache.cpp"
 #include "render/opengl.cpp"
 
@@ -681,7 +681,6 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
 
     gameMemory.PlatformToggleCursor = PlatformToggleCursor;
     gameMemory.R_AllocateTexture2D  = R_AllocateTexture2D;
-    gameMemory.R_SubmitTexture2D    = R_SubmitTexture2D;
     gameMemory.R_DeleteTexture2D    = R_DeleteTexture2D;
     gameMemory.R_AllocateBuffer     = R_AllocateBuffer;
 

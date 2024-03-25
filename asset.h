@@ -226,11 +226,6 @@ struct TGAResult
 //////////////////////////////
 // Function
 //
-struct AS_Node;
-JOB_CALLBACK(A_LoadTextureCallback);
-internal void A_PushTextureOp(AS_Node *node);
-internal void A_LoadTextures();
-
 inline u16 CompressRotationChannel(f32 q)
 {
     u16 result = (u16)CompressFloat(q, -1.f, 1.f, 16u);
