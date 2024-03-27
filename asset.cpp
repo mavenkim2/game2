@@ -416,69 +416,6 @@ internal void SkinModelToBindPose(AS_Handle model, Mat4 *finalTransforms)
     ScratchEnd(temp);
 }
 
-// struct A_BufferOp
-// {
-//     AS_Node *node;
-// };
-//
-// struct A_BufferQueue
-// {
-//     A_BufferOp ops[64];
-//     u32 numOps;
-//
-//     u32 readPos;
-//     u32 writePos;
-//     u32 endPos;
-// };
-//
-// //////////////////////////////
-// // Vertex Buffer/Index Buffer Allocations
-// //
-// internal void A_PushBufferOp(AS_Node *node)
-// {
-//     A_BufferQueue *queue = &a_state->bufferQueue;
-//     AS_Status status     = node->status;
-//     if (status == AS_Status_Queued)
-//     {
-//         for (;;)
-//         {
-//             u32 writePos       = AtomicIncrementU32(&queue->writePos) - 1;
-//             u32 availableSpots = queue->numOps - (writePos - queue->readPos);
-//             if (availableSpots >= 1)
-//             {
-//                 u32 ringIndex  = (writePos & (queue->numOps - 1));
-//                 A_BufferOp *op = queue->ops + ringIndex;
-//                 op->node       = node;
-//                 while (AtomicCompareExchangeU32(&queue->endPos, writePos + 1, writePos) != writePos)
-//                 {
-//                     _mm_pause();
-//                 }
-//                 break;
-//             }
-//             _mm_pause();
-//         }
-//     }
-// }
-//
-// internal void A_LoadBufferOps()
-// {
-//     A_BufferQueue *queue = &a_state->bufferQueue;
-//     u32 endPos           = queue->endPos;
-//     while (queue->readPos != endPos)
-//     {
-//         A_BufferOp *op        = &queue->ops[queue->readPos++];
-//         LoadedModel *model    = &op->node->model;
-//         R_Handle vertexBuffer = R_AllocateBuffer(R_BufferType_Vertex, model->vertices,
-//                                                  sizeof(model->vertices[0]) * model->vertexCount);
-//         R_Handle indexBuffer =
-//             R_AllocateBuffer(R_BufferType_Index, model->indices, sizeof(model->indices[0]) * model->indexCount);
-//         model->vertexBuffer = vertexBuffer;
-//         model->indexBuffer  = indexBuffer;
-//         WriteBarrier();
-//         op->node.status = AS_Status_Loaded;
-//     }
-// }
-
 #if 0
 // NOTE: array of nodes, each with a parent index and a name
 // you know i think I'm just goin to use assimp to load the file once, write it in an easier format to use,

@@ -266,15 +266,15 @@ union Rect2
 {
     struct
     {
-        V2 pos;
-        V2 size;
+        V2 minP;
+        V2 maxP;
     };
     struct
     {
-        f32 x;
-        f32 y;
-        f32 width;
-        f32 height;
+        f32 minX;
+        f32 minY;
+        f32 maxX;
+        f32 maxY;
     };
 };
 
@@ -282,17 +282,18 @@ union Rect3
 {
     struct
     {
-        V3 pos;
-        V3 size;
+        V3 minP;
+        V3 maxP;
     };
     struct
     {
-        f32 x;
-        f32 y;
-        f32 z;
-        f32 xSize;
-        f32 ySize;
-        f32 zSize;
+        f32 minX;
+        f32 minY;
+        f32 minZ;
+
+        f32 maxX;
+        f32 maxY;
+        f32 maxZ;
     };
 };
 
@@ -1253,39 +1254,46 @@ inline V3 GetTranslation(Mat4 m)
  * RECTANGLE 2
  */
 
+inline Rect2 MakeRect2(V2 minP, V2 maxP)
+{
+    Rect2 result;
+    result.minP = minP;
+    result.maxP = maxP;
+    return result;
+}
+
 inline Rect2 CreateRectFromCenter(V2 pos, V2 dim)
 {
     Rect2 result;
-    result.pos  = pos - (dim / 2.f);
-    result.size = dim;
+    result.minP = pos - (dim / 2.f);
+    result.maxP = pos + (dim / 2.f);
     return result;
 }
 
 inline Rect2 CreateRectFromBottomLeft(V2 pos, V2 dim)
 {
     Rect2 result;
-    result.pos  = pos;
-    result.size = dim;
+    result.minP = pos;
+    result.maxP = pos + dim;
     return result;
 }
 
 inline b32 IsInRectangle(Rect2 a, V2 pos)
 {
-    b32 result =
-        pos.x >= a.pos.x && pos.x <= a.pos.x + a.size.x && pos.y >= a.pos.y && pos.y <= a.pos.y + a.size.y;
+    b32 result = pos.x >= a.minX && pos.x <= a.maxX && pos.y >= a.minY && pos.y <= a.maxY;
     return result;
 }
 
 inline b32 Rect2Overlap(const Rect2 rect1, const Rect2 rect2)
 {
-    b32 result = (rect1.x <= rect2.x + rect2.width && rect2.x <= rect1.x + rect1.width &&
-                  rect1.y <= rect2.y + rect2.height && rect2.y <= rect1.y + rect1.height);
+    b32 result = (rect1.minX <= rect2.maxX && rect2.minX <= rect1.maxX && rect1.minY <= rect2.maxY &&
+                  rect2.minY <= rect1.maxY);
     return result;
 }
 
 inline V2 GetRectCenter(Rect2 a)
 {
-    V2 result = a.pos + 0.5 * a.size;
+    V2 result = (a.minP + a.maxP) / 2;
     return result;
 }
 
@@ -1295,23 +1303,23 @@ inline V2 GetRectCenter(Rect2 a)
 inline Rect3 Rect3BottomLeft(V3 pos, V3 size)
 {
     Rect3 result;
-    result.pos  = pos;
-    result.size = size;
+    result.minP = pos;
+    result.maxP = pos + size;
     return result;
 }
 
 inline Rect3 Rect3Center(V3 pos, V3 size)
 {
     Rect3 result;
-    result.pos  = pos - size / 2;
-    result.size = size / 2;
+    result.minP = pos - size / 2;
+    result.maxP = pos + size / 2;
     return result;
 }
 
 inline V3 Center(Rect3 a)
 {
     V3 result;
-    result = a.pos + a.size / 2;
+    result = (a.minP = a.maxP) / 2;
     return result;
 }
 
@@ -1376,7 +1384,7 @@ inline u32 CompressFloat(f32 a, f32 min, f32 max, u32 nBits)
 {
     f32 unitFloat = (a - min) / (max - min);
     Assert(unitFloat >= -1.f && unitFloat <= 1.f);
-    u32 result    = CompressUnitFloat(unitFloat, nBits);
+    u32 result = CompressUnitFloat(unitFloat, nBits);
     return result;
 }
 

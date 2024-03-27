@@ -336,6 +336,15 @@ internal u64 HashFromString(string string)
     return result;
 }
 
+internal u64 HashStruct_(void *ptr, u64 size)
+{
+    string str;
+    str.str    = (u8 *)(ptr);
+    str.size   = size;
+    u64 result = HashFromString(str);
+    return result;
+}
+
 //////////////////////////////
 // String reading
 //

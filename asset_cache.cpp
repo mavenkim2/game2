@@ -574,56 +574,29 @@ internal AS_Node *AS_GetNodeFromHandle(AS_Handle handle)
 
 internal LoadedSkeleton *GetSkeleton(AS_Handle handle)
 {
-    LoadedSkeleton *result = &skeletonNil;
     AS_Node *node          = AS_GetNodeFromHandle(handle);
-    if (node)
-    {
-        Assert(node->asset.type == AS_Skeleton);
-        result = &node->asset.skeleton;
-    }
-
+    LoadedSkeleton *result = node ? &node->asset.skeleton : &skeletonNil;
     return result;
 }
 
 internal Texture *GetTexture(AS_Handle handle)
 {
-    Texture *result = &textureNil;
     AS_Node *node   = AS_GetNodeFromHandle(handle);
-    if (node)
-    {
-        Assert(node->asset.type == AS_Texture);
-        result = &node->asset.texture;
-    }
+    Texture *result = node ? &node->asset.texture : &textureNil;
     return result;
 }
 
 internal LoadedModel *GetModel(AS_Handle handle)
 {
-    LoadedModel *result = &modelNil;
     AS_Node *node       = AS_GetNodeFromHandle(handle);
-    if (node)
-    {
-        Assert(node->asset.type == AS_Model);
-        result = &node->asset.model;
-    }
+    LoadedModel *result = node ? &node->asset.model : &modelNil;
     return result;
 }
+// TODO: calling GetSkeleton() on an nil model should return a nil skeleton
 internal LoadedSkeleton *GetSkeletonFromModel(AS_Handle handle)
 {
     LoadedModel *model     = GetModel(handle);
-    LoadedSkeleton *result = &skeletonNil;
-    AS_Node *node          = AS_GetNodeFromHandle(handle);
-    if (node == 0)
-    {
-        result = &skeletonNil;
-    }
-    else
-    {
-        Assert(node->asset.type == AS_Model);
-        model  = &node->asset.model;
-        result = GetSkeleton(model->skeleton);
-    }
-
+    LoadedSkeleton *result = model == &modelNil ? &skeletonNil : GetSkeleton(model->skeleton);
     return result;
 }
 internal KeyframedAnimation *GetAnim(AS_Handle handle)

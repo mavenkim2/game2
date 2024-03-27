@@ -85,6 +85,7 @@ typedef i64 b64;
 
 #define MemoryCopy            memcpy
 #define MemorySet             memset
+#define MemoryCompare         memcmp
 #define MemoryZero(ptr, size) MemorySet((ptr), 0, (size))
 #define MemoryZeroStruct(ptr) MemorySet((ptr), 0, sizeof(*(ptr)))
 

@@ -296,8 +296,8 @@ internal Manifold NarrowPhaseAABBCollision(const Rect3 a, const Rect3 b)
 {
     Manifold manifold = {};
     V3 relative       = Center(a) - Center(b);
-    f32 aHalfExtent   = a.xSize / 2;
-    f32 bHalfExtent   = b.xSize / 2;
+    f32 aHalfExtent   = (a.maxX - a.minX) / 2;
+    f32 bHalfExtent   = (b.maxX - b.minX) / 2;
     f32 xOverlap      = aHalfExtent + bHalfExtent - Abs(relative.x);
 
     if (xOverlap <= 0)
@@ -305,16 +305,16 @@ internal Manifold NarrowPhaseAABBCollision(const Rect3 a, const Rect3 b)
         return manifold;
     }
 
-    aHalfExtent  = a.ySize / 2;
-    bHalfExtent  = b.ySize / 2;
+    aHalfExtent  = (a.maxY - a.minY) / 2;
+    bHalfExtent  = (b.maxY - b.minY) / 2;
     f32 yOverlap = aHalfExtent + bHalfExtent - Abs(relative.y);
     if (yOverlap <= 0)
     {
         return manifold;
     }
 
-    aHalfExtent  = a.zSize / 2;
-    bHalfExtent  = b.zSize / 2;
+    aHalfExtent  = (a.maxZ - a.minZ) / 2;
+    bHalfExtent  = (b.maxZ - b.minZ) / 2;
     f32 zOverlap = aHalfExtent + bHalfExtent - Abs(relative.z);
     if (zOverlap <= 0)
     {
@@ -737,8 +737,8 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
     V3 playerDelta = *velocity * input->dT;
     player->pos += playerDelta;
-    playerBox.pos  = player->pos;
-    playerBox.size = player->size;
+    playerBox.minP = player->pos;
+    playerBox.maxP = player->pos + player->size;
 
     // TODO: fix position of boxes (center vs bottom left vs bottom center)
     // TODO: capsule collision for player? GJK?
@@ -755,7 +755,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
             }
             *velocity -= manifold.normal * velocityAlongNormal;
             player->pos += manifold.normal * manifold.penetration;
-            playerBox.pos = player->pos;
+            playerBox.minP = player->pos;
             if (manifold.normal.x == 0 && manifold.normal.y == 0 && manifold.normal.z == 1)
             {
                 RemoveFlag(player, Entity_Airborne);

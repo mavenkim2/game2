@@ -52,7 +52,6 @@ struct RenderVertex
     V3 color;
 };
 
-typedef u32 T_Handle;
 struct Material;
 struct LoadedSkeleton;
 struct LoadedModel;
@@ -154,8 +153,21 @@ struct R_Batch3DGroup
     R_BatchList batchList;
 };
 
+struct R_Batch2DGroup
+{
+    R_BatchList batchList;
+};
+
+struct R_Batch2DGroupNode
+{
+    R_Batch2DGroup group;
+    R_Batch2DGroupNode *next;
+};
+
 struct R_PassUI
 {
+    R_Batch2DGroupNode *first;
+    R_Batch2DGroupNode *last;
 };
 
 struct R_Pass3D
@@ -211,14 +223,6 @@ struct R_PassStaticMesh
 {
     R_StaticMeshParamsList list;
 };
-
-// struct Model
-// {
-//     AS_Handle loadedModel;
-//     Mat4 transform;
-//     u32 vbo;
-//     u32 ebo;
-// };
 
 struct R_Pass
 {

@@ -207,6 +207,10 @@ internal void R_OpenGL_Init()
         openGL->whiteTextureHandle = R_AllocateTexture2D((u8 *)data, 1, 1, R_TexFormat_RGBA8);
     }
 
+    {
+        glGetIntegerv(GL_MAX_ARRAY_TEXTURE_LAYERS, &openGL->maxSlices);
+    }
+
     VSyncToggle(1);
 }
 
@@ -217,6 +221,7 @@ struct OpenGLInfo
     b32 framebufferArb;
     b32 textureExt;
     b32 shaderDrawParametersArb;
+    b8 sparse;
 };
 
 global OpenGLInfo openGLInfo;
@@ -329,6 +334,8 @@ internal void R_Win32_OpenGL_Init(HWND window)
         Win32GetOpenGLFunction(glUnmapBuffer);
         Win32GetOpenGLFunction(glMultiDrawElements);
         Win32GetOpenGLFunction(glUniform1iv);
+        Win32GetOpenGLFunction(glTexStorage3D);
+        Win32GetOpenGLFunction(glTexSubImage3D);
 
         OpenGLGetInfo();
 
@@ -772,6 +779,7 @@ inline GLuint GetPbo(u32 index)
     return pbo;
 }
 
+// TODO: sparse bindless texture arrays?
 R_ALLOCATE_TEXTURE_2D(R_AllocateTexture2D)
 {
     R_OpenGL_Texture *texture = openGL->freeTextures;
@@ -808,6 +816,7 @@ R_ALLOCATE_TEXTURE_2D(R_AllocateTexture2D)
             op->data               = data;
             op->texture            = texture;
             op->status             = R_TextureLoadStatus_Untransferred;
+            op->usesArray          = 0;
             while (AtomicCompareExchangeU32(&queue->endPos, writePos + 1, writePos) != writePos)
             {
                 _mm_pause();
@@ -844,9 +853,35 @@ internal void R_OpenGL_LoadTextures()
         u32 ringIndex          = loadPos & (queue->numOps - 1);
         R_OpenGL_TextureOp *op = queue->ops + ringIndex;
         Assert(op->status == R_TextureLoadStatus_Untransferred);
-        if (op->texture->generation == 1)
+        if (op->usesArray == 0)
         {
-            glGenTextures(1, &op->texture->id);
+            if (op->texture->generation == 1)
+            {
+                glGenTextures(1, &op->texture->id);
+            }
+        }
+        else
+        {
+            u32 hash         = (op->index >> 0) & 0xffffffff;
+            u32 arrayIndex   = (op->index >> 32) & 0xffffffff;
+            u32 textureIndex = hash % openGL->textureMap.maxSlots;
+
+            R_Texture2DArrayNode *node = op->node;
+            Assert(node);
+            if (node->array.id == 0)
+            {
+                glGenTextures(1, &node->array.id);
+                glBindTexture(GL_TEXTURE_2D_ARRAY, node->array.id);
+                u32 glFormat;
+                switch (node->array.topology.internalFormat)
+                {
+                    case R_TexFormat_SRGB: glFormat = openGL->defaultTextureFormat; break;
+                    case R_TexFormat_RGBA8:
+                    default: glFormat = GL_RGBA8; break;
+                }
+                openGL->glTexStorage3D(GL_TEXTURE_2D_ARRAY, node->array.topology.levels, glFormat,
+                                       node->array.topology.width, node->array.topology.height, node->array.depth);
+            }
         }
 
         u64 availableSlots = ArrayLength(openGL->pbos) - (openGL->pboIndex - openGL->firstUsedPboIndex);
@@ -863,6 +898,7 @@ internal void R_OpenGL_LoadTextures()
             MemoryCopy(op->buffer, op->data, size);
             openGL->glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER);
             openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+            // TODO: this free doesn't work across DLL boundaries.
             // stbi_image_free(op->data);
             op->status = R_TextureLoadStatus_Transferred;
         }
@@ -878,30 +914,53 @@ internal void R_OpenGL_LoadTextures()
         R_OpenGL_TextureOp *op = queue->ops + ringIndex;
         if (op->status == R_TextureLoadStatus_Transferred)
         {
-            R_OpenGL_Texture *texture = op->texture;
-            glBindTexture(GL_TEXTURE_2D, texture->id);
-
-            openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, GetPbo(op->pboIndex));
-
-            u32 glFormat;
-            switch (texture->format)
+            if (op->usesArray)
             {
-                case R_TexFormat_SRGB: glFormat = openGL->defaultTextureFormat; break;
-                case R_TexFormat_RGBA8:
-                default: glFormat = GL_RGBA8; break;
+                R_OpenGL_Texture *texture = op->texture;
+                glBindTexture(GL_TEXTURE_2D, texture->id);
+
+                openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, GetPbo(op->pboIndex));
+
+                u32 glFormat;
+                switch (texture->format)
+                {
+                    case R_TexFormat_SRGB: glFormat = openGL->defaultTextureFormat; break;
+                    case R_TexFormat_RGBA8:
+                    default: glFormat = GL_RGBA8; break;
+                }
+
+                glTexImage2D(GL_TEXTURE_2D, 0, glFormat, texture->width, texture->height, 0, GL_RGBA,
+                             GL_UNSIGNED_BYTE, 0);
+
+                // TODO: pass these in as params
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+                glBindTexture(GL_TEXTURE_2D, 0);
+                openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+                openGL->firstUsedPboIndex++;
             }
+            else
+            {
+                // u32 hash         = (op->index >> 0) & 0xffffffff;
+                u32 arrayIndex = (op->index >> 32) & 0xffffffff;
+                // u32 textureIndex = hash % openGL->textureMap.maxSlots;
 
-            glTexImage2D(GL_TEXTURE_2D, 0, glFormat, texture->width, texture->height, 0, GL_RGBA, GL_UNSIGNED_BYTE,
-                         0);
+                R_Texture2DArrayNode *node = op->node;
+                glBindTexture(GL_TEXTURE_2D_ARRAY, node->array.id);
+                openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, GetPbo(op->pboIndex));
+                openGL->glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, arrayIndex, node->array.topology.width,
+                                        node->array.topology.height, 1, GL_RGBA, GL_UNSIGNED_BYTE, 0);
 
-            // TODO: pass these in as params
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-            glBindTexture(GL_TEXTURE_2D, 0);
-            openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
-            openGL->firstUsedPboIndex++;
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+                glBindTexture(GL_TEXTURE_2D, 0);
+                openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+                openGL->firstUsedPboIndex++;
+            }
         }
         else
         {
@@ -910,6 +969,93 @@ internal void R_OpenGL_LoadTextures()
     }
     queue->loadPos     = loadPos;
     queue->finalizePos = finalizePos;
+}
+
+// this has to happen on a single threaded context
+R_ALLOCATE_TEXTURE_2D(R_AllocateTextureInArray)
+{
+    R_Texture2DArrayTopology topology;
+    topology.levels         = 0;
+    topology.width          = width;
+    topology.height         = height;
+    topology.internalFormat = format;
+
+    u32 maxSlots               = openGL->textureMap.maxSlots;
+    u32 hash                   = (u32)(HashStruct(&topology));
+    u32 hashIndex              = hash % maxSlots;
+    R_Texture2DArrayList *list = &openGL->textureMap.arrayList[hashIndex];
+
+    BeginTicketMutex(&list->mutex);
+    R_Texture2DArrayNode *node = list->first;
+    while (node == 0 || node->array.hash != hash || node->array.freeListCount == 0)
+    {
+        node = node->next;
+    }
+    if (node == 0)
+    {
+        node                      = PushStruct(openGL->arena, R_Texture2DArrayNode);
+        node->array.freeList      = PushArray(openGL->arena, GLsizei, openGL->maxSlices);
+        node->array.freeListCount = openGL->maxSlices;
+        node->array.depth         = openGL->maxSlices;
+        for (GLsizei i = 0; i < openGL->maxSlices; i++)
+        {
+            node->array.freeList[i] = i;
+        }
+        node->array.hash = hash;
+        QueuePush(list->first, list->last, node);
+    }
+    EndTicketMutex(&list->mutex);
+
+    // Allocate new texture 2D array
+    // if (node->array.id == 0)
+    // {
+    //     openGL->textureMap.occupiedSlots[numSlots++] = hashIndex;
+    //
+    //     array->freeListCount = depth;
+    //     for (GLsizei i = 0; i < array->depth; i++)
+    //     {
+    //         array->freeList[i] = i;
+    //     }
+    //     glGenTextures(1, &array->id);
+    //     glBindTexture(GL_TEXTURE_2D_ARRAY, array->id);
+    //     // TODO IMPORTANT: the internal format isn't right I have to use the GL version
+    //     openGL->glTexStorage3D(GL_TEXTURE_2D_ARRAY, topology.levels, topology.internalFormat, topology.width,
+    //                            topology.height, array->depth);
+    // }
+    // else
+    // {
+    //     glBindTexture(GL_TEXTURE_2D_ARRAY, array->id);
+    // }
+    Assert(node->array.freeListCount != 0);
+    GLsizei freeIndex = node->array.freeList[AtomicDecrementU32(&node->array.freeListCount)];
+    R_Handle result;
+    result.u32[0] = hash;
+    result.u32[1] = (u32)freeIndex;
+
+    // Add to queue
+    R_OpenGL_TextureQueue *queue = &openGL->textureQueue;
+    u32 writePos                 = AtomicIncrementU32(&queue->writePos) - 1;
+    for (;;)
+    {
+        u32 availableSpots = queue->numOps - (writePos - queue->finalizePos);
+        if (availableSpots >= 1)
+        {
+            u32 ringIndex          = (writePos & (queue->numOps - 1));
+            R_OpenGL_TextureOp *op = queue->ops + ringIndex;
+            op->data               = data;
+            op->node               = node;
+            op->status             = R_TextureLoadStatus_Untransferred;
+            op->usesArray          = 1;
+            while (AtomicCompareExchangeU32(&queue->endPos, writePos + 1, writePos) != writePos)
+            {
+                _mm_pause();
+            }
+            break;
+        }
+        _mm_pause();
+    }
+
+    return result;
 }
 
 //////////////////////////////

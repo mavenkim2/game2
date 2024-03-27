@@ -3,6 +3,7 @@
 #include "../asset.h"
 #include "../asset_cache.h"
 #include "render.h"
+#include "render_core.h"
 #endif
 
 global const V4 Color_Red               = {1, 0, 0, 1};
@@ -230,6 +231,54 @@ internal void D_PushModel(AS_Handle loadedModel, Mat4 transform, Mat4 *skinningM
             QueuePush(pass->list.first, pass->list.last, node);
         }
     }
+}
+
+struct D_FontAlignment
+{
+    V2 start;
+    V2 advance;
+};
+
+struct R_RectInst
+{
+    V2 pos;
+    f32 scale;
+    R_Handle handle;
+};
+
+// in this case the handle will be a pair of indices into an array of sampler2DArrays
+internal void D_PushRect(Rect2 rect, R_Handle img)
+{
+    f32 scale = (rect.maxP - rect.minP) / 2;
+    V2 pos    = rec.minP;
+
+    R_RectInst *inst = (R_RectInst *)R_BatchListPush(&group->batchList, 256);
+    inst->pos        = pos;
+    inst->scale      = scale;
+    inst->handle     = img;
+}
+
+// ideal is to do all of this in oe draw call
+internal void D_PushText(string line)
+{
+    static D_FontAlignment d_fontAlignment;
+    d_fontAlignment.advance = {50, 50};
+    RenderState *state      = d_state->state;
+    R_PassUI *pass          = R_GetPassFromKind(R_PassType_UI)->passUI;
+
+    // alignment, some starting spot, some context? of where to start?
+    // how do I get the bitmap I need? it should NOT be a filename
+    f32 startX = d_fontAlignment.start.x;
+    f32 startY = d_fontAlignment.start.y;
+    for (u32 i = 0; i < line.size; i++)
+    {
+        R_Handle font = AS_GetCharacter(line.str[i]);
+        V2 size       = {50, 50};
+        Rect2 rect    = CreateRectFromBottomLeft({startX, startY}, size);
+        D_PushRect(rect, font);
+        startX += d_fontAlignment.advance.x;
+    }
+    d_fontAlignment.start.y = d_fontAlignment.start.y - d_fontAlignment.advance.y;
 }
 
 inline R_Pass *R_GetPassFromKind(R_PassType type)

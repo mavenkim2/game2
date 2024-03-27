@@ -4,6 +4,7 @@
 #include "../crack.h"
 #ifdef LSP_INCLUDE
 #include "./render.h"
+#include "render_core.h"
 #endif
 
 #if WINDOWS
@@ -18,14 +19,15 @@
 
 #define GL_TEXTURE_3D 0x806F
 
-#define GL_TEXTURE0 0x84C0
-#define GL_TEXTURE1 0x84C1
-#define GL_TEXTURE2 0x84C2
-#define GL_TEXTURE3 0x84C3
-#define GL_TEXTURE4 0x84C4
-#define GL_TEXTURE5 0x84C5
-#define GL_TEXTURE6 0x84C6
-#define GL_TEXTURE7 0x84C7
+#define GL_TEXTURE0                 0x84C0
+#define GL_TEXTURE1                 0x84C1
+#define GL_TEXTURE2                 0x84C2
+#define GL_TEXTURE3                 0x84C3
+#define GL_TEXTURE4                 0x84C4
+#define GL_TEXTURE5                 0x84C5
+#define GL_TEXTURE6                 0x84C6
+#define GL_TEXTURE7                 0x84C7
+#define GL_MAX_ARRAY_TEXTURE_LAYERS 0x88FF
 
 #define GL_WRITE_ONLY          0x88B9
 #define GL_PIXEL_UNPACK_BUFFER 0x88EC
@@ -243,6 +245,12 @@ typedef void WINAPI type_glMultiDrawElements(GLenum mode, const GLsizei *count, 
                                              const GLvoid *const *indices, GLsizei drawcount);
 typedef void WINAPI type_glUniform1iv(GLint location, GLsizei count, const GLint *value);
 
+typedef void WINAPI type_glTexStorage3D(GLenum target, GLsizei levels, GLenum internalformat, GLsizei width,
+                                        GLsizei height, GLsizei depth);
+typedef void WINAPI type_glTexSubImage3D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint zoffset,
+                                         GLsizei width, GLsizei height, GLsizei depth, GLenum format, GLenum type,
+                                         const GLvoid *pixels);
+
 typedef BOOL WINAPI wgl_swap_interval_ext(int interval);
 global wgl_swap_interval_ext *wglSwapIntervalEXT;
 
@@ -297,14 +305,22 @@ enum R_TextureLoadStatus
     R_TextureLoadStatus_Transferred,
 };
 
+struct R_Texture2DArrayNode;
 struct R_OpenGL_TextureOp
 {
     u8 *buffer;
     void *data;
-    R_OpenGL_Texture *texture;
+    union
+    {
+        R_OpenGL_Texture *texture;
+        R_Texture2DArrayNode *node;
+        u64 index;
+    };
 
     R_TextureLoadStatus status;
     u32 pboIndex;
+
+    b8 usesArray;
 };
 
 struct R_OpenGL_TextureQueue
@@ -336,6 +352,48 @@ struct R_OpenGL_BufferQueue
     u32 endPos;
 };
 
+// NOTE: this cannot be padded
+struct R_Texture2DArrayTopology
+{
+    GLsizei levels;
+    GLenum internalFormat;
+    GLsizei width;
+    GLsizei height;
+};
+
+struct R_Texture2DArray
+{
+    R_Texture2DArrayTopology topology;
+    GLsizei *freeList;
+    u32 freeListCount;
+
+    GLsizei depth;
+    GLuint id;
+    u32 hash;
+};
+
+struct R_Texture2DArrayNode
+{
+    R_Texture2DArray array;
+    R_Texture2DArrayNode *next;
+};
+
+struct R_Texture2DArrayList
+{
+    R_Texture2DArrayNode *first;
+    R_Texture2DArrayNode *last;
+
+    TicketMutex mutex;
+};
+
+struct R_Texture2DArrayMap
+{
+    R_Texture2DArrayList *arrayList;
+    u32 *occupiedSlots;
+    u32 numSlots;
+    u32 maxSlots;
+};
+
 struct OpenGL
 {
     Arena *arena;
@@ -361,6 +419,9 @@ struct OpenGL
 
     R_OpenGL_TextureQueue textureQueue;
     R_OpenGL_BufferQueue bufferQueue;
+
+    R_Texture2DArrayMap textureMap;
+    GLint maxSlices;
 
     OpenGLFunction(glGenBuffers);
     OpenGLFunction(glBindBuffer);
@@ -401,6 +462,8 @@ struct OpenGL
     OpenGLFunction(glUnmapBuffer);
     OpenGLFunction(glMultiDrawElements);
     OpenGLFunction(glUniform1iv);
+    OpenGLFunction(glTexStorage3D);
+    OpenGLFunction(glTexSubImage3D);
 };
 
 global OpenGL _openGL;

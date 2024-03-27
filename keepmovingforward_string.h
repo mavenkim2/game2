@@ -67,6 +67,8 @@ internal string Str8PathChopLastSlash(string string);
 // Hash
 //
 internal u64 HashFromString(string string);
+internal u64 HashStruct_(void* ptr, u64 size);
+#define HashStruct(ptr) HashStruct_((ptr), sizeof(*(ptr)))                                                                                           \
 
 //////////////////////////////
 // String token building/reading

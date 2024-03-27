@@ -172,6 +172,7 @@ internal void ArenaClear(Arena *arena)
 {
     ArenaPopTo(arena, ARENA_HEADER_SIZE);
 }
+
 internal void ArenaRelease(Arena *arena)
 {
     for (Arena *a = arena->current, *prev = 0; a != 0; a = prev)
