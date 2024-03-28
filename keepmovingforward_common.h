@@ -219,6 +219,7 @@ inline void EndMutex(Mutex *mutex)
     mutex->count = 0;
 }
 
+// TODO: ????
 inline void BeginRMutex(Mutex *mutex)
 {
     for (;;)

@@ -6,6 +6,7 @@
 #include "./opengl.h"
 #endif
 
+#define GL_TEXTURE_ARRAY_HANDLE_FLAG 0x8000000000000000
 global i32 win32OpenGLAttribs[] = {
     WGL_CONTEXT_MAJOR_VERSION_ARB,
     3,
@@ -209,7 +210,8 @@ internal void R_OpenGL_Init()
 
     // Texture arrays
     {
-        glGetIntegerv(GL_MAX_ARRAY_TEXTURE_LAYERS, &openGL->maxSlices);
+        // glGetIntegerv(GL_MAX_ARRAY_TEXTURE_LAYERS, &openGL->maxSlices);
+        openGL->maxSlices            = 16;
         openGL->textureMap.maxSlots  = 16;
         openGL->textureMap.arrayList = PushArray(openGL->arena, R_Texture2DArray, openGL->textureMap.maxSlots);
     }
@@ -339,6 +341,8 @@ internal void R_Win32_OpenGL_Init(HWND window)
         Win32GetOpenGLFunction(glUniform1iv);
         Win32GetOpenGLFunction(glTexStorage3D);
         Win32GetOpenGLFunction(glTexSubImage3D);
+        Win32GetOpenGLFunction(glTexImage3D);
+        Win32GetOpenGLFunction(glBindBufferBase);
 
         OpenGLGetInfo();
 
@@ -389,15 +393,6 @@ internal void R_EndFrame(RenderState *state, HDC deviceContext, int clientWidth,
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         // glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-    }
-
-    // Bind texture array
-    u32 counter = 0;
-    for (u32 i = 0; i < openGL->textureMap.maxSlots; i++)
-    {
-        R_Texture2DArray *list = &openGL->textureMap.arrayList[i];
-        openGL->glActiveTexture(GL_TEXTURE0 + counter++);
-        glBindTexture(GL_TEXTURE_2D_ARRAY, list->id);
     }
 
     // RENDER MODEL
@@ -481,6 +476,23 @@ internal void R_EndFrame(RenderState *state, HDC deviceContext, int clientWidth,
                     GLsizei *counts     = PushArray(temp.arena, GLsizei, model->materialCount);
                     void **startIndices = PushArray(temp.arena, void *, model->materialCount);
 
+                    for (u32 i = 0; i < openGL->textureMap.maxSlots; i++)
+                    {
+                        R_Texture2DArray *aList = &openGL->textureMap.arrayList[i];
+                        openGL->glActiveTexture(GL_TEXTURE0 + i);
+                        glBindTexture(GL_TEXTURE_2D_ARRAY, aList->id);
+                    }
+
+                    struct R_TexAddress
+                    {
+                        u32 hashIndex;
+                        f32 slice;
+                    };
+
+                    R_TexAddress *addresses =
+                        PushArray(temp.arena, R_TexAddress, model->materialCount * TextureType_Count);
+                    u32 count = 0;
+
                     for (u32 i = 0; i < model->materialCount; i++)
                     {
                         Material *material = model->materials + i;
@@ -494,33 +506,62 @@ internal void R_EndFrame(RenderState *state, HDC deviceContext, int clientWidth,
                             {
                                 textureHandle = openGL->whiteTextureHandle;
                             }
-                            GLuint id = R_OpenGL_TextureFromHandle(textureHandle)->id;
+                            // Bind texture array
 
-                            switch (j)
+                            if (textureHandle.u64[1] == GL_TEXTURE_ARRAY_HANDLE_FLAG)
                             {
-                                case TextureType_Diffuse:
+                                // SSBO
+                                switch (j)
                                 {
-                                    openGL->glActiveTexture(GL_TEXTURE0 + baseTexture);
-                                    glBindTexture(GL_TEXTURE_2D, id);
-                                    break;
+                                    case TextureType_Diffuse:
+                                    case TextureType_Normal:
+                                    {
+                                        u32 hashIndex = textureHandle.u32[0];
+                                        f32 slice     = (f32)textureHandle.u32[1];
+
+                                        addresses[count++] = {hashIndex, slice};
+                                        break;
+                                    }
+                                    default: continue;
                                 }
-                                case TextureType_Normal:
+                            }
+                            else
+                            {
+                                GLuint id = R_OpenGL_TextureFromHandle(textureHandle)->id;
+
+                                switch (j)
                                 {
-                                    openGL->glActiveTexture(GL_TEXTURE0 + baseTexture + 1);
-                                    glBindTexture(GL_TEXTURE_2D, id);
-                                    break;
-                                }
-                                default:
-                                {
-                                    continue;
+                                    case TextureType_Diffuse:
+                                    {
+                                        openGL->glActiveTexture(GL_TEXTURE0 + baseTexture);
+                                        glBindTexture(GL_TEXTURE_2D, id);
+                                        break;
+                                    }
+                                    case TextureType_Normal:
+                                    {
+                                        openGL->glActiveTexture(GL_TEXTURE0 + baseTexture + 1);
+                                        glBindTexture(GL_TEXTURE_2D, id);
+                                        break;
+                                    }
+                                    default:
+                                    {
+                                        continue;
+                                    }
                                 }
                             }
                         }
                         baseTexture += TEXTURES_PER_MATERIAL;
-
-                        // glDrawElements(GL_TRIANGLES, material->onePlusEndIndex - material->startIndex,
-                        //                GL_UNSIGNED_INT, (void *)(sizeof(u32) * material->startIndex));
                     }
+
+                    static GLuint ssbo = 0;
+                    if (ssbo == 0)
+                    {
+                        openGL->glGenBuffers(1, &ssbo);
+                        openGL->glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, ssbo);
+                    }
+                    openGL->glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
+                    openGL->glBufferData(GL_SHADER_STORAGE_BUFFER, count * sizeof(R_TexAddress), addresses,
+                                         GL_DYNAMIC_DRAW);
                     openGL->glMultiDrawElements(GL_TRIANGLES, counts, GL_UNSIGNED_INT, startIndices,
                                                 model->materialCount);
                 }
@@ -851,7 +892,7 @@ R_ALLOCATE_TEXTURE_2D(R_AllocateTexture2D)
 R_ALLOCATE_TEXTURE_2D(R_AllocateTextureInArray)
 {
     R_Texture2DArrayTopology topology;
-    topology.levels         = 0;
+    topology.levels         = 1;
     topology.width          = width;
     topology.height         = height;
     topology.internalFormat = format;
@@ -869,12 +910,13 @@ R_ALLOCATE_TEXTURE_2D(R_AllocateTextureInArray)
     }
     if (list->hash == 0)
     {
+        list->topology      = topology;
         list->freeList      = PushArray(openGL->arena, GLsizei, openGL->maxSlices);
         list->freeListCount = openGL->maxSlices;
         list->depth         = openGL->maxSlices;
-        for (GLsizei i = 0; i < openGL->maxSlices; i++)
+        for (GLsizei i = openGL->maxSlices - 1; i >= 0; i--)
         {
-            list->freeList[i] = i;
+            list->freeList[openGL->maxSlices - 1 - i] = i;
         }
         list->hash = hash;
     }
@@ -885,6 +927,29 @@ R_ALLOCATE_TEXTURE_2D(R_AllocateTextureInArray)
     R_Handle result;
     result.u32[0] = hashIndex;
     result.u32[1] = (u32)freeIndex;
+    result.u64[1] = GL_TEXTURE_ARRAY_HANDLE_FLAG;
+
+    R_OpenGL_Texture *texture = openGL->freeTextures;
+    while (texture && AtomicCompareExchangePtr(&openGL->freeTextures, texture->next, texture) != texture)
+    {
+        texture = texture->next;
+    }
+    if (texture)
+    {
+        u64 gen = texture->generation;
+        MemoryZeroStruct(texture);
+        texture->generation = gen;
+    }
+    else
+    {
+        BeginTicketMutex(&openGL->mutex);
+        texture = PushStruct(openGL->arena, R_OpenGL_Texture);
+        EndTicketMutex(&openGL->mutex);
+    }
+    texture->width  = width;
+    texture->height = height;
+    texture->generation += 1;
+    texture->format = format;
 
     // Add to queue
     R_OpenGL_TextureQueue *queue = &openGL->textureQueue;
@@ -897,6 +962,7 @@ R_ALLOCATE_TEXTURE_2D(R_AllocateTextureInArray)
             u32 ringIndex          = (writePos & (queue->numOps - 1));
             R_OpenGL_TextureOp *op = queue->ops + ringIndex;
             op->data               = data;
+            op->texture            = texture;
             op->texSlice.hashIndex = result.u32[0];
             op->texSlice.slice     = result.u32[1];
             op->status             = R_TextureLoadStatus_Untransferred;
@@ -958,8 +1024,17 @@ internal void R_OpenGL_LoadTextures()
                     case R_TexFormat_RGBA8:
                     default: glFormat = GL_RGBA8; break;
                 }
+#if 0
+                openGL->glTexImage3D(GL_TEXTURE_2D_ARRAY, array->topology.levels, glFormat,
+                array->topology.width,
+                                     array->topology.height, array->depth, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+#endif
                 openGL->glTexStorage3D(GL_TEXTURE_2D_ARRAY, array->topology.levels, glFormat,
                                        array->topology.width, array->topology.height, array->depth);
+                glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+                glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_REPEAT);
+                glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_REPEAT);
             }
         }
 
@@ -1022,19 +1097,15 @@ internal void R_OpenGL_LoadTextures()
             }
             else
             {
-                u32 arrayIndex          = op->texSlice.slice;
+                u32 slice               = op->texSlice.slice;
                 R_Texture2DArray *array = &openGL->textureMap.arrayList[op->texSlice.hashIndex];
 
                 glBindTexture(GL_TEXTURE_2D_ARRAY, array->id);
                 openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, GetPbo(op->pboIndex));
-                openGL->glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, arrayIndex, array->topology.width,
+                openGL->glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, slice, array->topology.width,
                                         array->topology.height, 1, GL_RGBA, GL_UNSIGNED_BYTE, 0);
 
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
-                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-                glBindTexture(GL_TEXTURE_2D, 0);
+                glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
                 openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
                 openGL->firstUsedPboIndex++;
             }

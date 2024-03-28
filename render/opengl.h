@@ -160,6 +160,7 @@
 #define GL_MAX_SAMPLES               0x8D57
 #define GL_MAX_COLOR_TEXTURE_SAMPLES 0x910E
 #define GL_MAX_DEPTH_TEXTURE_SAMPLES 0x910F
+#define GL_SHADER_STORAGE_BUFFER     0x90D2
 
 // WINDOWS
 #define WGL_CONTEXT_MAJOR_VERSION_ARB 0x2091
@@ -250,7 +251,10 @@ typedef void WINAPI type_glTexStorage3D(GLenum target, GLsizei levels, GLenum in
 typedef void WINAPI type_glTexSubImage3D(GLenum target, GLint level, GLint xoffset, GLint yoffset, GLint zoffset,
                                          GLsizei width, GLsizei height, GLsizei depth, GLenum format, GLenum type,
                                          const GLvoid *pixels);
-
+typedef void WINAPI type_glTexImage3D(GLenum target, GLint level, GLint internalFormat, GLsizei width,
+                                      GLsizei height, GLsizei depth, GLint border, GLenum format, GLenum type,
+                                      const GLvoid *data);
+typedef void WINAPI type_glBindBufferBase(GLenum target, GLuint index, GLuint buffer);
 typedef BOOL WINAPI wgl_swap_interval_ext(int interval);
 global wgl_swap_interval_ext *wglSwapIntervalEXT;
 
@@ -310,15 +314,12 @@ struct R_OpenGL_TextureOp
 {
     u8 *buffer;
     void *data;
-    union
+    R_OpenGL_Texture *texture;
+    struct
     {
-        R_OpenGL_Texture *texture;
-        struct
-        {
-            u32 hashIndex;
-            u32 slice;
-        } texSlice;
-    };
+        u32 hashIndex;
+        u32 slice;
+    } texSlice;
 
     R_TextureLoadStatus status;
     u32 pboIndex;
@@ -453,6 +454,8 @@ struct OpenGL
     OpenGLFunction(glUniform1iv);
     OpenGLFunction(glTexStorage3D);
     OpenGLFunction(glTexSubImage3D);
+    OpenGLFunction(glTexImage3D);
+    OpenGLFunction(glBindBufferBase);
 };
 
 global OpenGL _openGL;
