@@ -680,7 +680,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     Arena *win32Arena = ArenaAlloc();
 
     gameMemory.PlatformToggleCursor = PlatformToggleCursor;
-    gameMemory.R_AllocateTexture2D  = R_AllocateTexture2D;
+    gameMemory.R_AllocateTexture2D  = R_AllocateTextureInArray;//R_AllocateTexture2D;
     gameMemory.R_DeleteTexture2D    = R_DeleteTexture2D;
     gameMemory.R_AllocateBuffer     = R_AllocateBuffer;
 

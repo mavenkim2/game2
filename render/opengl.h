@@ -313,8 +313,11 @@ struct R_OpenGL_TextureOp
     union
     {
         R_OpenGL_Texture *texture;
-        R_Texture2DArrayNode *node;
-        u64 index;
+        struct
+        {
+            u32 hashIndex;
+            u32 slice;
+        } texSlice;
     };
 
     R_TextureLoadStatus status;
@@ -372,26 +375,12 @@ struct R_Texture2DArray
     u32 hash;
 };
 
-struct R_Texture2DArrayNode
-{
-    R_Texture2DArray array;
-    R_Texture2DArrayNode *next;
-};
-
-struct R_Texture2DArrayList
-{
-    R_Texture2DArrayNode *first;
-    R_Texture2DArrayNode *last;
-
-    TicketMutex mutex;
-};
-
 struct R_Texture2DArrayMap
 {
-    R_Texture2DArrayList *arrayList;
-    u32 *occupiedSlots;
-    u32 numSlots;
+    R_Texture2DArray *arrayList;
     u32 maxSlots;
+
+    TicketMutex mutex;
 };
 
 struct OpenGL

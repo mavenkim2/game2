@@ -166,8 +166,9 @@ struct R_Batch2DGroupNode
 
 struct R_PassUI
 {
-    R_Batch2DGroupNode *first;
-    R_Batch2DGroupNode *last;
+    R_BatchList batchList;
+    // R_Batch2DGroupNode *first;
+    // R_Batch2DGroupNode *last;
 };
 
 struct R_Pass3D

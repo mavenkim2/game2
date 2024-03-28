@@ -242,23 +242,26 @@ struct D_FontAlignment
 struct R_RectInst
 {
     V2 pos;
-    f32 scale;
+    V2 scale;
     R_Handle handle;
 };
 
 // in this case the handle will be a pair of indices into an array of sampler2DArrays
 internal void D_PushRect(Rect2 rect, R_Handle img)
 {
-    f32 scale = (rect.maxP - rect.minP) / 2;
-    V2 pos    = rec.minP;
+    R_PassUI *passUI = R_GetPassFromKind(R_PassType_UI)->passUI;
+    R_RectInst *inst = (R_RectInst *)R_BatchListPush(&passUI->batchList, 256);
 
-    R_RectInst *inst = (R_RectInst *)R_BatchListPush(&group->batchList, 256);
-    inst->pos        = pos;
-    inst->scale      = scale;
-    inst->handle     = img;
+    V2 scale = (rect.maxP - rect.minP) / 2;
+    V2 pos   = rect.minP;
+
+    inst->pos    = pos;
+    inst->scale  = scale;
+    inst->handle = img;
 }
 
 // ideal is to do all of this in oe draw call
+#if 0
 internal void D_PushText(string line)
 {
     static D_FontAlignment d_fontAlignment;
@@ -280,6 +283,7 @@ internal void D_PushText(string line)
     }
     d_fontAlignment.start.y = d_fontAlignment.start.y - d_fontAlignment.advance.y;
 }
+#endif
 
 inline R_Pass *R_GetPassFromKind(R_PassType type)
 {
