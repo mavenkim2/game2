@@ -98,7 +98,7 @@ struct AS_CacheState
     AS_TagMap tagMap;
 
     // Block allocator for assets
-    // TODO: make this striped
+    // TODO: per thread?
     u32 numBlocks;
     u32 blockSize;
     u8 *blockBackingBuffer;
@@ -193,7 +193,7 @@ internal KeyframedAnimation *GetAnim(AS_Handle handle);
 internal LoadedModel *GetModel(AS_Handle handle);
 internal Texture *GetTexture(AS_Handle handle);
 internal R_Handle GetTextureRenderHandle(AS_Handle input);
-inline AS_Handle LoadAssetFile(string filename);
+inline AS_Handle AS_LoadAssetFile(string filename);
 inline b8 IsAnimNil(KeyframedAnimation *anim);
 
 //////////////////////////////

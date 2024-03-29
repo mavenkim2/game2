@@ -290,7 +290,6 @@ internal void D_PushText(string line)
 
 inline R_Pass *R_GetPassFromKind(R_PassType type)
 {
-    Assert(!"Failed!");
     RenderState *state = d_state->state;
     R_Pass *result     = &state->passes[type];
     return result;

@@ -75,6 +75,15 @@ internal void AS_Init()
         headerNode->next->prev = headerNode;
         headerNode->prev->next = headerNode;
     }
+
+    // Asset tag trees
+    as_state->tagMap.maxSlots = AS_TagKey_Count;
+    as_state->tagMap.slots    = PushArray(arena, AS_TagSlot, as_state->tagMap.maxSlots);
+    for (i32 i = 0; i < AS_TagKey_Count; i++)
+    {
+        as_state->tagMap.slots[i].maxCount = 256;
+        as_state->tagMap.slots[i].nodes    = PushArray(arena, AS_TagNode, as_state->tagMap.slots[i].maxCount);
+    }
 }
 
 internal u64 RingRead(u8 *base, u64 ringSize, u64 readPos, void *dest, u64 destSize)
@@ -345,7 +354,7 @@ JOB_CALLBACK(AS_LoadAsset)
                     GetPointerValue(&tokenizer, &path.size);
                     Advance(&tokenizer, (u32)path.size);
                     // Printf("Size: %u\n", path.size);
-                    model->materials[i].textureHandles[j] = LoadAssetFile(path);
+                    model->materials[i].textureHandles[j] = AS_LoadAssetFile(path);
                     // Printf("Texture Type: %u, File: %S\n", j, path);
                 }
                 else
@@ -550,7 +559,8 @@ internal AS_Handle AS_GetAssetHandle(string path)
     return result;
 }
 
-// internal void Font() {
+// internal void FontSomethingSomethingWoohoo()
+// {
 //     stbtt_fontinfo font;
 //     stbtt_InitFont(&font, , 0);
 // }
@@ -626,7 +636,8 @@ internal R_Handle GetTextureRenderHandle(AS_Handle input)
     return handle;
 }
 
-inline AS_Handle LoadAssetFile(string filename)
+// TODO: similar function that tries to get it from the hash first before loading it smiley face :)
+inline AS_Handle AS_LoadAssetFile(string filename)
 {
     AS_EnqueueFile(filename);
     AS_Handle result = AS_GetAssetHandle(filename);
@@ -780,7 +791,6 @@ internal void AS_AddAssetTag(AS_TagKey tagKey, f32 tagValue, AS_Handle handle)
     // Root nodes
     u32 nodeIndex    = 0;
     AS_TagNode *node = slot->nodes + nodeIndex;
-    // TODO: simd this?
     for (;;)
     {
         i32 index = -1;
@@ -814,9 +824,46 @@ internal void AS_AddAssetTag(AS_TagKey tagKey, f32 tagValue, AS_Handle handle)
             {
                 Assert(slot->count < slot->maxCount);
                 node->children[index] = slot->count++;
+                nodeIndex             = node->children[index];
             }
             parent = node;
             node   = slot->nodes + nodeIndex;
         }
     }
+}
+
+internal AS_Handle AS_GetAssetByTag(AS_TagKey tagKey, f32 tagValue)
+{
+    AS_TagSlot *slot = as_state->tagMap.slots + tagKey;
+    AS_TagNode *node = slot->nodes + 0;
+
+    f32 bestMatchValue        = FLT_MAX;
+    AS_Handle bestMatchHandle = {};
+
+    for (;;)
+    {
+        i32 nodeIndex = -1;
+        for (i32 i = 0; i < node->count; i++)
+        {
+            AS_TagKeyValuePair *pair = node->pairs + i;
+            if (tagValue == pair->value)
+            {
+                return pair->assetHandle;
+            }
+            if (Abs(pair->value - tagValue) < bestMatchValue)
+            {
+                bestMatchValue  = pair->value;
+                bestMatchHandle = pair->assetHandle;
+            }
+            if (tagValue < pair->value)
+            {
+                nodeIndex = node->children[i];
+                break;
+            }
+        }
+        nodeIndex = -1 ? node->children[ArrayLength(node->children) - 1] : nodeIndex;
+        node      = slot->nodes + nodeIndex;
+    }
+
+    return bestMatchHandle;
 }

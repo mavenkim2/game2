@@ -490,13 +490,13 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
 
         // Load assets
 
-        gameState->model  = LoadAssetFile(Str8Lit("data/dragon/scene.model"));
-        gameState->model2 = LoadAssetFile(Str8Lit("data/hero/scene.model"));
+        gameState->model  = AS_LoadAssetFile(Str8Lit("data/dragon/scene.model"));
+        gameState->model2 = AS_LoadAssetFile(Str8Lit("data/hero/scene.model"));
 
         KeyframedAnimation *animation = PushStruct(gameState->worldArena, KeyframedAnimation);
 
         // ReadAnimationFile(gameState->worldArena, animation, Str8Lit("data/dragon_attack_01.anim"));
-        AS_Handle anim = LoadAssetFile(Str8Lit("data/dragon/Qishilong_attack01.anim"));
+        AS_Handle anim = AS_LoadAssetFile(Str8Lit("data/dragon/Qishilong_attack01.anim"));
         // AS_Handle anim = LoadAssetFile(Str8Lit("data/dragon/Qishilong_attack02.anim"));
 
         gameState->level      = PushStruct(gameState->worldArena, Level);

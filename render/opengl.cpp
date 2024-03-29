@@ -890,6 +890,7 @@ R_ALLOCATE_TEXTURE_2D(R_AllocateTexture2D)
 }
 
 // Allocate using GL_TEXTURE_2D_ARRAY
+// TODO: mipmaps using glcompressedtexture? or something idk
 R_ALLOCATE_TEXTURE_2D(R_AllocateTextureInArray)
 {
     R_Texture2DArrayTopology topology;
@@ -1119,8 +1120,6 @@ internal void R_OpenGL_LoadTextures()
     queue->loadPos     = loadPos;
     queue->finalizePos = finalizePos;
 }
-
-// this has to happen on a single threaded context
 
 //////////////////////////////
 // Buffer loading
