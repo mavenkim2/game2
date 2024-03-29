@@ -507,7 +507,6 @@ internal void R_EndFrame(RenderState *state, HDC deviceContext, int clientWidth,
                                 textureHandle = openGL->whiteTextureHandle;
                             }
                             // Bind texture array
-
                             if (textureHandle.u64[1] == GL_TEXTURE_ARRAY_HANDLE_FLAG)
                             {
                                 // SSBO
@@ -525,6 +524,7 @@ internal void R_EndFrame(RenderState *state, HDC deviceContext, int clientWidth,
                                     default: continue;
                                 }
                             }
+                            // Bind textures individually
                             else
                             {
                                 GLuint id = R_OpenGL_TextureFromHandle(textureHandle)->id;
@@ -838,7 +838,7 @@ inline GLuint GetPbo(u32 index)
     return pbo;
 }
 
-// TODO: sparse bindless texture arrays?
+// Allocate individual texture
 R_ALLOCATE_TEXTURE_2D(R_AllocateTexture2D)
 {
     R_OpenGL_Texture *texture = openGL->freeTextures;
@@ -889,6 +889,7 @@ R_ALLOCATE_TEXTURE_2D(R_AllocateTexture2D)
     return handle;
 }
 
+// Allocate using GL_TEXTURE_2D_ARRAY
 R_ALLOCATE_TEXTURE_2D(R_AllocateTextureInArray)
 {
     R_Texture2DArrayTopology topology;

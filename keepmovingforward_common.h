@@ -65,10 +65,33 @@ typedef i64 b64;
 #define gigabytes(value)   (megabytes(value) * 1024LL)
 #define terabytes(value)   (gigabytes(value) * 1024LL)
 
-#if UNOPTIMIZED
-#define Assert(expression) (!(expression) ? (*(volatile int *)0 = 0, 0) : 0)
+internal void Printf(char *fmt, ...);
+
+#ifdef COMPILER_MSVC
+#define Trap() __debugbreak()
 #else
-#define Assert(expression) (void)0
+#error compiler not implemented
+#endif
+#if UNOPTIMIZED
+// #define Assert(expression) (!(expression) ? (*(volatile int *)0 = 0, 0) : 0)
+#define Assert(expression)                                                                                        \
+    if (expression)                                                                                               \
+    {                                                                                                             \
+    }                                                                                                             \
+    else                                                                                                          \
+    {                                                                                                             \
+        Printf("Assert fired\nExpression: %s\nFile: %s\nLine Num: %u", #expression, __FILE__, __LINE__);           \
+        Trap();                                                                                                   \
+    }
+// do
+// {
+//     if (!(expression))
+//     {
+//         Trap();
+//     }
+// } while (0);
+#else
+#define Assert(expression) (void)(expression)
 #endif
 
 #define Unreachable Assert(!"Unreachable")
@@ -103,7 +126,9 @@ typedef i64 b64;
         u32 count   = 0;                                                                                          \
         u32 cap     = 0;                                                                                          \
     }
-#define ArrayPush(array, item) (Assert((array)->count < (array)->cap), (array)->items[(array)->count++] = item)
+#define ArrayPush(array, item)                                                                                    \
+    Assert((array)->count < (array)->cap);                                                                        \
+    (array)->items[(array)->count++] = item
 
 // Loops
 #define DO_STRING_JOIN(arg1, arg2) arg1##arg2
@@ -163,9 +188,9 @@ typedef i64 b64;
 #define AtomicCompareExchangeU64(dest, src, expected)                                                             \
     _InterlockedCompareExchange64((__int64 volatile *)dest, src, expected)
 
-typedef void* PVOID;
+typedef void *PVOID;
 #define AtomicCompareExchangePtr(dest, src, expected)                                                             \
-    _InterlockedCompareExchangePointer((volatile PVOID*)dest, src, expected)
+    _InterlockedCompareExchangePointer((volatile PVOID *)dest, src, expected)
 
 #define AtomicIncrementU32(dest) _InterlockedIncrement((long volatile *)dest)
 #define AtomicIncrementU64(dest) _InterlockedIncrement64((__int64 volatile *)dest)

@@ -30,6 +30,46 @@ struct AS_Thread
     Arena *arena;
 };
 
+//////////////////////////////
+// Asset tagging
+//
+
+enum AS_TagKey
+{
+    AS_TagKey_UnicodeCodepoint,
+    AS_TagKey_Count,
+};
+
+struct AS_TagKeyValuePair
+{
+    AS_Handle assetHandle;
+    f32 value;
+};
+
+// B tree node
+struct AS_TagNode
+{
+    AS_TagKeyValuePair pairs[4];
+    i32 count;
+    i16 children[5];
+};
+
+struct AS_TagSlot
+{
+    // Dynamically allocated array of nodes representing a tree
+    AS_TagNode *nodes;
+    i16 count;
+    i16 maxCount;
+    // AS_TagNode *root;
+    Mutex mutex;
+};
+
+struct AS_TagMap
+{
+    AS_TagSlot *slots;
+    u32 maxSlots;
+};
+
 struct AS_CacheState
 {
     Arena *arena;
@@ -53,6 +93,9 @@ struct AS_CacheState
     // Hash table for assets
     u32 numSlots;
     AS_Slot *assetSlots;
+
+    // Tag Maps for assets
+    AS_TagMap tagMap;
 
     // Block allocator for assets
     // TODO: make this striped

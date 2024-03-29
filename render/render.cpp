@@ -260,7 +260,10 @@ internal void D_PushRect(Rect2 rect, R_Handle img)
     inst->handle = img;
 }
 
-// ideal is to do all of this in oe draw call
+// TODO: get assets by a tag and value
+// what I'm thinking: array of arrays of tags sorted by value
+// since the assets are being added one by one me thinks they can just be sorted?
+// and then you binary search
 #if 0
 internal void D_PushText(string line)
 {
@@ -275,7 +278,7 @@ internal void D_PushText(string line)
     f32 startY = d_fontAlignment.start.y;
     for (u32 i = 0; i < line.size; i++)
     {
-        R_Handle font = AS_GetCharacter(line.str[i]);
+        R_Handle font = AS_GetAsset(AS_GetCharacter(line.str[i]);
         V2 size       = {50, 50};
         Rect2 rect    = CreateRectFromBottomLeft({startX, startY}, size);
         D_PushRect(rect, font);
@@ -287,6 +290,7 @@ internal void D_PushText(string line)
 
 inline R_Pass *R_GetPassFromKind(R_PassType type)
 {
+    Assert(!"Failed!");
     RenderState *state = d_state->state;
     R_Pass *result     = &state->passes[type];
     return result;

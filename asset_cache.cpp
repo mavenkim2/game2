@@ -537,6 +537,10 @@ internal void AS_UnloadAsset(AS_Node *node)
 //////////////////////////////
 // Handles
 //
+internal AS_Handle AS_GetAssetByTag(string tag)
+{
+    u64 hash = HashFromString(tag);
+}
 
 internal AS_Handle AS_GetAssetHandle(string path)
 {
@@ -546,6 +550,11 @@ internal AS_Handle AS_GetAssetHandle(string path)
     return result;
 }
 
+// internal void Font() {
+//     stbtt_fontinfo font;
+//     stbtt_InitFont(&font, , 0);
+// }
+
 internal AS_Node *AS_GetNodeFromHandle(AS_Handle handle)
 {
     AS_Node *result = 0;
@@ -554,7 +563,6 @@ internal AS_Node *AS_GetNodeFromHandle(AS_Handle handle)
     u32 slotIndex = hash & (as_state->numSlots - 1);
     AS_Slot *slot = as_state->assetSlots + slotIndex;
 
-    // TODO: can this be lockless?
     BeginRMutex(&slot->mutex);
     for (AS_Node *node = slot->first; node != 0; node = node->next)
     {
@@ -760,4 +768,55 @@ inline u8 *GetAssetBuffer(AS_Node *node)
 inline void EndTemporaryMemory(AS_Node *node)
 {
     FreeBlocks(node);
+}
+
+//////////////////////////////
+// Asset tags
+//
+internal void AS_AddAssetTag(AS_TagKey tagKey, f32 tagValue, AS_Handle handle)
+{
+    AS_TagSlot *slot   = as_state->tagMap.slots + tagKey;
+    AS_TagNode *parent = 0;
+    // Root nodes
+    u32 nodeIndex    = 0;
+    AS_TagNode *node = slot->nodes + nodeIndex;
+    // TODO: simd this?
+    for (;;)
+    {
+        i32 index = -1;
+        for (i32 i = 0; i < node->count; i++)
+        {
+            AS_TagKeyValuePair *pair = node->pairs + i;
+            if (tagValue <= pair->value)
+            {
+                index = i;
+                break;
+            }
+        }
+
+        index = index == -1 ? node->count : index;
+        // Assumption: node has no children until "nodes" is filled. then children are created
+        if (node->count < ArrayLength(node->pairs))
+        {
+            // Shift all elements up by 1
+            if (index != node->count)
+            {
+                MemoryCopy(node->pairs + index + 1, node->pairs + index, node->count - index);
+            }
+            node->pairs[node->count++] = {handle, tagValue};
+            break;
+        }
+        // Find new child to iterate to, adding node if necesary
+        else
+        {
+            nodeIndex = node->children[index];
+            if (nodeIndex == 0)
+            {
+                Assert(slot->count < slot->maxCount);
+                node->children[index] = slot->count++;
+            }
+            parent = node;
+            node   = slot->nodes + nodeIndex;
+        }
+    }
 }

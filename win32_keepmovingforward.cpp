@@ -254,8 +254,7 @@ HRESULT FindChunk(HANDLE hFile, DWORD fourcc, DWORD &dwChunkSize, DWORD &dwChunk
                 Assert(dwFileType == 'EVAW');
                 break;
 
-            default:
-                Assert(INVALID_SET_FILE_POINTER != SetFilePointer(hFile, dwChunkDataSize, 0, FILE_CURRENT));
+            default: Assert(INVALID_SET_FILE_POINTER != SetFilePointer(hFile, dwChunkDataSize, 0, FILE_CURRENT));
         }
 
         dwOffset += sizeof(DWORD) * 2;
@@ -680,7 +679,7 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     Arena *win32Arena = ArenaAlloc();
 
     gameMemory.PlatformToggleCursor = PlatformToggleCursor;
-    gameMemory.R_AllocateTexture2D  = R_AllocateTextureInArray;//R_AllocateTexture2D;
+    gameMemory.R_AllocateTexture2D  = R_AllocateTextureInArray;
     gameMemory.R_DeleteTexture2D    = R_DeleteTexture2D;
     gameMemory.R_AllocateBuffer     = R_AllocateBuffer;
 
