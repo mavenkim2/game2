@@ -129,6 +129,11 @@ enum AS_Status
     AS_Status_Loaded,
 };
 
+struct Font
+{
+    F_Data fontData;
+};
+
 struct AS_Asset
 {
     // Memory
@@ -149,6 +154,7 @@ struct AS_Asset
         Texture texture;
         LoadedModel model;
         KeyframedAnimation *anim;
+        Font font;
     };
 };
 
@@ -187,6 +193,7 @@ internal AS_Handle AS_HandleFromAsset(AS_Node *node);
 internal AS_Node *AS_AssetFromHandle(AS_Handle handle);
 internal AS_Handle AS_GetAssetHandle(u64 hash);
 internal AS_Handle AS_GetAssetHandle(string path);
+internal Font *GetFont(AS_Handle handle);
 internal LoadedSkeleton *GetSkeleton(AS_Handle handle);
 internal LoadedSkeleton *GetSkeletonFromModel(AS_Handle handle);
 internal KeyframedAnimation *GetAnim(AS_Handle handle);

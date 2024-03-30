@@ -40,6 +40,12 @@ inline f32 Abs(f32 a)
     return result;
 }
 
+inline f32 Round(f32 a)
+{
+    f32 result = roundf(a);
+    return result;
+}
+
 inline f32 Sign(f32 a)
 {
     if (a < 0)

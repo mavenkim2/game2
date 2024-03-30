@@ -4,6 +4,8 @@
 #include "../asset_cache.h"
 #include "render.h"
 #include "render_core.h"
+#include "../font.h"
+#include "../font.cpp"
 #endif
 
 global const V4 Color_Red               = {1, 0, 0, 1};
@@ -241,12 +243,11 @@ struct D_FontAlignment
 
 struct R_RectInst
 {
+    R_Handle handle;
     V2 pos;
     V2 scale;
-    R_Handle handle;
 };
 
-// in this case the handle will be a pair of indices into an array of sampler2DArrays
 internal void D_PushRect(Rect2 rect, R_Handle img)
 {
     R_PassUI *passUI = R_GetPassFromKind(R_PassType_UI)->passUI;
@@ -260,33 +261,27 @@ internal void D_PushRect(Rect2 rect, R_Handle img)
     inst->handle = img;
 }
 
-// TODO: get assets by a tag and value
-// what I'm thinking: array of arrays of tags sorted by value
-// since the assets are being added one by one me thinks they can just be sorted?
-// and then you binary search
-#if 0
-internal void D_PushText(string line)
+internal void D_PushText(AS_Handle font, V2 startPos, f32 size, string line)
 {
-    static D_FontAlignment d_fontAlignment;
-    d_fontAlignment.advance = {50, 50};
-    RenderState *state      = d_state->state;
-    R_PassUI *pass          = R_GetPassFromKind(R_PassType_UI)->passUI;
+    TempArena temp     = ScratchStart(0, 0);
+    F_Run *run         = F_GetFontRun(temp.arena, font, size, line);
+    RenderState *state = d_state->state;
+    R_PassUI *pass     = R_GetPassFromKind(R_PassType_UI)->passUI;
 
-    // alignment, some starting spot, some context? of where to start?
-    // how do I get the bitmap I need? it should NOT be a filename
-    f32 startX = d_fontAlignment.start.x;
-    f32 startY = d_fontAlignment.start.y;
-    for (u32 i = 0; i < line.size; i++)
+    f32 advance = 0;
+    for (F_PieceChunkNode *node = run->first; node != 0; node = node->next)
     {
-        R_Handle font = AS_GetAsset(AS_GetCharacter(line.str[i]);
-        V2 size       = {50, 50};
-        Rect2 rect    = CreateRectFromBottomLeft({startX, startY}, size);
-        D_PushRect(rect, font);
-        startX += d_fontAlignment.advance.x;
+        for (u32 i = 0; i < node->count; i++)
+        {
+            F_Piece *piece = node->pieces + i;
+            Rect2 rect     = MakeRect2({startPos.x + advance, startPos.y},
+                                       {startPos.x + advance + piece->width, startPos.y + piece->height});
+            D_PushRect(rect, piece->texture);
+            advance += piece->advance;
+        }
     }
-    d_fontAlignment.start.y = d_fontAlignment.start.y - d_fontAlignment.advance.y;
+    ScratchEnd(temp);
 }
-#endif
 
 inline R_Pass *R_GetPassFromKind(R_PassType type)
 {

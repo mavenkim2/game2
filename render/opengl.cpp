@@ -160,6 +160,8 @@ internal void R_OpenGL_Init()
     {
         openGL->glGenBuffers(1, &openGL->scratchVbo);
         openGL->glGenBuffers(1, &openGL->scratchEbo);
+        // openGL->glGenBuffers(1, &openGL->scratchInstance);
+
         openGL->glBindBuffer(GL_ARRAY_BUFFER, openGL->scratchVbo);
         openGL->scratchVboSize = kilobytes(64);
         openGL->glBufferData(GL_ARRAY_BUFFER, openGL->scratchVboSize, 0, GL_DYNAMIC_DRAW);
@@ -167,6 +169,10 @@ internal void R_OpenGL_Init()
         openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, openGL->scratchEbo);
         openGL->scratchEboSize = kilobytes(64);
         openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, openGL->scratchEboSize, 0, GL_DYNAMIC_DRAW);
+
+        // openGL->glBindBuffer(GL_ARRAY_BUFFER, openGL->scratchEbo);
+        // openGL->scratchEboSize = kilobytes(64);
+        // openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, openGL->scratchEboSize, 0, GL_DYNAMIC_DRAW);
 
         openGL->glBindBuffer(GL_ARRAY_BUFFER, 0);
         openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
@@ -343,6 +349,7 @@ internal void R_Win32_OpenGL_Init(HWND window)
         Win32GetOpenGLFunction(glTexSubImage3D);
         Win32GetOpenGLFunction(glTexImage3D);
         Win32GetOpenGLFunction(glBindBufferBase);
+        Win32GetOpenGLFunction(glDrawArraysInstanced);
 
         OpenGLGetInfo();
 
@@ -372,8 +379,22 @@ internal void R_BeginFrame(i32 width, i32 height)
 
 internal void R_EndFrame(RenderState *state, HDC deviceContext, int clientWidth, int clientHeight)
 {
-    R_OpenGL_LoadBuffers();
-    R_OpenGL_LoadTextures();
+    // Load queued buffers and textures
+    {
+        R_OpenGL_LoadBuffers();
+        R_OpenGL_LoadTextures();
+    }
+
+    // Initialize texture array (for everyone
+    {
+        for (u32 i = 0; i < openGL->textureMap.maxSlots; i++)
+        {
+            R_Texture2DArray *aList = &openGL->textureMap.arrayList[i];
+            openGL->glActiveTexture(GL_TEXTURE0 + i);
+            glBindTexture(GL_TEXTURE_2D_ARRAY, aList->id);
+        }
+    }
+
     TempArena temp = ScratchStart(0, 0);
     // INITIALIZE
     {
@@ -404,11 +425,25 @@ internal void R_EndFrame(RenderState *state, HDC deviceContext, int clientWidth,
         {
             case R_PassType_UI:
             {
+                // openGL->glBindBuffer(GL_ARRAY_BUFFER, openGL->scratchVbo);
+                // u32 totalOffset = 0;
+                // for (R_BatchNode *node = group->batchList.first; node != 0; node = node->next)
+                // {
+                //     // TODO: persistently mapped buffers for scratch data? that way you can just 
+                //     // memcpy to the buffer instead of calling glBufferSubData repeatedly
+                //     // also still have to try out sparse bindless textures : ) but apparently
+                //     // they suck on windows so who know
+                //
+                //     openGL->glBufferSubData(GL_ARRAY_BUFFER, totalOffset, node->val.byteCount, node->val.data);
+                //     totalOffset += node->val.byteCount;
+                // }
+                //
                 // R_BatchList *list = pass->passUI->batchList;
                 // for (R_BatchNode *node = list->first; node != 0; node = node->next)
                 // {
-                //
+                //     node->
                 // }
+                // openGL->glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, list->numInstances);
                 break;
             }
             case R_PassType_StaticMesh:
@@ -475,13 +510,6 @@ internal void R_EndFrame(RenderState *state, HDC deviceContext, int clientWidth,
                     u32 baseTexture     = 0;
                     GLsizei *counts     = PushArray(temp.arena, GLsizei, model->materialCount);
                     void **startIndices = PushArray(temp.arena, void *, model->materialCount);
-
-                    for (u32 i = 0; i < openGL->textureMap.maxSlots; i++)
-                    {
-                        R_Texture2DArray *aList = &openGL->textureMap.arrayList[i];
-                        openGL->glActiveTexture(GL_TEXTURE0 + i);
-                        glBindTexture(GL_TEXTURE_2D_ARRAY, aList->id);
-                    }
 
                     struct R_TexAddress
                     {
@@ -1019,13 +1047,7 @@ internal void R_OpenGL_LoadTextures()
             {
                 glGenTextures(1, &array->id);
                 glBindTexture(GL_TEXTURE_2D_ARRAY, array->id);
-                u32 glFormat;
-                switch (array->topology.internalFormat)
-                {
-                    case R_TexFormat_SRGB: glFormat = openGL->defaultTextureFormat; break;
-                    case R_TexFormat_RGBA8:
-                    default: glFormat = GL_RGBA8; break;
-                }
+                GLenum glFormat = R_OpenGL_GetFormat(array->topology.internalFormat);
 #if 0
                 openGL->glTexImage3D(GL_TEXTURE_2D_ARRAY, array->topology.levels, glFormat,
                 array->topology.width,
@@ -1077,13 +1099,7 @@ internal void R_OpenGL_LoadTextures()
 
                 openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, GetPbo(op->pboIndex));
 
-                u32 glFormat;
-                switch (texture->format)
-                {
-                    case R_TexFormat_SRGB: glFormat = openGL->defaultTextureFormat; break;
-                    case R_TexFormat_RGBA8:
-                    default: glFormat = GL_RGBA8; break;
-                }
+                GLenum glFormat = R_OpenGL_GetFormat(texture->format);
 
                 glTexImage2D(GL_TEXTURE_2D, 0, glFormat, texture->width, texture->height, 0, GL_RGBA,
                              GL_UNSIGNED_BYTE, 0);

@@ -14,6 +14,7 @@
 #include "render/render_core.h"
 #include "asset.h"
 #include "./offline/asset_processing.h"
+#include "font.h"
 #include "asset_cache.h"
 #include "render/render.h"
 #include "keepmovingforward_platform.h"

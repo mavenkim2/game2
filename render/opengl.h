@@ -255,6 +255,8 @@ typedef void WINAPI type_glTexImage3D(GLenum target, GLint level, GLint internal
                                       GLsizei height, GLsizei depth, GLint border, GLenum format, GLenum type,
                                       const GLvoid *data);
 typedef void WINAPI type_glBindBufferBase(GLenum target, GLuint index, GLuint buffer);
+typedef void WINAPI type_glDrawArraysInstanced(GLenum mode, GLint first, GLsizei count, GLsizei primcount);
+
 typedef BOOL WINAPI wgl_swap_interval_ext(int interval);
 global wgl_swap_interval_ext *wglSwapIntervalEXT;
 
@@ -360,10 +362,12 @@ struct R_OpenGL_BufferQueue
 struct R_Texture2DArrayTopology
 {
     GLsizei levels;
-    GLenum internalFormat;
+    R_TexFormat internalFormat;
     GLsizei width;
     GLsizei height;
 };
+
+StaticAssert(sizeof(R_Texture2DArrayTopology) == 16, R_Texture2DArrayTopologySize);
 
 struct R_Texture2DArray
 {
@@ -400,8 +404,10 @@ struct OpenGL
 
     GLuint scratchVbo;
     GLuint scratchEbo;
+    GLuint scratchInstance;
     u64 scratchVboSize;
     u64 scratchEboSize;
+    u64 scratchInstanceSize;
 
     TicketMutex mutex;
     R_OpenGL_Buffer *freeBuffers;
@@ -456,6 +462,7 @@ struct OpenGL
     OpenGLFunction(glTexSubImage3D);
     OpenGLFunction(glTexImage3D);
     OpenGLFunction(glBindBufferBase);
+    OpenGLFunction(glDrawArraysInstanced);
 };
 
 global OpenGL _openGL;
@@ -489,4 +496,18 @@ internal R_Handle R_OpenGL_HandleFromBuffer(R_OpenGL_Buffer *buffer);
 internal R_OpenGL_Buffer *R_OpenGL_BufferFromHandle(R_Handle handle);
 internal R_Handle R_OpenGL_HandleFromTexture(R_OpenGL_Texture *texture);
 internal R_OpenGL_Texture *R_OpenGL_TextureFromHandle(R_Handle handle);
+
+inline GLenum R_OpenGL_GetFormat(R_TexFormat format)
+{
+    GLenum glFormat;
+    switch (format)
+    {
+        case R_TexFormat_R8: glFormat = GL_R8;
+        case R_TexFormat_SRGB: glFormat = openGL->defaultTextureFormat; break;
+        case R_TexFormat_RGBA8:
+        default: glFormat = GL_RGBA8; break;
+    }
+    return glFormat;
+}
+
 #endif

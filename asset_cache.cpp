@@ -15,6 +15,7 @@
 #include "asset.h"
 #include "asset_cache.h"
 #include "./offline/asset_processing.h"
+#include "font.h"
 #endif
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -29,6 +30,7 @@ global readonly LoadedSkeleton skeletonNil;
 global readonly LoadedModel modelNil;
 global readonly Texture textureNil;
 global readonly KeyframedAnimation animNil;
+global readonly Font fontNil;
 
 internal void AS_Init()
 {
@@ -486,12 +488,11 @@ JOB_CALLBACK(AS_LoadAsset)
     }
     else if (extension == Str8Lit("ttf"))
     {
-        // u8 *buffer = GetAssetBuffer(node);
-        // stbtt_fontinfo font;
-        //
-        // i32 width, height, xOffset, yOffset;
-        // stbtt_InitFont(&font, buffer, stbtt_GetFontOffsetForIndex(buffer, 0));
-        // u8 *bitmap = stbtt_GetCodepointBitmap(&font, 0, stbtt_ScaleForPixelHeight(&font, s), c, &w, &h, 0, 0);
+        node->asset.type          = AS_Font;
+        u8 *buffer                = GetAssetBuffer(node);
+        node->asset.font.fontData = F_InitializeFont(node, buffer);
+        node->asset.status        = AS_Status_Loaded;
+        // FreeBlocks(node);
     }
     else if (extension == Str8Lit("vs"))
     {
@@ -559,12 +560,6 @@ internal AS_Handle AS_GetAssetHandle(string path)
     return result;
 }
 
-// internal void FontSomethingSomethingWoohoo()
-// {
-//     stbtt_fontinfo font;
-//     stbtt_InitFont(&font, , 0);
-// }
-
 internal AS_Node *AS_GetNodeFromHandle(AS_Handle handle)
 {
     AS_Node *result = 0;
@@ -587,6 +582,13 @@ internal AS_Node *AS_GetNodeFromHandle(AS_Handle handle)
         result = 0;
     }
 
+    return result;
+}
+
+internal Font *GetFont(AS_Handle handle)
+{
+    AS_Node *node = AS_GetNodeFromHandle(handle);
+    Font *result  = node ? &node->asset.font : &fontNil;
     return result;
 }
 

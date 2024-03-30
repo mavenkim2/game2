@@ -10,6 +10,7 @@
 #include "keepmovingforward_camera.cpp"
 #include "keepmovingforward_entity.cpp"
 #include "job.cpp"
+#include "font.cpp"
 #include "asset.cpp"
 #include "asset_cache.cpp"
 #include "render/render.cpp"

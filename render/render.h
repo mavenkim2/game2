@@ -35,6 +35,7 @@ struct Model;
 
 enum R_TexFormat
 {
+    R_TexFormat_R8,
     R_TexFormat_RGBA8,
     R_TexFormat_SRGB,
     R_TexFormat_Count,
