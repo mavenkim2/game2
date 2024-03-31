@@ -263,7 +263,7 @@ internal void D_PushRect(Rect2 rect, R_Handle img)
     R_PassUI *passUI = R_GetPassFromKind(R_PassType_UI)->passUI;
     R_RectInst *inst = (R_RectInst *)R_BatchListPush(&passUI->batchList, 256);
 
-    V2 scale = (rect.maxP - rect.minP) / 2;
+    V2 scale = (rect.maxP - rect.minP);
     V2 pos   = rect.minP;
 
     inst->pos    = pos;
@@ -285,8 +285,8 @@ internal void D_PushText(AS_Handle font, V2 startPos, f32 size, string line)
         {
             F_Piece *piece = node->pieces + i;
             Rect2 rect =
-                MakeRect2({startPos.x + advance, startPos.y - run->ascent},
-                          {startPos.x + advance + piece->width, startPos.y + piece->height - run->ascent});
+                MakeRect2({startPos.x + advance, startPos.y},// - run->ascent},
+                          {startPos.x + advance + piece->width, startPos.y + piece->height});// - run->ascent});
             D_PushRect(rect, piece->texture);
             advance += piece->advance;
         }

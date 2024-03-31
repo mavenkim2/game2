@@ -270,21 +270,22 @@ internal void AS_HotloadEntryPoint(void *p)
         for (u32 i = 0; i < as_state->numSlots; i++)
         {
             AS_Slot *slot = as_state->assetSlots + i;
-            MutexScope(&slot->mutex)
+            BeginRMutex(&slot->mutex);
+            for (AS_Node *node = slot->first; node != 0; node = node->next)
             {
-                for (AS_Node *node = slot->first; node != 0; node = node->next)
+                // If the asset was modified, its write time changes. Need to hotload.
+                OS_FileAttributes attributes = OS_AttributesFromPath(node->asset.path);
+                u64 lastModified             = node->asset.lastModified;
+                if (attributes.lastModified != 0 && attributes.lastModified != lastModified)
                 {
-                    // If the asset was modified, its write time changes. Need to hotload.
-                    OS_FileAttributes attributes = OS_AttributesFromPath(node->asset.path);
-                    if (attributes.lastModified != 0 && attributes.lastModified != node->asset.lastModified)
-                    {
-                        // Printf("Old last modified: %u\nNew last modified: %u\n\n", node->lastModified,
-                        //        attributes.lastModified);
-                        node->asset.lastModified = attributes.lastModified;
-                        AS_EnqueueFile(node->asset.path);
-                    }
+                    // Printf("Old last modified: %u\nNew last modified: %u\n\n", node->lastModified,
+                    //        attributes.lastModified);
+                    AtomicCompareExchangeU64(&node->asset.lastModified, attributes.lastModified, lastModified);
+
+                    AS_EnqueueFile(node->asset.path);
                 }
             }
+            EndRMutex(&slot->mutex);
         }
         OS_Sleep(100);
     }

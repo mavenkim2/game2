@@ -930,7 +930,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         // SkinModelToAnimation(&gameState->animPlayer, &gameState->model2, tforms2, finalTransforms2);
         SkinModelToBindPose(gameState->model2, skinningMatrices2);
         D_PushModel(gameState->model2, transform2, skinningMatrices2, skeleton2->count);
-        D_PushText(gameState->font, {10, 800}, 128, Str8Lit("iamgoinginsane"));
+        D_PushText(gameState->font, {0, 0}, 128, Str8Lit("AAAAAZZZZZ"));//IAMGOINGINSANEZ"));
     }
     // GameOutputSound(soundBuffer, gameState->toneHz);
 }
