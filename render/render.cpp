@@ -258,6 +258,7 @@ struct D_FontAlignment
     V2 advance;
 };
 
+// TODO: why don't I just pass in the dest rect as instance data?
 internal void D_PushRect(Rect2 rect, R_Handle img)
 {
     R_PassUI *passUI = R_GetPassFromKind(R_PassType_UI)->passUI;
@@ -284,10 +285,14 @@ internal void D_PushText(AS_Handle font, V2 startPos, f32 size, string line)
         for (u32 i = 0; i < node->count; i++)
         {
             F_Piece *piece = node->pieces + i;
-            Rect2 rect =
-                MakeRect2({startPos.x + advance, startPos.y},// - run->ascent},
-                          {startPos.x + advance + piece->width, startPos.y + piece->height});// - run->ascent});
-            D_PushRect(rect, piece->texture);
+            if (!R_HandleMatch(piece->texture, R_HandleZero()))
+            {
+                Rect2 rect = MakeRect2({startPos.x + advance + piece->offset.minX,
+                                        startPos.y + piece->offset.minY},
+                                       {startPos.x + advance + piece->offset.maxX,
+                                        startPos.y + piece->offset.maxY});
+                D_PushRect(rect, piece->texture);
+            }
             advance += piece->advance;
         }
     }

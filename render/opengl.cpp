@@ -279,7 +279,7 @@ internal void OpenGLGetInfo()
             }
             else if (Str8C(extension) == Str8Lit("GL_ARB_texture_non_power_of_two"))
             {
-                Printf("whoopie!\n");
+                // Printf("whoopie!\n");
             }
         }
     }
@@ -1126,9 +1126,6 @@ internal void R_OpenGL_LoadTextures()
             op->pboIndex = openGL->pboIndex++;
             GLuint pbo   = GetPbo(op->pboIndex);
             openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
-            // TODO IMPORTANT: sometimes the value for format is 1 when it should be 0,
-            // causing too many bytes to be ready from the data buffer????? idk what's going on
-            // maybe I just didn't compile
             i32 size = op->texture->width * op->texture->height * r_sizeFromFormatTable[op->texture->format];
             openGL->glBufferData(GL_PIXEL_UNPACK_BUFFER, size, 0, GL_STREAM_DRAW);
             op->buffer = (u8 *)openGL->glMapBuffer(GL_PIXEL_UNPACK_BUFFER, GL_WRITE_ONLY);
@@ -1185,14 +1182,14 @@ internal void R_OpenGL_LoadTextures()
                     default: format = GL_RGBA; break;
                 }
                 glBindTexture(GL_TEXTURE_2D_ARRAY, array->id);
-                openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, GetPbo(op->pboIndex));
+                // openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, GetPbo(op->pboIndex));
                 openGL->glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, slice, array->topology.width,
-                                        array->topology.height, 1, format, GL_UNSIGNED_BYTE, 0);
-                Printf("Width: %u\nHeight: %u\nFormat: %u\n", array->topology.width, array->topology.height,
+                                        array->topology.height, 1, format, GL_UNSIGNED_BYTE, op->data);
+                Printf("Width: %u\nHeight: %u\nFormat: %u\n\n", array->topology.width, array->topology.height,
                        format);
 
                 glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
-                openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+                // openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
                 openGL->firstUsedPboIndex++;
             }
         }
@@ -1287,17 +1284,6 @@ internal void R_OpenGL_LoadBuffers()
 //////////////////////////////
 // HANDLES
 //
-internal b8 R_HandleMatch(R_Handle a, R_Handle b)
-{
-    b8 result = (a.u64[0] == b.u64[0] && a.u64[1] == b.u64[1]);
-    return result;
-}
-internal R_Handle R_HandleZero()
-{
-    R_Handle handle = {};
-    return handle;
-}
-
 internal R_Handle R_OpenGL_HandleFromBuffer(R_OpenGL_Buffer *buffer)
 {
     R_Handle handle;

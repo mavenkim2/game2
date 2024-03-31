@@ -500,8 +500,6 @@ internal void R_OpenGL_LoadTextures();
 global R_OpenGL_Buffer r_opengl_bufferNil   = {&r_opengl_bufferNil};
 global R_OpenGL_Texture r_opengl_textureNil = {&r_opengl_textureNil};
 
-internal b8 R_HandleMatch(R_Handle a, R_Handle b);
-internal R_Handle R_HandleZero();
 internal R_Handle R_OpenGL_HandleFromBuffer(R_OpenGL_Buffer *buffer);
 internal R_OpenGL_Buffer *R_OpenGL_BufferFromHandle(R_Handle handle);
 internal R_Handle R_OpenGL_HandleFromTexture(R_OpenGL_Texture *texture);

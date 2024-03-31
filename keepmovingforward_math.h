@@ -284,6 +284,17 @@ union Rect2
     };
 };
 
+union Rect2I32
+{
+    struct
+    {
+        i32 minX;
+        i32 minY;
+        i32 maxX;
+        i32 maxY;
+    };
+};
+
 union Rect3
 {
     struct

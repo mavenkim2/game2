@@ -301,4 +301,16 @@ internal void D_PushModel(AS_Handle loadedModel, Mat4 transform, Mat4 *skinningM
 inline R_Pass *R_GetPassFromKind(R_PassType type);
 internal u8 *R_BatchListPush(R_BatchList *list, u32 instCap);
 
+inline b8 R_HandleMatch(R_Handle a, R_Handle b)
+{
+    b8 result = (a.u64[0] == b.u64[0] && a.u64[1] == b.u64[1]);
+    return result;
+}
+
+inline R_Handle R_HandleZero()
+{
+    R_Handle handle = {};
+    return handle;
+}
+
 #endif

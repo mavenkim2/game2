@@ -18,7 +18,8 @@ struct F_Data
 struct F_RasterInfo
 {
     R_Handle handle;
-    i32 width;
+    Rect2I32 rect;
+    i32 width; 
     i32 height;
     i32 advance;
 };
@@ -52,6 +53,7 @@ struct F_State
 struct F_Piece
 {
     R_Handle texture;
+    Rect2I32 offset;
     i32 width;
     i32 height;
     i32 advance;

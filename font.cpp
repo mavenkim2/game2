@@ -6,6 +6,9 @@
 #include "asset_cache.h"
 #include "keepmovingforward_platform.h"
 #endif
+
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "third_party/stb_image_write.h"
 // internal void DrawText(string text, u32 fontSize, AS_Handle font, u32 x, u32 y) {}
 
 global F_State *f_state;
@@ -68,30 +71,66 @@ internal F_RasterInfo *F_Raster(AS_Handle font, F_StyleNode *node, string str)
     {
         return 0;
     }
-    if (info->width == 0 && info->height == 0)
+    if (info->rect.maxX == 0 && info->rect.maxY == 0)
     {
         i32 width, height, advance;
-        u8 *bitmap = stbtt_GetCodepointBitmap(&f->fontData.font, 0, node->scale, c, &width, &height, 0, 0);
 
-        u8 *row = bitmap;
-        for (i32 j = 0; j * 2 < height; j++)
+        u8 *bitmap =
+            stbtt_GetCodepointBitmap(&f->fontData.font, node->scale, node->scale, c, &width, &height, 0, 0);
+        // u8 *bitmap = (u8 *)malloc(1 << 7);
+        // stbtt_MakeCodepointBitmap(&f->fontData.font, bitmap, 11, 11, 11, node->scale, node->scale, c);
+
+        static b8 scks = 0;
+        if (!scks && c == 'W')
         {
-            i32 index1 = j * width;
-            i32 index2 = (height - 1 - j) * width;
-            for (i32 i = width; i > 0; --i)
-            {
-                Swap(u8, bitmap[index1], bitmap[index2]);
-                ++index1;
-                ++index2;
-            }
+            stbi_write_png("test.png", width, height, 1, bitmap, width * 1);
+            scks = 1;
         }
 
-        info->width  = width;
-        info->height = height;
+        i32 pitch     = width * 4;
+        u8 *outBitmap = (u8 *)malloc(pitch * height);
+
+        u8 *destRow = outBitmap + (height - 1) * pitch;
+        u8 *src     = bitmap;
+        for (i32 j = 0; j < height; j++)
+        {
+            u32 *pixel = (u32 *)destRow;
+            for (i32 i = 0; i < width; i++)
+            {
+                u8 gray  = *src++;
+                u8 alpha = 0xff;
+                *pixel++ = ((alpha << 24) | (gray << 16) | (gray << 8) | (gray << 0));
+            }
+            destRow -= pitch;
+        }
+
+        stbtt_FreeBitmap(bitmap, 0);
+        // u8 *row = bitmap;
+        // for (i32 j = 0; j * 2 < height; j++)
+        // {
+        //     i32 index1 = j * width;
+        //     i32 index2 = (height - 1 - j) * width;
+        //     for (i32 i = width; i > 0; --i)
+        //     {
+        //         Swap(u8, bitmap[index1], bitmap[index2]);
+        //         ++index1;
+        //         ++index2;
+        //     }
+        // }
+
         i32 lsb;
         stbtt_GetCodepointHMetrics(&f->fontData.font, c, &advance, &lsb);
+        i32 x0, y0, x1, y1;
+        stbtt_GetCodepointBitmapBox(&f->fontData.font, c, node->scale, node->scale, &x0, &y0, &x1, &y1);
+
+        info->width   = width;
+        info->height  = height;
+        info->rect    = {x0, -y1, x1, -y0};
         info->advance = (i32)(advance * node->scale);
-        info->handle  = R_AllocateTexture2D(bitmap, info->width, info->height, R_TexFormat_R8);
+        if (width != 0 && height != 0)
+        {
+            info->handle = R_AllocateTexture2D(outBitmap, width, height, R_TexFormat_RGBA8);
+        }
     }
     return info;
 }
@@ -125,8 +164,9 @@ internal F_Run *F_GetFontRun(Arena *arena, AS_Handle font, f32 size, string str)
         }
         F_Piece *piece = chunkNode->pieces + chunkNode->count++;
         piece->texture = info->handle;
-        piece->width   = info->width;
-        piece->height  = info->height;
+        piece->offset  = info->rect;
+        // piece->width   = info->width;
+        // piece->height  = info->height;
         piece->advance = info->advance;
     }
     return result;
