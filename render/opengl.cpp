@@ -1089,7 +1089,6 @@ internal void R_OpenGL_LoadTextures()
         R_OpenGL_TextureOp *op = queue->ops + ringIndex;
         Assert(op->status == R_TextureLoadStatus_Untransferred);
 
-        R_TexFormat format = R_TexFormat_RGBA8;
         if (op->usesArray == 0)
         {
             if (op->texture->generation == 1)
@@ -1106,7 +1105,6 @@ internal void R_OpenGL_LoadTextures()
             {
                 glGenTextures(1, &array->id);
                 glBindTexture(GL_TEXTURE_2D_ARRAY, array->id);
-                format = array->topology.internalFormat;
 #if 0
                 openGL->glTexImage3D(GL_TEXTURE_2D_ARRAY, array->topology.levels, glFormat,
                 array->topology.width,
@@ -1131,7 +1129,7 @@ internal void R_OpenGL_LoadTextures()
             // TODO IMPORTANT: sometimes the value for format is 1 when it should be 0,
             // causing too many bytes to be ready from the data buffer????? idk what's going on
             // maybe I just didn't compile
-            i32 size = op->texture->width * op->texture->height * r_sizeFromFormatTable[format];
+            i32 size = op->texture->width * op->texture->height * r_sizeFromFormatTable[op->texture->format];
             openGL->glBufferData(GL_PIXEL_UNPACK_BUFFER, size, 0, GL_STREAM_DRAW);
             op->buffer = (u8 *)openGL->glMapBuffer(GL_PIXEL_UNPACK_BUFFER, GL_WRITE_ONLY);
             Assert(op->buffer);
