@@ -62,114 +62,124 @@ internal void D_Init(RenderState *state)
             default: Assert(!"Invalid default case");
         }
     }
-    R_Pass3D *pass  = state->passes[R_PassType_3D].pass3D;
-    pass->numGroups = R_Primitive_Count;
-    pass->groups    = PushArray(arena, R_Batch3DGroup, pass->numGroups);
-    for (R_Primitive type = (R_Primitive)0; type < R_Primitive_Count; type = (R_Primitive)(type + 1))
+
+    // Initialize UI Pass
     {
-        R_Batch3DGroup *group = &pass->groups[type];
-        switch (type)
+        R_PassUI *pass                   = state->passes[R_PassType_UI].passUI;
+        pass->batchList.bytesPerInstance = sizeof(R_RectInst);
+    }
+
+    // Initialize 3D Pass
+    {
+        R_Pass3D *pass  = state->passes[R_PassType_3D].pass3D;
+        pass->numGroups = R_Primitive_Count;
+        pass->groups    = PushArray(arena, R_Batch3DGroup, pass->numGroups);
+        for (R_Primitive type = (R_Primitive)0; type < R_Primitive_Count; type = (R_Primitive)(type + 1))
         {
-            case R_Primitive_Lines:
+            R_Batch3DGroup *group = &pass->groups[type];
+            switch (type)
             {
-                group->params.topology            = R_Topology_Lines;
-                group->params.primType            = type;
-                group->batchList.bytesPerInstance = r_primitiveSizeTable[type];
-                break;
-            }
-            case R_Primitive_Points:
-            {
-                group->params.topology            = R_Topology_Points;
-                group->params.primType            = type;
-                group->batchList.bytesPerInstance = r_primitiveSizeTable[type];
-                break;
-            }
-            case R_Primitive_Cube:
-            {
-                f32 point         = 1;
-                V3 cubeVertices[] = {
-                    {-point, -point, -point}, {point, -point, -point}, {point, point, -point},
-                    {-point, point, -point},  {-point, -point, point}, {point, -point, point},
-                    {point, point, point},    {-point, point, point},
-                };
-
-                u32 cubeIndices[] = {
-                    3, 0, 0, 4, 4, 7, 7, 3, 1, 2, 2, 6, 6, 5, 5, 1, 0, 1, 2, 3, 4, 5, 6, 7,
-                };
-                u32 vertexCount         = ArrayLength(cubeVertices);
-                u32 indexCount          = ArrayLength(cubeIndices);
-                R_Batch3DParams *params = &group->params;
-                params->vertices        = PushArray(arena, V3, vertexCount);
-                params->indices         = PushArray(arena, u32, indexCount);
-                MemoryCopy(params->vertices, &cubeVertices, sizeof(cubeVertices));
-                MemoryCopy(params->indices, &cubeIndices, sizeof(cubeIndices));
-                params->vertexCount = vertexCount;
-                params->indexCount  = indexCount;
-                params->topology    = R_Topology_Lines;
-                params->primType    = type;
-
-                group->batchList.bytesPerInstance = r_primitiveSizeTable[type];
-
-                break;
-            }
-            case R_Primitive_Sphere:
-            {
-                u32 sectors = DEFAULT_SECTORS;
-                u32 stacks  = DEFAULT_STACKS;
-
-                f32 x, y, z;
-                f32 sectorStep = 2 * PI / sectors;
-                f32 stackStep  = PI / stacks;
-
-                f32 theta = 0;
-
-                u32 vertexCount = (sectors + 1) * (stacks + 1);
-                u32 indexCount  = sectors * stacks * 4;
-
-                u32 vertexIndex = 0;
-                u32 indexIndex  = 0;
-
-                R_Batch3DParams *params           = &group->params;
-                params->vertices                  = PushArray(arena, V3, vertexCount);
-                params->indices                   = PushArray(arena, u32, indexCount);
-                params->vertexCount               = vertexCount;
-                params->indexCount                = indexCount;
-                params->topology                  = R_Topology_Lines;
-                params->primType                  = type;
-                group->batchList.bytesPerInstance = r_primitiveSizeTable[type];
-
-                for (u32 i = 0; i < sectors + 1; i++)
+                case R_Primitive_Lines:
                 {
-                    f32 phi = -PI / 2;
-                    for (u32 j = 0; j < stacks + 1; j++)
-                    {
-                        x = Cos(phi) * Cos(theta);
-                        y = Cos(phi) * Sin(theta);
-                        z = Sin(phi);
-
-                        params->vertices[vertexIndex++] = MakeV3(x, y, z);
-
-                        phi += stackStep;
-                    }
-                    theta += sectorStep;
+                    group->params.topology            = R_Topology_Lines;
+                    group->params.primType            = type;
+                    group->batchList.bytesPerInstance = r_primitiveSizeTable[type];
+                    break;
                 }
-
-                // Indices
-                for (u32 i = 0; i < sectors; i++)
+                case R_Primitive_Points:
                 {
-                    u32 i1 = i * (stacks + 1);
-                    u32 i2 = i1 + (stacks + 1);
-                    for (u32 j = 0; j < stacks; j++)
-                    {
-                        params->indices[indexIndex++] = i1;
-                        params->indices[indexIndex++] = i2;
-                        params->indices[indexIndex++] = i1;
-                        params->indices[indexIndex++] = i1 + 1;
-                        i1++;
-                        i2++;
-                    }
+                    group->params.topology            = R_Topology_Points;
+                    group->params.primType            = type;
+                    group->batchList.bytesPerInstance = r_primitiveSizeTable[type];
+                    break;
                 }
-                break;
+                case R_Primitive_Cube:
+                {
+                    f32 point         = 1;
+                    V3 cubeVertices[] = {
+                        {-point, -point, -point}, {point, -point, -point}, {point, point, -point},
+                        {-point, point, -point},  {-point, -point, point}, {point, -point, point},
+                        {point, point, point},    {-point, point, point},
+                    };
+
+                    u32 cubeIndices[] = {
+                        3, 0, 0, 4, 4, 7, 7, 3, 1, 2, 2, 6, 6, 5, 5, 1, 0, 1, 2, 3, 4, 5, 6, 7,
+                    };
+                    u32 vertexCount         = ArrayLength(cubeVertices);
+                    u32 indexCount          = ArrayLength(cubeIndices);
+                    R_Batch3DParams *params = &group->params;
+                    params->vertices        = PushArray(arena, V3, vertexCount);
+                    params->indices         = PushArray(arena, u32, indexCount);
+                    MemoryCopy(params->vertices, &cubeVertices, sizeof(cubeVertices));
+                    MemoryCopy(params->indices, &cubeIndices, sizeof(cubeIndices));
+                    params->vertexCount = vertexCount;
+                    params->indexCount  = indexCount;
+                    params->topology    = R_Topology_Lines;
+                    params->primType    = type;
+
+                    group->batchList.bytesPerInstance = r_primitiveSizeTable[type];
+
+                    break;
+                }
+                case R_Primitive_Sphere:
+                {
+                    u32 sectors = DEFAULT_SECTORS;
+                    u32 stacks  = DEFAULT_STACKS;
+
+                    f32 x, y, z;
+                    f32 sectorStep = 2 * PI / sectors;
+                    f32 stackStep  = PI / stacks;
+
+                    f32 theta = 0;
+
+                    u32 vertexCount = (sectors + 1) * (stacks + 1);
+                    u32 indexCount  = sectors * stacks * 4;
+
+                    u32 vertexIndex = 0;
+                    u32 indexIndex  = 0;
+
+                    R_Batch3DParams *params           = &group->params;
+                    params->vertices                  = PushArray(arena, V3, vertexCount);
+                    params->indices                   = PushArray(arena, u32, indexCount);
+                    params->vertexCount               = vertexCount;
+                    params->indexCount                = indexCount;
+                    params->topology                  = R_Topology_Lines;
+                    params->primType                  = type;
+                    group->batchList.bytesPerInstance = r_primitiveSizeTable[type];
+
+                    for (u32 i = 0; i < sectors + 1; i++)
+                    {
+                        f32 phi = -PI / 2;
+                        for (u32 j = 0; j < stacks + 1; j++)
+                        {
+                            x = Cos(phi) * Cos(theta);
+                            y = Cos(phi) * Sin(theta);
+                            z = Sin(phi);
+
+                            params->vertices[vertexIndex++] = MakeV3(x, y, z);
+
+                            phi += stackStep;
+                        }
+                        theta += sectorStep;
+                    }
+
+                    // Indices
+                    for (u32 i = 0; i < sectors; i++)
+                    {
+                        u32 i1 = i * (stacks + 1);
+                        u32 i2 = i1 + (stacks + 1);
+                        for (u32 j = 0; j < stacks; j++)
+                        {
+                            params->indices[indexIndex++] = i1;
+                            params->indices[indexIndex++] = i2;
+                            params->indices[indexIndex++] = i1;
+                            params->indices[indexIndex++] = i1 + 1;
+                            i1++;
+                            i2++;
+                        }
+                    }
+                    break;
+                }
             }
         }
     }
@@ -184,6 +194,13 @@ internal void D_BeginFrame()
     {
         switch (type)
         {
+            case R_PassType_UI:
+            {
+                R_PassUI *passUI        = state->passes[type].passUI;
+                passUI->batchList.first = passUI->batchList.last = 0;
+                passUI->batchList.numInstances                   = 0;
+                break;
+            }
             case R_PassType_3D:
             {
                 R_Pass3D *pass3D = state->passes[type].pass3D;
@@ -239,13 +256,6 @@ struct D_FontAlignment
 {
     V2 start;
     V2 advance;
-};
-
-struct R_RectInst
-{
-    R_Handle handle;
-    V2 pos;
-    V2 scale;
 };
 
 internal void D_PushRect(Rect2 rect, R_Handle img)

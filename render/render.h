@@ -239,17 +239,6 @@ struct R_Pass
     };
 };
 
-struct R_LineInst
-{
-    DebugVertex v[2];
-};
-
-struct R_PrimitiveInst
-{
-    V4 color;
-    Mat4 transform;
-};
-
 struct RenderState
 {
     Camera camera;
@@ -266,6 +255,33 @@ enum R_BufferType
 {
     R_BufferType_Vertex,
     R_BufferType_Index,
+};
+
+//////////////////////////////
+// Instance information
+//
+struct R_LineInst
+{
+    DebugVertex v[2];
+};
+
+struct R_PrimitiveInst
+{
+    V4 color;
+    Mat4 transform;
+};
+
+struct R_TexAddress
+{
+    u32 hashIndex;
+    f32 slice;
+};
+
+struct R_RectInst
+{
+    V2 pos;
+    V2 scale;
+    R_Handle handle;
 };
 
 #define R_ALLOCATE_TEXTURE_2D(name) R_Handle name(void *data, i32 width, i32 height, R_TexFormat format)

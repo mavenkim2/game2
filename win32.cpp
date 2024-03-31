@@ -139,6 +139,7 @@ internal u64 OS_ReadEntireFile(string path, void *out)
 {
     OS_Handle handle = OS_OpenFile(OS_AccessFlag_Read | OS_AccessFlag_ShareRead, path);
     u64 result       = OS_ReadEntireFile(handle, out);
+    OS_CloseFile(handle);
     return result;
 }
 
@@ -153,6 +154,7 @@ internal string OS_ReadEntireFile(Arena *arena, string path)
 
     u64 size = OS_ReadEntireFile(handle, result.str);
     Assert(size == result.size);
+    OS_CloseFile(handle);
 
     return result;
 }

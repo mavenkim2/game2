@@ -189,6 +189,12 @@ internal void AS_UnloadAsset(AS_Node *node);
 //////////////////////////////
 // Handles
 //
+global readonly LoadedSkeleton skeletonNil;
+global readonly LoadedModel modelNil;
+global readonly Texture textureNil;
+global readonly KeyframedAnimation animNil;
+global readonly Font fontNil;
+
 internal AS_Handle AS_HandleFromAsset(AS_Node *node);
 internal AS_Node *AS_AssetFromHandle(AS_Handle handle);
 internal AS_Handle AS_GetAssetHandle(u64 hash);
@@ -202,6 +208,11 @@ internal Texture *GetTexture(AS_Handle handle);
 internal R_Handle GetTextureRenderHandle(AS_Handle input);
 inline AS_Handle AS_LoadAssetFile(string filename);
 inline b8 IsAnimNil(KeyframedAnimation *anim);
+inline b8 IsFontNil(Font *font)
+{
+    b8 result = (font == 0 || font == &fontNil);
+    return result;
+}
 
 //////////////////////////////
 // Helpers

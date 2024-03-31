@@ -83,6 +83,8 @@ struct GameState
 
     AS_Handle model;
     AS_Handle model2;
+
+    AS_Handle font;
 };
 
 global r_allocate_texture_2D *R_AllocateTexture2D;

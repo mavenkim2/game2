@@ -257,6 +257,13 @@ typedef void WINAPI type_glTexImage3D(GLenum target, GLint level, GLint internal
 typedef void WINAPI type_glBindBufferBase(GLenum target, GLuint index, GLuint buffer);
 typedef void WINAPI type_glDrawArraysInstanced(GLenum mode, GLint first, GLsizei count, GLsizei primcount);
 
+#define GL_DEBUG_CALLBACK(name)                                                                                   \
+    void WINAPI name(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length,                      \
+                     const GLchar *message, const void *userParam)
+
+typedef GL_DEBUG_CALLBACK(GLDebugCallback);
+typedef void WINAPI type_glDebugMessageCallback(GLDebugCallback callback, void *userParam);
+
 typedef BOOL WINAPI wgl_swap_interval_ext(int interval);
 global wgl_swap_interval_ext *wglSwapIntervalEXT;
 
@@ -269,6 +276,7 @@ global wgl_create_context_attribs_arb *wglCreateContextAttribsARB;
 
 enum R_ShaderType
 {
+    R_ShaderType_UI,
     R_ShaderType_3D,
     R_ShaderType_Instanced3D,
     R_ShaderType_StaticMesh,
@@ -463,6 +471,7 @@ struct OpenGL
     OpenGLFunction(glTexImage3D);
     OpenGLFunction(glBindBufferBase);
     OpenGLFunction(glDrawArraysInstanced);
+    OpenGLFunction(glDebugMessageCallback);
 };
 
 global OpenGL _openGL;
@@ -476,6 +485,7 @@ internal void R_OpenGL_Init();
 internal void R_Win32_OpenGL_Init(HWND window);
 internal GLuint R_OpenGL_CreateShader(string globalsPath, string vsPath, string fsPath, string preprocess);
 internal GLuint R_OpenGL_CompileShader(char *globals, char *vs, char *fs);
+
 internal void R_OpenGL_StartShader(RenderState *state, R_ShaderType type, void *group);
 internal void R_OpenGL_EndShader(R_ShaderType type);
 
@@ -502,7 +512,7 @@ inline GLenum R_OpenGL_GetFormat(R_TexFormat format)
     GLenum glFormat;
     switch (format)
     {
-        case R_TexFormat_R8: glFormat = GL_R8;
+        case R_TexFormat_R8: glFormat = GL_R8; break;
         case R_TexFormat_SRGB: glFormat = openGL->defaultTextureFormat; break;
         case R_TexFormat_RGBA8:
         default: glFormat = GL_RGBA8; break;

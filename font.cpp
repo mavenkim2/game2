@@ -2,6 +2,7 @@
 // IF YOU KNOW HOW YOU WANT TO USE A SYSTEM, WRITE THE USAGE CODE FIRST!
 #include "crack.h"
 #ifdef LSP_INCLUDE
+#include "font.h"
 #include "asset_cache.h"
 #include "keepmovingforward_platform.h"
 #endif
@@ -15,6 +16,7 @@ internal void F_Init()
 {
     Arena *arena           = ArenaAlloc();
     f_state                = PushStruct(arena, F_State);
+    f_state->arena         = arena;
     f_state->numStyleSlots = 1024;
     f_state->styleSlots    = PushArray(arena, F_StyleSlot, f_state->numStyleSlots);
 }
@@ -48,8 +50,8 @@ internal F_StyleNode *F_GetStyleFromFontSize(AS_Handle font, f32 size)
         existingNode          = PushStruct(f_state->arena, F_StyleNode);
         existingNode->hash    = hash;
         existingNode->scale   = stbtt_ScaleForPixelHeight(&f->fontData.font, size);
-        existingNode->ascent  = f->fontData.ascent;
-        existingNode->descent = f->fontData.descent;
+        existingNode->ascent  = (i32)(f->fontData.ascent * existingNode->scale);
+        existingNode->descent = (i32)(f->fontData.descent * existingNode->scale);
         existingNode->info    = PushArray(f_state->arena, F_RasterInfo, 256);
         QueuePush(slot->first, slot->last, existingNode);
     }
@@ -58,16 +60,24 @@ internal F_StyleNode *F_GetStyleFromFontSize(AS_Handle font, f32 size)
 
 internal F_RasterInfo *F_Raster(AS_Handle font, F_StyleNode *node, string str)
 {
-    u8 c               = str.str[0];
+    u8 c = str.str[0];
+    Assert(c < 256);
     F_RasterInfo *info = node->info + c;
     Font *f            = GetFont(font);
+    if (IsFontNil(f))
+    {
+        return 0;
+    }
     if (info->width == 0 && info->height == 0)
     {
-        u8 *bitmap = stbtt_GetCodepointBitmap(&f->fontData.font, 0, node->scale, str.str[0], &info->width,
-                                              &info->height, 0, 0);
+        i32 width, height, advance;
+        u8 *bitmap   = stbtt_GetCodepointBitmap(&f->fontData.font, 0, node->scale, c, &width, &height, 0, 0);
+        info->width  = width;
+        info->height = height;
         i32 lsb;
-        stbtt_GetCodepointHMetrics(&f->fontData.font, c, &info->advance, &lsb);
-        info->handle = R_AllocateTexture2D(bitmap, info->width, info->height, R_TexFormat_R8);
+        stbtt_GetCodepointHMetrics(&f->fontData.font, c, &advance, &lsb);
+        info->advance = (i32)(advance * node->scale);
+        info->handle  = R_AllocateTexture2D(bitmap, info->width, info->height, R_TexFormat_R8);
     }
     return info;
 }
@@ -80,14 +90,15 @@ internal F_Run *F_GetFontRun(Arena *arena, AS_Handle font, f32 size, string str)
     result->ascent         = styleNode->ascent;
     result->descent        = styleNode->descent;
     // Only support ascii characters for now
-    for (u64 i = 0; i < str.size;)
+    for (u64 i = 0; i < str.size; i++)
     {
         u8 c = str.str[i];
-        if (c >= 256)
+        if (c >= 128)
         {
             Assert(!"Character not supported yet");
         }
-        F_RasterInfo *info          = F_Raster(font, styleNode, Substr8(str, i, i + 1));
+        F_RasterInfo *info = F_Raster(font, styleNode, Substr8(str, i, i + 1));
+        Assert(info);
         F_PieceChunkNode *chunkNode = result->last;
         if (chunkNode == 0 || chunkNode->count == chunkNode->cap)
         {

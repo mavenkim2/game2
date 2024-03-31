@@ -482,6 +482,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         OS_Init();
         JS_Init();
         AS_Init();
+        F_Init();
 
         R_AllocateTexture2D = memory->R_AllocateTexture2D;
         R_DeleteTexture2D   = memory->R_DeleteTexture2D;
@@ -499,6 +500,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         // ReadAnimationFile(gameState->worldArena, animation, Str8Lit("data/dragon_attack_01.anim"));
         AS_Handle anim = AS_LoadAssetFile(Str8Lit("data/dragon/Qishilong_attack01.anim"));
         // AS_Handle anim = LoadAssetFile(Str8Lit("data/dragon/Qishilong_attack02.anim"));
+        gameState->font = AS_LoadAssetFile(Str8Lit("data/liberation_mono.ttf"));
 
         gameState->level      = PushStruct(gameState->worldArena, Level);
         gameState->cameraMode = CameraMode_Player;
@@ -928,6 +930,7 @@ extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)
         // SkinModelToAnimation(&gameState->animPlayer, &gameState->model2, tforms2, finalTransforms2);
         SkinModelToBindPose(gameState->model2, skinningMatrices2);
         D_PushModel(gameState->model2, transform2, skinningMatrices2, skeleton2->count);
+        D_PushText(gameState->font, {10, 10}, 128, Str8Lit("aaaaaaa"));
     }
     // GameOutputSound(soundBuffer, gameState->toneHz);
 }

@@ -19,6 +19,8 @@ global i32 win32OpenGLAttribs[] = {
     0,
 };
 
+global readonly i32 r_sizeFromFormatTable[R_TexFormat_Count] = {1, 4, 4};
+
 internal void VSyncToggle(b32 enable)
 {
 #if WINDOWS
@@ -147,15 +149,33 @@ internal GLuint R_OpenGL_CreateShader(string globalsPath, string vsPath, string 
 
 global string r_opengl_g_globalsPath = Str8Lit("src/shaders/global.glsl");
 
-global string r_opengl_g_vsPath[] = {Str8Lit("src/shaders/basic_3d.vs"), Str8Lit("src/shaders/basic_3d.vs"),
-                                     Str8Lit(""), Str8Lit("src/shaders/model.vs")};
-global string r_opengl_g_fsPath[] = {Str8Lit("src/shaders/basic_3d.fs"), Str8Lit("src/shaders/basic_3d.fs"),
-                                     Str8Lit(""), Str8Lit("src/shaders/model.fs")};
+global string r_opengl_g_vsPath[] = {Str8Lit("src/shaders/ui.vs"), Str8Lit("src/shaders/basic_3d.vs"),
+                                     Str8Lit("src/shaders/basic_3d.vs"), Str8Lit(""),
+                                     Str8Lit("src/shaders/model.vs")};
+global string r_opengl_g_fsPath[] = {Str8Lit("src/shaders/ui.fs"), Str8Lit("src/shaders/basic_3d.fs"),
+                                     Str8Lit("src/shaders/basic_3d.fs"), Str8Lit(""),
+                                     Str8Lit("src/shaders/model.fs")};
+
+GL_DEBUG_CALLBACK(R_OpenGL_DebugCallback)
+{
+    if (severity == GL_DEBUG_SEVERITY_HIGH)
+    {
+        Printf("Id: %u\nMessage: %s\n", id, (char *)message);
+    }
+}
 
 internal void R_OpenGL_Init()
 {
     openGL->arena = ArenaAlloc();
 
+    // Debug info hopefully
+    {
+        if (openGL->glDebugMessageCallback)
+        {
+            glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
+            openGL->glDebugMessageCallback(R_OpenGL_DebugCallback, 0);
+        }
+    }
     // Initialize scratch buffers
     {
         openGL->glGenBuffers(1, &openGL->scratchVbo);
@@ -257,6 +277,10 @@ internal void OpenGLGetInfo()
                 openGLInfo.shaderDrawParametersArb = true;
                 Printf("gl_DrawID should work\n");
             }
+            else if (Str8C(extension) == Str8Lit("GL_ARB_texture_non_power_of_two"))
+            {
+                Printf("whoopie!\n");
+            }
         }
     }
 };
@@ -350,6 +374,7 @@ internal void R_Win32_OpenGL_Init(HWND window)
         Win32GetOpenGLFunction(glTexImage3D);
         Win32GetOpenGLFunction(glBindBufferBase);
         Win32GetOpenGLFunction(glDrawArraysInstanced);
+        Win32GetOpenGLFunction(glDebugMessageCallback);
 
         OpenGLGetInfo();
 
@@ -382,6 +407,7 @@ internal void R_EndFrame(RenderState *state, HDC deviceContext, int clientWidth,
     // Load queued buffers and textures
     {
         R_OpenGL_LoadBuffers();
+        openGL->glActiveTexture(GL_TEXTURE0);
         R_OpenGL_LoadTextures();
     }
 
@@ -425,25 +451,49 @@ internal void R_EndFrame(RenderState *state, HDC deviceContext, int clientWidth,
         {
             case R_PassType_UI:
             {
-                // openGL->glBindBuffer(GL_ARRAY_BUFFER, openGL->scratchVbo);
-                // u32 totalOffset = 0;
-                // for (R_BatchNode *node = group->batchList.first; node != 0; node = node->next)
-                // {
-                //     // TODO: persistently mapped buffers for scratch data? that way you can just 
-                //     // memcpy to the buffer instead of calling glBufferSubData repeatedly
-                //     // also still have to try out sparse bindless textures : ) but apparently
-                //     // they suck on windows so who know
-                //
-                //     openGL->glBufferSubData(GL_ARRAY_BUFFER, totalOffset, node->val.byteCount, node->val.data);
-                //     totalOffset += node->val.byteCount;
-                // }
-                //
-                // R_BatchList *list = pass->passUI->batchList;
-                // for (R_BatchNode *node = list->first; node != 0; node = node->next)
-                // {
-                //     node->
-                // }
-                // openGL->glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, list->numInstances);
+                GLuint id = openGL->shaders[R_ShaderType_UI].id;
+                openGL->glUseProgram(id);
+                openGL->glBindBuffer(GL_ARRAY_BUFFER, openGL->scratchVbo);
+                u32 totalOffset   = 0;
+                R_BatchList *list = &pass->passUI->batchList;
+                for (R_BatchNode *node = list->first; node != 0; node = node->next)
+                {
+                    // TODO: persistently mapped buffers for scratch data? that way you can just
+                    // memcpy to the buffer instead of calling glBufferSubData repeatedly
+                    // also still have to try out sparse bindless textures : ) but apparently
+                    // they suck on windows so who know
+
+                    openGL->glBufferSubData(GL_ARRAY_BUFFER, totalOffset, node->val.byteCount, node->val.data);
+                    totalOffset += node->val.byteCount;
+                }
+
+                openGL->glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(R_RectInst),
+                                              (void *)Offset(R_RectInst, pos));
+                openGL->glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(R_RectInst),
+                                              (void *)Offset(R_RectInst, scale));
+                openGL->glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, sizeof(R_RectInst),
+                                              (void *)Offset(R_RectInst, handle));
+                openGL->glEnableVertexAttribArray(0);
+                openGL->glEnableVertexAttribArray(1);
+                openGL->glEnableVertexAttribArray(2);
+
+                openGL->glVertexAttribDivisor(0, 1);
+                openGL->glVertexAttribDivisor(1, 1);
+                openGL->glVertexAttribDivisor(2, 1);
+
+                f32 transform[] = {
+                    // 2.f / (f32)clientWidth, 0, 0, -1, 2.f / (f32)clientHeight, 0, 0, -1, 0, 0, 1, 0, 0, 0, 0, 1,
+                    2.f / (f32)clientWidth, 0, 0, 0, 0, 2.f / (f32)clientHeight, 0, 0, 0, 0, 1, 0, -1, -1, 0, 1,
+                };
+                GLint transformLocation = openGL->glGetUniformLocation(id, "transform");
+                openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, transform);
+
+                static readonly GLint samplerIds[16] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+                GLint textureLoc                     = openGL->glGetUniformLocation(id, "textureMaps");
+                openGL->glUniform1iv(textureLoc, ArrayLength(samplerIds), samplerIds);
+
+                openGL->glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, list->numInstances);
+                R_OpenGL_EndShader(R_ShaderType_UI);
                 break;
             }
             case R_PassType_StaticMesh:
@@ -510,12 +560,6 @@ internal void R_EndFrame(RenderState *state, HDC deviceContext, int clientWidth,
                     u32 baseTexture     = 0;
                     GLsizei *counts     = PushArray(temp.arena, GLsizei, model->materialCount);
                     void **startIndices = PushArray(temp.arena, void *, model->materialCount);
-
-                    struct R_TexAddress
-                    {
-                        u32 hashIndex;
-                        f32 slice;
-                    };
 
                     R_TexAddress *addresses =
                         PushArray(temp.arena, R_TexAddress, model->materialCount * TextureType_Count);
@@ -811,11 +855,21 @@ internal void R_OpenGL_StartShader(RenderState *state, R_ShaderType type, void *
 
 internal void R_OpenGL_EndShader(R_ShaderType type)
 {
+    openGL->glUseProgram(0);
     switch (type)
     {
+        case R_ShaderType_UI:
+        {
+            openGL->glVertexAttribDivisor(0, 0);
+            openGL->glVertexAttribDivisor(1, 0);
+            openGL->glVertexAttribDivisor(2, 0);
+            openGL->glDisableVertexAttribArray(0);
+            openGL->glDisableVertexAttribArray(1);
+            openGL->glDisableVertexAttribArray(2);
+            break;
+        }
         case R_ShaderType_3D:
         {
-            openGL->glUseProgram(0);
             openGL->glDisableVertexAttribArray(0);
             openGL->glDisableVertexAttribArray(1);
             openGL->glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -823,7 +877,6 @@ internal void R_OpenGL_EndShader(R_ShaderType type)
         }
         case R_ShaderType_Instanced3D:
         {
-            openGL->glUseProgram(0);
             openGL->glDisableVertexAttribArray(0);
             openGL->glDisableVertexAttribArray(1);
             openGL->glDisableVertexAttribArray(2);
@@ -841,7 +894,6 @@ internal void R_OpenGL_EndShader(R_ShaderType type)
         }
         case R_ShaderType_SkinnedMesh:
         {
-            openGL->glUseProgram(0);
             glBindTexture(GL_TEXTURE_2D, 0);
             openGL->glBindBuffer(GL_ARRAY_BUFFER, 0);
             openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
@@ -1032,6 +1084,8 @@ internal void R_OpenGL_LoadTextures()
         u32 ringIndex          = loadPos & (queue->numOps - 1);
         R_OpenGL_TextureOp *op = queue->ops + ringIndex;
         Assert(op->status == R_TextureLoadStatus_Untransferred);
+
+        R_TexFormat format = R_TexFormat_RGBA8;
         if (op->usesArray == 0)
         {
             if (op->texture->generation == 1)
@@ -1043,11 +1097,12 @@ internal void R_OpenGL_LoadTextures()
         {
             R_Texture2DArray *array = &openGL->textureMap.arrayList[op->texSlice.hashIndex];
             Assert(array);
+            GLenum glFormat = R_OpenGL_GetFormat(array->topology.internalFormat);
             if (array->id == 0)
             {
                 glGenTextures(1, &array->id);
                 glBindTexture(GL_TEXTURE_2D_ARRAY, array->id);
-                GLenum glFormat = R_OpenGL_GetFormat(array->topology.internalFormat);
+                format = array->topology.internalFormat;
 #if 0
                 openGL->glTexImage3D(GL_TEXTURE_2D_ARRAY, array->topology.levels, glFormat,
                 array->topology.width,
@@ -1069,7 +1124,10 @@ internal void R_OpenGL_LoadTextures()
             op->pboIndex = openGL->pboIndex++;
             GLuint pbo   = GetPbo(op->pboIndex);
             openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pbo);
-            i32 size = op->texture->width * op->texture->height * 4;
+            // TODO IMPORTANT: sometimes the value for format is 1 when it should be 0,
+            // causing too many bytes to be ready from the data buffer????? idk what's going on
+            // maybe I just didn't compile
+            i32 size = op->texture->width * op->texture->height * r_sizeFromFormatTable[format];
             openGL->glBufferData(GL_PIXEL_UNPACK_BUFFER, size, 0, GL_STREAM_DRAW);
             op->buffer = (u8 *)openGL->glMapBuffer(GL_PIXEL_UNPACK_BUFFER, GL_WRITE_ONLY);
             Assert(op->buffer);
@@ -1118,10 +1176,18 @@ internal void R_OpenGL_LoadTextures()
                 u32 slice               = op->texSlice.slice;
                 R_Texture2DArray *array = &openGL->textureMap.arrayList[op->texSlice.hashIndex];
 
+                GLenum format;
+                switch (array->topology.internalFormat)
+                {
+                    case R_TexFormat_R8: format = GL_RED; break;
+                    default: format = GL_RGBA; break;
+                }
                 glBindTexture(GL_TEXTURE_2D_ARRAY, array->id);
                 openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, GetPbo(op->pboIndex));
                 openGL->glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, slice, array->topology.width,
-                                        array->topology.height, 1, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+                                        array->topology.height, 1, format, GL_UNSIGNED_BYTE, 0);
+                Printf("Width: %u\nHeight: %u\nFormat: %u\n", array->topology.width, array->topology.height,
+                       format);
 
                 glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
                 openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);

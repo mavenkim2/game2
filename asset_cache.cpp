@@ -26,11 +26,6 @@
 // Globals
 //
 global AS_CacheState *as_state = 0;
-global readonly LoadedSkeleton skeletonNil;
-global readonly LoadedModel modelNil;
-global readonly Texture textureNil;
-global readonly KeyframedAnimation animNil;
-global readonly Font fontNil;
 
 internal void AS_Init()
 {
