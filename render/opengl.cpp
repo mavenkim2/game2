@@ -436,7 +436,7 @@ internal void R_EndFrame(RenderState *state, HDC deviceContext, int clientWidth,
             glEnable(GL_FRAMEBUFFER_SRGB);
         }
         glCullFace(GL_BACK);
-        glClearColor(0.5f, 0.5f, 0.5f, 1.f);
+        // glClearColor(0.5f, 0.5f, 0.5f, 1.f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         // glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
@@ -451,10 +451,13 @@ internal void R_EndFrame(RenderState *state, HDC deviceContext, int clientWidth,
         {
             case R_PassType_UI:
             {
+                glEnable(GL_BLEND);
+                glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
                 GLuint id = openGL->shaders[R_ShaderType_UI].id;
                 openGL->glUseProgram(id);
                 openGL->glBindBuffer(GL_ARRAY_BUFFER, openGL->scratchVbo);
-                u32 totalOffset   = 0;
+                u32 totalOffset = 0;
+                // TODO: I got a null reference exception here somehow???
                 R_BatchList *list = &pass->passUI->batchList;
                 for (R_BatchNode *node = list->first; node != 0; node = node->next)
                 {
@@ -494,6 +497,7 @@ internal void R_EndFrame(RenderState *state, HDC deviceContext, int clientWidth,
 
                 openGL->glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, list->numInstances);
                 R_OpenGL_EndShader(R_ShaderType_UI);
+                glDisable(GL_BLEND);
                 break;
             }
             case R_PassType_StaticMesh:
@@ -1183,14 +1187,14 @@ internal void R_OpenGL_LoadTextures()
                     default: format = GL_RGBA; break;
                 }
                 glBindTexture(GL_TEXTURE_2D_ARRAY, array->id);
-                openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, GetPbo(op->pboIndex));
+                // openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, GetPbo(op->pboIndex));
                 openGL->glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, slice, array->topology.width,
-                                        array->topology.height, 1, format, GL_UNSIGNED_BYTE, 0);
+                                        array->topology.height, 1, format, GL_UNSIGNED_BYTE, op->data);
                 Printf("Width: %u\nHeight: %u\nFormat: %u\n", array->topology.width, array->topology.height,
                        format);
 
                 glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
-                openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+                // openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
                 openGL->firstUsedPboIndex++;
             }
         }

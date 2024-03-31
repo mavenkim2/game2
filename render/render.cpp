@@ -284,8 +284,9 @@ internal void D_PushText(AS_Handle font, V2 startPos, f32 size, string line)
         for (u32 i = 0; i < node->count; i++)
         {
             F_Piece *piece = node->pieces + i;
-            Rect2 rect     = MakeRect2({startPos.x + advance, startPos.y},
-                                       {startPos.x + advance + piece->width, startPos.y + piece->height});
+            Rect2 rect =
+                MakeRect2({startPos.x + advance, startPos.y - run->ascent},
+                          {startPos.x + advance + piece->width, startPos.y + piece->height - run->ascent});
             D_PushRect(rect, piece->texture);
             advance += piece->advance;
         }

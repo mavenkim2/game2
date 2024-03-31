@@ -71,7 +71,21 @@ internal F_RasterInfo *F_Raster(AS_Handle font, F_StyleNode *node, string str)
     if (info->width == 0 && info->height == 0)
     {
         i32 width, height, advance;
-        u8 *bitmap   = stbtt_GetCodepointBitmap(&f->fontData.font, 0, node->scale, c, &width, &height, 0, 0);
+        u8 *bitmap = stbtt_GetCodepointBitmap(&f->fontData.font, 0, node->scale, c, &width, &height, 0, 0);
+
+        u8 *row = bitmap;
+        for (i32 j = 0; j * 2 < height; j++)
+        {
+            i32 index1 = j * width;
+            i32 index2 = (height - 1 - j) * width;
+            for (i32 i = width; i > 0; --i)
+            {
+                Swap(u8, bitmap[index1], bitmap[index2]);
+                ++index1;
+                ++index2;
+            }
+        }
+
         info->width  = width;
         info->height = height;
         i32 lsb;

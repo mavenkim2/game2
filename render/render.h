@@ -78,10 +78,10 @@ struct AS_CacheState;
 
 enum R_PassType
 {
-    R_PassType_UI,
     R_PassType_3D,
     R_PassType_StaticMesh,
     R_PassType_SkinnedMesh,
+    R_PassType_UI,
     R_PassType_Count,
 };
 

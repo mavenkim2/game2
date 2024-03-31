@@ -7,5 +7,5 @@ uniform sampler2DArray textureMaps[16];
 
 void main()
 {
-    fragColor = texture(textureMaps[container], vec3(uv, slice)).rrrr;
+    fragColor = V4(1, 1, 1, texture(textureMaps[container], vec3(uv, slice)).r);
 }

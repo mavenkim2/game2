@@ -7,7 +7,7 @@ flat out f32 slice;
 out V2 uv;
 uniform Mat4 transform;
 
-V2 pos[4] = V2[](V2(0.0, 0.0), V2(0.0, 1.0), V2(1.0, 0.0), V2(1.0, 1.0));
+V2 pos[4] = V2[](V2(0.0, 1.0), V2(0.0, 0.0), V2(1.0, 1.0), V2(1.0, 0.0));
 
 void main()
 {
