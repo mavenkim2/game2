@@ -80,7 +80,7 @@ internal void Printf(char *fmt, ...);
     }                                                                                                             \
     else                                                                                                          \
     {                                                                                                             \
-        Printf("Assert fired\nExpression: %s\nFile: %s\nLine Num: %u", #expression, __FILE__, __LINE__);           \
+        Printf("Assert fired\nExpression: %s\nFile: %s\nLine Num: %u\n", #expression, __FILE__, __LINE__);        \
         Trap();                                                                                                   \
     }
 // do

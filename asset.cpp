@@ -434,6 +434,7 @@ struct LRUCache
 {
     LRUCache *next;
     VertData *vert;
+    i32 vertIndex;
 };
 
 struct TriData
@@ -445,7 +446,7 @@ struct TriData
 
 const f32 lastTriangleScore = 0.75f;
 const f32 cacheDecayPower   = 1.5f;
-const u32 cacheSize         = 32;
+const i32 cacheSize         = 32;
 const f32 valenceBoostPower = 0.5f;
 const f32 valenceBoostScale = 2.f;
 
@@ -459,15 +460,21 @@ internal f32 CalculateVertexScore(VertData *data)
     f32 score         = 0.f;
     i32 cachePosition = data->cachePos;
     // Vertex used in the last triangle
-    if (cachePosition >= 0 && cachePosition < 3)
+    if (cachePosition < 0)
     {
-        score = lastTriangleScore;
     }
     else
     {
-        Assert(cachePosition < cacheSize);
-        score = 1.f - (cachePosition - 3) * (1.f / (cacheSize - 3));
-        score = Powf(score, cacheDecayPower);
+        if (cachePosition < 3)
+        {
+            score = lastTriangleScore;
+        }
+        else
+        {
+            Assert(cachePosition < cacheSize);
+            score = 1.f - (cachePosition - 3) * (1.f / (cacheSize - 3));
+            score = Powf(score, cacheDecayPower);
+        }
     }
     f32 valenceBoost = Powf((f32)data->remainingTriangles, -valenceBoostPower);
     score += valenceBoostScale * valenceBoost;
@@ -490,6 +497,7 @@ internal void OptimizeModel(LoadedModel *model)
     for (u32 i = 0; i < numFaces; i++)
     {
         TriData *tri = triData + i;
+        tri->added   = 0;
 
         for (u32 j = 0; j < 3; j++)
         {
@@ -523,7 +531,7 @@ internal void OptimizeModel(LoadedModel *model)
     }
 
     i32 bestTriangle = -1;
-    f32 bestScore    = 0.f;
+    f32 bestScore    = -1.f;
     for (u32 i = 0; i < numFaces; i++)
     {
         triData[i].totalScore = vertData[triData[i].vertIndices[0]].score +
@@ -543,7 +551,7 @@ internal void OptimizeModel(LoadedModel *model)
     LRUCache *freeList = 0;
     LRUCache *lruHead  = 0;
 
-    for (u32 i = 0; i < cacheSize + 3; i++)
+    for (i32 i = 0; i < cacheSize + 3; i++)
     {
         StackPush(freeList, nodes + i);
     }
@@ -552,6 +560,21 @@ internal void OptimizeModel(LoadedModel *model)
 
     for (u32 i = 0; i < numFaces; i++)
     {
+        if (bestTriangle == -1)
+        {
+            bestTriangle = -1;
+            bestScore    = -1.f;
+            for (u32 j = 0; j < numFaces; j++)
+            {
+                TriData *tri = triData + j;
+                if (!tri->added && tri->totalScore > bestScore)
+                {
+                    bestScore    = tri->totalScore;
+                    bestTriangle = i;
+                }
+            }
+        }
+        Assert(bestTriangle != -1);
         drawOrderList[i]            = bestTriangle;
         TriData *tri                = &triData[bestTriangle];
         triData[bestTriangle].added = true;
@@ -560,8 +583,9 @@ internal void OptimizeModel(LoadedModel *model)
         // remaining triangle list
         for (u32 j = 0; j < 3; j++)
         {
+            i32 vertIndex  = tri->vertIndices[j];
             VertData *vert = &vertData[tri->vertIndices[j]];
-            for (i32 k = 0; k < vert->remainingTriangles - 1; k++)
+            for (i32 k = 0; k < vert->totalTriangles; k++)
             {
                 if (vert->triangleIndices[k] == bestTriangle)
                 {
@@ -576,26 +600,34 @@ internal void OptimizeModel(LoadedModel *model)
             // If not in cache, allocate new node
             if (vert->cachePos == -1)
             {
-                Assert(freeList);
-                node = StackPop(freeList);
+                node = freeList;
+                StackPop(freeList);
+                node->vert      = vert;
+                node->vertIndex = vertIndex;
+                StackPush(lruHead, node);
             }
+            // Find node in cache
+            // TODO: use doubly linked list so vert can directly get its LRU node and then remove it?
             else
             {
                 node           = lruHead;
                 LRUCache *last = 0;
-                for (i32 k = 0; k < vert->cachePos; k++)
+                while (node->vertIndex != vertIndex)
                 {
                     last = node;
                     node = node->next;
                 }
-                Assert(node->vert == vert);
-                last->next = node->next;
+                if (node != lruHead)
+                {
+                    Assert(last);
+                    last->next = node->next;
+                    StackPush(lruHead, node);
+                }
             }
-
-            StackPush(lruHead, node);
         }
         // Iterate over LRU, update positions in cache,
         LRUCache *node = lruHead;
+        LRUCache *last = 0;
         u32 pos        = 0;
 
         u32 triIndicesToUpdate[256];
@@ -608,7 +640,7 @@ internal void OptimizeModel(LoadedModel *model)
             for (i32 j = 0; j < vert->totalTriangles; j++)
             {
                 u32 triIndex = vert->triangleIndices[j];
-                if (triIndex != -1)
+                if (triIndex != -1 && !triData[triIndex].added)
                 {
                     // TODO: is it worth iterating through the list here so that the triangle score isn't
                     // recalculated multiple times???
@@ -616,24 +648,28 @@ internal void OptimizeModel(LoadedModel *model)
                     triIndicesToUpdate[triIndicesToUpdateCount++] = triIndex;
                 }
             }
+            last        = node;
+            node        = node->next;
             vert->score = CalculateVertexScore(vert);
         }
 
         // Remove extra nodes from cache
+        last->next = 0;
         while (node != 0)
         {
-            LRUCache *last = node;
-            node           = node->next;
-            StackPush(freeList, node);
+            node->vert->cachePos = -1;
+            last                 = node;
+            node                 = node->next;
+            StackPush(freeList, last);
         }
 
         // Of the newly added triangles, find the best one to add next
         bestTriangle = -1;
-        bestScore    = 0.f;
+        bestScore    = -1.f;
         for (u32 j = 0; j < triIndicesToUpdateCount; j++)
         {
             u32 triIndex    = triIndicesToUpdate[j];
-            tri    = triData + triIndex;
+            tri             = triData + triIndex;
             tri->totalScore = 0;
             for (u32 k = 0; k < 3; k++)
             {
@@ -651,7 +687,7 @@ internal void OptimizeModel(LoadedModel *model)
     u32 indexCount = 0;
     for (u32 i = 0; i < numFaces; i++)
     {
-        TriData* tri = triData + drawOrderList[i];
+        TriData *tri = triData + drawOrderList[i];
         for (u32 j = 0; j < 3; j++)
         {
             model->indices[indexCount++] = tri->vertIndices[j];
