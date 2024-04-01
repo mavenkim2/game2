@@ -21,6 +21,15 @@ global i32 win32OpenGLAttribs[] = {
 
 global readonly i32 r_sizeFromFormatTable[R_TexFormat_Count] = {1, 4, 4};
 
+global string r_opengl_g_globalsPath = Str8Lit("src/shaders/global.glsl");
+
+global string r_opengl_g_vsPath[] = {Str8Lit("src/shaders/ui.vs"), Str8Lit("src/shaders/basic_3d.vs"),
+                                     Str8Lit("src/shaders/basic_3d.vs"), Str8Lit(""),
+                                     Str8Lit("src/shaders/model.vs")};
+global string r_opengl_g_fsPath[] = {Str8Lit("src/shaders/ui.fs"), Str8Lit("src/shaders/basic_3d.fs"),
+                                     Str8Lit("src/shaders/basic_3d.fs"), Str8Lit(""),
+                                     Str8Lit("src/shaders/model.fs")};
+
 internal void VSyncToggle(b32 enable)
 {
 #if WINDOWS
@@ -101,60 +110,34 @@ internal GLuint R_OpenGL_CreateShader(string globalsPath, string vsPath, string 
     return id;
 }
 
-// internal void ReloadShader(OpenGLShader *shader)
-// {
-//     i32 type = -1;
-//     if (shader->id == openGL->cubeShader.base.id)
-//     {
-//         type = OGL_Shader_Basic;
-//     }
-//     else if (shader->id == openGL->modelShader.base.id)
-//     {
-//         type = OGL_Shader_Model;
-//     }
-//     else if (shader->id == openGL->instancedBasicShader.base.id)
-//     {
-//         type = OGL_Shader_Instanced;
-//     }
-//
-//     if (shader->id)
-//     {
-//         openGL->glDeleteProgram(shader->id);
-//     }
-//     switch (type)
-//     {
-//         case OGL_Shader_Basic:
-//             CompileCubeProgram();
-//             break;
-//         case OGL_Shader_Instanced:
-//             CompileCubeProgram(true);
-//             break;
-//         case OGL_Shader_Model:
-//             CompileModelProgram();
-//             break;
-//         default:
-//             break;
-//     }
-// }
+internal void R_OpenGL_HotloadShaders()
+{
 
-// internal void HotloadShaders(OpenGLShader *shader)
-// {
-//     if (OS_GetLastWriteTime(shader->globalsFile) != shader->globalsWriteTime ||
-//         OS_GetLastWriteTime(shader->vsFile) != shader->vsWriteTime ||
-//         OS_GetLastWriteTime(shader->fsFile) != shader->fsWriteTime)
-//     {
-//         ReloadShader(shader);
-//     }
-// }
-
-global string r_opengl_g_globalsPath = Str8Lit("src/shaders/global.glsl");
-
-global string r_opengl_g_vsPath[] = {Str8Lit("src/shaders/ui.vs"), Str8Lit("src/shaders/basic_3d.vs"),
-                                     Str8Lit("src/shaders/basic_3d.vs"), Str8Lit(""),
-                                     Str8Lit("src/shaders/model.vs")};
-global string r_opengl_g_fsPath[] = {Str8Lit("src/shaders/ui.fs"), Str8Lit("src/shaders/basic_3d.fs"),
-                                     Str8Lit("src/shaders/basic_3d.fs"), Str8Lit(""),
-                                     Str8Lit("src/shaders/model.fs")};
+    for (R_ShaderType type = (R_ShaderType)0; type < R_ShaderType_Count; type = (R_ShaderType)(type + 1))
+    {
+        R_Shader *shader        = openGL->shaders + type;
+        u64 vsLastModified      = OS_GetLastWriteTime(r_opengl_g_vsPath[type]);
+        u64 fsLastModified      = OS_GetLastWriteTime(r_opengl_g_fsPath[type]);
+        u64 globalsLastModified = OS_GetLastWriteTime(r_opengl_g_globalsPath);
+        if (vsLastModified != shader->vsLastModified || fsLastModified != shader->fsLastModified ||
+            globalsLastModified != shader->globalsLastModified)
+        {
+            openGL->glDeleteProgram(shader->id);
+            shader->vsLastModified      = vsLastModified;
+            shader->fsLastModified      = fsLastModified;
+            shader->globalsLastModified = globalsLastModified;
+            string preprocess           = Str8Lit("");
+            switch (type)
+            {
+                case R_ShaderType_Instanced3D: preprocess = Str8Lit("#define instanced 1\n"); break;
+                case R_ShaderType_StaticMesh: continue;
+                default: break;
+            }
+            openGL->shaders[type].id = R_OpenGL_CreateShader(r_opengl_g_globalsPath, r_opengl_g_vsPath[type],
+                                                             r_opengl_g_fsPath[type], preprocess);
+        }
+    }
+}
 
 GL_DEBUG_CALLBACK(R_OpenGL_DebugCallback)
 {
@@ -210,14 +193,14 @@ internal void R_OpenGL_Init()
             string preprocess = Str8Lit("");
             switch (type)
             {
-                case R_ShaderType_Instanced3D: preprocess = Str8Lit("#define INSTANCED 1\n"); break;
+                case R_ShaderType_Instanced3D: preprocess = Str8Lit("#define instanced 1\n"); break;
                 case R_ShaderType_StaticMesh: continue;
                 default: break;
             }
             openGL->shaders[type].id = R_OpenGL_CreateShader(r_opengl_g_globalsPath, r_opengl_g_vsPath[type],
                                                              r_opengl_g_fsPath[type], preprocess);
             openGL->shaders[type].globalsLastModified = OS_GetLastWriteTime(r_opengl_g_globalsPath);
-            openGL->shaders[type].vsLastModfiied      = OS_GetLastWriteTime(r_opengl_g_vsPath[type]);
+            openGL->shaders[type].vsLastModified      = OS_GetLastWriteTime(r_opengl_g_vsPath[type]);
             openGL->shaders[type].fsLastModified      = OS_GetLastWriteTime(r_opengl_g_fsPath[type]);
         }
     }
@@ -759,13 +742,11 @@ internal void R_EndFrame(RenderState *state, HDC deviceContext, int clientWidth,
 
     ScratchEnd(temp);
 
-    // HOT RELOAD! this probably shouldnt' be here
-    // HotloadShaders(&openGL->modelShader.base);
-    // HotloadShaders(&openGL->cubeShader.base);
-    // HotloadShaders(&openGL->instancedBasicShader.base);
-
     // DOUBLE BUFFER SWAP
     SwapBuffers(deviceContext);
+
+    // TODO: integrate into asset system? but I'll have to queue
+    R_OpenGL_HotloadShaders();
 }
 
 internal void R_OpenGL_StartShader(RenderState *state, R_ShaderType type, void *inputGroup)

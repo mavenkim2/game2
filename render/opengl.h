@@ -289,7 +289,7 @@ struct R_Shader
     GLuint id;
 
     u64 globalsLastModified;
-    u64 vsLastModfiied;
+    u64 vsLastModified;
     u64 fsLastModified;
 };
 
