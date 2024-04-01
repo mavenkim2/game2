@@ -77,15 +77,6 @@ internal F_RasterInfo *F_Raster(AS_Handle font, F_StyleNode *node, string str)
 
         u8 *bitmap =
             stbtt_GetCodepointBitmap(&f->fontData.font, node->scale, node->scale, c, &width, &height, 0, 0);
-        // u8 *bitmap = (u8 *)malloc(1 << 7);
-        // stbtt_MakeCodepointBitmap(&f->fontData.font, bitmap, 11, 11, 11, node->scale, node->scale, c);
-
-        static b8 scks = 0;
-        if (!scks && c == 'W')
-        {
-            stbi_write_png("test.png", width, height, 1, bitmap, width * 1);
-            scks = 1;
-        }
 
         i32 pitch     = width * 4;
         u8 *outBitmap = (u8 *)malloc(pitch * height);
@@ -105,7 +96,10 @@ internal F_RasterInfo *F_Raster(AS_Handle font, F_StyleNode *node, string str)
         }
 
         stbtt_FreeBitmap(bitmap, 0);
-        // u8 *row = bitmap;
+
+        // NOTE: i guess opengl doesn't like one channel textures that aren't power of 2 size? or im missing
+        // something maybe revisit this when/if text is in an atlas 
+        //
         // for (i32 j = 0; j * 2 < height; j++)
         // {
         //     i32 index1 = j * width;
@@ -117,6 +111,8 @@ internal F_RasterInfo *F_Raster(AS_Handle font, F_StyleNode *node, string str)
         //         ++index2;
         //     }
         // }
+        //
+        // u8 *outBitmap = bitmap;
 
         i32 lsb;
         stbtt_GetCodepointHMetrics(&f->fontData.font, c, &advance, &lsb);

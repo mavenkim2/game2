@@ -416,6 +416,251 @@ internal void SkinModelToBindPose(AS_Handle model, Mat4 *finalTransforms)
     ScratchEnd(temp);
 }
 
+//////////////////////////////
+// Optimize
+//
+
+struct VertData
+{
+    i32 *triangleIndices;
+    i32 remainingTriangles;
+    i32 totalTriangles;
+
+    i32 cachePos;
+    f32 score;
+};
+
+struct LRUCache
+{
+    LRUCache *next;
+    VertData *vert;
+};
+
+struct TriData
+{
+    f32 totalScore;
+    i32 vertIndices[3];
+    b8 added;
+};
+
+const f32 lastTriangleScore = 0.75f;
+const f32 cacheDecayPower   = 1.5f;
+const u32 cacheSize         = 32;
+const f32 valenceBoostPower = 0.5f;
+const f32 valenceBoostScale = 2.f;
+
+internal f32 CalculateVertexScore(VertData *data)
+{
+    if (data->remainingTriangles == 0)
+    {
+        return -1.0f;
+    }
+
+    f32 score         = 0.f;
+    i32 cachePosition = data->cachePos;
+    // Vertex used in the last triangle
+    if (cachePosition >= 0 && cachePosition < 3)
+    {
+        score = lastTriangleScore;
+    }
+    else
+    {
+        Assert(cachePosition < cacheSize);
+        score = 1.f - (cachePosition - 3) * (1.f / (cacheSize - 3));
+        score = Powf(score, cacheDecayPower);
+    }
+    f32 valenceBoost = Powf((f32)data->remainingTriangles, -valenceBoostPower);
+    score += valenceBoostScale * valenceBoost;
+    return score;
+}
+// https://tomforsyth1000.github.io/papers/fast_vert_cache_opt.html
+internal void OptimizeModel(LoadedModel *model)
+{
+    TempArena temp = ScratchStart(0, 0);
+
+    u32 numFaces    = model->indexCount / 3;
+    u32 numVertices = model->vertexCount;
+
+    TriData *triData   = PushArrayNoZero(temp.arena, TriData, numFaces);
+    VertData *vertData = PushArrayNoZero(temp.arena, VertData, model->vertexCount);
+
+    u32 index = 0;
+
+    // Increment per-vertex triangle count
+    for (u32 i = 0; i < numFaces; i++)
+    {
+        TriData *tri = triData + i;
+
+        for (u32 j = 0; j < 3; j++)
+        {
+            u32 idx             = model->indices[index++];
+            tri->vertIndices[j] = idx;
+            vertData[idx].remainingTriangles++;
+        }
+    }
+
+    // Find the score for each vertex, allocate per vertex triangle list
+    for (u32 i = 0; i < numVertices; i++)
+    {
+        VertData *vert = &vertData[i];
+        Assert(vert->remainingTriangles != 0);
+        vert->cachePos        = -1;
+        vert->triangleIndices = PushArray(temp.arena, i32, vert->remainingTriangles);
+        vert->score           = CalculateVertexScore(vert);
+    }
+
+    // Add triangles to vertex list
+    for (u32 i = 0; i < numFaces; i++)
+    {
+        TriData *tri = triData + i;
+        for (u32 j = 0; j < 3; j++)
+        {
+            u32 idx                                       = tri->vertIndices[j];
+            VertData *vert                                = vertData + idx;
+            vert->triangleIndices[vert->totalTriangles++] = i;
+            tri->totalScore += vert->score;
+        }
+    }
+
+    i32 bestTriangle = -1;
+    f32 bestScore    = 0.f;
+    for (u32 i = 0; i < numFaces; i++)
+    {
+        triData[i].totalScore = vertData[triData[i].vertIndices[0]].score +
+                                vertData[triData[i].vertIndices[1]].score +
+                                vertData[triData[i].vertIndices[2]].score;
+        if (bestTriangle == -1 || triData[i].totalScore > bestScore)
+        {
+            bestScore    = triData[i].totalScore;
+            bestTriangle = i;
+        }
+    }
+
+    // Initialize LRU
+    // 3 extra temp nodes
+    LRUCache *nodes = PushArrayNoZero(temp.arena, LRUCache, cacheSize + 3);
+
+    LRUCache *freeList = 0;
+    LRUCache *lruHead  = 0;
+
+    for (u32 i = 0; i < cacheSize + 3; i++)
+    {
+        StackPush(freeList, nodes + i);
+    }
+
+    u32 *drawOrderList = PushArrayNoZero(temp.arena, u32, numFaces);
+
+    for (u32 i = 0; i < numFaces; i++)
+    {
+        drawOrderList[i]            = bestTriangle;
+        TriData *tri                = &triData[bestTriangle];
+        triData[bestTriangle].added = true;
+
+        // For each vertex in the best triangle, update num remaining triangles for the vert, update the per vertex
+        // remaining triangle list
+        for (u32 j = 0; j < 3; j++)
+        {
+            VertData *vert = &vertData[tri->vertIndices[j]];
+            for (i32 k = 0; k < vert->remainingTriangles - 1; k++)
+            {
+                if (vert->triangleIndices[k] == bestTriangle)
+                {
+                    vert->triangleIndices[k] = -1;
+                    break;
+                }
+            }
+            vert->remainingTriangles--;
+
+            // Move corresponding LRU node to the front
+            LRUCache *node = 0;
+            // If not in cache, allocate new node
+            if (vert->cachePos == -1)
+            {
+                Assert(freeList);
+                node = StackPop(freeList);
+            }
+            else
+            {
+                node           = lruHead;
+                LRUCache *last = 0;
+                for (i32 k = 0; k < vert->cachePos; k++)
+                {
+                    last = node;
+                    node = node->next;
+                }
+                Assert(node->vert == vert);
+                last->next = node->next;
+            }
+
+            StackPush(lruHead, node);
+        }
+        // Iterate over LRU, update positions in cache,
+        LRUCache *node = lruHead;
+        u32 pos        = 0;
+
+        u32 triIndicesToUpdate[256];
+        u32 triIndicesToUpdateCount = 0;
+
+        while (node != 0 && pos < cacheSize)
+        {
+            VertData *vert = node->vert;
+            vert->cachePos = pos++;
+            for (i32 j = 0; j < vert->totalTriangles; j++)
+            {
+                u32 triIndex = vert->triangleIndices[j];
+                if (triIndex != -1)
+                {
+                    // TODO: is it worth iterating through the list here so that the triangle score isn't
+                    // recalculated multiple times???
+                    Assert(triIndicesToUpdateCount < ArrayLength(triIndicesToUpdate));
+                    triIndicesToUpdate[triIndicesToUpdateCount++] = triIndex;
+                }
+            }
+            vert->score = CalculateVertexScore(vert);
+        }
+
+        // Remove extra nodes from cache
+        while (node != 0)
+        {
+            LRUCache *last = node;
+            node           = node->next;
+            StackPush(freeList, node);
+        }
+
+        // Of the newly added triangles, find the best one to add next
+        bestTriangle = -1;
+        bestScore    = 0.f;
+        for (u32 j = 0; j < triIndicesToUpdateCount; j++)
+        {
+            u32 triIndex    = triIndicesToUpdate[j];
+            tri    = triData + triIndex;
+            tri->totalScore = 0;
+            for (u32 k = 0; k < 3; k++)
+            {
+                tri->totalScore += vertData[tri->vertIndices[k]].score;
+            }
+            if (bestTriangle == -1 || tri->totalScore > bestScore)
+            {
+                bestTriangle = triIndex;
+                bestScore    = tri->totalScore;
+            }
+        }
+    }
+
+    // Rewrite indices in the new order
+    u32 indexCount = 0;
+    for (u32 i = 0; i < numFaces; i++)
+    {
+        TriData* tri = triData + drawOrderList[i];
+        for (u32 j = 0; j < 3; j++)
+        {
+            model->indices[indexCount++] = tri->vertIndices[j];
+        }
+    }
+
+    ScratchEnd(temp);
+}
+
 #if 0
 // NOTE: array of nodes, each with a parent index and a name
 // you know i think I'm just goin to use assimp to load the file once, write it in an easier format to use,

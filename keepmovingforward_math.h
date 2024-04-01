@@ -87,6 +87,12 @@ inline i32 Pow(i32 a, i32 b)
     return result;
 }
 
+inline f32 Powf(f32 a, f32 b)
+{
+    f32 result = powf(a, b);
+    return result;
+}
+
 inline u32 RoundF32ToU32(f32 value)
 {
     u32 result = (u32)roundf(value);

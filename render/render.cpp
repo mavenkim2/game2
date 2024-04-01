@@ -287,10 +287,9 @@ internal void D_PushText(AS_Handle font, V2 startPos, f32 size, string line)
             F_Piece *piece = node->pieces + i;
             if (!R_HandleMatch(piece->texture, R_HandleZero()))
             {
-                Rect2 rect = MakeRect2({startPos.x + advance + piece->offset.minX,
-                                        startPos.y + piece->offset.minY},
-                                       {startPos.x + advance + piece->offset.maxX,
-                                        startPos.y + piece->offset.maxY});
+                Rect2 rect =
+                    MakeRect2({startPos.x + advance + piece->offset.minX, startPos.y + piece->offset.minY},
+                              {startPos.x + advance + piece->offset.maxX, startPos.y + piece->offset.maxY});
                 D_PushRect(rect, piece->texture);
             }
             advance += piece->advance;

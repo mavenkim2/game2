@@ -377,6 +377,8 @@ JOB_CALLBACK(AS_LoadAsset)
 
         Assert(EndOfBuffer(&tokenizer));
 
+        OptimizeModel(model);
+
         model->vertexBuffer = R_AllocateBuffer(R_BufferType_Vertex, model->vertices,
                                                sizeof(model->vertices[0]) * model->vertexCount);
         model->indexBuffer =
