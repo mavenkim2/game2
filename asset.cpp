@@ -481,12 +481,11 @@ internal f32 CalculateVertexScore(VertData *data)
     return score;
 }
 // https://tomforsyth1000.github.io/papers/fast_vert_cache_opt.html
-// TODO IMPORTANT: VERTEX ORDERING OPTIMIZATION! SHOULD BE EASY, then we get to ui and such
 internal void OptimizeModel(LoadedModel *model)
 {
+    TempArena temp = ScratchStart(0, 0);
     for (u32 matIdx = 0; matIdx < model->materialCount; matIdx++)
     {
-        TempArena temp     = ScratchStart(0, 0);
         Material *material = model->materials + matIdx;
         u32 numFaces       = (material->onePlusEndIndex - material->startIndex) / 3;
 
@@ -716,9 +715,35 @@ internal void OptimizeModel(LoadedModel *model)
                 model->indices[material->startIndex + indexCount++] = tri->vertIndices[j];
             }
         }
-
-        ScratchEnd(temp);
     }
+
+    // Rearrange the vertices based on the order of the faces
+    MeshVertex *newVertices = PushArrayNoZero(temp.arena, MeshVertex, model->vertexCount);
+    // Mapping from old indices to new indices
+    i32 *order = PushArray(temp.arena, i32, model->vertexCount);
+    for (u32 i = 0; i < model->vertexCount; i++)
+    {
+        order[i] = -1;
+    }
+    u32 count = 0;
+    for (u32 i = 0; i < model->indexCount; i++)
+    {
+        u32 vertexIndex = model->indices[i];
+        Assert(vertexIndex < model->vertexCount);
+        if (order[vertexIndex] == -1)
+        {
+            order[vertexIndex]              = count++;
+            newVertices[order[vertexIndex]] = model->vertices[vertexIndex];
+        }
+        model->indices[i] = order[vertexIndex];
+    }
+    Assert(count == model->vertexCount);
+    for (u32 i = 0; i < count; i++)
+    {
+        model->vertices[i] = newVertices[i];
+    }
+
+    ScratchEnd(temp);
 }
 
 #if 0

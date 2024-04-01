@@ -280,19 +280,23 @@ internal void D_PushText(AS_Handle font, V2 startPos, f32 size, string line)
     R_PassUI *pass     = R_GetPassFromKind(R_PassType_UI)->passUI;
 
     f32 advance = 0;
-    for (F_PieceChunkNode *node = run->first; node != 0; node = node->next)
+    // TODO: maybe get rid of this by having F_Run be an array w/ a count, which can be 0
+    if (run)
     {
-        for (u32 i = 0; i < node->count; i++)
+        for (F_PieceChunkNode *node = run->first; node != 0; node = node->next)
         {
-            F_Piece *piece = node->pieces + i;
-            if (!R_HandleMatch(piece->texture, R_HandleZero()))
+            for (u32 i = 0; i < node->count; i++)
             {
-                Rect2 rect =
-                    MakeRect2({startPos.x + advance + piece->offset.minX, startPos.y + piece->offset.minY},
-                              {startPos.x + advance + piece->offset.maxX, startPos.y + piece->offset.maxY});
-                D_PushRect(rect, piece->texture);
+                F_Piece *piece = node->pieces + i;
+                if (!R_HandleMatch(piece->texture, R_HandleZero()))
+                {
+                    Rect2 rect =
+                        MakeRect2({startPos.x + advance + piece->offset.minX, startPos.y + piece->offset.minY},
+                                  {startPos.x + advance + piece->offset.maxX, startPos.y + piece->offset.maxY});
+                    D_PushRect(rect, piece->texture);
+                }
+                advance += piece->advance;
             }
-            advance += piece->advance;
         }
     }
     ScratchEnd(temp);

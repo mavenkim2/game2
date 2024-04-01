@@ -61,22 +61,17 @@ internal F_StyleNode *F_GetStyleFromFontSize(AS_Handle font, f32 size)
     return existingNode;
 }
 
-internal F_RasterInfo *F_Raster(AS_Handle font, F_StyleNode *node, string str)
+internal F_RasterInfo *F_Raster(Font *font, F_StyleNode *node, string str)
 {
     u8 c = str.str[0];
     Assert(c < 256);
     F_RasterInfo *info = node->info + c;
-    Font *f            = GetFont(font);
-    if (IsFontNil(f))
-    {
-        return 0;
-    }
     if (info->rect.maxX == 0 && info->rect.maxY == 0)
     {
         i32 width, height, advance;
 
         u8 *bitmap =
-            stbtt_GetCodepointBitmap(&f->fontData.font, node->scale, node->scale, c, &width, &height, 0, 0);
+            stbtt_GetCodepointBitmap(&font->fontData.font, node->scale, node->scale, c, &width, &height, 0, 0);
 
         i32 pitch     = width * 4;
         u8 *outBitmap = (u8 *)malloc(pitch * height);
@@ -98,7 +93,7 @@ internal F_RasterInfo *F_Raster(AS_Handle font, F_StyleNode *node, string str)
         stbtt_FreeBitmap(bitmap, 0);
 
         // NOTE: i guess opengl doesn't like one channel textures that aren't power of 2 size? or im missing
-        // something maybe revisit this when/if text is in an atlas 
+        // something maybe revisit this when/if text is in an atlas
         //
         // for (i32 j = 0; j * 2 < height; j++)
         // {
@@ -115,9 +110,9 @@ internal F_RasterInfo *F_Raster(AS_Handle font, F_StyleNode *node, string str)
         // u8 *outBitmap = bitmap;
 
         i32 lsb;
-        stbtt_GetCodepointHMetrics(&f->fontData.font, c, &advance, &lsb);
+        stbtt_GetCodepointHMetrics(&font->fontData.font, c, &advance, &lsb);
         i32 x0, y0, x1, y1;
-        stbtt_GetCodepointBitmapBox(&f->fontData.font, c, node->scale, node->scale, &x0, &y0, &x1, &y1);
+        stbtt_GetCodepointBitmapBox(&font->fontData.font, c, node->scale, node->scale, &x0, &y0, &x1, &y1);
 
         info->width   = width;
         info->height  = height;
@@ -138,32 +133,38 @@ internal F_Run *F_GetFontRun(Arena *arena, AS_Handle font, f32 size, string str)
     F_StyleNode *styleNode = F_GetStyleFromFontSize(font, size);
     result->ascent         = styleNode->ascent;
     result->descent        = styleNode->descent;
-    // Only support ascii characters for now
-    for (u64 i = 0; i < str.size; i++)
+
+    Font *f = GetFont(font);
+    // TODO: properly set up nil so I don't have to have this conditional
+    if (!IsFontNil(f))
     {
-        u8 c = str.str[i];
-        if (c >= 128)
+        // Only support ascii characters for now
+        for (u64 i = 0; i < str.size; i++)
         {
-            Assert(!"Character not supported yet");
+            u8 c = str.str[i];
+            if (c >= 128)
+            {
+                Assert(!"Character not supported yet");
+            }
+            F_RasterInfo *info = F_Raster(f, styleNode, Substr8(str, i, i + 1));
+            Assert(info);
+            F_PieceChunkNode *chunkNode = result->last;
+            if (chunkNode == 0 || chunkNode->count == chunkNode->cap)
+            {
+                chunkNode         = PushStructNoZero(arena, F_PieceChunkNode);
+                chunkNode->next   = 0;
+                chunkNode->count  = 0;
+                chunkNode->cap    = 256;
+                chunkNode->pieces = PushArrayNoZero(arena, F_Piece, chunkNode->cap);
+                QueuePush(result->first, result->last, chunkNode);
+            }
+            F_Piece *piece = chunkNode->pieces + chunkNode->count++;
+            piece->texture = info->handle;
+            piece->offset  = info->rect;
+            // piece->width   = info->width;
+            // piece->height  = info->height;
+            piece->advance = info->advance;
         }
-        F_RasterInfo *info = F_Raster(font, styleNode, Substr8(str, i, i + 1));
-        Assert(info);
-        F_PieceChunkNode *chunkNode = result->last;
-        if (chunkNode == 0 || chunkNode->count == chunkNode->cap)
-        {
-            chunkNode         = PushStructNoZero(arena, F_PieceChunkNode);
-            chunkNode->next   = 0;
-            chunkNode->count  = 0;
-            chunkNode->cap    = 256;
-            chunkNode->pieces = PushArrayNoZero(arena, F_Piece, chunkNode->cap);
-            QueuePush(result->first, result->last, chunkNode);
-        }
-        F_Piece *piece = chunkNode->pieces + chunkNode->count++;
-        piece->texture = info->handle;
-        piece->offset  = info->rect;
-        // piece->width   = info->width;
-        // piece->height  = info->height;
-        piece->advance = info->advance;
     }
     return result;
 }
