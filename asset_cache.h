@@ -77,8 +77,8 @@ struct AS_CacheState
     // Must be power of 2
     u8 *ringBuffer;
     u64 ringBufferSize;
-    u64 readPos;
-    u64 writePos;
+    u64 volatile readPos;
+    u64 volatile writePos;
 
     TicketMutex mutex;
 

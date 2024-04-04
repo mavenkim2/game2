@@ -302,6 +302,21 @@ internal void D_PushText(AS_Handle font, V2 startPos, f32 size, string line)
     ScratchEnd(temp);
 }
 
+internal void D_PushTextF(AS_Handle font, V2 startPos, f32 size, char *fmt, ...)
+{
+    TempArena temp = ScratchStart(0, 0);
+    string result  = {};
+
+    va_list args;
+    va_start(args, fmt);
+    result = PushStr8FV(temp.arena, fmt, args);
+    va_end(args);
+
+    D_PushText(font, startPos, size, result);
+
+    ScratchEnd(temp);
+}
+
 inline R_Pass *R_GetPassFromKind(R_PassType type)
 {
     RenderState *state = renderState;

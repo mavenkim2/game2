@@ -60,7 +60,7 @@ typedef i64 b64;
 //
 
 #define ArrayLength(array) sizeof(array) / sizeof((array)[0])
-#define kilobytes(value)   ((value) * 1024LL)
+#define kilobytes(value)   ((value)*1024LL)
 #define megabytes(value)   (kilobytes(value) * 1024LL)
 #define gigabytes(value)   (megabytes(value) * 1024LL)
 #define terabytes(value)   (gigabytes(value) * 1024LL)
@@ -197,7 +197,11 @@ internal void Printf(char *fmt, ...);
 #define AtomicCompareExchangeU32(dest, src, expected)                                                             \
     (u32)(_InterlockedCompareExchange((long volatile *)dest, src, expected))
 #define AtomicCompareExchangeU64(dest, src, expected)                                                             \
-    (u64)_InterlockedCompareExchange64((__int64 volatile *)dest, src, expected)
+    (u64) _InterlockedCompareExchange64((__int64 volatile *)dest, src, expected)
+// NOTE: returns the initial value
+inline u32 AtomicExchange(u32 *dest, u32 src) {
+    return (u32)_InterlockedExchange((long volatile *)dest, src);
+}
 
 typedef void *PVOID;
 #define AtomicCompareExchangePtr(dest, src, expected)                                                             \

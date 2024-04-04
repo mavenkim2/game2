@@ -120,7 +120,7 @@ internal F_RasterInfo *F_Raster(Font *font, F_StyleNode *node, string str)
         info->advance = (i32)(advance * node->scale);
         if (width != 0 && height != 0)
         {
-            info->handle = R_AllocateTexture2D(outBitmap, width, height, R_TexFormat_RGBA8);
+            info->handle = R_AllocateTexture(outBitmap, width, height, R_TexFormat_RGBA8);
         }
     }
     return info;

@@ -15,6 +15,7 @@
 #include "asset.cpp"
 #include "asset_cache.cpp"
 #include "render/render.cpp"
+#include "debug.cpp"
 #include "game.cpp"
 
 // TODO: make this conditional on renderer backend
@@ -63,6 +64,7 @@ MAIN()
     R_Init(arena, shared->windowHandle);
     D_Init();
     G_Init();
+    DBG_Init();
 
     string binaryDirectory = OS_GetBinaryDirectory();
     // string sourceDLLFilename = StrConcat(debugState->arena, binaryDirectory, Str8Lit("keepmovingforward.dll"));

@@ -6,6 +6,7 @@
 #include "asset_cache.h"
 #include "render.h"
 #include "render.cpp"
+#include "debug.cpp"
 #include "game.h"
 #endif
 
@@ -39,8 +40,6 @@ internal void G_EntryPoint(void *p)
 
     f32 frameDt    = 1.f / 144.f;
     f32 multiplier = 1.f;
-
-    OS_StartTimer();
 
     f32 frameTime = OS_NowSeconds();
 
@@ -164,7 +163,7 @@ internal void G_Init()
 
     g_state->level           = PushStruct(g_state->permanentArena, Level);
     g_state->camera.position = g_state->player.pos - V3{0, 10, 0};
-    g_state->camera.pitch    = 0;//-PI / 4;
+    g_state->camera.pitch    = 0; //-PI / 4;
     g_state->camera.yaw      = PI / 2;
     g_state->cameraMode      = CameraMode_Debug;
 
@@ -578,6 +577,7 @@ internal void G_Update(f32 dt)
         // SkinModelToAnimation(&g_state->animPlayer, &g_state->model2, tforms2, finalTransforms2);
         SkinModelToBindPose(g_state->model2, skinningMatrices2);
         D_PushModel(g_state->model2, transform2, skinningMatrices2, skeleton2->count);
-        D_PushText(g_state->font, {0, 30}, 64, Str8Lit("What is going on?"));
+        // D_PushText(g_state->font, {0, 30}, 64, Str8Lit("What is going on?"));
+        // D_CollateDebugRecords();
     }
 }

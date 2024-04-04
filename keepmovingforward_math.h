@@ -607,6 +607,11 @@ inline V3 Hadamard(V3 a, V3 b)
     return result;
 }
 
+inline V3 operator*(V3 a, V3 b)
+{
+    return Hadamard(a, b);
+}
+
 inline b32 operator==(V3I32 &a, V3I32 b)
 {
     b32 result = a.x == b.x && a.y == b.y && a.z == b.z ? true : false;
@@ -794,6 +799,15 @@ inline Quat operator*(Quat a, Quat b)
     return result;
 }
 
+inline V3 operator*(V3 a, Quat b)
+{
+    V3 result;
+    result.x = a.x * b.w + a.y * b.z + a.z * -b.y;
+    result.y = a.x * -b.z + a.y * b.w + a.z * b.x;
+    result.z = a.x * b.y + a.y * -b.x + a.z * b.w;
+    return result;
+}
+
 inline Quat operator*(f32 f, Quat q)
 {
     Quat result;
@@ -826,6 +840,15 @@ inline Quat Conjugate(Quat a)
     result.z = -a.x;
     result.w = a.w;
     return result;
+}
+
+inline V3 RotateVector(V3 v, Quat q)
+{
+    V3 u    = {q.x, q.y, q.z};
+    float s = q.w;
+
+    // Do the math
+    V3 result = 2.0f * Dot(u, v) * u + (s * s - Dot(u, u)) * v + 2.0f * s * Cross(u, v);
 }
 
 inline Quat Normalize(Quat a)

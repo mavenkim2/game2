@@ -406,6 +406,7 @@ internal void R_EndFrame()
 
 internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int clientHeight)
 {
+    // TIMED_FUNCTION();
     // Load queued buffers and textures
     {
         R_OpenGL_LoadBuffers();
@@ -594,7 +595,9 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
                                     case TextureType_Normal:
                                     {
                                         u32 hashIndex = textureHandle.u32[0];
-                                        f32 slice     = (f32)textureHandle.u32[1];
+                                        // f32 slice;
+                                        // MemoryCopy(&slice, &textureHandle.u32[1], sizeof(slice));
+                                        f32 slice = (f32)textureHandle.u32[1];
 
                                         addresses[count++] = {hashIndex, slice};
                                         break;
@@ -994,6 +997,7 @@ R_ALLOCATE_TEXTURE_2D(R_AllocateTextureInArray)
         hashIndex = (hashIndex + 1) & (maxSlots - 1);
         list      = &openGL->textureMap.arrayList[hashIndex];
     }
+
     if (list->hash == 0)
     {
         list->topology      = topology;
@@ -1012,6 +1016,8 @@ R_ALLOCATE_TEXTURE_2D(R_AllocateTextureInArray)
 
     R_Handle result;
     result.u32[0] = hashIndex;
+    // f32 slice     = (f32)freeIndex;
+    // MemoryCopy(&result.u32[1], &slice, sizeof(slice));
     result.u32[1] = (u32)freeIndex;
     result.u64[1] = GL_TEXTURE_ARRAY_HANDLE_FLAG;
 

@@ -4,8 +4,8 @@
 // global LARGE_INTEGER START_TIME;
 // global i64 GLOBAL_PERFORMANCE_COUNT_FREQUENCY;
 //
-// #define XAUDIO2_CREATE(name) HRESULT name(IXAudio2 **ppXAudio2, UINT32 flags, XAUDIO2_PROCESSOR
-// xAudio2Processor) typedef XAUDIO2_CREATE(XAudio2CreateFunctionType);
+// #define XAUDIO2_CREATE(name) HRESULT name(IXAudio2 **ppXAudio2, UINT32 flags, XAUDIO2_PROCESSOR xAudio2Processor)
+// typedef XAUDIO2_CREATE(XAudio2CreateFunctionType);
 //
 // struct Win32OffscreenBuffer
 // {

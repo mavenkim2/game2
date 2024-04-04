@@ -52,15 +52,6 @@ internal f32 OS_GetWallClock()
     return wallClock;
 }
 
-internal void OS_StartTimer()
-{
-    LARGE_INTEGER counter;
-    if (QueryPerformanceCounter(&counter))
-    {
-        win32State->mStartCounter = counter.QuadPart;
-    }
-}
-
 internal f32 OS_NowSeconds()
 {
     f32 result;
@@ -415,6 +406,17 @@ internal void OS_Init()
 
         win32State->mGranularSleep = (timeBeginPeriod(1) == TIMERR_NOERROR);
 
+        LARGE_INTEGER counter;
+        if (QueryPerformanceCounter(&counter))
+        {
+            win32State->mStartCounter = counter.QuadPart;
+        }
+
+        else
+        {
+            Assert(!"Timer not initializedD");
+        }
+
         win32State->mShowCursor = 1;
         // Get binary directory
         {
@@ -474,9 +476,9 @@ LRESULT Win32_Callback(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
             switch (message)
             {
                 case WM_LBUTTONUP:
-                case WM_LBUTTONDOWN: key = OS_Mouse_L;
+                case WM_LBUTTONDOWN: key = OS_Mouse_L; break;
                 case WM_RBUTTONUP:
-                case WM_RBUTTONDOWN: key = OS_Mouse_R;
+                case WM_RBUTTONDOWN: key = OS_Mouse_R; break;
             }
 
             OS_Event event = Win32_CreateKeyEvent(key, !isRelease);

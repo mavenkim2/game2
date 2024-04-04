@@ -339,11 +339,13 @@ internal void PlayCurrentAnimation(Arena *arena, AnimationPlayer *player, f32 dT
     }
 }
 
-internal void SkinModelToAnimation(AnimationPlayer *player, AS_Handle model, const AnimationTransform *transforms,
-                                   Mat4 *finalTransforms)
+internal void SkinModelToAnimation(const AnimationPlayer *inPlayer, const AS_Handle inModel,
+                                   const AnimationTransform *transforms, Mat4 *outFinalTransforms)
 {
+    // TIMED_FUNCTION();
+
     TempArena temp           = ScratchStart(0, 0);
-    LoadedSkeleton *skeleton = GetSkeletonFromModel(model);
+    LoadedSkeleton *skeleton = GetSkeletonFromModel(inModel);
     Mat4 *transformToParent  = PushArray(temp.arena, Mat4, skeleton->count);
     i32 previousId           = -1;
 
@@ -353,9 +355,9 @@ internal void SkinModelToAnimation(AnimationPlayer *player, AS_Handle model, con
         i32 id            = i;
 
         i32 animationId = -1;
-        for (u32 index = 0; index < player->currentAnimation->numNodes; index++)
+        for (u32 index = 0; index < inPlayer->currentAnimation->numNodes; index++)
         {
-            if (player->currentAnimation->boneChannels[index].name == name)
+            if (inPlayer->currentAnimation->boneChannels[index].name == name)
             {
                 animationId = index;
                 break;
@@ -382,11 +384,72 @@ internal void SkinModelToAnimation(AnimationPlayer *player, AS_Handle model, con
         }
 
         Assert(id > previousId);
-        previousId          = id;
-        finalTransforms[id] = transformToParent[id] * skeleton->inverseBindPoses[id];
+        previousId             = id;
+        outFinalTransforms[id] = transformToParent[id] * skeleton->inverseBindPoses[id];
+        // result.translation = a.translation + (b.translation * a.rotation) * a.scale;
     }
     ScratchEnd(temp);
 }
+
+internal AnimationTransform operator*(AnimationTransform p, AnimationTransform c)
+{
+    AnimationTransform result;
+    // TODO: is it c.translation * p.scale, then rotation?
+    result.translation = p.translation + (p.scale * RotateVector(c.translation, p.rotation));
+    result.scale       = c.scale * p.scale;
+    result.rotation    = p.rotation * c.rotation;
+    return result;
+}
+
+// internal void SkinModelToAnimationTest(const AnimationPlayer *inPlayer, const AS_Handle inModel,
+//                                        const AnimationTransform *inTransforms,
+//                                        AnimationTransform *outFinalTransforms)
+// {
+//     TempArena temp           = ScratchStart(0, 0);
+//     LoadedSkeleton *skeleton = GetSkeletonFromModel(inModel);
+//     Mat4 *transformToParent  = PushArray(temp.arena, Mat4, skeleton->count);
+//     i32 previousId           = -1;
+//
+//     loopi(0, skeleton->count)
+//     {
+//         const string name = skeleton->names[i];
+//         i32 id            = i;
+//
+//         i32 animationId = -1;
+//         for (u32 index = 0; index < inPlayer->currentAnimation->numNodes; index++)
+//         {
+//             if (inPlayer->currentAnimation->boneChannels[index].name == name)
+//             {
+//                 animationId = index;
+//                 break;
+//             }
+//         }
+//         Mat4 lerpedMatrix;
+//         if (animationId == -1)
+//         {
+//             lerpedMatrix = skeleton->transformsToParent[id];
+//         }
+//         else
+//         {
+//             lerpedMatrix = ConvertToMatrix(&inTransforms[animationId]);
+//         }
+//         i32 parentId = skeleton->parents[id];
+//         if (parentId == -1)
+//         {
+//             transformToParent[id] = lerpedMatrix;
+//         }
+//         else
+//         {
+//             Assert(!IsZero(transformToParent[parentId]));
+//             transformToParent[id] = transformToParent[parentId] * lerpedMatrix;
+//         }
+//
+//         Assert(id > previousId);
+//         previousId             = id;
+//         outFinalTransforms[id] = transformToParent[id] * skeleton->inverseBindPoses[id];
+//     }
+//     ScratchEnd(temp);
+// }
 
 internal void SkinModelToBindPose(AS_Handle model, Mat4 *finalTransforms)
 {
