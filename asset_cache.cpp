@@ -481,7 +481,7 @@ JOB_CALLBACK(AS_LoadAsset)
         node->asset.texture.width  = width;
         node->asset.texture.height = height;
 
-        node->asset.texture.handle = R_AllocateTexture2D(texData, width, height, format);
+        node->asset.texture.handle = R_AllocateTexture(texData, width, height, format);
         node->asset.status         = AS_Status_Loaded;
     }
     else if (extension == Str8Lit("ttf"))
@@ -575,6 +575,7 @@ internal AS_Node *AS_GetNodeFromHandle(AS_Handle handle)
         }
     }
     EndRMutex(&slot->mutex);
+
     if (result && result->asset.status != AS_Status_Loaded)
     {
         result = 0;

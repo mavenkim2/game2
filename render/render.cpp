@@ -21,16 +21,16 @@ struct D_State
 {
     Arena *arena;
     u64 frameStartPos;
-    RenderState *state;
 };
+
 global D_State *d_state;
 
-internal void D_Init(RenderState *state)
+internal void D_Init()
 {
-    Arena *arena   = ArenaAlloc();
-    d_state        = PushStruct(arena, D_State);
-    d_state->arena = arena;
-    d_state->state = state;
+    Arena *arena       = ArenaAlloc();
+    d_state            = PushStruct(arena, D_State);
+    d_state->arena     = arena;
+    RenderState *state = renderState;
 
     // DebugRenderer *debug = &state->debugRenderer;
 
@@ -188,7 +188,7 @@ internal void D_Init(RenderState *state)
 
 internal void D_BeginFrame()
 {
-    RenderState *state = d_state->state;
+    RenderState *state = renderState;
     ArenaPopTo(d_state->arena, d_state->frameStartPos);
     for (R_PassType type = (R_PassType)0; type < R_PassType_Count; type = (R_PassType)(type + 1))
     {
@@ -228,7 +228,7 @@ internal void D_BeginFrame()
 internal void D_PushModel(AS_Handle loadedModel, Mat4 transform, Mat4 *skinningMatrices = 0,
                           u32 skinningMatricesCount = 0)
 {
-    RenderState *state = d_state->state;
+    RenderState *state = renderState;
     if (!IsModelHandleNil(loadedModel))
     {
         if (skinningMatricesCount)
@@ -276,7 +276,7 @@ internal void D_PushText(AS_Handle font, V2 startPos, f32 size, string line)
 {
     TempArena temp     = ScratchStart(0, 0);
     F_Run *run         = F_GetFontRun(temp.arena, font, size, line);
-    RenderState *state = d_state->state;
+    RenderState *state = renderState;
     R_PassUI *pass     = R_GetPassFromKind(R_PassType_UI)->passUI;
 
     f32 advance = 0;
@@ -304,7 +304,7 @@ internal void D_PushText(AS_Handle font, V2 startPos, f32 size, string line)
 
 inline R_Pass *R_GetPassFromKind(R_PassType type)
 {
-    RenderState *state = d_state->state;
+    RenderState *state = renderState;
     R_Pass *result     = &state->passes[type];
     return result;
 }

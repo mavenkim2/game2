@@ -129,15 +129,15 @@ internal F_RasterInfo *F_Raster(Font *font, F_StyleNode *node, string str)
 // TODO: table?
 internal F_Run *F_GetFontRun(Arena *arena, AS_Handle font, f32 size, string str)
 {
-    F_Run *result          = PushStruct(arena, F_Run);
-    F_StyleNode *styleNode = F_GetStyleFromFontSize(font, size);
-    result->ascent         = styleNode->ascent;
-    result->descent        = styleNode->descent;
-
-    Font *f = GetFont(font);
+    F_Run *result = PushStruct(arena, F_Run);
+    Font *f       = GetFont(font);
     // TODO: properly set up nil so I don't have to have this conditional
     if (!IsFontNil(f))
     {
+        F_StyleNode *styleNode = F_GetStyleFromFontSize(font, size);
+        result->ascent         = styleNode->ascent;
+        result->descent        = styleNode->descent;
+
         // Only support ascii characters for now
         for (u64 i = 0; i < str.size; i++)
         {

@@ -12,6 +12,7 @@ enum Win32_SyncType
     Win32_SyncType_CVar,
     Win32_SyncType_Count,
 };
+
 struct Win32_Sync
 {
     Win32_SyncType type;
@@ -37,7 +38,6 @@ struct Win32_FileIter
     HANDLE handle;
     WIN32_FIND_DATAA findData;
 };
-
 
 ///////////////////////////////////////
 // Threads

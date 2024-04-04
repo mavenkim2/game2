@@ -6,6 +6,8 @@
 #include "./opengl.h"
 #endif
 
+// TODO: this will go away
+
 #define GL_TEXTURE_ARRAY_HANDLE_FLAG 0x8000000000000000
 global i32 win32OpenGLAttribs[] = {
     WGL_CONTEXT_MAJOR_VERSION_ARB,
@@ -268,18 +270,21 @@ internal void OpenGLGetInfo()
     }
 };
 
-internal void R_Init(HWND window)
+internal void R_Init(Arena *arena, OS_Handle handle)
 {
+    renderState = PushStruct(arena, RenderState);
 #if WINDOWS
-    R_Win32_OpenGL_Init(window);
+    R_Win32_OpenGL_Init(handle);
+    R_AllocateTexture = R_AllocateTextureInArray;
 #else
 #error OS not implemented
 #endif
 }
 
-internal void R_Win32_OpenGL_Init(HWND window)
+internal void R_Win32_OpenGL_Init(OS_Handle handle)
 {
-    HDC dc = GetDC(window);
+    HWND window = (HWND)handle.handle;
+    HDC dc      = GetDC(window);
 
     PIXELFORMATDESCRIPTOR desiredPixelFormat = {};
     desiredPixelFormat.nSize                 = sizeof(desiredPixelFormat);
@@ -385,7 +390,21 @@ internal void R_BeginFrame(i32 width, i32 height)
     // group->quadCount   = 0;
 }
 
-internal void R_EndFrame(RenderState *state, HDC deviceContext, int clientWidth, int clientHeight)
+// TODO: no :)
+internal void R_EndFrame()
+{
+#if WINDOWS
+    V2 viewport       = OS_GetWindowDimension(shared->windowHandle);
+    HWND window       = (HWND)shared->windowHandle.handle;
+    HDC deviceContext = GetDC(window);
+    R_Win32_OpenGL_EndFrame(deviceContext, (i32)viewport.x, (i32)viewport.y);
+    ReleaseDC(window, deviceContext);
+#else
+#error
+#endif
+}
+
+internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int clientHeight)
 {
     // Load queued buffers and textures
     {
@@ -407,7 +426,7 @@ internal void R_EndFrame(RenderState *state, HDC deviceContext, int clientWidth,
     TempArena temp = ScratchStart(0, 0);
     // INITIALIZE
     {
-        as_state = state->as_state;
+        // as_state = renderState->as_state;
         glViewport(0, 0, clientWidth, clientHeight);
 
         glEnable(GL_DEPTH_TEST);
@@ -429,7 +448,7 @@ internal void R_EndFrame(RenderState *state, HDC deviceContext, int clientWidth,
 
     for (R_PassType type = (R_PassType)0; type < R_PassType_Count; type = (R_PassType)(type + 1))
     {
-        R_Pass *pass = &state->passes[type];
+        R_Pass *pass = &renderState->passes[type];
         switch (type)
         {
             case R_PassType_UI:
@@ -503,13 +522,13 @@ internal void R_EndFrame(RenderState *state, HDC deviceContext, int clientWidth,
 
                     openGL->glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer->id);
                     openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBuffer->id);
-                    R_OpenGL_StartShader(state, R_ShaderType_SkinnedMesh, 0);
+                    R_OpenGL_StartShader(renderState, R_ShaderType_SkinnedMesh, 0);
 
                     // TODO: uniform blocks so we can just push a struct or something instead of having to do
                     // these all manually
 
                     // MVP matrix
-                    Mat4 newTransform       = state->transform * params->transform;
+                    Mat4 newTransform       = renderState->transform * params->transform;
                     GLint transformLocation = openGL->glGetUniformLocation(modelProgramId, "transform");
                     openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, newTransform.elements[0]);
 
@@ -526,7 +545,7 @@ internal void R_EndFrame(RenderState *state, HDC deviceContext, int clientWidth,
                     openGL->glUniform3fv(lightPosLoc, 1, lightPosition.elements);
 
                     GLint viewPosLoc = openGL->glGetUniformLocation(modelProgramId, "viewPos");
-                    openGL->glUniform3fv(viewPosLoc, 1, state->camera.position.elements);
+                    openGL->glUniform3fv(viewPosLoc, 1, renderState->camera.position.elements);
 
                     // TEXTURE MAP
                     static readonly GLint samplerIds[16] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
@@ -672,7 +691,7 @@ internal void R_EndFrame(RenderState *state, HDC deviceContext, int clientWidth,
                                                         node->val.data);
                                 totalOffset += node->val.byteCount;
                             }
-                            R_OpenGL_StartShader(state, R_ShaderType_3D, 0);
+                            R_OpenGL_StartShader(renderState, R_ShaderType_3D, 0);
                             glDrawArrays(topology, 0, group->batchList.numInstances * 2);
                             R_OpenGL_EndShader(R_ShaderType_3D);
                             break;
@@ -687,7 +706,7 @@ internal void R_EndFrame(RenderState *state, HDC deviceContext, int clientWidth,
                                                         node->val.data);
                                 totalOffset += node->val.byteCount;
                             }
-                            R_OpenGL_StartShader(state, R_ShaderType_3D, 0);
+                            R_OpenGL_StartShader(renderState, R_ShaderType_3D, 0);
                             glDrawArrays(topology, 0, group->batchList.numInstances);
                             R_OpenGL_EndShader(R_ShaderType_3D);
                             break;
@@ -721,7 +740,7 @@ internal void R_EndFrame(RenderState *state, HDC deviceContext, int clientWidth,
                                 totalOffset += node->val.byteCount;
                             }
 
-                            R_OpenGL_StartShader(state, R_ShaderType_Instanced3D, group);
+                            R_OpenGL_StartShader(renderState, R_ShaderType_Instanced3D, group);
                             openGL->glDrawElementsInstanced(topology, group->params.indexCount, GL_UNSIGNED_INT, 0,
                                                             group->batchList.numInstances);
                             R_OpenGL_EndShader(R_ShaderType_Instanced3D);
@@ -909,7 +928,7 @@ R_ALLOCATE_TEXTURE_2D(R_AllocateTexture2D)
     R_OpenGL_Texture *texture = openGL->freeTextures;
     while (texture && AtomicCompareExchangePtr(&openGL->freeTextures, texture->next, texture) != texture)
     {
-        texture = texture->next;
+        texture = openGL->freeTextures;
     }
     if (texture)
     {

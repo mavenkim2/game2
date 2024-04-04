@@ -247,8 +247,6 @@ struct RenderState
     i32 height;
 
     R_Pass passes[R_PassType_Count];
-
-    AS_CacheState *as_state;
 };
 
 enum R_BufferType
@@ -300,6 +298,8 @@ internal void D_PushModel(AS_Handle loadedModel, Mat4 transform, Mat4 *skinningM
                           u32 skinningMatricesCount);
 inline R_Pass *R_GetPassFromKind(R_PassType type);
 internal u8 *R_BatchListPush(R_BatchList *list, u32 instCap);
+
+internal void R_EndFrame();
 
 inline b8 R_HandleMatch(R_Handle a, R_Handle b)
 {

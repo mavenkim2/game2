@@ -1,3 +1,4 @@
+// NOTE: this file is retired
 #include "keepmovingforward.h"
 
 #include "asset_cache.h"
@@ -164,82 +165,6 @@ void DrawBitmap(GameOffscreenBuffer *buffer, DebugBmpResult *bmp, const V2 min)
 //     return result;
 // }
 
-inline Entity *GetEntity(Level *level, int handle)
-{
-    Assert(handle < MAX_ENTITIES);
-
-    Entity *entity = level->entities + handle;
-    return entity;
-}
-
-inline Entity *GetPlayer(GameState *gameState)
-{
-    Entity *player = &gameState->player;
-    return player;
-}
-
-inline Entity *CreateEntity(GameState *gameState, Level *level)
-{
-    Entity *entity = 0;
-    for (int i = 1; i < MAX_ENTITIES; i++)
-    {
-        if (!HasFlag(level->entities + i, Entity_Valid))
-        {
-            entity = level->entities + i;
-            break;
-        }
-    }
-    // TODO: no 0 initialization?
-    // *entity = {};
-    entity->id = gameState->entity_id_gen++;
-
-    return entity;
-}
-
-inline Entity *CreateWall(GameState *gameState, Level *level)
-{
-    Entity *wall = CreateEntity(gameState, level);
-
-    AddFlag(wall, Entity_Valid | Entity_Collidable);
-    return wall;
-}
-
-// NOTE: this assumes that the entity arg is in the level arg
-inline void RemoveEntity(Level *level, Entity *entity)
-{
-    RemoveFlag(entity, Entity_Valid);
-}
-
-internal void GenerateLevel(GameState *gameState, i32 tileWidth, i32 tileHeight)
-{
-    Level *level       = gameState->level;
-    level->levelWidth  = tileWidth;
-    level->levelHeight = tileHeight;
-
-    for (i32 y = -tileHeight / 2; y < tileHeight / 2; y++)
-    {
-        for (i32 x = -tileWidth / 2; x < tileWidth / 2; x++)
-        {
-            Entity *entity = CreateWall(gameState, gameState->level);
-
-            entity->pos  = V3{(f32)x, (f32)y, 0.f};
-            entity->size = V3{0.5f, 0.5f, 0.5f};
-            if ((x + tileWidth / 2) % 3 == 0)
-            {
-                entity->color = V4{1.f, 0.f, 0.f, 1.f};
-            }
-            else if ((x + tileWidth / 2) % 3 == 1)
-            {
-                entity->color = V4{0.f, 1.f, 0.f, 1.f};
-            }
-            else
-            {
-                entity->color = V4{1.f, 0.f, 1.f, 1.f};
-            }
-        }
-    }
-}
-
 #if 0
 internal b32 TestWallCollision(f32 wallLocation, f32 playerRelWall, f32 playerRelWallParallel, f32 playerDelta,
                                f32 *tMin, f32 wallStart, f32 wallEnd)
@@ -286,81 +211,6 @@ internal b32 BroadPhaseCollision(const Rect2 dynamic, const Rect2 fixed, V2 delt
     return Rect2Overlap(broadPhase, fixed);
 }
 #endif
-
-struct Manifold
-{
-    V3 normal;
-    f32 penetration;
-};
-
-internal Manifold NarrowPhaseAABBCollision(const Rect3 a, const Rect3 b)
-{
-    Manifold manifold = {};
-    V3 relative       = Center(a) - Center(b);
-    f32 aHalfExtent   = (a.maxX - a.minX) / 2;
-    f32 bHalfExtent   = (b.maxX - b.minX) / 2;
-    f32 xOverlap      = aHalfExtent + bHalfExtent - Abs(relative.x);
-
-    if (xOverlap <= 0)
-    {
-        return manifold;
-    }
-
-    aHalfExtent  = (a.maxY - a.minY) / 2;
-    bHalfExtent  = (b.maxY - b.minY) / 2;
-    f32 yOverlap = aHalfExtent + bHalfExtent - Abs(relative.y);
-    if (yOverlap <= 0)
-    {
-        return manifold;
-    }
-
-    aHalfExtent  = (a.maxZ - a.minZ) / 2;
-    bHalfExtent  = (b.maxZ - b.minZ) / 2;
-    f32 zOverlap = aHalfExtent + bHalfExtent - Abs(relative.z);
-    if (zOverlap <= 0)
-    {
-        return manifold;
-    }
-
-    if (xOverlap < yOverlap && xOverlap < zOverlap)
-    {
-        if (relative.x < 0)
-        {
-            manifold.normal = {-1, 0, 0};
-        }
-        else
-        {
-            manifold.normal = {1, 0, 0};
-        }
-        manifold.penetration = xOverlap;
-    }
-    else if (yOverlap < zOverlap)
-    {
-        if (relative.y < 0)
-        {
-            manifold.normal = {0, -1, 0};
-        }
-        else
-        {
-            manifold.normal = {0, 1, 0};
-        }
-        manifold.penetration = yOverlap;
-    }
-    else
-    {
-        if (relative.z < 0)
-        {
-            manifold.normal = {0, 0, -1};
-        }
-        else
-        {
-            manifold.normal = {0, 0, 1};
-        }
-        manifold.penetration = zOverlap;
-    }
-
-    return manifold;
-}
 
 #if 0
 internal V2 TestMovingEntityCollision(const Rect2 *dynamic, const Rect2 *fixed, V2 delta, f32 *tResult)
@@ -439,26 +289,6 @@ internal b32 ScaleMousePosition(V2 mousePos, V2 resolutionScale, u32 bufferWidth
         return true;
     }
     return false;
-}
-
-internal void InitializePlayer(GameState *gameState)
-{
-    Entity *player = &gameState->player;
-
-    player->pos.x = 6.f;
-    player->pos.y = 6.f;
-    player->pos.z = 5.f;
-
-    player->size.x = TILE_METER_SIZE;
-    player->size.y = TILE_METER_SIZE;
-    player->size.z = TILE_METER_SIZE * 2;
-
-    player->color.r = 0.5f;
-    player->color.g = 0.f;
-    player->color.b = 0.5f;
-    player->color.a = 1.f;
-
-    AddFlag(player, Entity_Valid | Entity_Collidable | Entity_Airborne | Entity_Swappable);
 }
 
 extern "C" GAME_UPDATE_AND_RENDER(GameUpdateAndRender)

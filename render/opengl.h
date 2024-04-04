@@ -480,16 +480,20 @@ global OpenGL *openGL = &_openGL;
 //////////////////////////////
 // Functions
 //
-internal void R_Init(HWND window);
+internal void R_Init(Arena *arena, OS_Handle handle);
 internal void R_OpenGL_Init();
-internal void R_Win32_OpenGL_Init(HWND window);
+internal void R_Win32_OpenGL_Init(OS_Handle handle);
+internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int clientHeight);
 internal GLuint R_OpenGL_CreateShader(string globalsPath, string vsPath, string fsPath, string preprocess);
 internal GLuint R_OpenGL_CompileShader(char *globals, char *vs, char *fs);
 
 internal void R_OpenGL_StartShader(RenderState *state, R_ShaderType type, void *group);
 internal void R_OpenGL_EndShader(R_ShaderType type);
 
+r_allocate_texture_2D *R_AllocateTexture;
+
 R_ALLOCATE_TEXTURE_2D(R_AllocateTexture2D);
+R_ALLOCATE_TEXTURE_2D(R_AllocateTextureInArray);
 R_ALLOCATE_BUFFER(R_AllocateBuffer);
 internal void R_OpenGL_LoadBuffers();
 internal void R_OpenGL_LoadTextures();
@@ -517,5 +521,7 @@ inline GLenum R_OpenGL_GetFormat(R_TexFormat format)
     }
     return glFormat;
 }
+
+global RenderState *renderState;
 
 #endif

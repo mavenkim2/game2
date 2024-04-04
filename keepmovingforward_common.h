@@ -94,6 +94,15 @@ internal void Printf(char *fmt, ...);
 #define Assert(expression) (void)(expression)
 #endif
 
+//////////////////////////////
+// Macros
+//
+#ifdef COMPILER_MSVC
+#define FUNCTION_NAME __FUNCTION__
+#else
+#error compiler not supported
+#endif
+
 #define Unreachable Assert(!"Unreachable")
 #define Swap(type, a, b)                                                                                          \
     do                                                                                                            \
@@ -181,12 +190,14 @@ internal void Printf(char *fmt, ...);
 #define DLLInsert(f, l, p, n) DLLInsert_NPZ(f, l, p, n, next, prev, CheckNull, SetNull)
 #define DLLRemove(f, l, n)    DLLRemove_NPZ(f, l, n, next, prev, CheckNull, SetNull)
 
+//////////////////////////////
 // Atomics
+//
 #if COMPILER_MSVC
 #define AtomicCompareExchangeU32(dest, src, expected)                                                             \
     (u32)(_InterlockedCompareExchange((long volatile *)dest, src, expected))
 #define AtomicCompareExchangeU64(dest, src, expected)                                                             \
-    _InterlockedCompareExchange64((__int64 volatile *)dest, src, expected)
+    (u64)_InterlockedCompareExchange64((__int64 volatile *)dest, src, expected)
 
 typedef void *PVOID;
 #define AtomicCompareExchangePtr(dest, src, expected)                                                             \

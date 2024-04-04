@@ -1,3 +1,4 @@
+// NOTE: this file is retired
 #include <windows.h>
 #include <gl/GL.h>
 #include <xaudio2.h>
@@ -61,25 +62,25 @@ void PlatformToggleCursor(b32 value)
 // DEBUG START
 //*******************************************
 
-internal string Win32GetBinaryDirectory(Win32State *win32State)
-{
-    DWORD size   = kilobytes(4);
-    u8 *fullPath = PushArray(win32State->arena, u8, size);
-    DWORD length = GetModuleFileNameA(0, (char *)fullPath, size);
+// internal string Win32GetBinaryDirectory(Win32State *win32State)
+// {
+//     DWORD size   = kilobytes(4);
+//     u8 *fullPath = PushArray(win32State->arena, u8, size);
+//     DWORD length = GetModuleFileNameA(0, (char *)fullPath, size);
+//
+//     string binaryDirectory;
+//     binaryDirectory.str  = fullPath;
+//     binaryDirectory.size = length;
+//
+//     binaryDirectory = Str8PathChopLastSlash(binaryDirectory);
+//     return binaryDirectory;
+// }
 
-    string binaryDirectory;
-    binaryDirectory.str  = fullPath;
-    binaryDirectory.size = length;
-
-    binaryDirectory = Str8PathChopLastSlash(binaryDirectory);
-    return binaryDirectory;
-}
-
-internal string Win32GetFilePathInBinaryDirectory(Win32State *win32State, string filename)
-{
-    string result = PushStr8F(win32State->arena, (char *)"%S/%S", win32State->binaryDirectory, filename);
-    return result;
-}
+// internal string Win32GetFilePathInBinaryDirectory(Win32State *win32State, string filename)
+// {
+//     string result = PushStr8F(win32State->arena, (char *)"%S/%S", win32State->binaryDirectory, filename);
+//     return result;
+// }
 
 internal FILETIME Win32LastWriteTime(string filename)
 {
@@ -394,29 +395,6 @@ internal void Win32InitializeXAudio2(int samplesPerSecond)
 /*******************************************
 // AUDIO END
 */
-void ToggleFullscreen(HWND Window)
-{
-    DWORD style = GetWindowLong(Window, GWL_STYLE);
-    if (style & WS_OVERLAPPEDWINDOW)
-    {
-        MONITORINFO mi = {sizeof(mi)};
-        if (GetWindowPlacement(Window, &GLOBAL_WINDOW_POSITION) &&
-            GetMonitorInfo(MonitorFromWindow(Window, MONITOR_DEFAULTTOPRIMARY), &mi))
-        {
-            SetWindowLong(Window, GWL_STYLE, style & ~WS_OVERLAPPEDWINDOW);
-            SetWindowPos(Window, HWND_TOP, mi.rcMonitor.left, mi.rcMonitor.top,
-                         mi.rcMonitor.right - mi.rcMonitor.left, mi.rcMonitor.bottom - mi.rcMonitor.top,
-                         SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
-        }
-    }
-    else
-    {
-        SetWindowLong(Window, GWL_STYLE, style | WS_OVERLAPPEDWINDOW);
-        SetWindowPlacement(Window, &GLOBAL_WINDOW_POSITION);
-        SetWindowPos(Window, NULL, 0, 0, 0, 0,
-                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
-    }
-}
 
 inline LARGE_INTEGER Win32GetWallClock()
 {
@@ -445,6 +423,10 @@ internal void Win32ProcessKeyboardMessages(GameButtonState *buttonState, b32 isD
     }
 }
 
+// TODO: things to do 
+// finish input from win32, input file uses it, sends it to ring queue atomically 
+// game reads input atomically, compiles render state, sends it to another ring atomically 
+// render reads from the ring atomically 
 internal void Win32ProcessPendingMessages(HWND window, Win32State *state, GameInput *keyboardController)
 {
     MSG message;
@@ -570,132 +552,50 @@ internal void Win32ProcessPendingMessages(HWND window, Win32State *state, GameIn
     }
 }
 
-LRESULT WindowsCallback(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
-{
-    LRESULT result = 0;
-    switch (message)
-    {
-        case WM_SIZE:
-        {
-            break;
-        }
-        case WM_KILLFOCUS:
-        {
-            ReleaseCapture();
-        }
-        case WM_SETCURSOR:
-        {
-            if (GLOBAL_SHOW_CURSOR)
-            {
-                result = DefWindowProcW(window, message, wParam, lParam);
-            }
-            else
-            {
-                SetCursor(0);
-            }
-            break;
-        }
-        case WM_ACTIVATEAPP:
-        {
-            break;
-        }
-        case WM_DESTROY:
-        {
-            RUNNING = false;
-            break;
-        }
-        case WM_CLOSE:
-        {
-            RUNNING = false;
-            break;
-        }
-        default:
-        {
-            result = DefWindowProcW(window, message, wParam, lParam);
-        }
-    }
-    return result;
-}
-
 int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd)
 {
-    LARGE_INTEGER performanceFrequencyUnion;
-    QueryPerformanceFrequency(&performanceFrequencyUnion);
-    GLOBAL_PERFORMANCE_COUNT_FREQUENCY = performanceFrequencyUnion.QuadPart;
 
-    // NOTE: Makes sleep have 1ms granularity, because OS scheduler may sleep longer/shorter than
-    // input value
-    UINT desiredSchedulerMs = 1;
-    b32 sleepIsGranular     = (timeBeginPeriod(desiredSchedulerMs) == TIMERR_NOERROR);
-
-    // Win32ResizeDIBSection(&GLOBAL_BACK_BUFFER, RESX, RESY);
-
-    WNDCLASSW windowClass     = {};
-    windowClass.style         = CS_HREDRAW | CS_VREDRAW;
-    windowClass.lpfnWndProc   = WindowsCallback;
-    windowClass.hInstance     = hInstance;
-    windowClass.lpszClassName = L"Keep Moving Forward";
-    windowClass.hCursor       = LoadCursorA(0, IDC_ARROW);
-
-    if (!RegisterClassW(&windowClass))
-    {
-        return 1;
-    }
-    HWND windowHandle =
-        CreateWindowExW(0, windowClass.lpszClassName, L"keep moving forward", WS_OVERLAPPEDWINDOW | WS_VISIBLE,
-                        CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, hInstance, 0);
-    if (!windowHandle)
-    {
-        return 1;
-    }
     // NOTE: this works, lowered framerate for testing
     // int gameUpdateHz = GetDeviceCaps(deviceContext, VREFRESH);
     // if (gameUpdateHz <= 1)
     // {
     //     gameUpdateHz = 60;
     // }
-    int gameUpdateHz            = 144;
-    f32 expectedSecondsPerFrame = 1.f / (f32)gameUpdateHz;
+    // int gameUpdateHz            = 144;
+    // f32 expectedSecondsPerFrame = 1.f / (f32)gameUpdateHz;
 
     //
     // GAME MEMORY
     //
 
-#if INTERNAL
-    LPVOID sampleBaseAddress = (LPVOID)terabytes(4);
-    LPVOID baseAddress       = (LPVOID)terabytes(5);
-#else
-    LPVOID baseAddress       = 0;
-    LPVOID sampleBaseAddress = 0;
-#endif
+    // GameMemory gameMemory            = {};
+    // gameMemory.PersistentStorageSize = megabytes(64);
+    // gameMemory.TransientStorageSize  = gigabytes(1);
+    // u64 totalStorageSize             = gameMemory.PersistentStorageSize + gameMemory.TransientStorageSize;
+    // gameMemory.PersistentStorageMemory =
+    //     VirtualAlloc(baseAddress, totalStorageSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    // gameMemory.TransientStorageMemory =
+    //     (u8 *)gameMemory.PersistentStorageMemory + gameMemory.PersistentStorageSize;
 
-    GameMemory gameMemory            = {};
-    gameMemory.PersistentStorageSize = megabytes(64);
-    gameMemory.TransientStorageSize  = gigabytes(1);
-    u64 totalStorageSize             = gameMemory.PersistentStorageSize + gameMemory.TransientStorageSize;
-    gameMemory.PersistentStorageMemory =
-        VirtualAlloc(baseAddress, totalStorageSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-    gameMemory.TransientStorageMemory =
-        (u8 *)gameMemory.PersistentStorageMemory + gameMemory.PersistentStorageSize;
+    // Arena *win32Arena = ArenaAlloc();
 
-    Arena *win32Arena = ArenaAlloc();
-
-    gameMemory.PlatformToggleCursor = PlatformToggleCursor;
-    gameMemory.R_AllocateTexture2D  = R_AllocateTextureInArray;
-    gameMemory.R_DeleteTexture2D    = R_DeleteTexture2D;
-    gameMemory.R_AllocateBuffer     = R_AllocateBuffer;
+    // gameMemory.PlatformToggleCursor = PlatformToggleCursor;
+    // gameMemory.R_AllocateTexture2D  = R_AllocateTextureInArray;
+    // gameMemory.R_DeleteTexture2D    = R_DeleteTexture2D;
+    // gameMemory.R_AllocateBuffer     = R_AllocateBuffer;
+    //
 
     //////////////////////////////
     // AUDIO
     //
     // for 1 sec buffer, samplesPerSecond = samplesPerBuffer
-    int samplesPerSecond = 48000;
-    int bytesPerSample   = sizeof(i16) * 2;
-    // 2 frames of audio data
-    int bufferSize = (int)(2 * samplesPerSecond * bytesPerSample / (f32)gameUpdateHz);
-    Win32InitializeXAudio2(samplesPerSecond);
-    // 3 sound buffers
-    i16 *samples = (i16 *)VirtualAlloc(sampleBaseAddress, bufferSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    // int samplesPerSecond = 48000;
+    // int bytesPerSample   = sizeof(i16) * 2;
+    // // 2 frames of audio data
+    // int bufferSize = (int)(2 * samplesPerSecond * bytesPerSample / (f32)gameUpdateHz);
+    // Win32InitializeXAudio2(samplesPerSecond);
+    // // 3 sound buffers
+    // i16 *samples = (i16 *)VirtualAlloc(sampleBaseAddress, bufferSize, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
 
     //////////////////////////////
     // INPUT
@@ -703,17 +603,9 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     GameInput oldInput = {};
     GameInput newInput = {};
 
-    Win32State win32State      = {};
-    win32State.arena           = win32Arena;
-    win32State.memory          = gameMemory.PersistentStorageMemory;
-    win32State.binaryDirectory = Win32GetBinaryDirectory(&win32State);
-
     //////////////////////////////
     // Thread Context
     //
-    ThreadContext *tctx = PushStruct(win32Arena, ThreadContext);
-    ThreadContextInitialize(tctx);
-    SetThreadName(Str8Lit("[Main Thread Platform]"));
 
     //////////////////////////////
     // Render
@@ -721,14 +613,13 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
     RenderState renderState = {};
     R_Init(windowHandle);
 
-    // TODO: FIX
     string sourceDLLFilename = Win32GetFilePathInBinaryDirectory(&win32State, Str8Lit("keepmovingforward.dll"));
     string tempDLLFilename = Win32GetFilePathInBinaryDirectory(&win32State, Str8Lit("keepmovingforward_temp.dll"));
     string lockFilename    = Win32GetFilePathInBinaryDirectory(&win32State, Str8Lit("lock.tmp"));
 
     Win32GameCode win32GameCode = Win32LoadGameCode(sourceDLLFilename, tempDLLFilename, lockFilename);
 
-    // NOTE: creates memory mapped files which hold data for looped live coding
+    // OTE: creates memory mapped files which hold data for looped live coding
     for (int i = 0; i < ArrayLength(win32State.replayStates); i++)
     {
         Win32ReplayState *replayState = Win32GetReplayState(&win32State, i);
@@ -745,7 +636,6 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
             LARGE_INTEGER fileSize;
             fileSize.QuadPart = totalStorageSize;
 
-            // unused elsewhere?
             HANDLE fileMappingHandle = CreateFileMappingA(replayState->fileHandle, NULL, PAGE_READWRITE,
                                                           fileSize.HighPart, fileSize.LowPart, NULL);
             replayState->fileMemory =
@@ -794,24 +684,10 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
         newInput.lastMousePos = oldInput.mousePos;
 
         // Mouse
-        // TODO: Raw input to get delta easier?
-        RECT windowRect;
-        GetWindowRect(windowHandle, &windowRect);
-        V2 center = {(windowRect.right + windowRect.left) / 2.f, (windowRect.bottom + windowRect.top) / 2.f};
-
-        POINT pos;
-        GetCursorPos(&pos);
-        ScreenToClient(windowHandle, &pos);
-        POINT centerPos = {(LONG)center.x, (LONG)center.y};
-        ScreenToClient(windowHandle, &centerPos);
-
-        newInput.mousePos   = V2{(f32)pos.x, (f32)pos.y};
-        newInput.deltaMouse = newInput.mousePos - V2{(f32)centerPos.x, (f32)centerPos.y};
-
-        if (!GLOBAL_SHOW_CURSOR)
-        {
-            SetCursorPos((i32)center.x, (i32)center.y);
-        }
+        // if (!GLOBAL_SHOW_CURSOR)
+        // {
+        //     SetCursorPos((i32)center.x, (i32)center.y);
+        // }
 
         Win32ProcessPendingMessages(windowHandle, &win32State, &newInput);
 
@@ -877,20 +753,6 @@ int WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int n
         ReleaseDC(windowHandle, deviceContext);
 
         oldInput = newInput;
-
-#if 0
-        u64 endCycleCount = __rdtsc();
-
-        double framesPerSecond = 1 / (double)(msPerFrame / 1000.f);
-        double megaCyclesPerFrame = (double)(endCycleCount - lastCycleCount) / (1000.f * 1000.f);
-
-        char printBuffer[256];
-        stbsp_snprintf(printBuffer, sizeof(printBuffer), "%fms/F, %fFPS, %fmc/F\n", msPerFrame, framesPerSecond,
-                       megaCyclesPerFrame);
-        OutputDebugStringA(printBuffer);
-
-        lastCycleCount = endCycleCount;
-#endif
     }
     return 0;
 }

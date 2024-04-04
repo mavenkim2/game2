@@ -410,7 +410,8 @@ internal void SkinModelToBindPose(AS_Handle model, Mat4 *finalTransforms)
         }
 
         Assert(id > previousId);
-        previousId          = id;
+        previousId = id;
+        // TODO: there's probably a way of representing this in non matrix form somehow
         finalTransforms[id] = transformToParent[id] * skeleton->inverseBindPoses[id];
     }
     ScratchEnd(temp);

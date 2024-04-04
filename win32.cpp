@@ -1,8 +1,10 @@
 // global HINSTANCE OS_W32_HINSTANCE;
 // global bool SHOW_CURSOR;
 // global bool RUNNING = true;
-global Arena *Win32_arena;
-global Win32_Sync *Win32_freeSync;
+#include "crack.h"
+#ifdef LSP_INCLUDE
+#include "platform.h"
+#endif
 
 internal void Printf(char *fmt, ...)
 {
@@ -12,6 +14,64 @@ internal void Printf(char *fmt, ...)
     stbsp_vsprintf(printBuffer, fmt, va);
     va_end(va);
     OutputDebugStringA(printBuffer);
+}
+
+struct Win32_State
+{
+    Arena *mArena;
+    Win32_Sync *mFreeSync;
+    i64 mPerformanceFrequency;
+    b32 mGranularSleep;
+
+    string mBinaryDirectory;
+
+    HINSTANCE mHInstance;
+
+    b32 mShowCursor;
+
+    Arena *mTempEventArena;
+    OS_EventList mEventsList;
+
+    TicketMutex mMutex;
+
+    u64 mStartCounter;
+
+    WINDOWPLACEMENT mWindowPosition = {sizeof(WINDOWPLACEMENT)};
+};
+
+global Win32_State *win32State;
+
+//////////////////////////////
+// Timing
+//
+internal f32 OS_GetWallClock()
+{
+    LARGE_INTEGER result;
+    QueryPerformanceCounter(&result);
+    f32 wallClock = (f32)(result.QuadPart / win32State->mPerformanceFrequency);
+    return wallClock;
+}
+
+internal void OS_StartTimer()
+{
+    LARGE_INTEGER counter;
+    if (QueryPerformanceCounter(&counter))
+    {
+        win32State->mStartCounter = counter.QuadPart;
+    }
+}
+
+internal f32 OS_NowSeconds()
+{
+    f32 result;
+
+    LARGE_INTEGER counter;
+    if (QueryPerformanceCounter(&counter))
+    {
+        result = (f32)(counter.QuadPart - win32State->mStartCounter) / (win32State->mPerformanceFrequency);
+    }
+
+    return result;
 }
 
 //////////////////////////////
@@ -226,7 +286,7 @@ StaticAssert((sizeof(Win32_FileIter) <= sizeof(((OS_FileIter *)0)->memory)), fil
 internal string OS_GetCurrentWorkingDirectory()
 {
     DWORD length = GetCurrentDirectoryA(0, 0);
-    u8 *path     = PushArray(Win32_arena, u8, length);
+    u8 *path     = PushArray(win32State->mArena, u8, length);
     length       = GetCurrentDirectoryA(length + 1, (char *)path);
 
     string result = Str8(path, length);
@@ -343,9 +403,349 @@ internal void OS_Release(void *memory)
 //
 internal void OS_Init()
 {
-    if (Win32_arena == 0)
+    if (ThreadContextGet()->isMainThread)
     {
-        Win32_arena = ArenaAlloc();
+        Arena *arena       = ArenaAlloc();
+        win32State         = PushStruct(arena, Win32_State);
+        win32State->mArena = arena;
+
+        LARGE_INTEGER frequency;
+        QueryPerformanceFrequency(&frequency);
+        win32State->mPerformanceFrequency = frequency.QuadPart;
+
+        win32State->mGranularSleep = (timeBeginPeriod(1) == TIMERR_NOERROR);
+
+        win32State->mShowCursor = 1;
+        // Get binary directory
+        {
+            string binaryDirectory;
+            TempArena temp               = ScratchStart(0, 0);
+            DWORD size                   = kilobytes(4);
+            binaryDirectory.str          = PushArray(temp.arena, u8, size);
+            DWORD length                 = GetModuleFileNameA(0, (char *)binaryDirectory.str, size);
+            binaryDirectory.size         = length;
+            binaryDirectory              = Str8PathChopLastSlash(binaryDirectory);
+            win32State->mBinaryDirectory = PushStr8Copy(arena, binaryDirectory);
+            ScratchEnd(temp);
+        }
+    }
+}
+
+// TODO: this isn't quite right
+internal void Win32_AddEvent(OS_Event event)
+{
+    OS_EventList *eventList = &win32State->mEventsList;
+    OS_EventChunk *chunk    = eventList->last;
+    if (eventList->last == 0 || eventList->last->count == eventList->last->cap)
+    {
+        chunk         = PushStruct(win32State->mTempEventArena, OS_EventChunk);
+        chunk->cap    = 16;
+        chunk->events = PushArray(win32State->mTempEventArena, OS_Event, chunk->cap);
+        QueuePush(eventList->first, eventList->last, chunk);
+    }
+    chunk->events[chunk->count++] = event;
+    eventList->numEvents++;
+}
+
+internal OS_Event Win32_CreateKeyEvent(OS_Key key, b32 isDown)
+{
+    OS_Event event;
+    event.key  = key;
+    event.type = isDown ? OS_EventType_KeyPressed : OS_EventType_KeyReleased;
+
+    return event;
+}
+
+LRESULT Win32_Callback(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
+{
+    LRESULT result = 0;
+    b32 isRelease  = 0;
+    switch (message)
+    {
+        case WM_LBUTTONUP:
+        case WM_RBUTTONUP:
+        {
+            isRelease = 1;
+        }
+        case WM_RBUTTONDOWN:
+        case WM_LBUTTONDOWN:
+        {
+            OS_Key key;
+            switch (message)
+            {
+                case WM_LBUTTONUP:
+                case WM_LBUTTONDOWN: key = OS_Mouse_L;
+                case WM_RBUTTONUP:
+                case WM_RBUTTONDOWN: key = OS_Mouse_R;
+            }
+
+            OS_Event event = Win32_CreateKeyEvent(key, !isRelease);
+            event.pos.x    = (f32)LOWORD(lParam);
+            event.pos.y    = (f32)HIWORD(lParam);
+
+            Win32_AddEvent(event);
+
+            if (isRelease == 0) SetCapture(window);
+            else ReleaseCapture();
+            break;
+        }
+        case WM_KEYUP:
+        case WM_KEYDOWN:
+        case WM_SYSKEYUP:
+        case WM_SYSKEYDOWN:
+        {
+            u32 keyCode = (u32)wParam;
+            Assert(keyCode < 256);
+
+            static b32 uninitialized = 1;
+            static OS_Key keyTable[256];
+            if (uninitialized)
+            {
+                uninitialized = 0;
+                for (u32 i = 0; i < 'Z' - 'A'; i++)
+                {
+                    keyTable[i + 'A'] = (OS_Key)(OS_Key_A + i);
+                }
+                keyTable[VK_SPACE] = OS_Key_Space;
+                keyTable[VK_SHIFT] = OS_Key_Shift;
+            }
+
+            b32 wasDown    = !!(lParam & (1 << 30));
+            b32 isDown     = !(lParam & (1 << 31));
+            b32 altWasDown = !!(lParam & (1 << 29));
+
+            OS_Event event   = Win32_CreateKeyEvent(keyTable[keyCode], isDown);
+            event.transition = (isDown != wasDown);
+
+            if (keyCode == VK_F4 && altWasDown)
+            {
+                event.type = OS_EventType_Quit;
+            }
+            Win32_AddEvent(event);
+            // if (isDown && wasDown != isDown && keyCode == VK_RETURN && altWasDown)
+            // {
+            //     ToggleFullscreen(message.hwnd);
+            // }
+            // if (keyCode == 'L')
+            // {
+            //     if (isDown && isDown != wasDown)
+            //     {
+            //         if (state->currentPlaybackIndex)
+            //         {
+            //             Win32EndPlayback(state);
+            //         }
+            //         else if (!state->currentRecordingIndex)
+            //         {
+            //             Win32BeginRecording(state, 1);
+            //         }
+            //         else if (state->currentRecordingIndex && !state->currentPlaybackIndex)
+            //         {
+            //             Win32EndRecording(state);
+            //             Win32BeginPlayback(state, 1);
+            //         }
+            //     }
+            // }
+            // break;
+            break;
+        }
+        case WM_DESTROY:
+        case WM_CLOSE:
+        case WM_QUIT:
+        {
+            OS_Event event;
+            event.type = OS_EventType_Quit;
+            Win32_AddEvent(event);
+            break;
+        }
+        case WM_PAINT:
+        {
+            PAINTSTRUCT paint;
+            HDC dc = BeginPaint(window, &paint);
+            EndPaint(window, &paint);
+            break;
+        }
+        case WM_SIZE:
+        {
+            break;
+        }
+        case WM_KILLFOCUS:
+        {
+            ReleaseCapture();
+            break;
+        }
+        case WM_SETCURSOR:
+        {
+            if (win32State->mShowCursor)
+            {
+                result = DefWindowProcW(window, message, wParam, lParam);
+            }
+            else
+            {
+                SetCursor(0);
+            }
+            break;
+        }
+        case WM_ACTIVATEAPP:
+        {
+            break;
+        }
+        default:
+        {
+            result = DefWindowProcW(window, message, wParam, lParam);
+        }
+    }
+    return result;
+}
+
+internal OS_Handle OS_WindowInit()
+{
+    OS_Handle result          = {};
+    WNDCLASSW windowClass     = {};
+    windowClass.style         = CS_HREDRAW | CS_VREDRAW;
+    windowClass.lpfnWndProc   = Win32_Callback;
+    windowClass.hInstance     = win32State->mHInstance;
+    windowClass.lpszClassName = L"Keep Moving Forward";
+    windowClass.hCursor       = LoadCursorA(0, IDC_ARROW);
+
+    if (RegisterClassW(&windowClass))
+    {
+        HWND windowHandle = CreateWindowExW(0, windowClass.lpszClassName, L"keep moving forward",
+                                            WS_OVERLAPPEDWINDOW | WS_VISIBLE, CW_USEDEFAULT, CW_USEDEFAULT,
+                                            CW_USEDEFAULT, CW_USEDEFAULT, 0, 0, windowClass.hInstance, 0);
+        if (windowHandle)
+        {
+            result.handle = (u64)windowHandle;
+        }
+    }
+    return result;
+}
+
+internal string OS_GetBinaryDirectory()
+{
+    string result = win32State->mBinaryDirectory;
+    return result;
+}
+
+internal V2 OS_GetCenter(OS_Handle handle, b32 screenToClient)
+{
+    HWND windowHandle = (HWND)handle.handle;
+
+    RECT windowRect;
+    GetWindowRect(windowHandle, &windowRect);
+    POINT centerPos = {(LONG)((windowRect.right + windowRect.left) / 2.f),
+                       (LONG)((windowRect.bottom + windowRect.top) / 2.f)};
+
+    if (screenToClient)
+    {
+        ScreenToClient(windowHandle, &centerPos);
+    }
+
+    V2 center = {(f32)centerPos.x, (f32)centerPos.y};
+    return center;
+}
+
+internal V2 OS_GetWindowDimension(OS_Handle handle)
+{
+    HWND window = (HWND)handle.handle;
+    V2 result;
+    RECT clientRect;
+    GetClientRect(window, &clientRect);
+    result.x = (f32)(clientRect.right - clientRect.left);
+    result.y = (f32)(clientRect.bottom - clientRect.top);
+    return result;
+}
+
+internal void OS_ToggleCursor(b32 on)
+{
+    win32State->mShowCursor = on;
+}
+
+//////////////////////////////
+// Windows
+//
+
+internal void OS_ToggleFullscreen(OS_Handle handle)
+{
+    HWND window = (HWND)handle.handle;
+    DWORD style = GetWindowLong(window, GWL_STYLE);
+    if (style & WS_OVERLAPPEDWINDOW)
+    {
+        MONITORINFO mi = {sizeof(mi)};
+        if (GetWindowPlacement(window, &win32State->mWindowPosition) &&
+            GetMonitorInfo(MonitorFromWindow(window, MONITOR_DEFAULTTOPRIMARY), &mi))
+        {
+            SetWindowLong(window, GWL_STYLE, style & ~WS_OVERLAPPEDWINDOW);
+            SetWindowPos(window, HWND_TOP, mi.rcMonitor.left, mi.rcMonitor.top,
+                         mi.rcMonitor.right - mi.rcMonitor.left, mi.rcMonitor.bottom - mi.rcMonitor.top,
+                         SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+        }
+    }
+    else
+    {
+        SetWindowLong(window, GWL_STYLE, style | WS_OVERLAPPEDWINDOW);
+        SetWindowPlacement(window, &win32State->mWindowPosition);
+        SetWindowPos(window, NULL, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+    }
+}
+
+//////////////////////////////
+// Keyboard/Mouse
+//
+internal OS_Events OS_GetEvents(Arena *arena)
+{
+    win32State->mTempEventArena       = arena;
+    win32State->mEventsList.numEvents = 0;
+    win32State->mEventsList.first     = 0;
+    win32State->mEventsList.last      = 0;
+
+    MSG message;
+    while (PeekMessageW(&message, 0, 0, 0, PM_REMOVE))
+    {
+        TranslateMessage(&message);
+        DispatchMessageW(&message);
+    }
+
+    OS_Events events;
+    events.numEvents = win32State->mEventsList.numEvents;
+    events.events    = PushArrayNoZero(arena, OS_Event, win32State->mEventsList.numEvents);
+
+    OS_Event *ptr = events.events;
+    for (OS_EventChunk *node = win32State->mEventsList.first; node != 0; node = node->next)
+    {
+        MemoryCopy(ptr, node->events, sizeof(OS_Event) * node->count);
+        ptr += node->count;
+    }
+
+    return events;
+}
+
+internal V2 OS_GetMousePos(OS_Handle handle)
+{
+    POINT pos;
+    V2 p = {};
+    if (GetCursorPos(&pos))
+    {
+        HWND windowHandle = (HWND)handle.handle;
+        ScreenToClient(windowHandle, &pos);
+        p.x = (f32)pos.x;
+        p.y = (f32)pos.y;
+    }
+    return p;
+}
+
+internal b32 OS_WindowIsFocused(OS_Handle handle)
+{
+    HWND window       = (HWND)handle.handle;
+    HWND activeWindow = GetActiveWindow();
+    return activeWindow == window;
+}
+
+internal void OS_SetMousePos(OS_Handle handle, V2 pos)
+{
+    if (OS_WindowIsFocused(handle))
+    {
+        SetCursorPos((i32)pos.x, (i32)pos.y);
     }
 }
 
@@ -355,14 +755,17 @@ internal void OS_Init()
 
 internal Win32_Sync *Win32_SyncAlloc(Win32_SyncType type)
 {
-    Win32_Sync *sync = Win32_freeSync;
-    if (sync)
+    Win32_Sync *sync = win32State->mFreeSync;
+    while (sync && AtomicCompareExchangePtr(&win32State->mFreeSync, sync->next, sync) != sync)
     {
-        StackPop(Win32_freeSync);
+        sync = win32State->mFreeSync;
     }
-    else
+    if (!sync)
     {
-        sync = PushStruct(Win32_arena, Win32_Sync);
+        BeginTicketMutex(&win32State->mMutex);
+        Arena *arena = win32State->mArena;
+        sync         = PushStruct(arena, Win32_Sync);
+        EndTicketMutex(&win32State->mMutex);
     }
     Assert(sync != 0);
     sync->type = type;
@@ -372,7 +775,11 @@ internal Win32_Sync *Win32_SyncAlloc(Win32_SyncType type)
 internal void Win32_SyncFree(Win32_Sync *sync)
 {
     sync->type = Win32_SyncType_Null;
-    StackPush(Win32_freeSync, sync);
+    sync->next = win32State->mFreeSync;
+    while (AtomicCompareExchangePtr(&win32State->mFreeSync, sync, sync->next) != sync->next)
+    {
+        sync->next = win32State->mFreeSync;
+    }
 }
 
 internal OS_Handle OS_ThreadStart(OS_ThreadFunction *func, void *ptr)
@@ -385,6 +792,17 @@ internal OS_Handle OS_ThreadStart(OS_ThreadFunction *func, void *ptr)
     thread->thread.handle = CreateThread(0, 0, Win32_ThreadProc, thread, 0, 0);
     OS_Handle handle      = {(u64)thread};
     return handle;
+}
+
+internal void OS_ThreadJoin(OS_Handle handle)
+{
+    Win32_Sync *thread = (Win32_Sync *)handle.handle;
+    if (thread && thread->type == Win32_SyncType_Thread && thread->thread.handle)
+    {
+        WaitForSingleObject(thread->thread.handle, INFINITE);
+        CloseHandle(thread->thread.handle);
+    }
+    Win32_SyncFree(thread);
 }
 
 internal DWORD Win32_ThreadProc(void *p)
