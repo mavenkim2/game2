@@ -223,7 +223,7 @@ internal void R_OpenGL_Init()
     {
         // glGetIntegerv(GL_MAX_ARRAY_TEXTURE_LAYERS, &openGL->maxSlices);
         openGL->maxSlices            = 16;
-        openGL->textureMap.maxSlots  = 16;
+        openGL->textureMap.maxSlots  = 32;
         openGL->textureMap.arrayList = PushArray(openGL->arena, R_Texture2DArray, openGL->textureMap.maxSlots);
     }
 
@@ -406,7 +406,7 @@ internal void R_EndFrame()
 
 internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int clientHeight)
 {
-    // TIMED_FUNCTION();
+    TIMED_FUNCTION();
     // Load queued buffers and textures
     {
         R_OpenGL_LoadBuffers();
@@ -414,6 +414,8 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
         R_OpenGL_LoadTextures();
     }
 
+    TempArena temp    = ScratchStart(0, 0);
+    GLint *samplerIds = 0;
     // Initialize texture array (for everyone
     {
         for (u32 i = 0; i < openGL->textureMap.maxSlots; i++)
@@ -422,9 +424,13 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
             openGL->glActiveTexture(GL_TEXTURE0 + i);
             glBindTexture(GL_TEXTURE_2D_ARRAY, aList->id);
         }
+        samplerIds = PushArray(temp.arena, GLint, openGL->textureMap.maxSlots);
+        for (u32 i = 0; i < openGL->textureMap.maxSlots; i++)
+        {
+            samplerIds[i] = i;
+        }
     }
 
-    TempArena temp = ScratchStart(0, 0);
     // INITIALIZE
     {
         // as_state = renderState->as_state;
@@ -494,9 +500,8 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
                 GLint transformLocation = openGL->glGetUniformLocation(id, "transform");
                 openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, transform);
 
-                static readonly GLint samplerIds[16] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
-                GLint textureLoc                     = openGL->glGetUniformLocation(id, "textureMaps");
-                openGL->glUniform1iv(textureLoc, ArrayLength(samplerIds), samplerIds);
+                GLint textureLoc = openGL->glGetUniformLocation(id, "textureMaps");
+                openGL->glUniform1iv(textureLoc, openGL->textureMap.maxSlots, samplerIds);
 
                 openGL->glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, list->numInstances);
                 R_OpenGL_EndShader(R_ShaderType_UI);
@@ -549,9 +554,8 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
                     openGL->glUniform3fv(viewPosLoc, 1, renderState->camera.position.elements);
 
                     // TEXTURE MAP
-                    static readonly GLint samplerIds[16] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
                     GLint textureLoc = openGL->glGetUniformLocation(modelProgramId, "textureMaps");
-                    openGL->glUniform1iv(textureLoc, ArrayLength(samplerIds), samplerIds);
+                    openGL->glUniform1iv(textureLoc, openGL->textureMap.maxSlots, samplerIds);
 
                     // GLint diffuseMapLoc = openGL->glGetUniformLocation(modelProgramId, "diffuseMap");
                     // openGL->glUniform1i(diffuseMapLoc, 0);
@@ -595,9 +599,9 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
                                     case TextureType_Normal:
                                     {
                                         u32 hashIndex = textureHandle.u32[0];
-                                        // f32 slice;
-                                        // MemoryCopy(&slice, &textureHandle.u32[1], sizeof(slice));
-                                        f32 slice = (f32)textureHandle.u32[1];
+                                        f32 slice;
+                                        MemoryCopy(&slice, &textureHandle.u32[1], sizeof(slice));
+                                        // f32 slice = (f32)textureHandle.u32[1];
 
                                         addresses[count++] = {hashIndex, slice};
                                         break;
@@ -1016,9 +1020,10 @@ R_ALLOCATE_TEXTURE_2D(R_AllocateTextureInArray)
 
     R_Handle result;
     result.u32[0] = hashIndex;
-    // f32 slice     = (f32)freeIndex;
-    // MemoryCopy(&result.u32[1], &slice, sizeof(slice));
-    result.u32[1] = (u32)freeIndex;
+    // Printf("%u\n", hashIndex);
+    f32 slice = (f32)freeIndex;
+    MemoryCopy(&result.u32[1], &slice, sizeof(slice));
+    // result.u32[1] = (u32)freeIndex;
     result.u64[1] = GL_TEXTURE_ARRAY_HANDLE_FLAG;
 
     R_OpenGL_Texture *texture = openGL->freeTextures;
@@ -1056,7 +1061,7 @@ R_ALLOCATE_TEXTURE_2D(R_AllocateTextureInArray)
             op->data               = data;
             op->texture            = texture;
             op->texSlice.hashIndex = result.u32[0];
-            op->texSlice.slice     = result.u32[1];
+            op->texSlice.slice     = (u32)freeIndex;
             op->status             = R_TextureLoadStatus_Untransferred;
             op->usesArray          = 1;
             while (AtomicCompareExchangeU32(&queue->endPos, writePos + 1, writePos) != writePos)
@@ -1189,8 +1194,10 @@ internal void R_OpenGL_LoadTextures()
                 }
                 glBindTexture(GL_TEXTURE_2D_ARRAY, array->id);
                 openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, GetPbo(op->pboIndex));
+                // Printf("%u\n", glGetError());
                 openGL->glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, slice, array->topology.width,
                                         array->topology.height, 1, format, GL_UNSIGNED_BYTE, 0);
+                // Printf("%u\n", glGetError());
                 Printf("Width: %u\nHeight: %u\nFormat: %u\n\n", array->topology.width, array->topology.height,
                        format);
 

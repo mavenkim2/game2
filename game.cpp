@@ -578,6 +578,6 @@ internal void G_Update(f32 dt)
         SkinModelToBindPose(g_state->model2, skinningMatrices2);
         D_PushModel(g_state->model2, transform2, skinningMatrices2, skeleton2->count);
         // D_PushText(g_state->font, {0, 30}, 64, Str8Lit("What is going on?"));
-        // D_CollateDebugRecords();
+        D_CollateDebugRecords();
     }
 }

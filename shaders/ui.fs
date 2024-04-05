@@ -3,7 +3,7 @@ flat in f32 slice;
 in V2 uv;
 out V4 fragColor;
 
-uniform sampler2DArray textureMaps[16];
+uniform sampler2DArray textureMaps[32];
 
 void main()
 {

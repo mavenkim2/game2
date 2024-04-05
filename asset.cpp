@@ -342,7 +342,7 @@ internal void PlayCurrentAnimation(Arena *arena, AnimationPlayer *player, f32 dT
 internal void SkinModelToAnimation(const AnimationPlayer *inPlayer, const AS_Handle inModel,
                                    const AnimationTransform *transforms, Mat4 *outFinalTransforms)
 {
-    // TIMED_FUNCTION();
+    TIMED_FUNCTION();
 
     TempArena temp           = ScratchStart(0, 0);
     LoadedSkeleton *skeleton = GetSkeletonFromModel(inModel);

@@ -24,7 +24,7 @@ layout (std430, binding = 1) buffer shaderStorageData
     TexAddress addresses[];
 };
 
-uniform sampler2DArray textureMaps[16];
+uniform sampler2DArray textureMaps[32];
 #endif
 
 in V2 outUv;
