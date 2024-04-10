@@ -99,6 +99,7 @@ internal OS_FileAttributes OS_AtributesFromFile(OS_Handle input);
 internal u64 OS_ReadEntireFile(OS_Handle handle, void *out);
 internal u64 OS_ReadEntireFile(string path, void *out);
 internal string OS_ReadEntireFile(Arena *arena, string path);
+internal u32 OS_ReadFile(OS_Handle handle, void *out, u64 offset, u32 size);
 
 /////////////////////////////////////////////////////
 // Threads

@@ -287,7 +287,7 @@ typedef R_ALLOCATE_TEXTURE_2D(r_allocate_texture_2D);
 #define R_DELETE_TEXTURE_2D(name) void name(R_Handle handle)
 typedef R_DELETE_TEXTURE_2D(r_delete_texture_2D);
 
-#define R_ALLOCATE_BUFFER(name) R_Handle name(R_BufferType type, void *data, u64 size)
+#define R_ALLOCATE_BUFFER(name) R_Handle name(R_BufferType type, void* data, u64 size)
 typedef R_ALLOCATE_BUFFER(r_allocate_buffer);
 
 // R_ALLOCATE_TEXTURE_2D(R_AllocateTexture2D);
@@ -299,6 +299,9 @@ internal void D_PushModel(AS_Handle loadedModel, Mat4 transform, Mat4 *skinningM
 internal void D_PushTextF(AS_Handle font, V2 startPos, f32 size, char *fmt, ...);
 inline R_Pass *R_GetPassFromKind(R_PassType type);
 internal u8 *R_BatchListPush(R_BatchList *list, u32 instCap);
+
+internal R_Handle R_AllocateTemp(u64 size, void **out);
+internal void R_FreeTemp(R_Handle temp);
 
 internal void R_EndFrame();
 

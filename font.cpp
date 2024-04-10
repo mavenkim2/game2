@@ -24,7 +24,7 @@ internal void F_Init()
     f_state->styleSlots    = PushArray(arena, F_StyleSlot, f_state->numStyleSlots);
 }
 
-internal F_Data F_InitializeFont(AS_Node *node, u8 *buffer)
+internal F_Data F_InitializeFont(u8 *buffer)
 {
     F_Data metrics;
     stbtt_InitFont(&metrics.font, buffer, stbtt_GetFontOffsetForIndex(buffer, 0));
@@ -35,7 +35,7 @@ internal F_Data F_InitializeFont(AS_Node *node, u8 *buffer)
 // internal F_Metrics F_GetMetrics(F_Handle font, f32 size) {}
 internal F_StyleNode *F_GetStyleFromFontSize(AS_Handle font, f32 size)
 {
-    u64 buffer[]              = {font.u64[0], font.u64[1], (u64)Round(size)};
+    u64 buffer[]              = {(u64)font.i64[0], (u64)Round(size)};
     u64 hash                  = HashFromString(Str8((u8 *)buffer, sizeof(buffer)));
     F_StyleSlot *slot         = &f_state->styleSlots[hash & (f_state->numStyleSlots - 1)];
     F_StyleNode *existingNode = 0;

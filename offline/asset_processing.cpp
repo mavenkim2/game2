@@ -91,8 +91,8 @@ internal void *LoadAndWriteModel(void *ptr, Arena *arena)
     model                       = LoadAllMeshes(scratch.arena, scene);
 
     // Load skeleton
-    ArrayInit(scratch.arena, model.skeleton.parents, i32, scene->mMeshes[0]->mNumBones);
-    ArrayInit(scratch.arena, model.skeleton.transformsToParent, Mat4, scene->mMeshes[0]->mNumBones);
+    model.skeleton.parents            = PushArray(scratch.arena, i32, scene->mMeshes[0]->mNumBones);
+    model.skeleton.transformsToParent = PushArray(scratch.arena, Mat4, scene->mMeshes[0]->mNumBones);
 
     MeshNodeInfoArray infoArray;
     infoArray.items = PushArrayNoZero(scratch.arena, MeshNodeInfo, 200);
@@ -111,9 +111,9 @@ internal void *LoadAndWriteModel(void *ptr, Arena *arena)
             {
                 string name    = info->name;
                 b32 inSkeleton = false;
-                for (u32 i = 0; i < model.skeleton.names.count; i++)
+                for (u32 i = 0; i < model.skeleton.count; i++)
                 {
-                    if (name == model.skeleton.names.items[i])
+                    if (name == model.skeleton.names[i])
                     {
                         inSkeleton = true;
                         break;
@@ -208,13 +208,13 @@ internal InputModel LoadAllMeshes(Arena *arena, const aiScene *scene)
         totalFaceCount += mesh->mNumFaces;
     }
 
-    ArrayInit(arena, model.vertices, MeshVertex, totalVertexCount);
-    ArrayInit(arena, model.indices, u32, totalFaceCount * 3);
+    model.vertices = PushArray(arena, MeshVertex, totalVertexCount);
+    model.indices  = PushArray(arena, u32, totalFaceCount * 3);
 
     AssimpSkeletonAsset assetSkeleton = {};
-    ArrayInit(arena, assetSkeleton.inverseBindPoses, Mat4, scene->mMeshes[0]->mNumBones);
-    ArrayInit(arena, assetSkeleton.names, string, scene->mMeshes[0]->mNumBones);
-    ArrayInit(scratch.arena, assetSkeleton.vertexBoneInfo, VertexBoneInfo, totalVertexCount);
+    assetSkeleton.inverseBindPoses    = PushArray(arena, Mat4, scene->mMeshes[0]->mNumBones);
+    assetSkeleton.names               = PushArray(arena, string, scene->mMeshes[0]->mNumBones);
+    assetSkeleton.vertexBneInfo       = PushArray(arena, VertexBoneInfo, totalVertexCount);
 
     loopi(0, scene->mNumMeshes)
     {
@@ -240,13 +240,9 @@ internal InputModel LoadAllMeshes(Arena *arena, const aiScene *scene)
         }
     }
 
-    model.skeleton.count                  = assetSkeleton.count;
-    model.skeleton.inverseBindPoses.items = assetSkeleton.inverseBindPoses.items;
-    model.skeleton.inverseBindPoses.count = assetSkeleton.inverseBindPoses.count;
-    model.skeleton.inverseBindPoses.cap   = assetSkeleton.inverseBindPoses.cap;
-    model.skeleton.names.items            = assetSkeleton.names.items;
-    model.skeleton.names.count            = assetSkeleton.names.count;
-    model.skeleton.names.cap              = assetSkeleton.names.cap;
+    model.skeleton.count            = assetSkeleton.count;
+    model.skeleton.inverseBindPoses = assetSkeleton.inverseBindPoses;
+    model.skeleton.names            = assetSkeleton.names;
 
     ScratchEnd(scratch);
     return model;
@@ -254,8 +250,8 @@ internal InputModel LoadAllMeshes(Arena *arena, const aiScene *scene)
 
 internal void ProcessMesh(Arena *arena, InputModel *model, const aiScene *scene, const aiMesh *mesh)
 {
-    u32 baseVertex = model->vertices.count;
-    u32 baseIndex  = model->indices.count;
+    u32 baseVertex = model->vertexCount;
+    u32 baseIndex  = model->indexCount;
 
     for (u32 i = 0; i < mesh->mNumVertices; i++)
     {
@@ -283,14 +279,14 @@ internal void ProcessMesh(Arena *arena, InputModel *model, const aiScene *scene,
         {
             vertex.uv = {0, 0};
         }
-        ArrayPush(&model->vertices, vertex);
+        model->vertices[model->vertexCount++] = vertex;
     }
     for (u32 i = 0; i < mesh->mNumFaces; i++)
     {
         aiFace *face = &mesh->mFaces[i];
         for (u32 indexindex = 0; indexindex < face->mNumIndices; indexindex++)
         {
-            ArrayPush(&model->indices, face->mIndices[indexindex] + baseVertex);
+            model->indices[model->indexCount++] = face->mIndices[indexindex] + baseVertex;
         }
     }
     aiMaterial *mMaterial = scene->mMaterials[mesh->mMaterialIndex];
@@ -348,8 +344,8 @@ internal void LoadBones(Arena *arena, AssimpSkeletonAsset *skeleton, aiMesh *mes
             string name = Str8((u8 *)bone->mName.data, bone->mName.length);
             name        = PushStr8Copy(arena, name);
 
-            ArrayPush(&skeleton->names, name);
-            ArrayPush(&skeleton->inverseBindPoses, ConvertAssimpMatrix4x4(bone->mOffsetMatrix));
+            skeleton->names[skeleton->nameCount++]                 = name;
+            skeleton->inverseBindPoses[skeleton->inverseBPCount++] = ConvertAssimpMatrix4x4(bone->mOffsetMatrix));
         }
 
         for (u32 j = 0; j < bone->mNumWeights; j++)
@@ -508,46 +504,95 @@ internal void WriteModelToFile(InputModel *model, string directory, string filen
     StringBuilder builder = {};
     TempArena temp        = ScratchStart(0, 0);
     builder.arena         = temp.arena;
-    Put(&builder, model->vertices.count);
-    Put(&builder, model->indices.count);
-    Printf("Num vertices: %u\n", model->vertices.count);
-    Printf("Num indices: %u\n", model->indices.count);
-    PutArray(&builder, model->vertices);
-    PutArray(&builder, model->indices);
 
-    // Add texture filenames
-    Put(&builder, model->materialCount);
-    for (u32 i = 0; i < model->materialCount; i++)
+    // Get sizes and offsets for each section
+    u64 totalOffset = 0;
+    u64 totalSize   = 0;
+
+    // Write the header
+    // Put(&builder, Str8Lit("MAIN"));
+    // Put(&builder, Str8Lit("TEMP"));
+    // Put(&builder, Str8Lit("DBG "));
+
+    /*
+     * Types of sections:
+     *
+     * have currently
+     * - GPU : sent to vram
+     * - MAIN: allocated in main memory to be directly used by the asset cache
+     *      - note if the data is sent to main memory & some transmutation is performed on it, but
+     *      said transmutation doesn't change the size
+     * - (maybe this is actually TEMP) DEP : dependency related information (e.g animations, materials)
+     *
+     * maybe need later
+     * - TEMP: used only in loading then discarded
+     * - DBG : used for debugging
+     *
+     * Each section is represented by a 4 char tag put in the file. Directly after the tag is a 64-bit
+     * uint that says how big the section is (so the OS knows how much to read and such).
+     */
+    OptimizeModel(model);
+
+    // Gpu memory
+    AssetFileSectionHeader gpu;
     {
-        Put(&builder, model->materials[i].startIndex);
-        Put(&builder, model->materials[i].onePlusEndIndex);
-        for (u32 j = 0; j < TextureType_Count; j++)
-        {
-            Put(&builder, Str8Lit("marker"));
-            if (model->materials[i].texture[j].size != 0)
-            {
-                string output = StrConcat(temp.arena, directory, model->materials[i].texture[j]);
-                Printf("Writing texture filename: %S\n", output);
-                // Place the pointer to the string data
-                u64 offset = PutPointer(&builder, 8);
-                PutPointerValue(&builder, &output.size);
-                Assert(builder.totalSize == offset);
-                Put(&builder, output);
-            }
-            else
-            {
-                u64 offset = 0;
-                PutPointerValue(&builder, &offset);
-            }
-        }
+        gpu.tag = "GPU ";
+        // gpu.size = sizeof(model->vertices.count) + model->vertices.count * sizeof(model->vertices[0]) +
+        //            sizeof(model->indices.count) + model->indices.count * sizeof(model->indices[0]);
+        gpu.numBlocks = 2;
+
+        PutStruct(&builder, gpu);
+
+        AssetFileBlockHeader block;
+        block.count = model->vertices.count;
+        block.size  = (u32)(model->vertices.count * sizeof(model->vertices[0]));
+        PutStruct(&builder, block);
+        PutArray(&builder, model->vertices);
+
+        block.count = model->indices.count;
+        block.size  = model->indices.count * sizeof(model->indices[0]);
+        PutStruct(&builder, block);
+        PutArray(&builder, model->indices);
+
+        Printf("Num vertices: %u\n", model->vertices.count);
+        Printf("Num indices: %u\n", model->indices.count);
     }
 
-    // Add skeleton filename
-    string output = StrConcat(temp.arena, directory, model->skeleton.filename);
-    u64 offset    = PutPointer(&builder, 8);
-    PutPointerValue(&builder, &output.size);
-    Assert(builder.totalSize == offset);
-    Put(&builder, output);
+    AssetFileSectionHeader temp;
+    {
+        temp.tag       = "TEMP";
+        temp.numBlocks = 1;
+        PutStruct(&builder, temp);
+
+        // Add materials
+        Put(&builder, model->materialCount);
+        for (u32 i = 0; i < model->materialCount; i++)
+        {
+            Put(&builder, model->materials[i].startIndex);
+            Put(&builder, model->materials[i].onePlusEndIndex);
+            for (u32 j = 0; j < TextureType_Count; j++)
+            {
+                Put(&builder, Str8Lit("marker"));
+                if (model->materials[i].texture[j].size != 0)
+                {
+                    string output = StrConcat(temp.arena, directory, model->materials[i].texture[j]);
+                    Printf("Writing texture filename: %S\n", output);
+                    // Place the pointer to the string data
+                    PutU64(&builder, output.size);
+                    Put(&builder, output);
+                }
+                else
+                {
+                    PutU64(&builder, 0);
+                }
+            }
+        }
+
+        // Add skeleton dependency
+        string output = StrConcat(temp.arena, directory, model->skeleton.filename);
+        PutU64(&builder, output.size);
+        Put(&builder, output);
+    }
 
     b32 success = WriteEntireFile(&builder, filename);
     if (!success)

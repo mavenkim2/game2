@@ -748,11 +748,21 @@ inline f32 Length(V4 a)
  * QUATERNIONS!!!
  */
 
+inline Quat MakeQuat(f32 x, f32 y, f32 z, f32 w)
+{
+    Quat result;
+    result.x = x;
+    result.y = y;
+    result.z = z;
+    result.w = w;
+    return result;
+}
+
 inline Quat QuatFromAxisAngle(V3 axis, f32 theta)
 {
     Quat result;
     V3 axisN   = Normalize(axis);
-    result.xyz = axisN / Sin(theta / 2.f);
+    result.xyz = axisN * Sin(theta / 2.f);
     result.w   = Cos(theta / 2.f);
     return result;
 }
@@ -842,13 +852,21 @@ inline Quat Conjugate(Quat a)
     return result;
 }
 
+// q MUST be normalized, so that the conjugate is the inverse
 inline V3 RotateVector(V3 v, Quat q)
 {
-    V3 u    = {q.x, q.y, q.z};
-    float s = q.w;
+    // V3 u    = {q.x, q.y, q.z};
+    // float s = q.w;
+    //
+    // // Do the math
+    // V3 result = 2.0f * Dot(u, v) * u + (s * s - Dot(u, u)) * v + 2.0f * s * Cross(u, v);
 
-    // Do the math
-    V3 result = 2.0f * Dot(u, v) * u + (s * s - Dot(u, u)) * v + 2.0f * s * Cross(u, v);
+    // Unoptimal version
+
+    Quat inverse = Conjugate(q);
+    Quat quat    = MakeQuat(v.x, v.y, v.z, 0);
+    Quat result  = q * (quat * inverse);
+    return result.xyz;
 }
 
 inline Quat Normalize(Quat a)
@@ -960,16 +978,6 @@ inline Quat Lerp(Quat a, Quat b, f32 t)
     {
         result = Nlerp(a, b, t);
     }
-    return result;
-}
-
-inline Quat MakeQuat(f32 x, f32 y, f32 z, f32 w)
-{
-    Quat result;
-    result.x = x;
-    result.y = y;
-    result.z = z;
-    result.w = w;
     return result;
 }
 

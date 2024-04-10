@@ -33,11 +33,11 @@ struct VertexBoneInfo
 struct Skeleton
 {
     string filename;
+    string *names;
+    i32 *parents;
+    Mat4 *inverseBindPoses;
+    Mat4 *transformsToParent;
     u32 count;
-    Array(string) names;
-    Array(i32) parents;
-    Array(Mat4) inverseBindPoses;
-    Array(Mat4) transformsToParent;
 };
 
 //////////////////////////////
@@ -52,8 +52,11 @@ struct InputMaterial
 
 struct InputModel
 {
-    Array(MeshVertex) vertices;
-    Array(u32) indices;
+    MeshVertex *vertices;
+    u32 *indices;
+
+    u32 vertexCount;
+    u32 indexCount;
 
     Skeleton skeleton;
 
@@ -113,10 +116,19 @@ struct CompressedKeyframedAnimation
 struct AssimpSkeletonAsset
 {
     u32 count;
-    Array(string) names;
-    Array(i32) parents;
-    Array(Mat4) inverseBindPoses;
-    Array(VertexBoneInfo) vertexBoneInfo;
+    string *names;
+    i32 *parents;
+    Mat4 *inverseBindPoses;
+    VertexBoneInfo *vertexBoneInfo;
+
+    u32 nameCount;
+    u32 parentCount;
+    u32 inverseBPCount;
+    u32 vertexBoneInfoCount;
+    // Array(string) names;
+    // Array(i32) parents;
+    // Array(Mat4) inverseBindPoses;
+    // Array(VertexBoneInfo) vertexBoneInfo;
 };
 
 struct BoneInfo

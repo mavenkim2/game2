@@ -1,8 +1,13 @@
 #ifndef KEEPMOVINGFORWARD_STRING_H
 #define KEEPMOVINGFORWARD_STRING_H
 
+#include "crack.h"
+#ifdef LSP_INCLUDE
 #include "keepmovingforward_common.h"
 #include "keepmovingforward_memory.h"
+#endif
+
+static const i32 MAX_OS_PATH = 256;
 
 struct string
 {
@@ -66,9 +71,9 @@ internal string Str8PathChopLastSlash(string string);
 //////////////////////////////
 // Hash
 //
-internal u64 HashFromString(string string);
-internal u64 HashStruct_(void* ptr, u64 size);
-#define HashStruct(ptr) HashStruct_((ptr), sizeof(*(ptr)))                                                                                           \
+internal i32 HashFromString(string string);
+internal u64 HashStruct_(void *ptr, u64 size);
+#define HashStruct(ptr) HashStruct_((ptr), sizeof(*(ptr)))
 
 //////////////////////////////
 // String token building/reading
@@ -120,6 +125,7 @@ inline void ConvertPointerToOffset(u8 *buffer, u64 location, u64 offset);
 
 #define ConvertOffsetToPointer(buffer, ptr, type) (*(ptr)) = (type *)((u8 *)(buffer) + (u64)(*(ptr)))
 #define PutPointerValue(builder, ptr)             Put(builder, ptr, sizeof(*ptr))
+#define PutStruct(builder, s)                     PutPointerValue(builder, &s);
 #define AppendArray(builder, ptr, count)          Put(builder, ptr, sizeof(*ptr) * count)
 #define PutArray(builder, array)                  Put(builder, array.items, sizeof(array.items[0]) * array.count)
 

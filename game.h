@@ -109,6 +109,13 @@ struct Manifold
     f32 penetration;
 };
 
+struct EntityState
+{
+    Entity *entities;
+    u32 maxEntities;
+    u32 entityCount;
+};
+
 struct G_State
 {
     // Input
@@ -120,6 +127,7 @@ struct G_State
     Arena *permanentArena;
 
     u64 entity_id_gen;
+    // TODO add entities
     Entity player;
 
     Level *level;

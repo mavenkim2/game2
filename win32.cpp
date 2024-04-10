@@ -3,6 +3,7 @@
 // global bool RUNNING = true;
 #include "crack.h"
 #ifdef LSP_INCLUDE
+#include "keepmovingforward_math.h"
 #include "platform.h"
 #endif
 
@@ -156,6 +157,22 @@ internal OS_FileAttributes OS_AttributesFromFile(OS_Handle input)
             result.lastModified = Win32DenseTimeFromFileTime(&info.ftLastWriteTime);
         }
     }
+    return result;
+}
+
+// Reads part of a file, sequentially
+internal u32 OS_ReadFile(OS_Handle handle, void *out, u64 offset, u32 size)
+{
+    u32 result  = 0;
+    HANDLE file = (HANDLE)handle.handle;
+    DWORD readSize;
+
+    OVERLAPPED overlapped;
+    overlapped.Offset     = (u32)((offset >> 0) & 0xffffffff);
+    overlapped.OffsetHigh = (u32)((offset >> 32) & 0xffffffff);
+
+    ReadFile(file, out, size, &readSize, &overlapped);
+    result = readSize;
     return result;
 }
 

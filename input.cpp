@@ -6,9 +6,11 @@
 #include "platform_inc.h"
 #endif
 
-internal u64 StartAtomicRead(AtomicRing *ring, u64 size)
+// NOTE: the way this works is that this function is passed the size of a variable that is used for the size
+// (u64).
+internal void StartAtomicRead(AtomicRing *ring, u64 size)
 {
-    u64 commitSize = 0;
+    // u64 commitSize = 0;
     for (;;)
     {
         u64 readPos       = ring->readPos;
@@ -17,24 +19,29 @@ internal u64 StartAtomicRead(AtomicRing *ring, u64 size)
 
         Assert(commitReadPos >= readPos);
 
-        u64 alignedReadPos = AlignPow2(readPos + size, 8);
+        Assert((size & (8 - 1)) == 0);
+        // commitSize = AlignPow2(size, 8);
+        // u64 alignedReadPos = AlignPow2(readPos + size, 8);
+        u64 alignedReadPos = readPos + size; // commitSize;
 
         u64 availableSize = writePos - readPos;
         if (availableSize >= size)
         {
             if (AtomicCompareExchangeU64(&ring->commitReadPos, alignedReadPos, readPos) == readPos)
             {
-                commitSize = size;
+                u64 readSize = 0;
+                RingReadStruct(ring->buffer, ring->size, readPos, &readSize);
+                ring->commitReadPos += AlignPow2(readSize, 8);
                 break;
             }
         }
     }
-    return commitSize;
+    // return commitSize;
 }
 
-internal u64 StartAtomicWrite(AtomicRing *ring, u64 size)
+internal void StartAtomicWrite(AtomicRing *ring, u64 size)
 {
-    u64 committedSize = 0;
+    // u64 commitSize = 0;
     for (;;)
     {
         u64 readPos        = ring->readPos;
@@ -43,7 +50,8 @@ internal u64 StartAtomicWrite(AtomicRing *ring, u64 size)
 
         Assert(commitWritePos >= writePos);
 
-        u64 alignedWritePos = AlignPow2(writePos + size, 8);
+        // commitSize          = AlignPow2(size, 8);
+        u64 alignedWritePos = writePos + AlignPow2(size, 8); // commitSize;
 
         u64 availableSize = ring->size - (writePos - readPos);
 
@@ -51,17 +59,16 @@ internal u64 StartAtomicWrite(AtomicRing *ring, u64 size)
         {
             if (AtomicCompareExchangeU64(&ring->commitWritePos, alignedWritePos, writePos) == writePos)
             {
-                committedSize = size;
                 break;
             }
         }
     }
-    return committedSize;
+    // return commitSize;
 }
 
-internal void EndAtomicRead(AtomicRing *ring, u64 size)
+internal void EndAtomicRead(AtomicRing *ring) //, u64 size)
 {
-    ring->commitReadPos += size;
+    // ring->commitReadPos += size;
     WriteBarrier();
     ring->readPos = ring->commitReadPos;
 }
@@ -100,12 +107,13 @@ internal OS_Events I_GetInput(Arena *arena)
     u64 size    = 0;
     u64 readPos = shared->i2gRing.readPos;
     readPos += RingReadStruct(shared->i2gRing.buffer, shared->i2gRing.size, readPos, &size);
-    size = AlignPow2(size, 8);
     OS_Events events;
     events.numEvents = (u32)(size / sizeof(OS_Event));
     events.events    = PushArray(arena, OS_Event, events.numEvents);
     RingRead(shared->i2gRing.buffer, shared->i2gRing.size, readPos, events.events, size);
-    EndAtomicRead(&shared->i2gRing, size);
+    EndAtomicRead(&shared->i2gRing);
+    // size = AlignPow2(size, 8);
+    // EndAtomicRead(&shared->i2gRing, size);
 
     return events;
 }

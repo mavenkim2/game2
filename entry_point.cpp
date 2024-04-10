@@ -52,7 +52,7 @@ MAIN()
 
     OS_Init();
     shared->windowHandle = OS_WindowInit();
-    shared->running = 1;
+    shared->running      = 1;
 
 #if WINDOWS
     win32State->mHInstance = hInstance;
@@ -79,16 +79,19 @@ MAIN()
     // OS_RenderDLL????
     // Win32GameCode win32GameCode = Win32LoadGameCode(sourceDLLFilename, tempDLLFilename, lockFilename);
 
-    // Input ring buffer initialization
+    // Ring buffer initialization
     {
-        shared->i2gRing.size = kilobytes(64);
+        shared->i2gRing.size   = kilobytes(64);
         shared->i2gRing.buffer = PushArray(arena, u8, shared->i2gRing.size);
+
+        shared->g2rRing.size   = kilobytes(256);
+        shared->g2rRing.buffer = PushArray(arena, u8, shared->g2rRing.size);
     }
 
     G_EntryPoint(0);
-
+    // R_EntryPoint(0);
     // Initialize separate game/render threads
-    // OS_Handle gameThreadHandle   = OS_ThreadStart(G_EntryPoint, 0);
+    // OS_Handle gameThreadHandle = OS_ThreadStart(G_EntryPoint, 0);
     // OS_Handle renderThreadHandle = OS_ThreadStart(R_EntryPoint, 0);
     // OS_Handle inputThreadHandle = OS_ThreadStart(I_
 

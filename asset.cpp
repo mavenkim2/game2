@@ -386,20 +386,27 @@ internal void SkinModelToAnimation(const AnimationPlayer *inPlayer, const AS_Han
         Assert(id > previousId);
         previousId             = id;
         outFinalTransforms[id] = transformToParent[id] * skeleton->inverseBindPoses[id];
-        // result.translation = a.translation + (b.translation * a.rotation) * a.scale;
     }
     ScratchEnd(temp);
 }
 
+#if 0
 internal AnimationTransform operator*(AnimationTransform p, AnimationTransform c)
 {
     AnimationTransform result;
     // TODO: is it c.translation * p.scale, then rotation?
     result.translation = p.translation + (p.scale * RotateVector(c.translation, p.rotation));
-    result.scale       = c.scale * p.scale;
-    result.rotation    = p.rotation * c.rotation;
+
+    Quat inverse = Conjugate(c.rotation);
+    // TODO: i don't know how to do this faster
+    Mat4 rotMatrix        = QuatToMatrix(c.rotation);
+    Mat4 inverseRotMatrix = QuatToMatrix(Conjugate(c.rotation));
+    result.scale          = c.scale * rotMatrix * (p.scale * inverseRotMatrix);
+    result.scale = inverseRotMatrix * p.scale * rotMatrix * c.scale;
+    result.rotation       = p.rotation * c.rotation;
     return result;
 }
+#endif
 
 // internal void SkinModelToAnimationTest(const AnimationPlayer *inPlayer, const AS_Handle inModel,
 //                                        const AnimationTransform *inTransforms,
@@ -545,13 +552,13 @@ internal f32 CalculateVertexScore(VertData *data)
     return score;
 }
 // https://tomforsyth1000.github.io/papers/fast_vert_cache_opt.html
-internal void OptimizeModel(LoadedModel *model)
+internal void OptimizeModel(InputModel *model)
 {
     TempArena temp = ScratchStart(0, 0);
     for (u32 matIdx = 0; matIdx < model->materialCount; matIdx++)
     {
-        Material *material = model->materials + matIdx;
-        u32 numFaces       = (material->onePlusEndIndex - material->startIndex) / 3;
+        InputMaterial *material = model->materials + matIdx;
+        u32 numFaces            = (material->onePlusEndIndex - material->startIndex) / 3;
 
         // TODO: this over allocates. maybe have multiple meshes w/ multiple materials?
         u32 numVertices = model->vertexCount;

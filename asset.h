@@ -12,7 +12,8 @@
 
 union AS_Handle
 {
-    u64 u64[2];
+    i64 i64[1];
+    i32 i32[2];
 };
 
 enum TextureType
@@ -171,6 +172,22 @@ struct Material
     u32 startIndex;
     u32 onePlusEndIndex;
 };
+
+// TODO: choose one please maven kim
+// 1. separate different types of asset allocation. static cpu memory, static gpu memory, dynamic cpu memory
+//      a. temporary ring buffer for data destined to the gpu. once the gpu is done, delete
+//      b. make things simpler by having a single thread entry point that reads files from disk. it then dispatches
+//      to other systems to do something with the data
+// 2. entities. loop over entities, add to render ring buffer render state (add frustum culling later),
+//      a. for now only one thread will be reading and writing to this ring buffer, so only need memory ordering
+//
+//
+//
+//
+// 3. have the asset cache just be loading files n stuff and allocating. based on the file it then dispatches to a
+// separate entry point to load a texture / model / skeleton / animation. the as cache will also load dependencies
+// as necessary
+// 4. need to actually differentiate hotloading / deleting an asset
 
 struct LoadedModel
 {

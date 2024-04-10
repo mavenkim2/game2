@@ -198,8 +198,10 @@ internal void Printf(char *fmt, ...);
     (u32)(_InterlockedCompareExchange((long volatile *)dest, src, expected))
 #define AtomicCompareExchangeU64(dest, src, expected)                                                             \
     (u64) _InterlockedCompareExchange64((__int64 volatile *)dest, src, expected)
+
 // NOTE: returns the initial value
-inline u32 AtomicExchange(u32 *dest, u32 src) {
+inline u32 AtomicExchange(u32 *dest, u32 src)
+{
     return (u32)_InterlockedExchange((long volatile *)dest, src);
 }
 
@@ -207,7 +209,33 @@ typedef void *PVOID;
 #define AtomicCompareExchangePtr(dest, src, expected)                                                             \
     _InterlockedCompareExchangePointer((volatile PVOID *)dest, src, expected)
 
-#define AtomicIncrementU32(dest) _InterlockedIncrement((long volatile *)dest)
+inline u32 AtomicIncrementU32(u32 volatile *dest)
+{
+    u32 result = _InterlockedIncrement((long volatile *)dest);
+    return result;
+}
+
+// NOTE: returns the resulting incremented value
+inline i32 AtomicIncrementI32(i32 *dest)
+{
+    i32 result = _InterlockedIncrement((long volatile *)dest);
+    return result;
+}
+
+// NOTE: returns the resulting decremented value
+inline i32 AtomicDecrementI32(i32 *dest)
+{
+    i32 result = _InterlockedDecrement((long volatile *)dest);
+    return result;
+}
+
+// returns the initial value
+inline i32 AtomicAddI32(i32 volatile *dest, i32 addend)
+{
+    i32 result = _InterlockedExchangeAdd((long volatile *)dest, addend);
+    return result;
+}
+
 #define AtomicIncrementU64(dest) _InterlockedIncrement64((__int64 volatile *)dest)
 
 #define AtomicDecrementU32(dest)   _InterlockedDecrement((long volatile *)dest)
@@ -297,6 +325,32 @@ inline void EndWMutex(Mutex *mutex)
     WriteBarrier();
     mutex->count = 0;
 }
+
+// Fake mutex
+struct FakeLock
+{
+    volatile b8 mLocked;
+};
+
+inline void BeginLock(FakeLock *lock)
+{
+    Assert(!lock->mLocked);
+    lock->mLocked = 1;
+}
+
+inline void EndLock(FakeLock *lock)
+{
+    Assert(lock->mLocked);
+    lock->mLocked = 0;
+}
+
+#if INTERNAL
+#define BeginFakeLock(lock) BeginLock(lock)
+#define EndFakeLock(lock)   EndLock(lock)
+#else
+#define BeginFakeLock(lock)
+#define EndFakeLock(lock)
+#endif
 
 #else
 #error Atomics not supported

@@ -151,15 +151,15 @@ internal void G_Init()
 
     // Load assets
 
-    g_state->model  = AS_LoadAssetFile(Str8Lit("data/dragon/scene.model"));
-    g_state->model2 = AS_LoadAssetFile(Str8Lit("data/hero/scene.model"));
+    g_state->model  = AS_GetAsset(Str8Lit("data/dragon/scene.model"));
+    g_state->model2 = AS_GetAsset(Str8Lit("data/hero/scene.model"));
 
     KeyframedAnimation *animation = PushStruct(g_state->permanentArena, KeyframedAnimation);
 
     // ReadAnimationFile(g_state->worldArena, animation, Str8Lit("data/dragon_attack_01.anim"));
-    AS_Handle anim = AS_LoadAssetFile(Str8Lit("data/dragon/Qishilong_attack01.anim"));
+    AS_Handle anim = AS_GetAsset(Str8Lit("data/dragon/Qishilong_attack01.anim"));
     // AS_Handle anim = LoadAssetFile(Str8Lit("data/dragon/Qishilong_attack02.anim"));
-    g_state->font = AS_LoadAssetFile(Str8Lit("data/liberation_mono.ttf"));
+    g_state->font = AS_GetAsset(Str8Lit("data/liberation_mono.ttf"));
 
     g_state->level           = PushStruct(g_state->permanentArena, Level);
     g_state->camera.position = g_state->player.pos - V3{0, 10, 0};
@@ -273,11 +273,7 @@ internal void G_Update(f32 dt)
             {
                 b32 isDown = event->type == OS_EventType_KeyPressed ? 1 : 0;
                 // u32 transition = isDown != newInput->buttons[button].keyDown;
-                u32 transition = event->transition;
-                if (button == I_Button_Swap && isDown && transition == 0)
-                {
-                    int breakdsaf = 0;
-                }
+                u32 transition                                = event->transition;
                 newInput->buttons[button].keyDown             = isDown;
                 newInput->buttons[button].halfTransitionCount = transition;
             }
@@ -285,7 +281,7 @@ internal void G_Update(f32 dt)
         playerController = newInput;
     }
 
-    // RenderState *renderState     = PushStruct(g_state->frameArena, RenderState);
+    // RenderState *renderState = PushStruct(g_state->frameArena, RenderState);
 
     Level *level = g_state->level;
 
@@ -579,5 +575,7 @@ internal void G_Update(f32 dt)
         D_PushModel(g_state->model2, transform2, skinningMatrices2, skeleton2->count);
         // D_PushText(g_state->font, {0, 30}, 64, Str8Lit("What is going on?"));
         D_CollateDebugRecords();
+
+        // R_SubmitFrame();
     }
 }

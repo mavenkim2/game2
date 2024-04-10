@@ -1,7 +1,7 @@
 // TODO: get by tag / other means instead of filenames
 internal void DBG_Init()
 {
-    dbg_state.debugFont = AS_GetAssetHandle((Str8Lit("data/liberation_mono.ttf")));
+    dbg_state.debugFont = AS_GetAsset((Str8Lit("data/liberation_mono.ttf")));
 }
 
 DBG_Event::DBG_Event(char *filename, char *functionName, u32 lineNum)
@@ -18,7 +18,8 @@ DBG_Event::DBG_Event(char *filename, char *functionName, u32 lineNum)
 
 DBG_Event::~DBG_Event()
 {
-    record->timeElapsed = OS_NowSeconds() - startTime;
+    f32 endTime         = OS_NowSeconds();
+    record->timeElapsed = endTime - startTime;
 }
 
 internal void D_CollateDebugRecords()

@@ -8,21 +8,42 @@
 #include "asset.h"
 #endif
 
-struct AS_Node;
-struct AS_Slot;
+//////////////////////////////
+// File reading
+//
 
-struct AS_MemoryHeader
+struct AssetFileSectionHeader
 {
-    u8 *buffer;
+    char tag[4];
+    i32 offset;
+    i32 size;
 };
 
-struct AS_MemoryHeaderNode
+struct AssetFileBlockHeader
 {
-    AS_MemoryHeader header;
-    // Free list
-    AS_MemoryHeaderNode *next;
-    AS_MemoryHeaderNode *prev;
+    u32 size;
 };
+
+struct AS_Asset;
+
+// #if 0
+// struct AS_MemoryHeader
+// {
+//     u8 *buffer;
+// };
+//
+// struct AS_MemoryHeaderNode
+// {
+//     AS_MemoryHeader header;
+//     // Free list
+//     AS_MemoryHeaderNode *next;
+//     AS_MemoryHeaderNode *prev;
+// };
+// #endif
+
+//////////////////////////////
+// Thread sync
+//
 
 struct AS_Thread
 {
@@ -30,8 +51,16 @@ struct AS_Thread
     Arena *arena;
 };
 
+// #if 0
+// struct AS_Stripe
+// {
+//     // rw mutex
+//     Mutex mutex;
+// };
+// #endif
+
 //////////////////////////////
-// Asset tagging
+// Asset tagging/hashing
 //
 
 enum AS_TagKey
@@ -70,6 +99,80 @@ struct AS_TagMap
     u32 maxSlots;
 };
 
+struct AS_HashMap
+{
+    i32 *hash;
+    i32 *indexChain;
+    i32 hashCount;
+    i32 indexCount;
+
+    i32 hashMask;
+    // i32 lookupMask;
+};
+
+//////////////////////////////
+// Memory management
+//
+struct AS_MemoryBlockNode;
+struct AS_BTreeNode
+{
+    AS_BTreeNode *parent;
+    AS_BTreeNode *next;
+    AS_BTreeNode *prev;
+    AS_BTreeNode *first;
+    AS_BTreeNode *last;
+
+    AS_MemoryBlockNode *memoryBlock;
+    i32 key;
+    i32 numChildren;
+};
+
+struct AS_BTree
+{
+    AS_BTreeNode *root;
+    AS_BTreeNode *free;
+    i32 maxChildren;
+};
+
+struct AS_MemoryBlockNode
+{
+    AS_MemoryBlockNode *next;
+    AS_MemoryBlockNode *prev;
+    AS_BTreeNode *node;
+
+    // This is the size of the allocation excluding the header
+    i32 size;
+    b8 isBaseBlock;
+};
+
+struct AS_DynamicBlockAllocator
+{
+    Arena *arena;
+
+    TicketMutex ticketMutex;
+    AS_MemoryBlockNode *first;
+    AS_MemoryBlockNode *last;
+    AS_BTree bTree;
+
+    i32 baseBlockSize;
+    i32 minBlockSize;
+
+    // stats
+    i32 freeBlocks;
+    i32 freeBlockMemory;
+    i32 usedBlocks;
+    i32 usedBlockMemory;
+    i32 baseBlocks;
+    i32 baseBlockMemory;
+    i32 numAllocs;
+    i32 numFrees;
+    i32 numResizes;
+};
+
+//////////////////////////////
+// Global state
+//
+
 struct AS_CacheState
 {
     Arena *arena;
@@ -87,26 +190,46 @@ struct AS_CacheState
     u32 threadCount;
     OS_Handle hotloadThread;
 
+    // Semaphores
     OS_Handle writeSemaphore;
     OS_Handle readSemaphore;
 
-    // Hash table for assets
-    u32 numSlots;
-    AS_Slot *assetSlots;
+    // Stripes
+    // #if 0
+    //     AS_Stripe *stripes;
+    //     i32 numStripes;
+    // #endif
+
+    // TODO: should this be an array of pointers?. this would make it so that reallocations could be possible
+    // without compromising pointer integrity
+    AS_Asset **assets;
+    i32 assetCapacity;
+    i32 assetCount;
+    i32 assetEndOfList;
+
+    // free list, only for assets that have been allocated then deallocated
+    i32 *freeAssetList;
+    i32 freeAssetCount;
+
+    // inspired by idHashIndex
+    AS_HashMap fileHash;
 
     // Tag Maps for assets
     AS_TagMap tagMap;
 
     // Block allocator for assets
     // TODO: per thread?
-    u32 numBlocks;
-    u32 blockSize;
-    u8 *blockBackingBuffer;
-    AS_MemoryHeaderNode *memoryHeaderNodes;
-    AS_MemoryHeaderNode freeBlockSentinel;
+    // #if 0
+    //     u32 numBlocks;
+    //     u32 blockSize;
+    //     u8 *blockBackingBuffer;
+    //     AS_MemoryHeaderNode *memoryHeaderNodes;
+    //     AS_MemoryHeaderNode freeBlockSentinel;
+    // #endif
 
-    // Free list
-    AS_Node *freeNode;
+    AS_DynamicBlockAllocator allocator;
+
+    FakeLock fakeLock;
 };
 
 enum AS_Type
@@ -126,7 +249,7 @@ enum AS_Status
 {
     AS_Status_Unloaded,
     AS_Status_Queued,
-    AS_Status_Loaded,
+    AS_Status_Loaded = -1,
 };
 
 struct Font
@@ -134,19 +257,27 @@ struct Font
     F_Data fontData;
 };
 
+// enum AS_MemoryType
+// {
+//     AS_MemoryType_StaticCPU,
+//     AS_MemoryType_StaticGPU,
+// };
+
 struct AS_Asset
 {
     // Memory
-    AS_MemoryHeaderNode *memoryBlock;
-
-    u64 hash;
-    u64 lastModified;
-    u64 generation;
-    string path;
     u64 size;
+
+    u64 lastModified;
+    string path;
     AS_Status status;
 
+    // TODO: intrusive. may be bad? idk
+    i32 id;
+    i32 generation;
+
     // Asset type
+    AS_MemoryBlockNode *memoryBlock;
     AS_Type type;
     union
     {
@@ -158,19 +289,19 @@ struct AS_Asset
     };
 };
 
-struct AS_Node
-{
-    AS_Node *next;
-    AS_Asset asset;
-};
-
-struct AS_Slot
-{
-    AS_Node *first;
-    AS_Node *last;
-
-    Mutex mutex;
-};
+// struct AS_Node
+// {
+//     AS_Node *next;
+//     AS_Asset asset;
+// };
+//
+// struct AS_Slot
+// {
+//     AS_Node *first;
+//     AS_Node *last;
+//
+//     Mutex mutex;
+// };
 
 internal void AS_Init();
 internal u64 RingRead(u8 *base, u64 ringSize, u64 readPos, void *dest, u64 destSize);
@@ -184,7 +315,7 @@ internal string AS_DequeueFile(Arena *arena);
 internal void AS_EntryPoint(void *p);
 internal void AS_HotloadEntryPoint(void *p);
 JOB_CALLBACK(AS_LoadAsset);
-internal void AS_UnloadAsset(AS_Node *node);
+internal void AS_UnloadAsset(AS_Asset *asset);
 
 //////////////////////////////
 // Handles
@@ -195,11 +326,14 @@ global readonly Texture textureNil;
 global readonly KeyframedAnimation animNil;
 global readonly Font fontNil;
 
-internal AS_Handle AS_HandleFromAsset(AS_Node *node);
-internal AS_Node *AS_AssetFromHandle(AS_Handle handle);
-internal AS_Handle AS_GetAssetHandle(u64 hash);
-internal AS_Handle AS_GetAssetHandle(string path);
+// #if 0
+// internal AS_Handle AS_HandleFromAsset(AS_Asset *asset);
+// internal AS_Node *AS_AssetFromHandle(AS_Handle handle);
+// #endif
+
 internal Font *GetFont(AS_Handle handle);
+internal AS_Asset *AS_GetAssetFromHandle(AS_Handle handle);
+internal AS_Handle AS_GetAsset(const string inPath);
 internal LoadedSkeleton *GetSkeleton(AS_Handle handle);
 internal LoadedSkeleton *GetSkeletonFromModel(AS_Handle handle);
 internal KeyframedAnimation *GetAnim(AS_Handle handle);
@@ -217,12 +351,44 @@ inline b8 IsFontNil(Font *font)
 //////////////////////////////
 // Helpers
 //
-internal AS_MemoryHeaderNode *AllocateBlock();
-internal AS_MemoryHeaderNode *AllocateBlock(AS_MemoryHeaderNode *headerNode);
-internal AS_MemoryHeaderNode *AllocateBlocks(u64 size);
-internal void FreeBlock(AS_MemoryHeaderNode *headerNode);
-internal void FreeBlocks(AS_Node *node);
-inline u8 *GetAssetBuffer(AS_Node *node);
-inline void EndTemporaryMemory(AS_Node *node);
+// #if 0
+// internal AS_MemoryHeaderNode *AllocateBlock();
+// internal AS_MemoryHeaderNode *AllocateBlock(AS_MemoryHeaderNode *headerNode);
+// internal AS_MemoryHeaderNode *AllocateBlocks(u64 size);
+// internal void FreeBlock(AS_MemoryHeaderNode *headerNode);
+// internal void FreeBlocks(AS_Asset *asset);
+// inline u8 *GetAssetBuffer(AS_Asset *asset);
+// inline void EndTemporaryMemory(AS_Asset *asset);
+// #endif
+
+//////////////////////////////
+// Asset hash maps (using indices)
+//
+
+internal i32 AS_FirstInHash(i32 hash);
+internal i32 AS_NextInHash(i32 index);
+internal i32 AS_FirstInHash(string path);
+internal void AS_AddInHash(i32 key, i32 index);
+internal void AS_RemoveFromHash(i32 key, i32 index);
+
+//////////////////////////////
+// B tree
+//
+
+// Main functions
+internal AS_MemoryBlockNode *AS_Alloc(i32 size);
+internal void AS_Free(AS_Asset *asset);
+internal u8 *AS_GetMemory(AS_Asset *asset);
+
+// Helpers
+internal void AS_InitializeAllocator();
+internal void AS_Free(AS_MemoryBlockNode *memoryBlock);
+internal AS_BTreeNode *AS_AllocNode();
+internal AS_BTreeNode *AS_AddNode(AS_MemoryBlockNode *memNode);
+internal void AS_RemoveNode(AS_BTreeNode *node);
+internal void AS_SplitNode(AS_BTreeNode *node);
+internal AS_BTreeNode *AS_MergeNodes(AS_BTreeNode *node1, AS_BTreeNode *node2);
+internal AS_BTreeNode *AS_FindMemoryBlock(i32 size);
+internal u8 *AS_GetMemory(AS_MemoryBlockNode *node);
 
 #endif

@@ -37,11 +37,8 @@ struct AtomicRing
 struct Shared
 {
     OS_Handle windowHandle;
-    // u8 *g2rRingBuffer;
-    // u64 g2rReadPos;
-    //
-    // u64 g2rWritePos;
-    // u64 g2rCommitWritePos;
+
+    AtomicRing g2rRing;
 
     // Input to Game
     AtomicRing i2gRing;

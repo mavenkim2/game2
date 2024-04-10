@@ -141,6 +141,19 @@ internal string StrConcat(Arena *arena, string s1, string s2)
 //////////////////////////////
 // Finding Strings
 //
+
+// NOTE: assumes string a already has a backing buffer of size at least b.size. If need to copy, use
+// PushStr8Copy()
+internal void StringCopy(string *out, string in)
+{
+    u8 *ptr = out->str;
+    for (u64 i = 0; i < in.size; i++)
+    {
+        *ptr++ = *in.str++;
+    }
+    out->size = in.size;
+}
+
 internal b32 operator==(string a, string b)
 {
     b32 result = false;
@@ -326,12 +339,19 @@ internal string PathSkipLastSlash(string str)
 //////////////////////////////
 // Hash
 //
-internal u64 HashFromString(string string)
+internal i32 HashFromString(string string)
 {
-    u64 result = 5381;
+#if 0
+    i32 result = 5381;
     for (u64 i = 0; i < string.size; i += 1)
     {
         result = ((result << 5) + result) + string.str[i];
+    }
+#endif
+    i32 result = 0;
+    for (u64 i = 0; i < string.size; i++)
+    {
+        result += (string.str[i]) * ((i32)i + 119);
     }
     return result;
 }
@@ -434,6 +454,12 @@ internal u64 Put(StringBuilder *builder, string str)
 }
 
 internal u64 Put(StringBuilder *builder, u32 value)
+{
+    u64 result = PutPointerValue(builder, &value);
+    return result;
+}
+
+internal u64 PutU64(StringBuilder *builder, u64 value)
 {
     u64 result = PutPointerValue(builder, &value);
     return result;

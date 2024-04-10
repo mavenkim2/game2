@@ -352,7 +352,8 @@ struct R_OpenGL_TextureQueue
 
 struct R_OpenGL_BufferOp
 {
-    void *data;
+    // R_Handle data;
+    void* data;
     R_OpenGL_Buffer *buffer;
 };
 

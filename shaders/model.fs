@@ -69,6 +69,9 @@ void main()
     // Direction Phong Light
     V3 lightDir = normalize(tangentLightDir);
 
+    // TODO IMPORTANT: the light's color should be used for diffuse and specular, not the texture map color.
+    // also support light positions as well instead of just light directions
+
     //AMBIENT
     V3 ambient = 0.1f * color;
     //DIFFUSE
@@ -76,8 +79,16 @@ void main()
     V3 diffuse = diffuseCosAngle * color;
     //SPECULAR
     V3 toViewPosition = normalize(tangentViewPos - tangentFragPos);
+#ifndef BLINN_PHONG
     V3 reflectVector = -lightDir + 2 * dot(normal, lightDir) * normal;
     f32 specularStrength = pow(max(dot(reflectVector, toViewPosition), 0.f), 64);
+
+#else
+    // Blinn phong 
+    V3 halfway = normalize(lightDir + toViewPosition);
+    f32 shininess = 32;
+    f32 specularStrength = pow(max(dot(normal, halfway), 0.f), shininess);
+#endif
 
     f32 spec = specularStrength;
     V3 specular = spec * color;

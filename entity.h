@@ -40,6 +40,7 @@ struct Entity
     u64 flags;
 
     // Render
+    AS_Handle model;
     V4 color;
 };
 
