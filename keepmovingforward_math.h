@@ -481,6 +481,15 @@ inline V3 MakeV3(V2 xy, float z)
     result.z  = z;
     return result;
 }
+
+inline V3 MakeV3(f32 x, V2 yz)
+{
+    V3 result;
+    result.x  = x;
+    result.yz = yz;
+    return result;
+}
+
 inline V3 operator+(V3 a, V3 b)
 {
     V3 result;
@@ -1027,6 +1036,26 @@ internal Mat4 Identity()
 internal V4 Transform(Mat4 a, V4 b)
 {
     V4 result;
+#define SSE42
+#ifdef SSE42
+    __m128 c0 = _mm_load_ps((f32 *)(&a.a1));
+    __m128 c1 = _mm_load_ps((f32 *)(&a.b1));
+    __m128 c2 = _mm_load_ps((f32 *)(&a.c1));
+    __m128 c3 = _mm_load_ps((f32 *)(&a.d1));
+
+    __m128 vx = _mm_set1_ps(b.x);
+    __m128 vy = _mm_set1_ps(b.y);
+    __m128 vz = _mm_set1_ps(b.z);
+    __m128 vw = _mm_set1_ps(b.w);
+
+    __m128 vec = _mm_mul_ps(c0, vx);
+    vec        = _mm_add_ps(vec, _mm_mul_ps(c1, vy));
+    vec        = _mm_add_ps(vec, _mm_mul_ps(c2, vz));
+    vec        = _mm_add_ps(vec, _mm_mul_ps(c3, vw));
+
+    _mm_store_ps((f32 *)&result.elements[0], vec);
+
+#else
     result.x = a.columns[0].x * b.x;
     result.y = a.columns[0].y * b.x;
     result.z = a.columns[0].z * b.x;
@@ -1046,6 +1075,25 @@ internal V4 Transform(Mat4 a, V4 b)
     result.y += a.columns[3].y * b.w;
     result.z += a.columns[3].z * b.w;
     result.w += a.columns[3].w * b.w;
+#endif
+    return result;
+}
+
+internal V3 Transform(Mat4 m, V3 v)
+{
+    V3 result;
+    result.x = m.columns[0].x * v.x;
+    result.y = m.columns[0].y * v.x;
+    result.z = m.columns[0].z * v.x;
+
+    result.x += m.columns[1].x * v.y;
+    result.y += m.columns[1].y * v.y;
+    result.z += m.columns[1].z * v.y;
+
+    result.x += m.columns[2].x * v.z;
+    result.y += m.columns[2].y * v.z;
+    result.z += m.columns[2].z * v.z;
+
     return result;
 }
 
@@ -1057,7 +1105,7 @@ inline V4 operator*(Mat4 a, V4 b)
 
 inline V3 operator*(Mat4 a, V3 b)
 {
-    V3 result = Transform(a, MakeV4(b, 1.f)).xyz;
+    V3 result = Transform(a, b);
     return result;
 }
 

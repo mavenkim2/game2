@@ -189,6 +189,7 @@ struct Material
 // as necessary
 // 4. need to actually differentiate hotloading / deleting an asset
 
+// TODO: this should be split into surfaces, where each surface has one material and one set of vertices/indices
 struct LoadedModel
 {
     AS_Handle skeleton;
@@ -200,8 +201,10 @@ struct LoadedModel
     u32 indexCount;
     u32 materialCount;
 
-    R_Handle vertexBuffer;
-    R_Handle indexBuffer;
+    VC_Handle vertexBuffer;
+    VC_Handle indexBuffer;
+    // R_Handle vertexBuffer;
+    // R_Handle indexBuffer;
 
     u32 _pad[1];
 };

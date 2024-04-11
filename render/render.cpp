@@ -28,9 +28,9 @@ global D_State *d_state;
 
 internal void D_Init()
 {
-    Arena *arena   = ArenaAlloc();
-    d_state        = PushStruct(arena, D_State);
-    d_state->arena = arena;
+    Arena *arena       = ArenaAlloc();
+    d_state            = PushStruct(arena, D_State);
+    d_state->arena     = arena;
     RenderState *state = renderState;
 
     // DebugRenderer *debug = &state->debugRenderer;
@@ -184,6 +184,9 @@ internal void D_Init()
             }
         }
     }
+
+    VC_Init();
+
     d_state->frameStartPos = ArenaPos(arena);
 }
 
@@ -224,6 +227,11 @@ internal void D_BeginFrame()
             }
         }
     }
+}
+
+internal void D_EndFrame()
+{
+    VC_BeginGPUSubmit();
 }
 
 // so i want to have a ring buffer between the game and the renderer. simple enough. let's start with single

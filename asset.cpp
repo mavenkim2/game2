@@ -401,8 +401,9 @@ internal AnimationTransform operator*(AnimationTransform p, AnimationTransform c
     // TODO: i don't know how to do this faster
     Mat4 rotMatrix        = QuatToMatrix(c.rotation);
     Mat4 inverseRotMatrix = QuatToMatrix(Conjugate(c.rotation));
+    // this rotmatrix is with respect to the parent? so multiplying by the rotmatrix 
     result.scale          = c.scale * rotMatrix * (p.scale * inverseRotMatrix);
-    result.scale = inverseRotMatrix * p.scale * rotMatrix * c.scale;
+    result.scale = (inverseRotMatrix * p.scale) * (rotMatrix * c.scale);
     result.rotation       = p.rotation * c.rotation;
     return result;
 }
@@ -816,6 +817,12 @@ internal void OptimizeModel(InputModel *model)
 
     ScratchEnd(temp);
 }
+
+// TODO: very very slow!
+// internal Rect3 GetModelBoundingBox(InputModel *model) {
+//     Rect3 result;
+//     model->vertices
+// }
 
 #if 0
 // NOTE: array of nodes, each with a parent index and a name

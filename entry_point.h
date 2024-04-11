@@ -14,6 +14,7 @@
 #include "./offline/asset_processing.h"
 #include "font.h"
 #include "asset_cache.h"
+#include "render/vertex_cache.h"
 #include "render/render.h"
 
 #include "debug.h"

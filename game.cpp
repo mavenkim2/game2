@@ -578,4 +578,5 @@ internal void G_Update(f32 dt)
 
         // R_SubmitFrame();
     }
+    D_EndFrame();
 }

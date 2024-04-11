@@ -162,6 +162,11 @@
 #define GL_MAX_DEPTH_TEXTURE_SAMPLES 0x910F
 #define GL_SHADER_STORAGE_BUFFER     0x90D2
 
+#define GL_MAP_PERSISTENT_BIT     0x0040
+#define GL_MAP_COHERENT_BIT       0x0080
+#define GL_MAP_WRITE_BIT          0x0002
+#define GL_MAP_UNSYNCHRONIZED_BIT 0x0020
+
 // WINDOWS
 #define WGL_CONTEXT_MAJOR_VERSION_ARB 0x2091
 #define WGL_CONTEXT_MINOR_VERSION_ARB 0x2092
@@ -242,6 +247,9 @@ typedef void WINAPI type_glVertexAttribDivisor(GLuint index, GLuint divisor);
 typedef void WINAPI type_glBufferSubData(GLenum target, GLintptr offset, GLsizeiptr size, const GLvoid *data);
 typedef void *WINAPI type_glMapBuffer(GLenum target, GLenum access);
 typedef GLboolean WINAPI type_glUnmapBuffer(GLenum target);
+typedef void WINAPI type_glMultiDrawElementsBaseVertex(GLenum mode, const GLsizei *count, GLenum type,
+                                                       const void *const *indices, GLsizei drawcount,
+                                                       const GLint *basevertex);
 typedef void WINAPI type_glMultiDrawElements(GLenum mode, const GLsizei *count, GLenum type,
                                              const GLvoid *const *indices, GLsizei drawcount);
 typedef void WINAPI type_glUniform1iv(GLint location, GLsizei count, const GLint *value);
@@ -256,6 +264,8 @@ typedef void WINAPI type_glTexImage3D(GLenum target, GLint level, GLint internal
                                       const GLvoid *data);
 typedef void WINAPI type_glBindBufferBase(GLenum target, GLuint index, GLuint buffer);
 typedef void WINAPI type_glDrawArraysInstanced(GLenum mode, GLint first, GLsizei count, GLsizei primcount);
+typedef void WINAPI type_glBufferStorage(GLenum target, GLsizeiptr size, const void *data, GLbitfield flags);
+typedef void *WINAPI type_glMapBufferRange(GLenum target, GLintptr offset, GLsizeiptr length, GLbitfield access);
 
 #define GL_DEBUG_CALLBACK(name)                                                                                   \
     void WINAPI name(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length,                      \
@@ -353,7 +363,7 @@ struct R_OpenGL_TextureQueue
 struct R_OpenGL_BufferOp
 {
     // R_Handle data;
-    void* data;
+    void *data;
     R_OpenGL_Buffer *buffer;
 };
 
@@ -473,6 +483,9 @@ struct OpenGL
     OpenGLFunction(glBindBufferBase);
     OpenGLFunction(glDrawArraysInstanced);
     OpenGLFunction(glDebugMessageCallback);
+    OpenGLFunction(glBufferStorage);
+    OpenGLFunction(glMapBufferRange);
+    OpenGLFunction(glMultiDrawElementsBaseVertex);
 };
 
 global OpenGL _openGL;
@@ -521,6 +534,12 @@ inline GLenum R_OpenGL_GetFormat(R_TexFormat format)
         default: glFormat = GL_RGBA8; break;
     }
     return glFormat;
+}
+
+inline GLint R_OpenGL_GetBufferFromHandle(R_BufferHandle handle)
+{
+    GLint result = (GLint)(handle);
+    return result;
 }
 
 global RenderState *renderState;

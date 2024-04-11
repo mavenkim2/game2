@@ -14,6 +14,7 @@
 #include "font.cpp"
 #include "asset.cpp"
 #include "asset_cache.cpp"
+#include "render/vertex_cache.cpp"
 #include "render/render.cpp"
 #include "debug.cpp"
 #include "game.cpp"

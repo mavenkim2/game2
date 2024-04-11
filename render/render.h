@@ -282,13 +282,30 @@ struct R_RectInst
     R_Handle handle;
 };
 
+//////////////////////////////////////////////////////////////////////////////////////////
+// ALL THE FUNCTIONS IN THIS SECTION MUST BE IMPLEMENTED PER PLATFORM!
+//
+
+// Textures
 #define R_ALLOCATE_TEXTURE_2D(name) R_Handle name(void *data, i32 width, i32 height, R_TexFormat format)
 typedef R_ALLOCATE_TEXTURE_2D(r_allocate_texture_2D);
 #define R_DELETE_TEXTURE_2D(name) void name(R_Handle handle)
 typedef R_DELETE_TEXTURE_2D(r_delete_texture_2D);
 
-#define R_ALLOCATE_BUFFER(name) R_Handle name(R_BufferType type, void* data, u64 size)
+// Buffers
+#define R_ALLOCATE_BUFFER(name) R_Handle name(R_BufferType type, void *data, u64 size)
 typedef R_ALLOCATE_BUFFER(r_allocate_buffer);
+internal void R_UpdateBuffer(GPUBuffer *buffer, BufferUsageType type, void *data, i32 offset, i32 size);
+internal void R_InitializeBuffer(GPUBuffer *ioBuffer, const BufferUsageType inUsageType, const i32 inSize);
+internal void R_MapGPUBuffer(GPUBuffer *buffer);
+internal void R_UnmapGPUBuffer(GPUBuffer *buffer);
+
+// internal R_Handle R_AllocateTemp(u64 size, void **out);
+// internal void R_FreeTemp(R_Handle temp);
+
+//////////////////////////////////////////////////////////////////////////////////////////
+// End Section
+//
 
 // R_ALLOCATE_TEXTURE_2D(R_AllocateTexture2D);
 // R_DELETE_TEXTURE_2D(R_DeleteTexture2D);
@@ -299,9 +316,6 @@ internal void D_PushModel(AS_Handle loadedModel, Mat4 transform, Mat4 *skinningM
 internal void D_PushTextF(AS_Handle font, V2 startPos, f32 size, char *fmt, ...);
 inline R_Pass *R_GetPassFromKind(R_PassType type);
 internal u8 *R_BatchListPush(R_BatchList *list, u32 instCap);
-
-internal R_Handle R_AllocateTemp(u64 size, void **out);
-internal void R_FreeTemp(R_Handle temp);
 
 internal void R_EndFrame();
 

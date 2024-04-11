@@ -74,6 +74,8 @@ internal void AS_Init()
     as_state->readSemaphore  = OS_CreateSemaphore(as_state->threadCount);
     as_state->writeSemaphore = OS_CreateSemaphore(as_state->threadCount);
 
+    AS_InitializeAllocator();
+
     as_state->threads = PushArray(arena, AS_Thread, as_state->threadCount);
     for (u64 i = 0; i < as_state->threadCount; i++)
     {
@@ -108,7 +110,6 @@ internal void AS_Init()
         headerNode->prev->next = headerNode;
     }
 #endif
-    AS_InitializeAllocator();
 
     // Asset tag trees
     as_state->tagMap.maxSlots = AS_TagKey_Count;
@@ -505,10 +506,15 @@ JOB_CALLBACK(AS_LoadAsset)
         Assert(EndOfBuffer(&tokenizer));
 
         // TODO: these should be part of megabuffers
-        model->vertexBuffer = R_AllocateBuffer(R_BufferType_Vertex, model->vertices,
-                                               sizeof(model->vertices[0]) * model->vertexCount);
-        model->indexBuffer =
-            R_AllocateBuffer(R_BufferType_Index, model->indices, sizeof(model->indices[0]) * model->indexCount);
+        // model->vertexBuffer = R_AllocateBuffer(R_BufferType_Vertex, model->vertices,
+        //                                        sizeof(model->vertices[0]) * model->vertexCount);
+        // model->indexBuffer =
+        //     R_AllocateBuffer(R_BufferType_Index, model->indices, sizeof(model->indices[0]) * model->indexCount);
+        model->vertexBuffer = VC_AllocateBuffer(BufferType_Vertex, BufferUsage_Static, model->vertices,
+                                                sizeof(model->vertices[0]) * model->vertexCount);
+
+        model->indexBuffer = VC_AllocateBuffer(BufferType_Index, BufferUsage_Static, model->indices,
+                                               sizeof(model->indices[0]) * model->indexCount);
 
         WriteBarrier();
         asset->status = AS_Status_Loaded;
@@ -1186,8 +1192,11 @@ internal void AS_FreeNode(AS_BTreeNode *node)
 // This simplifies the control flow complexity.
 internal AS_BTreeNode *AS_AddNode(AS_MemoryBlockNode *memNode)
 {
-    AS_BTree *tree        = &as_state->allocator.bTree;
+    AS_BTree *tree = &as_state->allocator.bTree;
+    // Assert(memNode->size < as_state->allocator.baseBlockSize);
     AS_BTreeNode *newNode = 0;
+
+    Assert(memNode->size < as_state->allocator.baseBlockSize);
 
     // If the root is null, allocate
     if (tree->root == 0)
@@ -1313,7 +1322,7 @@ internal void AS_RemoveNode(AS_BTreeNode *node)
 
     AS_BTreeNode *parent = 0;
     AS_BTree *tree       = &as_state->allocator.bTree;
-    for (parent = node->parent; parent != tree->root && parent->numChildren < tree->maxChildren;
+    for (parent = node->parent; parent != tree->root && parent->numChildren < (tree->maxChildren + 1) / 2;
          parent = parent->parent)
     {
         if (parent->next)
@@ -1355,7 +1364,6 @@ internal void AS_RemoveNode(AS_BTreeNode *node)
 
 internal void AS_SplitNode(AS_BTreeNode *node)
 {
-
     AS_BTreeNode *newNode = AS_AllocNode();
     newNode->parent       = node->parent;
     AS_BTreeNode *child   = node->first;
@@ -1488,8 +1496,9 @@ internal AS_MemoryBlockNode *AS_Alloc(i32 size)
     allocator->usedBlocks++;
     allocator->usedBlockMemory += alignedSize;
     allocator->numAllocs++;
-    u8 *result                      = 0;
-    AS_BTreeNode *node              = AS_FindMemoryBlock(size);
+    u8 *result         = 0;
+    AS_BTreeNode *node = AS_FindMemoryBlock(size);
+
     AS_MemoryBlockNode *memoryBlock = 0;
     // Use an existing memory block for the allocation. Split it to prevent excessive leaks.
     if (node)
@@ -1506,10 +1515,11 @@ internal AS_MemoryBlockNode *AS_Alloc(i32 size)
     // Create an entirely separate block.
     else
     {
-        i32 newSize              = Max(allocator->baseBlockSize, alignedSize + sizeof(AS_MemoryBlockNode));
+        i32 newSize              = Max(allocator->baseBlockSize, alignedSize + (i32)sizeof(AS_MemoryBlockNode));
         memoryBlock              = (AS_MemoryBlockNode *)PushArray(allocator->arena, u8, newSize);
         memoryBlock->isBaseBlock = true;
-        memoryBlock->size        = newSize - sizeof(AS_MemoryBlockNode);
+        memoryBlock->size        = newSize - (i32)sizeof(AS_MemoryBlockNode);
+        memoryBlock->next        = 0;
         memoryBlock->prev        = allocator->last;
         Assert(memoryBlock->next == 0 && memoryBlock->node == 0);
         if (memoryBlock->prev)
@@ -1520,7 +1530,8 @@ internal AS_MemoryBlockNode *AS_Alloc(i32 size)
         {
             allocator->first = memoryBlock;
         }
-        allocator->last = memoryBlock;
+        allocator->last   = memoryBlock;
+        memoryBlock->node = 0;
         allocator->baseBlocks++;
         allocator->baseBlockMemory += newSize;
     }
@@ -1530,9 +1541,9 @@ internal AS_MemoryBlockNode *AS_Alloc(i32 size)
     {
         allocator->numResizes++;
         AS_MemoryBlockNode *newBlock =
-            (AS_MemoryBlockNode *)((u8 *)(memoryBlock) + memoryBlock->size + sizeof(AS_MemoryBlockNode));
+            (AS_MemoryBlockNode *)((u8 *)(memoryBlock) + alignedSize + (i32)sizeof(AS_MemoryBlockNode));
         newBlock->isBaseBlock = 0;
-        newBlock->size        = memoryBlock->size - alignedSize - sizeof(AS_MemoryBlockNode);
+        newBlock->size        = memoryBlock->size - alignedSize - (i32)sizeof(AS_MemoryBlockNode);
         Assert(newBlock->size > allocator->minBlockSize);
         newBlock->prev = memoryBlock;
         newBlock->next = memoryBlock->next;
@@ -1561,6 +1572,7 @@ internal AS_MemoryBlockNode *AS_Alloc(i32 size)
 internal void AS_Free(AS_MemoryBlockNode *memoryBlock)
 {
     Assert(memoryBlock->node == 0);
+    Assert(memoryBlock->isBaseBlock == 0 || memoryBlock->isBaseBlock == 1);
     // Merge the next node if it's free and part of the same contiguous chain
     AS_DynamicBlockAllocator *allocator = &as_state->allocator;
     allocator->numFrees++;
@@ -1570,6 +1582,7 @@ internal void AS_Free(AS_MemoryBlockNode *memoryBlock)
     AS_MemoryBlockNode *next = memoryBlock->next;
     if (next != 0 && !next->isBaseBlock && next->node != 0)
     {
+        Assert(next->node->key == next->size);
         AS_RemoveNode(next->node);
         next->node = 0;
         allocator->freeBlocks--;

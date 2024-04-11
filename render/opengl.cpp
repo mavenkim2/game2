@@ -4,6 +4,7 @@
 #include "../asset_cache.h"
 #include "./render.h"
 #include "./opengl.h"
+#include "vertex_cache.h"
 #endif
 
 // TODO: this will go away
@@ -237,6 +238,7 @@ struct OpenGLInfo
     b32 framebufferArb;
     b32 textureExt;
     b32 shaderDrawParametersArb;
+    b32 persistentMap;
     b8 sparse;
 };
 
@@ -265,6 +267,10 @@ internal void OpenGLGetInfo()
             else if (Str8C(extension) == Str8Lit("GL_ARB_texture_non_power_of_two"))
             {
                 // Printf("whoopie!\n");
+            }
+            else if (Str8C(extension) == Str8Lit("GL_ARB_buffer_storage"))
+            {
+                openGLInfo.persistentMap = true;
             }
         }
     }
@@ -363,6 +369,9 @@ internal void R_Win32_OpenGL_Init(OS_Handle handle)
         Win32GetOpenGLFunction(glBindBufferBase);
         Win32GetOpenGLFunction(glDrawArraysInstanced);
         Win32GetOpenGLFunction(glDebugMessageCallback);
+        Win32GetOpenGLFunction(glBufferStorage);
+        Win32GetOpenGLFunction(glMapBufferRange);
+        Win32GetOpenGLFunction(glMultiDrawElementsBaseVertex);
 
         OpenGLGetInfo();
 
@@ -686,13 +695,35 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
                 // TODO: remove reference to material in here
                 for (R_SkinnedMeshParamsNode *node = list->first; node != 0; node = node->next)
                 {
-                    R_SkinnedMeshParams *params   = &node->val;
-                    LoadedModel *model            = GetModel(params->model);
-                    R_OpenGL_Buffer *vertexBuffer = R_OpenGL_BufferFromHandle(model->vertexBuffer);
-                    R_OpenGL_Buffer *indexBuffer  = R_OpenGL_BufferFromHandle(model->indexBuffer);
+                    R_SkinnedMeshParams *params = &node->val;
+                    LoadedModel *model          = GetModel(params->model);
 
-                    openGL->glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer->id);
-                    openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBuffer->id);
+                    GLint vertexApiObject = 0;
+                    {
+                        GPUBuffer *vertexBuffer = VC_GetBufferFromHandle(model->vertexBuffer, BufferType_Vertex);
+                        if (vertexBuffer)
+                        {
+                            vertexApiObject = R_OpenGL_GetBufferFromHandle(vertexBuffer->handle);
+                        }
+                    }
+                    GLint indexApiObject = 0;
+                    {
+                        GPUBuffer *indexBuffer = VC_GetBufferFromHandle(model->indexBuffer, BufferType_Index);
+                        if (indexBuffer)
+                        {
+                            indexApiObject = R_OpenGL_GetBufferFromHandle(indexBuffer->handle);
+                        }
+                    }
+
+                    R_BufferHandle handle = model->vertexBuffer;
+
+                    // R_OpenGL_Buffer *vertexBuffer = R_OpenGL_BufferFromHandle(model->vertexBuffer);
+                    // R_OpenGL_Buffer *indexBuffer  = R_OpenGL_BufferFromHandle(model->indexBuffer);
+                    // openGL->glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer->id);
+                    // openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBuffer->id);
+
+                    openGL->glBindBuffer(GL_ARRAY_BUFFER, vertexApiObject);
+                    openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexApiObject);
                     R_OpenGL_StartShader(renderState, R_ShaderType_SkinnedMesh, 0);
 
                     // TODO: uniform blocks so we can just push a struct or something instead of having to do
@@ -736,17 +767,28 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
                     u32 baseTexture     = 0;
                     GLsizei *counts     = PushArray(temp.arena, GLsizei, model->materialCount);
                     void **startIndices = PushArray(temp.arena, void *, model->materialCount);
+                    GLint *baseVertices = PushArray(temp.arena, GLint, model->materialCount);
 
                     R_TexAddress *addresses =
                         PushArray(temp.arena, R_TexAddress, model->materialCount * TextureType_Count);
                     u32 count = 0;
 
+                    VC_Handle vertexHandle = model->vertexBuffer;
+                    VC_Handle indexHandle  = model->indexBuffer;
+
+                    i32 vertexOffset =
+                        (i32)((vertexHandle >> VERTEX_CACHE_OFFSET_SHIFT) & VERTEX_CACHE_OFFSET_MASK) /
+                        sizeof(model->vertices[0]);
+
+                    u64 indexOffset = (u64)((indexHandle >> VERTEX_CACHE_OFFSET_SHIFT) & VERTEX_CACHE_OFFSET_MASK);
+
                     for (u32 i = 0; i < model->materialCount; i++)
                     {
                         Material *material = model->materials + i;
                         counts[i]          = material->onePlusEndIndex - material->startIndex;
-                        u64 startIndex     = sizeof(material->startIndex) * material->startIndex;
+                        u64 startIndex     = sizeof(material->startIndex) * (material->startIndex) + indexOffset;
                         startIndices[i]    = (void *)(startIndex);
+                        baseVertices[i]    = vertexOffset;
                         for (u32 j = 0; j < TextureType_Count; j++)
                         {
                             R_Handle textureHandle = GetTextureRenderHandle(material->textureHandles[j]);
@@ -813,8 +855,11 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
                     openGL->glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
                     openGL->glBufferData(GL_SHADER_STORAGE_BUFFER, count * sizeof(R_TexAddress), addresses,
                                          GL_DYNAMIC_DRAW);
-                    openGL->glMultiDrawElements(GL_TRIANGLES, counts, GL_UNSIGNED_INT, startIndices,
-                                                model->materialCount);
+
+                    // openGL->glMultiDrawElements(GL_TRIANGLES, counts, GL_UNSIGNED_INT, startIndices,
+                    //                             model->materialCount);
+                    openGL->glMultiDrawElementsBaseVertex(GL_TRIANGLES, counts, GL_UNSIGNED_INT, startIndices,
+                                                          model->materialCount, baseVertices);
                 }
                 R_OpenGL_EndShader(R_ShaderType_SkinnedMesh);
                 break;
@@ -1382,6 +1427,151 @@ internal void R_OpenGL_LoadTextures()
 //////////////////////////////
 // Buffer loading
 //
+internal void R_InitializeBuffer(GPUBuffer *ioBuffer, const BufferUsageType inUsageType, const i32 inSize)
+{
+    GLenum target;
+    switch (ioBuffer->type)
+    {
+        case BufferType_Vertex:
+        {
+            target = GL_ARRAY_BUFFER;
+            break;
+        }
+        case BufferType_Index:
+        {
+            target = GL_ELEMENT_ARRAY_BUFFER;
+            break;
+        }
+    }
+    GLenum usage;
+    switch (inUsageType)
+    {
+        case BufferUsage_Static:
+        {
+            usage = GL_STATIC_DRAW;
+            break;
+        }
+        case BufferUsage_Dynamic:
+        {
+            usage = GL_DYNAMIC_DRAW;
+            break;
+        }
+    }
+
+    GLenum apiObject;
+    openGL->glGenBuffers(1, &apiObject);
+    openGL->glBindBuffer(target, apiObject);
+    // TODO: AZDO, differentiate between opengl 4 and opengl 3?
+
+    if (openGLInfo.persistentMap)
+    {
+        GLbitfield flags = GL_MAP_PERSISTENT_BIT | GL_MAP_WRITE_BIT | GL_MAP_COHERENT_BIT;
+        openGL->glBufferStorage(target, inSize, 0, flags);
+        ioBuffer->mappedBufferBase = (u8 *)openGL->glMapBufferRange(target, 0, inSize, flags);
+    }
+    else
+    {
+        openGL->glBufferData(target, inSize, 0, usage);
+    }
+
+    R_BufferHandle handle = (u64)apiObject;
+    ioBuffer->handle      = handle;
+    ioBuffer->size        = inSize;
+}
+
+internal void R_MapGPUBuffer(GPUBuffer *buffer)
+{
+    if (openGLInfo.persistentMap)
+    {
+        Assert(buffer->mappedBufferBase);
+    }
+    else
+    {
+        GLenum target;
+        switch (buffer->type)
+        {
+            case BufferType_Vertex:
+            {
+                target = GL_ARRAY_BUFFER;
+                break;
+            }
+            case BufferType_Index:
+            {
+                target = GL_ELEMENT_ARRAY_BUFFER;
+                break;
+            }
+        }
+
+        GLint apiObject = R_OpenGL_GetBufferFromHandle(buffer->handle);
+        openGL->glBindBuffer(target, apiObject);
+        buffer->mappedBufferBase =
+            (u8 *)openGL->glMapBufferRange(target, 0, buffer->size, GL_MAP_WRITE_BIT | GL_MAP_UNSYNCHRONIZED_BIT);
+    }
+}
+
+internal void R_UnmapGPUBuffer(GPUBuffer *buffer)
+{
+    if (openGLInfo.persistentMap)
+    {
+        Assert(buffer->mappedBufferBase);
+    }
+    else
+    {
+        GLenum target;
+        switch (buffer->type)
+        {
+            case BufferType_Vertex:
+            {
+                target = GL_ARRAY_BUFFER;
+                break;
+            }
+            case BufferType_Index:
+            {
+                target = GL_ELEMENT_ARRAY_BUFFER;
+                break;
+            }
+        }
+
+        GLint apiObject = R_OpenGL_GetBufferFromHandle(buffer->handle);
+        openGL->glBindBuffer(target, apiObject);
+        openGL->glUnmapBuffer(target);
+        buffer->mappedBufferBase = 0;
+    }
+}
+
+internal void R_UpdateBuffer(GPUBuffer *buffer, BufferUsageType type, void *data, i32 offset, i32 size)
+{
+    GLint id = R_OpenGL_GetBufferFromHandle(buffer->handle);
+    GLenum target;
+    // R_OpenGL_Buffer *buffer = (R_OpenGL_Buffer *)handle.u64[0];
+    // TODO: I don't think I want the platform specific handle to have the type definition.
+
+    switch (buffer->type)
+    {
+        case BufferType_Vertex:
+        {
+            target = GL_ARRAY_BUFFER;
+            break;
+        }
+        case BufferType_Index:
+        {
+            target = GL_ELEMENT_ARRAY_BUFFER;
+            break;
+        }
+    }
+
+    if (openGLInfo.persistentMap && buffer->mappedBufferBase)
+    {
+        void *dest = (u8 *)(buffer->mappedBufferBase) + offset;
+        MemoryCopy(dest, data, size);
+    }
+    else
+    {
+        openGL->glBindBuffer(target, id);
+        openGL->glBufferSubData(target, offset, size, data);
+    }
+}
+
 R_ALLOCATE_BUFFER(R_AllocateBuffer)
 {
     R_OpenGL_Buffer *buffer = openGL->freeBuffers;
@@ -1486,6 +1676,7 @@ internal R_Handle R_OpenGL_HandleFromTexture(R_OpenGL_Texture *texture)
     R_Handle handle = {(u64)(texture), texture->generation};
     return handle;
 }
+
 internal R_OpenGL_Texture *R_OpenGL_TextureFromHandle(R_Handle handle)
 {
     R_OpenGL_Texture *texture = (R_OpenGL_Texture *)(handle.u64[0]);
