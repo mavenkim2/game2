@@ -802,7 +802,6 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
                                 // SSBO
                                 switch (j)
                                 {
-                                    // TODO IMPORTANT: FIX THE CONTROL FLOW COMPLEXITY OF THE TEXTURE ARRAYS
                                     case TextureType_Diffuse:
                                     case TextureType_Normal:
                                     {

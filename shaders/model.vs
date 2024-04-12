@@ -1,5 +1,3 @@
-#extension GL_ARB_shader_draw_parameters : enable
-
 layout (location = 0) in V3 pos;
 layout (location = 1) in V3 n;
 layout (location = 2) in V2 uv;

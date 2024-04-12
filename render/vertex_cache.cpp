@@ -51,8 +51,11 @@ internal void VC_Init()
 // TODO: static data asynchronously loaded needs to be queued. this only works with persistent mapping
 internal VC_Handle VC_AllocateBuffer(BufferType bufferType, BufferUsageType usageType, void *data, i32 size)
 {
-    VC_Handle handle  = 0;
-    i32 alignedSize   = AlignPow2(size, 16);
+    VC_Handle handle = 0;
+
+    // TODO: this cannot be aligned because the size of MeshVertex is 76, so with an alignment of 16 the
+    // MeshVertex will not be placed at an appropriate boundary in the buffer
+    i32 alignedSize   = size; // AlignPow2(size, 16);
     GPUBuffer *buffer = 0;
     switch (usageType)
     {

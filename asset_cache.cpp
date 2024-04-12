@@ -1207,7 +1207,7 @@ internal AS_BTreeNode *AS_AddNode(AS_MemoryBlockNode *memNode)
 
     // If the root is full, add another level (shift level of all current nodes down by 1, so that
     // memory blocks are found only in leaf nodes)
-    if (root->numChildren >= tree->maxChildren)
+    if (root->numChildren > tree->maxChildren)
     {
         newNode              = AS_AllocNode();
         newNode->first       = root;
@@ -1277,8 +1277,19 @@ internal AS_BTreeNode *AS_AddNode(AS_MemoryBlockNode *memNode)
             newNode->parent = node;
             node->numChildren++;
 
+            // TODO: not sure if this is correct. need some way of visualizing this tree
+            if (node != root && node->numChildren > tree->maxChildren)
+            {
+                AS_SplitNode(node);
+                if (node->prev->key >= node->prev->last->key)
+                {
+                    node->prev->key = node->prev->last->key;
+                }
+            }
+
             return newNode;
         }
+#if 0
         if (child->numChildren > tree->maxChildren)
         {
             AS_SplitNode(child);
@@ -1287,6 +1298,7 @@ internal AS_BTreeNode *AS_AddNode(AS_MemoryBlockNode *memNode)
                 child = child->prev;
             }
         }
+#endif
     }
 
     Assert(root->numChildren == 0);
@@ -1496,7 +1508,6 @@ internal AS_MemoryBlockNode *AS_Alloc(i32 size)
     allocator->usedBlocks++;
     allocator->usedBlockMemory += alignedSize;
     allocator->numAllocs++;
-    u8 *result         = 0;
     AS_BTreeNode *node = AS_FindMemoryBlock(size);
 
     AS_MemoryBlockNode *memoryBlock = 0;
@@ -1508,9 +1519,6 @@ internal AS_MemoryBlockNode *AS_Alloc(i32 size)
         memoryBlock->node = 0;
         allocator->freeBlocks--;
         allocator->freeBlockMemory -= memoryBlock->size;
-
-        // not yet
-        result = AS_GetMemory(node->memoryBlock);
     }
     // Create an entirely separate block.
     else

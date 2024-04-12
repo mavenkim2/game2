@@ -86,7 +86,7 @@ void main()
 #else
     // Blinn phong 
     V3 halfway = normalize(lightDir + toViewPosition);
-    f32 shininess = 32;
+    f32 shininess = 16;
     f32 specularStrength = pow(max(dot(normal, halfway), 0.f), shininess);
 #endif
 
