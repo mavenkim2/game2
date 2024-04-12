@@ -186,6 +186,7 @@ internal void D_Init()
     }
 
     VC_Init();
+    RenderFrameDataInit();
 
     d_state->frameStartPos = ArenaPos(arena);
 }
@@ -232,6 +233,7 @@ internal void D_BeginFrame()
 internal void D_EndFrame()
 {
     VC_BeginGPUSubmit();
+    R_SwapFrameData();
 }
 
 // so i want to have a ring buffer between the game and the renderer. simple enough. let's start with single
@@ -246,10 +248,28 @@ internal void D_PushModel(AS_Handle loadedModel, Mat4 transform, Mat4 *skinningM
     {
         if (skinningMatricesCount)
         {
-            R_PassSkinnedMesh *pass         = R_GetPassFromKind(R_PassType_SkinnedMesh)->passSkinned;
-            R_SkinnedMeshParamsNode *node   = PushStruct(d_state->arena, R_SkinnedMeshParamsNode);
+            R_PassSkinnedMesh *pass       = R_GetPassFromKind(R_PassType_SkinnedMesh)->passSkinned;
+            R_SkinnedMeshParamsNode *node = PushStruct(d_state->arena, R_SkinnedMeshParamsNode);
+            LoadedModel *model            = GetModel(loadedModel);
+            // TODO: frustum cull, probably using mvp matrix
+
+            node->val.numSurfaces = model->numMeshes;
+            D_Surface *surfaces   = (D_Surface *)R_FrameAlloc(node->val.numSurfaces * sizeof(*surfaces));
+            node->val.surfaces     = surfaces;
+
+            for (u32 i = 0; i < model->numMeshes; i++)
+            {
+                Mesh *mesh         = &model->meshes[i];
+                D_Surface *surface = &surfaces[i];
+
+                surface->vertexBuffer = mesh->surface.vertexBuffer;
+                surface->indexBuffer  = mesh->surface.indexBuffer;
+
+                // TODO: ptr or copy?
+                surface->material = &mesh->material;
+            }
+
             node->val.transform             = transform;
-            node->val.model                 = loadedModel;
             node->val.skinningMatrices      = skinningMatrices;
             node->val.skinningMatricesCount = skinningMatricesCount;
             QueuePush(pass->list.first, pass->list.last, node);
@@ -445,14 +465,8 @@ internal void DebugDrawSkeleton(AS_Handle model, Mat4 transform, Mat4 *skinningM
     }
 }
 
-//////////////////////////////
-// Render
-//
-
-// Constants
-#if 0
-const i32 cNumFrames      = 3;
-const i32 cFrameBufferSize = megabytes(64);
+const i32 cFrameBufferSize    = megabytes(64);
+const i32 cFrameDataNumFrames = 2;
 
 struct R_FrameData
 {
@@ -460,12 +474,12 @@ struct R_FrameData
     i32 volatile allocated;
 };
 
-struct R_State
+struct R_FrameState
 {
     Arena *arena;
-    R_TempMemoryNode *tempMemNodes;
+    // R_TempMemoryNode *tempMemNodes;
 
-    R_FrameData frameData[cNumFrames];
+    R_FrameData frameData[cFrameDataNumFrames];
     R_FrameData *currentFrameData;
     u32 currentFrame;
 };
@@ -476,365 +490,390 @@ struct R_State
 // also, have one massive buffer for both indices and vertices, instead of allocating separate buffer
 // objects for them. then, handles can just be 64 bit numbers that contain the offset, size, and frame
 
-global R_State *r_state;
+global R_FrameState *gRenderFrameState;
 
-internal void R_Init()
+internal void RenderFrameDataInit()
 {
-    Arena *arena   = ArenaAlloc(megabytes(256));
-    r_state        = PushArray(arena, R_State);
-    r_state->arena = arena;
+    Arena *arena             = ArenaAlloc(megabytes(256));
+    gRenderFrameState        = PushStruct(arena, R_FrameState);
+    gRenderFrameState->arena = arena;
 
-    for (i32 i = 0; i < NUM_FRAMES; i++)
+    for (i32 i = 0; i < cFrameDataNumFrames; i++)
     {
-        R_FrameData *frameData = &r_state->frameData[i];
-        frameData->buffer      = PushArray(arena, u8, cFrameBufferSize);
+        R_FrameData *frameData = &gRenderFrameState->frameData[i];
+        frameData->memory      = PushArray(arena, u8, cFrameBufferSize);
     }
-    r_state->currentFrame     = 0;
-    r_state->currentFrameData = &frameData[r_state->currentFrame];
+    gRenderFrameState->currentFrame     = 0;
+    gRenderFrameState->currentFrameData = &gRenderFrameState->frameData[gRenderFrameState->currentFrame];
 }
 
 internal void *R_FrameAlloc(const i32 inSize)
 {
     i32 alignedSize = AlignPow2(inSize, 16);
-    i32 offset      = AtomicAddI32(&r_state->currentFrameData->allocated, alignedSize);
+    i32 offset      = AtomicAddI32(&gRenderFrameState->currentFrameData->allocated, alignedSize);
 
-    void *out = r_state->currentFrameData->memory + offset;
-    MemoryZero(out, alignedSize);
+    void *out = gRenderFrameState->currentFrameData->memory + offset;
+    MemoryZero(out, inSize);
 
     return out;
 }
 
-struct R_TempMemoryNode
+internal b32 IsAligned(u8 *ptr, i32 alignment)
 {
-    u8 *buffer;
-    u32 size;
-};
-
-internal R_Handle R_GetTempMemHandle(R_TempMemoryNode *node)
-{
-    R_Handle result;
-    result.u64[0] = (u64)node;
-    return result;
-}
-internal R_TempMemoryNode *R_GetTempMemFromHandle(R_Handle handle)
-{
-    R_TempMemoryNode *node = (R_TempMemoryNode *)handle.u64[0];
-    return node;
-}
-
-internal R_Handle R_AllocateTemp(u64 size, void **out)
-{
-    // TODO: maybe something better than this
-    R_TempMemoryNode *node = r_state->nodes;
-    if (node != 0)
-    {
-        StackPop(r_state->nodes);
-    }
-    else
-    {
-        node         = PushStruct(r_state->arena, R_TempMemoryNode);
-        node->size   = megabytes(4);
-        node->buffer = PushArray(r_state->arena, u8, node->size);
-        StackPush(r_state->tempMemNodes, node);
-    }
-
-    *out = node->buffer;
-
-    R_Handle result = R_GetTempMemHandle(node);
+    b32 result = (u64)ptr == AlignPow2((u64)ptr, alignment);
     return result;
 }
 
-internal void R_FreeTemp(R_Handle temp)
+internal void R_SwapFrameData()
 {
-    R_TempMemoryNode *node = R_GetTempMemFromHandle(temp);
-    StackPush(r_state->nodes, node);
+    u32 frameIndex                      = ++gRenderFrameState->currentFrame % cFrameDataNumFrames;
+    gRenderFrameState->currentFrameData = &gRenderFrameState->frameData[frameIndex];
+
+    u64 start = AlignPow2((u64)gRenderFrameState->currentFrameData->memory, 16) -
+                (u64)gRenderFrameState->currentFrameData->memory;
+    // TODO: barrier?
+    gRenderFrameState->currentFrameData->allocated = (i32)start;
 }
 
 //////////////////////////////
-//  not sure yet below
+// Render
 //
 
-// takes data from skinning matrices/game state/dynamic shit or something and then
+// Constants
+// #if 0
 //
-// map individual data to a render feature or something, where the render feature defines entry points for
-// A. what data is taken from the game state
-// B. what data is put in the atomic ring buffer
-// C. how data is shoved into the renderer and how it is rendererd :)
-
-internal void R_SubmitRenderPass(RenderState *state)
-{
-    // TODO: maybe also sort here some how
-    AtomicRing *ring = &shared->g2rRing;
-
-    R_Pass3D *pass3D = state->passes[R_PassType_3D];
-    for (u32 i = 0; i < pass3D->groups.numGroups; i++)
-    {
-        R_Batch3DParams *params = &pass3D->groups[i].params;
-
-        params->
-    }
-
-    for (R_PassType type = (R_PassType)0; type < R_PassType_Count; type = (R_PassType)(type + 1))
-    {
-        state->passes[type];
-    }
-    pass->
-}
-
-internal u8 *R_Interpolate(Arena *arena, RenderState *oldState, RenderState *newState, f32 dt)
-{
-    u8 *pushBuffer = PushArray(arena, u8, newState->size);
-    u64 cursor     = 0;
-
-    f32 oldTimestamp = oldState->timestamp;
-    f32 newTimestamp = newState->timestamp;
-
-    for (u32 i = 0; i < ArrayLength(state->objects); i++)
-    {
-        RenderData *oldData = &oldState->objects[i].data;
-        RenderData *newData = &newState->objects[i].data;
-
-        // but this might not be true and for good reason. what if a thing gains attributes or something?
-        // who even knows
-        Assert(oldData->numPieces == newData->numPieces);
-        for (u32 datumIndex = 0; datumIndex < oldData->numPieces; datumIndex++)
-        {
-            RenderDatum *oldDatum = &oldData->piece[datumIndex];
-            RenderDatum *newDatum = &newData->piece[datumIndex];
-
-            u64 datumSize = 0;
-            switch (newDatum->type)
-            {
-                case DatumType_AnimationTransform:
-                {
-                    AnimationTransform *oldTform = (AnimationTransform *)oldDatum;
-                    AnimationTransform *newTform = (AnimationTransform *)newDatum;
-
-                    AnimationTransform result = Lerp(oldTform, newTform, dt);
-
-                    MemoryCopy(pushBuffer + cursor, &result, sizeof(result));
-                    cursor += AlignPow2(sizeof(result), 8);
-
-                    break;
-                }
-                case DatumType_Position:
-                {
-                    V3 *oldPosition = (V3 *)oldDatum;
-                    V3 *newPosition = (V3 *)newDatum;
-
-                    V3 result = Lerp(oldPosition, newPosition, dt);
-                    datumSize = sizeof(AnimationTransform);
-
-                    MemoryCopy(pushBuffer + cursor, &result, sizeof(result));
-                    cursor += AlignPow2(sizeof(result), 8);
-                    break;
-                }
-                default: Assert(!"Not valid data");
-            }
-        }
-    }
-    return pushBuffer;
-}
-
-internal void R_SubmitFrame(RenderState *state, f32 accumulator, f32 dt)
-{
-    f32 alpha = accumulator / dt;
-
-    R_Interpolate(lastState, newState, alpha);
-    // TODO: Ideally this is just a memcopy.
-}
-
-internal void R_EntryPoint(void *p)
-{
-    for (; shared->running;)
-    {
-        // StartAtomicRead(&shared->g2rRing, sizeof(u64));
-        // u64 readPos = shared->readPos;
-        // u64 size;
-        // RingReadStruct(
-        // R_EndFrame(state);
-    }
-}
-
-// STEPS:
-// 1. extract
-// 2. prepare
-// 3. submit
-
-// this contains static data used in the game. this doesn't change from frame to frame
-enum R_RenderFeatureType
-{
-    R_RenderFeatureType_SkinnedMesh,
-    R_RenderFeatureType_Count,
-};
-
-// contains data for skinned models
-struct R_RenderData
-{
-};
-
-struct R_FrameNode
-{
-    R_FrameNodeUniforms uniforms;
-    R_BatchList batchList;
-    R_FrameNode *next;
-
-    // void *data;
-    // u32 numInstances;
-    // u32 sizeOfInstance;
-};
-
-// cap is 16
-struct R_FrameNodeChunk
-{
-    R_FrameNode *first;
-    R_FrameNode *last;
-    u32 count;
-    u32 cap;
-};
-
-struct R_FrameNodeChunkList
-{
-    R_FrameNodeChunk *first;
-    R_FrameNodeChunk *last;
-};
-
-typedef void *R_Params;
-
-struct R_SubmitNode
-{
-    // uniforms
-    R_Params *params;
-
-    // render buffer handles
-    R_Handle renderObject;
-
-    // instance data
-    void *data;
-    u32 numInstances;
-    u32 sizeOfInstance;
-};
-
-// :)
-struct R_FramePacket
-{
-    Arena *arena;
-
-    R_FrameNodeChunkList frameNodeLists[R_RenderFeatureType_Count];
-    // i would like each of these to just be a big dumb block of memory
-    R_SubmitNode submitNodeArrays[R_RenderFeatureType_Count];
-};
-
-// typedef R_FrameNode* R_ExtractData();
-
-#define R_SUBMIT(name) void name(R_SubmitNodeList *list)
-typedef R_SUBMIT(r_submit);
-
-struct R_RenderFeature
-{
-    r_submit *R_Submit;
-};
-
-// and these tables can use different prepare/submit functions based on the version of OPENGL or vulkan.
-// i think the extract should be the same regardless of the renderer backend use
-
-global R_RenderFeature R_RenderFeatureTable[R_RenderFeatureType_Count];
-
-internal void R_InitializeRenderFeatureTable()
-{
-    R_RenderFeatureTable[R_RenderFeatureType_SkinnedMesh] = R_SubmitSkinnedMesh;
-}
-
-internal void R_Submit(R_FramePacket *packet)
-{
-    for (R_RenderFeatureType type = (R_RenderFeatureType)0; type < R_RenderFeatureType_Count;
-         type                     = (R_RenderFeatureType)(type + 1))
-    {
-        R_SubmitNodeList *list = &packet->submitNodeList[type];
-        (R_SubmitTable[type])(list);
-    }
-}
-
-// each submit list uses the same shader.
-R_SUBMIT(R_SubmitSkinnedMesh)
-{
-    GLuint modelProgramId = openGL->shaders[R_ShaderType_SkinnedMesh].id;
-    openGL->glUseProgram(modelProgramId);
-
-    for (R_SubmitNode *node = list->first; node != 0; node = node->next)
-    {
-        R_SkinnedMeshParams *params = (R_SkinnedMeshParams *)node->params;
-        node->bufferData            = ;
-        R_SubmitNodeList *node      = 0;
-    }
-}
-
-struct R_FramePacketRing
-{
-    R_FramePacket framePackets[4];
-
-    // position of the last frame state, so framePacket[readPos] is the last frame, framePacket[readPos + 1] is the
-    // new frame
-    u32 readPos;
-    // position the game can write to
-    u32 writePos;
-};
-
-internal R_FramePacket *R_StartFrame()
-{
-    R_FramePacket *result = 0;
-
-    R_FramePacketRing *ring = &r_state->framePacketRing;
-    u32 readPos             = ring->readPos;
-    u32 writePos            = ring->readPos;
-
-    u32 length = ArrayLength(ring->framePackets);
-    // check if power of 2
-    Assert(length & (length - 1) == 0);
-    u32 modulo = length - 1;
-
-    u32 spotsBetween = (writePos + length - readPos) & (modulo);
-    // u32 availableSpots = length - (writePos - readPos);
-    if (spotsBetween < length)
-    {
-        result = ring->framePackets[writePos];
-    }
-    return result;
-}
-
-internal void R_SubmitFrame()
-{
-    WriteBarrier();
-    r_state->framePacketRing.writePos =
-        (r_state->framePacketRing.writePos + 1) & (ArrayLength(r_state->framePackets) - 1);
-}
-
-const u32 cNumFrames = 2;
-
-internal R_FramePacket *R_ReceiveFrame()
-{
-    R_FramePacket *result   = 0;
-    R_FramePacketRing *ring = &r_state->framePacketRing;
-
-    u32 readPos  = ring->readPos;
-    u32 writePos = ring->readPos;
-
-    u32 length = ArrayLength(ring->framePackets);
-    u32 modulo = length - 1;
-
-    // the read position should be cNumFrames behind the write position
-    u32 spotsBetween = ((writePos + length - readPos) & (modulo)); // - cNumFrames;
-    if (spotsBetween > 2)
-    {
-        u32 spotsToMove = spotsBetween - cNumFrames;
-        WriteBarrier();
-        ring->readPos = (readPos + spotsToMove) & (modulo);
-    }
-    R_FramePacket *packet = &ring->framePackets[ring->readPos];
-
-    return packet;
-}
-#endif
+// struct R_TempMemoryNode
+// {
+//     u8 *buffer;
+//     u32 size;
+// };
+//
+// internal R_Handle R_GetTempMemHandle(R_TempMemoryNode *node)
+// {
+//     R_Handle result;
+//     result.u64[0] = (u64)node;
+//     return result;
+// }
+// internal R_TempMemoryNode *R_GetTempMemFromHandle(R_Handle handle)
+// {
+//     R_TempMemoryNode *node = (R_TempMemoryNode *)handle.u64[0];
+//     return node;
+// }
+//
+// internal R_Handle R_AllocateTemp(u64 size, void **out)
+// {
+//     // TODO: maybe something better than this
+//     R_TempMemoryNode *node = r_state->nodes;
+//     if (node != 0)
+//     {
+//         StackPop(r_state->nodes);
+//     }
+//     else
+//     {
+//         node         = PushStruct(r_state->arena, R_TempMemoryNode);
+//         node->size   = megabytes(4);
+//         node->buffer = PushArray(r_state->arena, u8, node->size);
+//         StackPush(r_state->tempMemNodes, node);
+//     }
+//
+//     *out = node->buffer;
+//
+//     R_Handle result = R_GetTempMemHandle(node);
+//     return result;
+// }
+//
+// internal void R_FreeTemp(R_Handle temp)
+// {
+//     R_TempMemoryNode *node = R_GetTempMemFromHandle(temp);
+//     StackPush(r_state->nodes, node);
+// }
+//
+// //////////////////////////////
+// //  not sure yet below
+// //
+//
+// // takes data from skinning matrices/game state/dynamic shit or something and then
+// //
+// // map individual data to a render feature or something, where the render feature defines entry points for
+// // A. what data is taken from the game state
+// // B. what data is put in the atomic ring buffer
+// // C. how data is shoved into the renderer and how it is rendererd :)
+//
+// internal void R_SubmitRenderPass(RenderState *state)
+// {
+//     // TODO: maybe also sort here some how
+//     AtomicRing *ring = &shared->g2rRing;
+//
+//     R_Pass3D *pass3D = state->passes[R_PassType_3D];
+//     for (u32 i = 0; i < pass3D->groups.numGroups; i++)
+//     {
+//         R_Batch3DParams *params = &pass3D->groups[i].params;
+//
+//         params->
+//     }
+//
+//     for (R_PassType type = (R_PassType)0; type < R_PassType_Count; type = (R_PassType)(type + 1))
+//     {
+//         state->passes[type];
+//     }
+//     pass->
+// }
+//
+// internal u8 *R_Interpolate(Arena *arena, RenderState *oldState, RenderState *newState, f32 dt)
+// {
+//     u8 *pushBuffer = PushArray(arena, u8, newState->size);
+//     u64 cursor     = 0;
+//
+//     f32 oldTimestamp = oldState->timestamp;
+//     f32 newTimestamp = newState->timestamp;
+//
+//     for (u32 i = 0; i < ArrayLength(state->objects); i++)
+//     {
+//         RenderData *oldData = &oldState->objects[i].data;
+//         RenderData *newData = &newState->objects[i].data;
+//
+//         // but this might not be true and for good reason. what if a thing gains attributes or something?
+//         // who even knows
+//         Assert(oldData->numPieces == newData->numPieces);
+//         for (u32 datumIndex = 0; datumIndex < oldData->numPieces; datumIndex++)
+//         {
+//             RenderDatum *oldDatum = &oldData->piece[datumIndex];
+//             RenderDatum *newDatum = &newData->piece[datumIndex];
+//
+//             u64 datumSize = 0;
+//             switch (newDatum->type)
+//             {
+//                 case DatumType_AnimationTransform:
+//                 {
+//                     AnimationTransform *oldTform = (AnimationTransform *)oldDatum;
+//                     AnimationTransform *newTform = (AnimationTransform *)newDatum;
+//
+//                     AnimationTransform result = Lerp(oldTform, newTform, dt);
+//
+//                     MemoryCopy(pushBuffer + cursor, &result, sizeof(result));
+//                     cursor += AlignPow2(sizeof(result), 8);
+//
+//                     break;
+//                 }
+//                 case DatumType_Position:
+//                 {
+//                     V3 *oldPosition = (V3 *)oldDatum;
+//                     V3 *newPosition = (V3 *)newDatum;
+//
+//                     V3 result = Lerp(oldPosition, newPosition, dt);
+//                     datumSize = sizeof(AnimationTransform);
+//
+//                     MemoryCopy(pushBuffer + cursor, &result, sizeof(result));
+//                     cursor += AlignPow2(sizeof(result), 8);
+//                     break;
+//                 }
+//                 default: Assert(!"Not valid data");
+//             }
+//         }
+//     }
+//     return pushBuffer;
+// }
+//
+// internal void R_SubmitFrame(RenderState *state, f32 accumulator, f32 dt)
+// {
+//     f32 alpha = accumulator / dt;
+//
+//     R_Interpolate(lastState, newState, alpha);
+//     // TODO: Ideally this is just a memcopy.
+// }
+//
+// internal void R_EntryPoint(void *p)
+// {
+//     for (; shared->running;)
+//     {
+//         // StartAtomicRead(&shared->g2rRing, sizeof(u64));
+//         // u64 readPos = shared->readPos;
+//         // u64 size;
+//         // RingReadStruct(
+//         // R_EndFrame(state);
+//     }
+// }
+//
+// // STEPS:
+// // 1. extract
+// // 2. prepare
+// // 3. submit
+//
+// // this contains static data used in the game. this doesn't change from frame to frame
+// enum R_RenderFeatureType
+// {
+//     R_RenderFeatureType_SkinnedMesh,
+//     R_RenderFeatureType_Count,
+// };
+//
+// // contains data for skinned models
+// struct R_RenderData
+// {
+// };
+//
+// struct R_FrameNode
+// {
+//     R_FrameNodeUniforms uniforms;
+//     R_BatchList batchList;
+//     R_FrameNode *next;
+//
+//     // void *data;
+//     // u32 numInstances;
+//     // u32 sizeOfInstance;
+// };
+//
+// // cap is 16
+// struct R_FrameNodeChunk
+// {
+//     R_FrameNode *first;
+//     R_FrameNode *last;
+//     u32 count;
+//     u32 cap;
+// };
+//
+// struct R_FrameNodeChunkList
+// {
+//     R_FrameNodeChunk *first;
+//     R_FrameNodeChunk *last;
+// };
+//
+// typedef void *R_Params;
+//
+// struct R_SubmitNode
+// {
+//     // uniforms
+//     R_Params *params;
+//
+//     // render buffer handles
+//     R_Handle renderObject;
+//
+//     // instance data
+//     void *data;
+//     u32 numInstances;
+//     u32 sizeOfInstance;
+// };
+//
+// // :)
+// struct R_FramePacket
+// {
+//     Arena *arena;
+//
+//     R_FrameNodeChunkList frameNodeLists[R_RenderFeatureType_Count];
+//     // i would like each of these to just be a big dumb block of memory
+//     R_SubmitNode submitNodeArrays[R_RenderFeatureType_Count];
+// };
+//
+// // typedef R_FrameNode* R_ExtractData();
+//
+// #define R_SUBMIT(name) void name(R_SubmitNodeList *list)
+// typedef R_SUBMIT(r_submit);
+//
+// struct R_RenderFeature
+// {
+//     r_submit *R_Submit;
+// };
+//
+// // and these tables can use different prepare/submit functions based on the version of OPENGL or vulkan.
+// // i think the extract should be the same regardless of the renderer backend use
+//
+// global R_RenderFeature R_RenderFeatureTable[R_RenderFeatureType_Count];
+//
+// internal void R_InitializeRenderFeatureTable()
+// {
+//     R_RenderFeatureTable[R_RenderFeatureType_SkinnedMesh] = R_SubmitSkinnedMesh;
+// }
+//
+// internal void R_Submit(R_FramePacket *packet)
+// {
+//     for (R_RenderFeatureType type = (R_RenderFeatureType)0; type < R_RenderFeatureType_Count;
+//          type                     = (R_RenderFeatureType)(type + 1))
+//     {
+//         R_SubmitNodeList *list = &packet->submitNodeList[type];
+//         (R_SubmitTable[type])(list);
+//     }
+// }
+//
+// // each submit list uses the same shader.
+// R_SUBMIT(R_SubmitSkinnedMesh)
+// {
+//     GLuint modelProgramId = openGL->shaders[R_ShaderType_SkinnedMesh].id;
+//     openGL->glUseProgram(modelProgramId);
+//
+//     for (R_SubmitNode *node = list->first; node != 0; node = node->next)
+//     {
+//         R_SkinnedMeshParams *params = (R_SkinnedMeshParams *)node->params;
+//         node->bufferData            = ;
+//         R_SubmitNodeList *node      = 0;
+//     }
+// }
+//
+// struct R_FramePacketRing
+// {
+//     R_FramePacket framePackets[4];
+//
+//     // position of the last frame state, so framePacket[readPos] is the last frame, framePacket[readPos + 1]
+//     is the
+//     // new frame
+//     u32 readPos;
+//     // position the game can write to
+//     u32 writePos;
+// };
+//
+// internal R_FramePacket *R_StartFrame()
+// {
+//     R_FramePacket *result = 0;
+//
+//     R_FramePacketRing *ring = &r_state->framePacketRing;
+//     u32 readPos             = ring->readPos;
+//     u32 writePos            = ring->readPos;
+//
+//     u32 length = ArrayLength(ring->framePackets);
+//     // check if power of 2
+//     Assert(length & (length - 1) == 0);
+//     u32 modulo = length - 1;
+//
+//     u32 spotsBetween = (writePos + length - readPos) & (modulo);
+//     // u32 availableSpots = length - (writePos - readPos);
+//     if (spotsBetween < length)
+//     {
+//         result = ring->framePackets[writePos];
+//     }
+//     return result;
+// }
+//
+// internal void R_SubmitFrame()
+// {
+//     WriteBarrier();
+//     r_state->framePacketRing.writePos =
+//         (r_state->framePacketRing.writePos + 1) & (ArrayLength(r_state->framePackets) - 1);
+// }
+//
+// const u32 cNumFrames = 2;
+//
+// internal R_FramePacket *R_ReceiveFrame()
+// {
+//     R_FramePacket *result   = 0;
+//     R_FramePacketRing *ring = &r_state->framePacketRing;
+//
+//     u32 readPos  = ring->readPos;
+//     u32 writePos = ring->readPos;
+//
+//     u32 length = ArrayLength(ring->framePackets);
+//     u32 modulo = length - 1;
+//
+//     // the read position should be cNumFrames behind the write position
+//     u32 spotsBetween = ((writePos + length - readPos) & (modulo)); // - cNumFrames;
+//     if (spotsBetween > 2)
+//     {
+//         u32 spotsToMove = spotsBetween - cNumFrames;
+//         WriteBarrier();
+//         ring->readPos = (readPos + spotsToMove) & (modulo);
+//     }
+//     R_FramePacket *packet = &ring->framePackets[ring->readPos];
+//
+//     return packet;
+// }
+// #endif
 
 //////////////////////////////
 // UI

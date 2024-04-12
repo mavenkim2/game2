@@ -45,25 +45,32 @@ struct Skeleton
 //
 struct InputMaterial
 {
-    u32 startIndex;
-    u32 onePlusEndIndex;
     string texture[TextureType_Count];
+};
+
+struct InputMesh
+{
+    MeshVertex *vertices;
+    u32 *indices;
+    u32 vertexCount;
+    u32 indexCount;
+
+    InputMaterial material;
 };
 
 struct InputModel
 {
-    MeshVertex *vertices;
-    u32 *indices;
-
-    u32 vertexCount;
-    u32 indexCount;
-
     Skeleton skeleton;
+    InputMesh *meshes;
+    u32 numMeshes;
+
+    // MeshVertex *vertices;
+    // u32 *indices;
+
+    // u32 vertexCount;
+    // u32 indexCount;
 
     // One material per mesh, each material can have multiple textures (normal, diffuse, etc.)
-    InputMaterial materials[4];
-    u32 materialCount;
-
     Mat4 transform;
 };
 
@@ -173,3 +180,6 @@ struct AnimationJobWriteData
     CompressedKeyframedAnimation *animation;
     string path;
 };
+
+internal void OptimizeMesh(InputMesh *mesh);
+internal Rect3 GetMeshBounds(InputMesh *mesh);

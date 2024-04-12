@@ -169,8 +169,6 @@ struct AnimationPlayer
 struct Material
 {
     AS_Handle textureHandles[TextureType_Count];
-    u32 startIndex;
-    u32 onePlusEndIndex;
 };
 
 // TODO: choose one please maven kim
@@ -189,20 +187,41 @@ struct Material
 // as necessary
 // 4. need to actually differentiate hotloading / deleting an asset
 
-// TODO: this should be split into surfaces, where each surface has one material and one set of vertices/indices
+struct TriangleSurface
+{
+    VC_Handle vertexBuffer;
+    VC_Handle indexBuffer;
+
+    MeshVertex *vertices;
+    u32 *indices;
+    Rect3 bounds;
+    u32 vertexCount;
+    u32 indexCount;
+};
+
+struct Mesh
+{
+    TriangleSurface surface;
+    Material material;
+};
+
+// TODO: split the model into submeshes, which each have a single surface with bounds
+// also implement basic frustum culling :)
+
 struct LoadedModel
 {
     AS_Handle skeleton;
-    MeshVertex *vertices;
-    u32 *indices;
-    Material *materials;
+    u32 numMeshes;
+    Mesh *meshes;
 
-    u32 vertexCount;
-    u32 indexCount;
-    u32 materialCount;
+    // MeshVertex *vertices;
+    // u32 *indices;
+    // Material *materials;
+    //
+    // u32 vertexCount;
+    // u32 indexCount;
+    // u32 materialCount;
 
-    VC_Handle vertexBuffer;
-    VC_Handle indexBuffer;
     // R_Handle vertexBuffer;
     // R_Handle indexBuffer;
 

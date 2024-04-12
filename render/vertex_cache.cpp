@@ -55,6 +55,7 @@ internal VC_Handle VC_AllocateBuffer(BufferType bufferType, BufferUsageType usag
 
     // TODO: this cannot be aligned because the size of MeshVertex is 76, so with an alignment of 16 the
     // MeshVertex will not be placed at an appropriate boundary in the buffer
+    // technically it's possible but vertexattrib pointer would have to be weird so it's not worth it now
     i32 alignedSize   = size; // AlignPow2(size, 16);
     GPUBuffer *buffer = 0;
     switch (usageType)

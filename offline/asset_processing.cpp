@@ -19,7 +19,7 @@ global i32 animationFileVersion  = 1;
 // Model Loading
 //
 internal InputModel LoadAllMeshes(Arena *arena, const aiScene *scene);
-internal void ProcessMesh(Arena *arena, InputModel *model, const aiScene *scene, const aiMesh *mesh);
+internal void ProcessMesh(Arena *arena, InputMesh *inputMesh, const aiScene *scene, const aiMesh *mesh);
 
 //////////////////////////////
 // Skeleton Loading
@@ -126,14 +126,17 @@ internal void *LoadAndWriteModel(void *ptr, Arena *arena)
                 shift++;
             }
         }
-        for (u32 i = 0; i < model.skeleton.names.count; i++)
+        u32 parentCount    = 0;
+        u32 transformCount = 0;
+        for (u32 i = 0; i < model.skeleton.count; i++)
         {
             MeshNodeInfo *info = &infoArray.items[i + shift];
             string parentName  = info->parentName;
             i32 parentId       = -1;
             parentId           = FindNodeIndex(&model.skeleton, parentName);
-            ArrayPush(&model.skeleton.parents, parentId);
-            Mat4 parentTransform = info->transformToParent;
+
+            model.skeleton.parents[parentCount++] = parentId;
+            Mat4 parentTransform                  = info->transformToParent;
             if (parentId == -1)
             {
                 parentId = FindMeshNodeInfo(&infoArray, parentName);
@@ -144,7 +147,7 @@ internal void *LoadAndWriteModel(void *ptr, Arena *arena)
                     parentId        = FindMeshNodeInfo(&infoArray, info->parentName);
                 }
             }
-            ArrayPush(&model.skeleton.transformsToParent, parentTransform);
+            model.skeleton.transformsToParent[transformCount++] = parentTransform;
         }
     }
 
@@ -208,18 +211,21 @@ internal InputModel LoadAllMeshes(Arena *arena, const aiScene *scene)
         totalFaceCount += mesh->mNumFaces;
     }
 
-    model.vertices = PushArray(arena, MeshVertex, totalVertexCount);
-    model.indices  = PushArray(arena, u32, totalFaceCount * 3);
-
     AssimpSkeletonAsset assetSkeleton = {};
     assetSkeleton.inverseBindPoses    = PushArray(arena, Mat4, scene->mMeshes[0]->mNumBones);
     assetSkeleton.names               = PushArray(arena, string, scene->mMeshes[0]->mNumBones);
-    assetSkeleton.vertexBneInfo       = PushArray(arena, VertexBoneInfo, totalVertexCount);
+    assetSkeleton.vertexBoneInfo      = PushArray(arena, VertexBoneInfo, totalVertexCount);
 
-    loopi(0, scene->mNumMeshes)
+    model.meshes    = PushArray(arena, InputMesh, scene->mNumMeshes);
+    model.numMeshes = scene->mNumMeshes;
+
+    for (i32 i = 0; i < scene->mNumMeshes; i++)
     {
-        aiMesh *mesh = scene->mMeshes[i];
-        ProcessMesh(arena, &model, scene, mesh);
+        aiMesh *mesh             = scene->mMeshes[i];
+        model.meshes[i].vertices = PushArrayNoZero(arena, MeshVertex, mesh->mNumVertices);
+        model.meshes[i].indices  = PushArrayNoZero(arena, u32, mesh->mNumFaces * 3);
+        // ProcessMesh(arena, &model, scene, mesh);
+        ProcessMesh(arena, &model.meshes[i], scene, mesh);
     }
 
     u32 baseVertex = 0;
@@ -230,14 +236,20 @@ internal InputModel LoadAllMeshes(Arena *arena, const aiScene *scene)
         baseVertex += mesh->mNumVertices;
     }
 
-    loopi(0, totalVertexCount)
+    u32 vertexOffset = 0;
+    for (u32 numMeshes = 0; numMeshes < model.numMeshes; numMeshes++)
     {
-        VertexBoneInfo *piece = &assetSkeleton.vertexBoneInfo.items[i];
-        loopj(0, MAX_MATRICES_PER_VERTEX)
+        InputMesh *inputMesh = &model.meshes[numMeshes];
+        for (u32 vertexCount = 0; vertexCount < inputMesh->vertexCount; vertexCount++)
         {
-            model.vertices.items[i].boneIds[j]     = piece->pieces[j].boneIndex;
-            model.vertices.items[i].boneWeights[j] = piece->pieces[j].boneWeight;
+            VertexBoneInfo *piece = &assetSkeleton.vertexBoneInfo[vertexCount + vertexOffset];
+            for (u32 j = 0; j < MAX_MATRICES_PER_VERTEX; j++)
+            {
+                inputMesh->vertices[vertexCount].boneIds[j]     = piece->pieces[j].boneIndex;
+                inputMesh->vertices[vertexCount].boneWeights[j] = piece->pieces[j].boneWeight;
+            }
         }
+        vertexOffset += inputMesh->vertexCount;
     }
 
     model.skeleton.count            = assetSkeleton.count;
@@ -248,10 +260,11 @@ internal InputModel LoadAllMeshes(Arena *arena, const aiScene *scene)
     return model;
 }
 
-internal void ProcessMesh(Arena *arena, InputModel *model, const aiScene *scene, const aiMesh *mesh)
+// internal void ProcessMesh(Arena *arena, InputModel *model, const aiScene *scene, const aiMesh *mesh)
+internal void ProcessMesh(Arena *arena, InputMesh *inputMesh, const aiScene *scene, const aiMesh *mesh)
 {
-    u32 baseVertex = model->vertexCount;
-    u32 baseIndex  = model->indexCount;
+    // u32 baseVertex = model->vertexCount;
+    // u32 baseIndex  = model->indexCount;
 
     for (u32 i = 0; i < mesh->mNumVertices; i++)
     {
@@ -279,22 +292,22 @@ internal void ProcessMesh(Arena *arena, InputModel *model, const aiScene *scene,
         {
             vertex.uv = {0, 0};
         }
-        model->vertices[model->vertexCount++] = vertex;
+        inputMesh->vertices[inputMesh->vertexCount++] = vertex;
     }
     for (u32 i = 0; i < mesh->mNumFaces; i++)
     {
         aiFace *face = &mesh->mFaces[i];
         for (u32 indexindex = 0; indexindex < face->mNumIndices; indexindex++)
         {
-            model->indices[model->indexCount++] = face->mIndices[indexindex] + baseVertex;
+            inputMesh->indices[inputMesh->indexCount++] = face->mIndices[indexindex];
         }
     }
     aiMaterial *mMaterial = scene->mMaterials[mesh->mMaterialIndex];
     aiColor4D diffuse;
     aiGetMaterialColor(mMaterial, AI_MATKEY_COLOR_DIFFUSE, &diffuse);
-    InputMaterial *material   = &model->materials[model->materialCount++];
-    material->startIndex      = baseIndex;
-    material->onePlusEndIndex = model->indices.count;
+    InputMaterial *material = &inputMesh->material;
+    // material->startIndex      = baseIndex;
+    // material->onePlusEndIndex = model->indices.count;
     // Diffuse
     for (u32 i = 0; i < mMaterial->GetTextureCount(aiTextureType_DIFFUSE); i++)
     {
@@ -345,7 +358,7 @@ internal void LoadBones(Arena *arena, AssimpSkeletonAsset *skeleton, aiMesh *mes
             name        = PushStr8Copy(arena, name);
 
             skeleton->names[skeleton->nameCount++]                 = name;
-            skeleton->inverseBindPoses[skeleton->inverseBPCount++] = ConvertAssimpMatrix4x4(bone->mOffsetMatrix));
+            skeleton->inverseBindPoses[skeleton->inverseBPCount++] = ConvertAssimpMatrix4x4(bone->mOffsetMatrix);
         }
 
         for (u32 j = 0; j < bone->mNumWeights; j++)
@@ -355,7 +368,7 @@ internal void LoadBones(Arena *arena, AssimpSkeletonAsset *skeleton, aiMesh *mes
             f32 boneWeight         = weight->mWeight;
             if (boneWeight)
             {
-                VertexBoneInfo *info = &skeleton->vertexBoneInfo.items[vertexId];
+                VertexBoneInfo *info = &skeleton->vertexBoneInfo[vertexId];
                 Assert(info->numMatrices < MAX_MATRICES_PER_VERTEX);
                 // NOTE: this doesn't increment the count of the array
                 info->pieces[info->numMatrices].boneIndex  = i;
@@ -480,7 +493,6 @@ internal string ProcessAnimation(Arena *arena, CompressedKeyframedAnimation *out
         }
     }
     outAnimation->duration -= startTime == FLT_MAX ? 0 : startTime;
-    Printf("Change: %i\n", change);
 
     // string animationName = {(u8 *)inAnimation->mName.data, inAnimation->mName.length};
     string animationName = Str8((u8 *)inAnimation->mName.data, inAnimation->mName.length);
@@ -531,51 +543,45 @@ internal void WriteModelToFile(InputModel *model, string directory, string filen
      * Each section is represented by a 4 char tag put in the file. Directly after the tag is a 64-bit
      * uint that says how big the section is (so the OS knows how much to read and such).
      */
-    OptimizeModel(model);
 
     // Gpu memory
-    AssetFileSectionHeader gpu;
+    // AssetFileSectionHeader gpu;
     {
-        gpu.tag = "GPU ";
+        // gpu.tag = "GPU ";
         // gpu.size = sizeof(model->vertices.count) + model->vertices.count * sizeof(model->vertices[0]) +
         //            sizeof(model->indices.count) + model->indices.count * sizeof(model->indices[0]);
-        gpu.numBlocks = 2;
+        // gpu.numBlocks = 2;
 
-        PutStruct(&builder, gpu);
+        // PutStruct(&builder, gpu);
 
-        AssetFileBlockHeader block;
-        block.count = model->vertices.count;
-        block.size  = (u32)(model->vertices.count * sizeof(model->vertices[0]));
-        PutStruct(&builder, block);
-        PutArray(&builder, model->vertices);
-
-        block.count = model->indices.count;
-        block.size  = model->indices.count * sizeof(model->indices[0]);
-        PutStruct(&builder, block);
-        PutArray(&builder, model->indices);
-
-        Printf("Num vertices: %u\n", model->vertices.count);
-        Printf("Num indices: %u\n", model->indices.count);
-    }
-
-    AssetFileSectionHeader temp;
-    {
-        temp.tag       = "TEMP";
-        temp.numBlocks = 1;
-        PutStruct(&builder, temp);
-
-        // Add materials
-        Put(&builder, model->materialCount);
-        for (u32 i = 0; i < model->materialCount; i++)
+        // AssetFileBlockHeader block;
+        // block.count = model->vertices.count;
+        // block.size  = (u32)(model->vertices.count * sizeof(model->vertices[0]));
+        Put(&builder, model->numMeshes);
+        for (u32 i = 0; i < model->numMeshes; i++)
         {
-            Put(&builder, model->materials[i].startIndex);
-            Put(&builder, model->materials[i].onePlusEndIndex);
+            InputMesh *mesh = &model->meshes[i];
+            OptimizeMesh(mesh);
+
+            Put(&builder, mesh->vertexCount);
+            Put(&builder, mesh->vertices, sizeof(mesh->vertices[0]) * mesh->vertexCount);
+
+            Put(&builder, mesh->indexCount);
+            Put(&builder, mesh->indices, sizeof(mesh->indices[0]) * mesh->indexCount);
+
+            Rect3 bounds = GetMeshBounds(mesh);
+            PutStruct(&builder, bounds);
+
+            // TODO: also bounds here
+
+            Printf("Num vertices: %u\n", mesh->vertexCount);
+            Printf("Num indices: %u\n", mesh->indexCount);
+
             for (u32 j = 0; j < TextureType_Count; j++)
             {
-                Put(&builder, Str8Lit("marker"));
-                if (model->materials[i].texture[j].size != 0)
+                if (mesh->material.texture[j].size != 0)
                 {
-                    string output = StrConcat(temp.arena, directory, model->materials[i].texture[j]);
+                    string output = StrConcat(temp.arena, directory, mesh->material.texture[j]);
                     Printf("Writing texture filename: %S\n", output);
                     // Place the pointer to the string data
                     PutU64(&builder, output.size);
@@ -588,7 +594,6 @@ internal void WriteModelToFile(InputModel *model, string directory, string filen
             }
         }
 
-        // Add skeleton dependency
         string output = StrConcat(temp.arena, directory, model->skeleton.filename);
         PutU64(&builder, output.size);
         Put(&builder, output);
@@ -618,17 +623,18 @@ internal void WriteSkeletonToFile(Skeleton *skeleton, string filename)
     Put(&builder, skeleton->count);
     Printf("Num bones: %u\n", skeleton->count);
 
-    string *name;
-    foreach (&skeleton->names, name)
+    for (u32 i = 0; i < skeleton->count; i++)
     {
-        u64 offset = PutPointer(&builder, 8);
+        string *name = &skeleton->names[i];
+        u64 offset   = PutPointer(&builder, 8);
         PutPointerValue(&builder, &name->size);
         Assert(builder.totalSize == offset);
         Put(&builder, *name);
     }
-    PutArray(&builder, skeleton->parents);
-    PutArray(&builder, skeleton->inverseBindPoses);
-    PutArray(&builder, skeleton->transformsToParent);
+
+    PutArray(&builder, skeleton->parents, skeleton->count);
+    PutArray(&builder, skeleton->inverseBindPoses, skeleton->count);
+    PutArray(&builder, skeleton->transformsToParent, skeleton->count);
 
     b32 success = WriteEntireFile(&builder, filename);
     if (!success)
@@ -714,9 +720,9 @@ JOB_CALLBACK(WriteAnimationToFile)
 internal i32 FindNodeIndex(Skeleton *skeleton, string name)
 {
     i32 parentId = -1;
-    string *ptrName;
-    foreach_index (&skeleton->names, ptrName, i)
+    for (u32 i = 0; i < skeleton->count; i++)
     {
+        string *ptrName = &skeleton->names[i];
         if (*ptrName == name)
         {
             parentId = i;
@@ -766,14 +772,383 @@ internal i32 FindMeshNodeInfo(MeshNodeInfoArray *array, string name)
     return id;
 }
 
+//////////////////////////////
+// Optimization
+//
+
+struct VertData
+{
+    i32 *triangleIndices;
+    i32 remainingTriangles;
+    i32 totalTriangles;
+
+    i32 cachePos;
+    f32 score;
+};
+
+struct LRUCache
+{
+    LRUCache *next;
+    VertData *vert;
+    i32 vertIndex;
+};
+
+struct TriData
+{
+    f32 totalScore;
+    i32 vertIndices[3];
+    b8 added;
+};
+
+const f32 lastTriangleScore = 0.75f;
+const f32 cacheDecayPower   = 1.5f;
+const i32 cacheSize         = 32;
+const f32 valenceBoostPower = 0.5f;
+const f32 valenceBoostScale = 2.f;
+
+internal f32 CalculateVertexScore(VertData *data)
+{
+    if (data->remainingTriangles == 0)
+    {
+        return -1.0f;
+    }
+
+    f32 score         = 0.f;
+    i32 cachePosition = data->cachePos;
+    // Vertex used in the last triangle
+    if (cachePosition < 0)
+    {
+    }
+    else
+    {
+        if (cachePosition < 3)
+        {
+            score = lastTriangleScore;
+        }
+        else
+        {
+            Assert(cachePosition < cacheSize);
+            score = 1.f - (cachePosition - 3) * (1.f / (cacheSize - 3));
+            score = Powf(score, cacheDecayPower);
+        }
+    }
+    f32 valenceBoost = Powf((f32)data->remainingTriangles, -valenceBoostPower);
+    score += valenceBoostScale * valenceBoost;
+    return score;
+}
+
+// https://tomforsyth1000.github.io/papers/fast_vert_cache_opt.html
+internal void OptimizeMesh(InputMesh *mesh)
+{
+    TempArena temp = ScratchStart(0, 0);
+
+    InputMaterial *material = &mesh->material;
+    u32 numFaces            = (mesh->indexCount) / 3;
+
+    // TODO: this over allocates. maybe have multiple meshes w/ multiple materials?
+    u32 numVertices = mesh->vertexCount;
+
+    TriData *triData   = PushArray(temp.arena, TriData, numFaces);
+    VertData *vertData = PushArray(temp.arena, VertData, numVertices);
+
+    u32 index = 0;
+
+    // Increment per-vertex triangle count
+    for (u32 i = 0; i < numFaces; i++)
+    {
+        TriData *tri = triData + i;
+
+        for (u32 j = 0; j < 3; j++)
+        {
+            u32 idx             = mesh->indices[index++];
+            tri->vertIndices[j] = idx;
+            vertData[idx].remainingTriangles++;
+        }
+    }
+
+    // Find the score for each vertex, allocate per vertex triangle list
+    for (u32 i = 0; i < numVertices; i++)
+    {
+        VertData *vert = &vertData[i];
+        // Assert(vert->remainingTriangles != 0);
+        vert->cachePos        = -1;
+        vert->triangleIndices = PushArray(temp.arena, i32, vert->remainingTriangles);
+        vert->score           = CalculateVertexScore(vert);
+    }
+
+    // Add triangles to vertex list
+    for (u32 i = 0; i < numFaces; i++)
+    {
+        TriData *tri = triData + i;
+        for (u32 j = 0; j < 3; j++)
+        {
+            u32 idx                                       = tri->vertIndices[j];
+            VertData *vert                                = vertData + idx;
+            vert->triangleIndices[vert->totalTriangles++] = i;
+            tri->totalScore += vert->score;
+        }
+    }
+
+    i32 bestTriangle = -1;
+    f32 bestScore    = -1.f;
+    for (u32 i = 0; i < numFaces; i++)
+    {
+        triData[i].totalScore = vertData[triData[i].vertIndices[0]].score +
+                                vertData[triData[i].vertIndices[1]].score +
+                                vertData[triData[i].vertIndices[2]].score;
+        if (bestTriangle == -1 || triData[i].totalScore > bestScore)
+        {
+            bestScore    = triData[i].totalScore;
+            bestTriangle = i;
+        }
+    }
+
+    // Initialize LRU
+    // 3 extra temp nodes
+    LRUCache *nodes = PushArrayNoZero(temp.arena, LRUCache, cacheSize + 3);
+
+    LRUCache *freeList = 0;
+    LRUCache *lruHead  = 0;
+
+    for (i32 i = 0; i < cacheSize + 3; i++)
+    {
+        StackPush(freeList, nodes + i);
+    }
+
+    u32 *drawOrderList = PushArrayNoZero(temp.arena, u32, numFaces);
+
+    for (u32 i = 0; i < numFaces; i++)
+    {
+        if (bestTriangle == -1)
+        {
+            bestTriangle = -1;
+            bestScore    = -1.f;
+            for (u32 j = 0; j < numFaces; j++)
+            {
+                TriData *tri = triData + j;
+                if (!tri->added && tri->totalScore > bestScore)
+                {
+                    bestScore    = tri->totalScore;
+                    bestTriangle = j;
+                }
+            }
+        }
+        Assert(bestTriangle != -1);
+        drawOrderList[i] = bestTriangle;
+        TriData *tri     = triData + bestTriangle;
+        Assert(tri->added == 0);
+        tri->added = true;
+
+        // For each vertex in the best triangle, update num remaining triangles for the vert, update the per
+        // vertex remaining triangle list
+        for (u32 j = 0; j < 3; j++)
+        {
+            i32 vertIndex  = tri->vertIndices[j];
+            VertData *vert = vertData + vertIndex;
+            for (i32 k = 0; k < vert->totalTriangles; k++)
+            {
+                if (vert->triangleIndices[k] == bestTriangle)
+                {
+                    vert->triangleIndices[k] = -1;
+                    break;
+                }
+            }
+            Assert(vert->remainingTriangles-- > 0);
+
+            // Move corresponding LRU node to the front
+            LRUCache *node = 0;
+            // If not in cache, allocate new node
+            if (vert->cachePos == -1)
+            {
+                node = freeList;
+                StackPop(freeList);
+                node->vert      = vert;
+                node->vertIndex = vertIndex;
+                StackPush(lruHead, node);
+            }
+            // Find node in cache
+            // TODO: use doubly linked list so vert can directly get its LRU node and then remove it?
+            else
+            {
+                node           = lruHead;
+                LRUCache *last = 0;
+                while (node->vertIndex != vertIndex)
+                {
+                    last = node;
+                    node = node->next;
+                }
+                if (node != lruHead)
+                {
+                    Assert(last);
+                    last->next = node->next;
+                    StackPush(lruHead, node);
+                }
+            }
+        }
+        // Iterate over LRU, update positions in cache,
+        LRUCache *node = lruHead;
+        LRUCache *last = 0;
+        u32 pos        = 0;
+
+        u32 triIndicesToUpdate[256];
+        u32 triIndicesToUpdateCount = 0;
+
+        while (node != 0 && pos < cacheSize)
+        {
+            VertData *vert = node->vert;
+            vert->cachePos = pos++;
+            for (i32 j = 0; j < vert->totalTriangles; j++)
+            {
+                u32 triIndex = vert->triangleIndices[j];
+                if (triIndex != -1 && !triData[triIndex].added)
+                {
+                    b8 repeated = 0;
+                    for (u32 count = 0; count < triIndicesToUpdateCount; count++)
+                    {
+                        if (triIndicesToUpdate[count] == triIndex)
+                        {
+                            repeated = 1;
+                            break;
+                        }
+                    }
+                    Assert(triIndicesToUpdateCount < ArrayLength(triIndicesToUpdate));
+                    if (!repeated)
+                    {
+                        triIndicesToUpdate[triIndicesToUpdateCount++] = triIndex;
+                    }
+                }
+            }
+            last        = node;
+            node        = node->next;
+            vert->score = CalculateVertexScore(vert);
+        }
+
+        // Remove extra nodes from cache
+        last->next = 0;
+        while (node != 0)
+        {
+            node->vert->cachePos = -1;
+            node->vert           = 0;
+            last                 = node;
+            node                 = node->next;
+            StackPush(freeList, last);
+        }
+
+        // Of the newly added triangles, find the best one to add next
+        bestTriangle = -1;
+        bestScore    = -1.f;
+        for (u32 j = 0; j < triIndicesToUpdateCount; j++)
+        {
+            u32 triIndex    = triIndicesToUpdate[j];
+            tri             = triData + triIndex;
+            tri->totalScore = 0;
+            for (u32 k = 0; k < 3; k++)
+            {
+                tri->totalScore += vertData[tri->vertIndices[k]].score;
+            }
+            if (tri->totalScore > bestScore)
+            {
+                bestTriangle = triIndex;
+                bestScore    = tri->totalScore;
+            }
+        }
+    }
+
+    // Sanity checks
+    // for (u32 i = 0; i < numVertices; i++)
+    // {
+    //     VertData *vert = vertData + i;
+    //     Assert(vert->remainingTriangles == 0);
+    // }
+
+    // Rewrite indices in the new order
+    u32 indexCount = 0;
+    for (u32 i = 0; i < numFaces; i++)
+    {
+        TriData *tri = triData + drawOrderList[i];
+        for (u32 j = 0; j < 3; j++)
+        {
+            mesh->indices[indexCount++] = tri->vertIndices[j];
+        }
+    }
+
+    // Rearrange the vertices based on the order of the faces
+    MeshVertex *newVertices = PushArrayNoZero(temp.arena, MeshVertex, mesh->vertexCount);
+    // Mapping from old indices to new indices
+    i32 *order = PushArray(temp.arena, i32, mesh->vertexCount);
+    for (u32 i = 0; i < mesh->vertexCount; i++)
+    {
+        order[i] = -1;
+    }
+    u32 count = 0;
+    for (u32 i = 0; i < mesh->indexCount; i++)
+    {
+        u32 vertexIndex = mesh->indices[i];
+        Assert(vertexIndex < mesh->vertexCount);
+        if (order[vertexIndex] == -1)
+        {
+            order[vertexIndex]              = count++;
+            newVertices[order[vertexIndex]] = mesh->vertices[vertexIndex];
+        }
+        mesh->indices[i] = order[vertexIndex];
+    }
+    Assert(count == mesh->vertexCount);
+    for (u32 i = 0; i < count; i++)
+    {
+        mesh->vertices[i] = newVertices[i];
+    }
+
+    ScratchEnd(temp);
+}
+
+//////////////////////////////
+// Bounds
+//
+
+internal Rect3 GetMeshBounds(InputMesh *mesh)
+{
+    Rect3 rect;
+    rect.minP.x = rect.minP.y = rect.minP.z = FLT_MAX;
+    rect.maxP.x = rect.maxP.y = rect.maxP.z = FLT_MIN;
+    for (u32 i = 0; i < mesh->vertexCount; i++)
+    {
+        MeshVertex *vertex = &mesh->vertices[i];
+        if (vertex->position.x < rect.maxP.x)
+        {
+            rect.maxP.x = vertex->position.x;
+        }
+        if (vertex->position.x > rect.minP.x)
+        {
+            rect.minP.x = vertex->position.x;
+        }
+        if (vertex->position.y < rect.maxP.y)
+        {
+            rect.maxP.y = vertex->position.y;
+        }
+        if (vertex->position.y > rect.minP.y)
+        {
+            rect.minP.y = vertex->position.y;
+        }
+        if (vertex->position.z < rect.maxP.z)
+        {
+            rect.maxP.z = vertex->position.z;
+        }
+        if (vertex->position.z > rect.minP.z)
+        {
+            rect.minP.z = vertex->position.z;
+        }
+    }
+    return rect;
+}
+
 // Model processing entry point
 int main(int argc, char *argv[])
 {
-    OS_Init();
-
     ThreadContext tctx = {};
     ThreadContextInitialize(&tctx, 1);
     SetThreadName(Str8Lit("[Main Thread]"));
+
+    OS_Init();
 
     JS_Init();
     // TODO: these are the steps

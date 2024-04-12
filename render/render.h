@@ -178,11 +178,19 @@ struct R_Pass3D
     u32 numGroups;
 };
 
+struct D_Surface
+{
+    VC_Handle vertexBuffer;
+    VC_Handle indexBuffer;
+    Material *material;
+};
+
 struct R_SkinnedMeshParams
 {
     Mat4 transform;
-    AS_Handle model;
+    D_Surface *surfaces;
     Mat4 *skinningMatrices;
+    u32 numSurfaces;
     u32 skinningMatricesCount;
 };
 
@@ -306,6 +314,13 @@ internal void R_UnmapGPUBuffer(GPUBuffer *buffer);
 //////////////////////////////////////////////////////////////////////////////////////////
 // End Section
 //
+
+//////////////////////////////
+// Renderer frontend
+//
+internal void RenderFrameDataInit();
+internal void R_SwapFrameData();
+internal void *R_FrameAlloc(const i32 inSize);
 
 // R_ALLOCATE_TEXTURE_2D(R_AllocateTexture2D);
 // R_DELETE_TEXTURE_2D(R_DeleteTexture2D);

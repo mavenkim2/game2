@@ -1,4 +1,4 @@
-const i32 cNumFrames = 3;
+const i32 cVertCacheNumFrames = 3;
 enum BufferType
 {
     // BufferType_Pos,
@@ -32,7 +32,7 @@ struct VertexCache
 struct VertexCacheState
 {
     VertexCache staticData;
-    VertexCache frameData[cNumFrames];
+    VertexCache frameData[cVertCacheNumFrames];
     i32 currentFrame;
     i32 currentIndex;
     i32 currentDrawIndex;

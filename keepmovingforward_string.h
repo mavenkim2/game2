@@ -127,7 +127,7 @@ inline void ConvertPointerToOffset(u8 *buffer, u64 location, u64 offset);
 #define PutPointerValue(builder, ptr)             Put(builder, ptr, sizeof(*ptr))
 #define PutStruct(builder, s)                     PutPointerValue(builder, &s);
 #define AppendArray(builder, ptr, count)          Put(builder, ptr, sizeof(*ptr) * count)
-#define PutArray(builder, array)                  Put(builder, array.items, sizeof(array.items[0]) * array.count)
+#define PutArray(builder, array, count)           Put((builder), (array), sizeof((array)[0]) * (count));
 
 #define GetPointerValue(tokenizer, ptr) Get(tokenizer, ptr, sizeof(*ptr))
 #define GetPointer(tokenizer, type)     (type *)GetPointer_(tokenizer)

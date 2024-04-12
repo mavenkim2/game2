@@ -10,6 +10,8 @@
 // TODO: this will go away
 
 #define GL_TEXTURE_ARRAY_HANDLE_FLAG 0x8000000000000000
+const i32 cTexturesPerMaterial = 2;
+
 global i32 win32OpenGLAttribs[] = {
     WGL_CONTEXT_MAJOR_VERSION_ARB,
     3,
@@ -189,6 +191,14 @@ internal void R_OpenGL_Init()
     openGL->pboIndex          = 0;
     openGL->firstUsedPboIndex = 0;
 
+    // Texture arrays
+    {
+        // glGetIntegerv(GL_MAX_ARRAY_TEXTURE_LAYERS, &openGL->maxSlices);
+        openGL->maxSlices            = 16;
+        openGL->textureMap.maxSlots  = 32;
+        openGL->textureMap.arrayList = PushArray(openGL->arena, R_Texture2DArray, openGL->textureMap.maxSlots);
+    }
+
     // Shaders
     {
         for (R_ShaderType type = (R_ShaderType)0; type < R_ShaderType_Count; type = (R_ShaderType)(type + 1))
@@ -206,6 +216,29 @@ internal void R_OpenGL_Init()
             openGL->shaders[type].vsLastModified      = OS_GetLastWriteTime(r_opengl_g_vsPath[type]);
             openGL->shaders[type].fsLastModified      = OS_GetLastWriteTime(r_opengl_g_fsPath[type]);
         }
+
+        // Add texture array samplers to programs once
+
+        TempArena temp       = ScratchStart(0, 0);
+        GLint modelProgramId = openGL->shaders[R_ShaderType_SkinnedMesh].id;
+        openGL->glUseProgram(modelProgramId);
+
+        GLint *samplerIds = 0;
+        samplerIds        = PushArray(temp.arena, GLint, openGL->textureMap.maxSlots);
+        for (u32 i = 0; i < openGL->textureMap.maxSlots; i++)
+        {
+            samplerIds[i] = i;
+        }
+
+        GLint textureLoc = openGL->glGetUniformLocation(modelProgramId, "textureMaps");
+        openGL->glUniform1iv(textureLoc, openGL->textureMap.maxSlots, samplerIds);
+
+        GLint uiProgramId = openGL->shaders[R_ShaderType_UI].id;
+        openGL->glUseProgram(uiProgramId);
+        textureLoc = openGL->glGetUniformLocation(uiProgramId, "textureMaps");
+        openGL->glUniform1iv(textureLoc, openGL->textureMap.maxSlots, samplerIds);
+
+        ScratchEnd(temp);
     }
 
     // Texture/buffer queues
@@ -218,14 +251,6 @@ internal void R_OpenGL_Init()
         u32 *data                  = PushStruct(openGL->arena, u32);
         data[0]                    = 0xffffffff;
         openGL->whiteTextureHandle = R_AllocateTexture2D((u8 *)data, 1, 1, R_TexFormat_RGBA8);
-    }
-
-    // Texture arrays
-    {
-        // glGetIntegerv(GL_MAX_ARRAY_TEXTURE_LAYERS, &openGL->maxSlices);
-        openGL->maxSlices            = 16;
-        openGL->textureMap.maxSlots  = 32;
-        openGL->textureMap.arrayList = PushArray(openGL->arena, R_Texture2DArray, openGL->textureMap.maxSlots);
     }
 
     VSyncToggle(1);
@@ -563,7 +588,6 @@ internal void R_BeginFrame(i32 width, i32 height)
     // group->quadCount   = 0;
 }
 
-// TODO: no :)
 internal void R_EndFrame()
 {
 #if WINDOWS
@@ -587,8 +611,7 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
         R_OpenGL_LoadTextures();
     }
 
-    TempArena temp    = ScratchStart(0, 0);
-    GLint *samplerIds = 0;
+    TempArena temp = ScratchStart(0, 0);
     // Initialize texture array (for everyone
     {
         for (u32 i = 0; i < openGL->textureMap.maxSlots; i++)
@@ -596,11 +619,6 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
             R_Texture2DArray *aList = &openGL->textureMap.arrayList[i];
             openGL->glActiveTexture(GL_TEXTURE0 + i);
             glBindTexture(GL_TEXTURE_2D_ARRAY, aList->id);
-        }
-        samplerIds = PushArray(temp.arena, GLint, openGL->textureMap.maxSlots);
-        for (u32 i = 0; i < openGL->textureMap.maxSlots; i++)
-        {
-            samplerIds[i] = i;
         }
     }
 
@@ -674,9 +692,6 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
                 GLint transformLocation = openGL->glGetUniformLocation(id, "transform");
                 openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, transform);
 
-                GLint textureLoc = openGL->glGetUniformLocation(id, "textureMaps");
-                openGL->glUniform1iv(textureLoc, openGL->textureMap.maxSlots, samplerIds);
-
                 openGL->glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, list->numInstances);
                 R_OpenGL_EndShader(R_ShaderType_UI);
                 glDisable(GL_BLEND);
@@ -690,105 +705,87 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
             {
                 GLuint modelProgramId = openGL->shaders[R_ShaderType_SkinnedMesh].id;
                 openGL->glUseProgram(modelProgramId);
+                // TEXTURE MAP
 
                 R_SkinnedMeshParamsList *list = &pass->passSkinned->list;
                 // TODO: remove reference to material in here
                 for (R_SkinnedMeshParamsNode *node = list->first; node != 0; node = node->next)
                 {
                     R_SkinnedMeshParams *params = &node->val;
-                    LoadedModel *model          = GetModel(params->model);
 
-                    GLint vertexApiObject = 0;
-                    {
-                        GPUBuffer *vertexBuffer = VC_GetBufferFromHandle(model->vertexBuffer, BufferType_Vertex);
-                        if (vertexBuffer)
-                        {
-                            vertexApiObject = R_OpenGL_GetBufferFromHandle(vertexBuffer->handle);
-                        }
-                    }
-                    GLint indexApiObject = 0;
-                    {
-                        GPUBuffer *indexBuffer = VC_GetBufferFromHandle(model->indexBuffer, BufferType_Index);
-                        if (indexBuffer)
-                        {
-                            indexApiObject = R_OpenGL_GetBufferFromHandle(indexBuffer->handle);
-                        }
-                    }
-
-                    R_BufferHandle handle = model->vertexBuffer;
-
-                    // R_OpenGL_Buffer *vertexBuffer = R_OpenGL_BufferFromHandle(model->vertexBuffer);
-                    // R_OpenGL_Buffer *indexBuffer  = R_OpenGL_BufferFromHandle(model->indexBuffer);
-                    // openGL->glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer->id);
-                    // openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBuffer->id);
-
-                    openGL->glBindBuffer(GL_ARRAY_BUFFER, vertexApiObject);
-                    openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexApiObject);
-                    R_OpenGL_StartShader(renderState, R_ShaderType_SkinnedMesh, 0);
-
-                    // TODO: uniform blocks so we can just push a struct or something instead of having to do
-                    // these all manually
-
-                    // MVP matrix
-                    Mat4 newTransform       = renderState->transform * params->transform;
-                    GLint transformLocation = openGL->glGetUniformLocation(modelProgramId, "transform");
-                    openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, newTransform.elements[0]);
-
-                    // Skinning matrices
-                    GLint boneTformLocation = openGL->glGetUniformLocation(modelProgramId, "boneTransforms");
-                    openGL->glUniformMatrix4fv(boneTformLocation, params->skinningMatricesCount, GL_FALSE,
-                                               params->skinningMatrices[0].elements[0]);
-
-                    GLint modelLoc = openGL->glGetUniformLocation(modelProgramId, "model");
-                    openGL->glUniformMatrix4fv(modelLoc, 1, GL_FALSE, params->transform.elements[0]);
-
-                    V3 lightPosition  = MakeV3(5, 5, 0);
-                    GLint lightPosLoc = openGL->glGetUniformLocation(modelProgramId, "lightPos");
-                    openGL->glUniform3fv(lightPosLoc, 1, lightPosition.elements);
-
-                    GLint viewPosLoc = openGL->glGetUniformLocation(modelProgramId, "viewPos");
-                    openGL->glUniform3fv(viewPosLoc, 1, renderState->camera.position.elements);
-
-                    // TEXTURE MAP
-                    GLint textureLoc = openGL->glGetUniformLocation(modelProgramId, "textureMaps");
-                    openGL->glUniform1iv(textureLoc, openGL->textureMap.maxSlots, samplerIds);
-
-                    // GLint diffuseMapLoc = openGL->glGetUniformLocation(modelProgramId, "diffuseMap");
-                    // openGL->glUniform1i(diffuseMapLoc, 0);
+                    // TODO: the code assumes that all of the surfaces in the model are bound to the same
+                    // buffer object.
                     //
-                    // GLint normalMapLoc = openGL->glGetUniformLocation(modelProgramId, "normalMap");
-                    // openGL->glUniform1i(normalMapLoc, 1);
 
-                    openGL->glActiveTexture(GL_TEXTURE0);
-                    R_OpenGL_Texture *whiteTexture = R_OpenGL_TextureFromHandle(openGL->whiteTextureHandle);
-                    glBindTexture(GL_TEXTURE_2D, whiteTexture->id);
+                    GLint vertexApiObject = -1;
+                    GLint indexApiObject  = -1;
 
-#define TEXTURES_PER_MATERIAL 2
-                    u32 baseTexture     = 0;
-                    GLsizei *counts     = PushArray(temp.arena, GLsizei, model->materialCount);
-                    void **startIndices = PushArray(temp.arena, void *, model->materialCount);
-                    GLint *baseVertices = PushArray(temp.arena, GLint, model->materialCount);
+                    // TODO: maybe this goes outside of the platform layer
+                    GLsizei *counts     = PushArray(temp.arena, GLsizei, params->numSurfaces);
+                    void **startIndices = PushArray(temp.arena, void *, params->numSurfaces);
+                    GLint *baseVertices = PushArray(temp.arena, GLint, params->numSurfaces);
 
+                    u32 baseTexture = 0;
                     R_TexAddress *addresses =
-                        PushArray(temp.arena, R_TexAddress, model->materialCount * TextureType_Count);
+                        PushArray(temp.arena, R_TexAddress, params->numSurfaces * TextureType_Count);
                     u32 count = 0;
 
-                    VC_Handle vertexHandle = model->vertexBuffer;
-                    VC_Handle indexHandle  = model->indexBuffer;
-
-                    i32 vertexOffset =
-                        (i32)((vertexHandle >> VERTEX_CACHE_OFFSET_SHIFT) & VERTEX_CACHE_OFFSET_MASK) /
-                        sizeof(model->vertices[0]);
-
-                    u64 indexOffset = (u64)((indexHandle >> VERTEX_CACHE_OFFSET_SHIFT) & VERTEX_CACHE_OFFSET_MASK);
-
-                    for (u32 i = 0; i < model->materialCount; i++)
+                    for (u32 i = 0; i < params->numSurfaces; i++)
                     {
-                        Material *material = model->materials + i;
-                        counts[i]          = material->onePlusEndIndex - material->startIndex;
-                        u64 startIndex     = sizeof(material->startIndex) * (material->startIndex) + indexOffset;
-                        startIndices[i]    = (void *)(startIndex);
-                        baseVertices[i]    = vertexOffset;
+                        D_Surface *surface     = &params->surfaces[i];
+                        VC_Handle vertexHandle = surface->vertexBuffer;
+                        VC_Handle indexHandle  = surface->indexBuffer;
+
+                        // 1. Bind the vertex buffer
+                        GPUBuffer *vertexBuffer = VC_GetBufferFromHandle(vertexHandle, BufferType_Vertex);
+                        if (vertexBuffer)
+                        {
+                            GLint newVertexApiObject = R_OpenGL_GetBufferFromHandle(vertexBuffer->handle);
+                            if (vertexApiObject != -1 && newVertexApiObject != vertexApiObject)
+                            {
+                                Assert(!"Surfaces not all bound to the same vertex buffer.");
+                            }
+                            if (vertexApiObject == -1)
+                            {
+                                openGL->glBindBuffer(GL_ARRAY_BUFFER, newVertexApiObject);
+                            }
+                            vertexApiObject = newVertexApiObject;
+                        }
+
+                        GPUBuffer *indexBuffer = VC_GetBufferFromHandle(indexHandle, BufferType_Index);
+                        if (indexBuffer)
+                        {
+                            GLint newIndexApiObject = R_OpenGL_GetBufferFromHandle(indexBuffer->handle);
+                            if (indexApiObject != -1 && newIndexApiObject != indexApiObject)
+                            {
+                                Assert(!"Surfaces not all bound to the same index buffer.");
+                            }
+                            if (indexApiObject == -1)
+                            {
+                                openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, newIndexApiObject);
+                            }
+                            indexApiObject = newIndexApiObject;
+                        }
+
+                        // 2. Set up the multidraw
+
+                        i32 vertexOffset =
+                            (i32)((vertexHandle >> VERTEX_CACHE_OFFSET_SHIFT) & VERTEX_CACHE_OFFSET_MASK) /
+                            sizeof(MeshVertex);
+
+                        u64 indexOffset =
+                            (u64)((indexHandle >> VERTEX_CACHE_OFFSET_SHIFT) & VERTEX_CACHE_OFFSET_MASK);
+
+                        i32 indexSize =
+                            (i32)((indexHandle >> VERTEX_CACHE_SIZE_SHIFT) & VERTEX_CACHE_SIZE_MASK) / sizeof(u32);
+
+                        counts[i]       = indexSize;
+                        startIndices[i] = (void *)(indexOffset);
+                        baseVertices[i] = vertexOffset;
+
+                        // 3. Set up texture addresses for each surface (to be sent to ssbo)
+
+                        Material *material = surface->material;
                         for (u32 j = 0; j < TextureType_Count; j++)
                         {
                             R_Handle textureHandle = GetTextureRenderHandle(material->textureHandles[j]);
@@ -842,8 +839,44 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
                                 }
                             }
                         }
-                        baseTexture += TEXTURES_PER_MATERIAL;
+                        baseTexture += cTexturesPerMaterial;
                     }
+
+                    // R_OpenGL_Buffer *vertexBuffer = R_OpenGL_BufferFromHandle(model->vertexBuffer);
+                    // R_OpenGL_Buffer *indexBuffer  = R_OpenGL_BufferFromHandle(model->indexBuffer);
+                    // openGL->glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer->id);
+                    // openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBuffer->id);
+
+                    R_OpenGL_StartShader(renderState, R_ShaderType_SkinnedMesh, 0);
+
+                    // TODO: uniform blocks so we can just push a struct or something instead of having to do
+                    // these all manually
+
+                    // MVP matrix
+                    Mat4 newTransform       = renderState->transform * params->transform;
+                    GLint transformLocation = openGL->glGetUniformLocation(modelProgramId, "transform");
+                    openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, newTransform.elements[0]);
+
+                    // Skinning matrices
+                    // TODO: UBO or SSBO this
+                    GLint boneTformLocation = openGL->glGetUniformLocation(modelProgramId, "boneTransforms");
+                    openGL->glUniformMatrix4fv(boneTformLocation, params->skinningMatricesCount, GL_FALSE,
+                                               params->skinningMatrices[0].elements[0]);
+
+                    GLint modelLoc = openGL->glGetUniformLocation(modelProgramId, "model");
+                    openGL->glUniformMatrix4fv(modelLoc, 1, GL_FALSE, params->transform.elements[0]);
+
+                    // TODO: these don't have to be specified per draw. Use SSBO or UBO
+                    V3 lightPosition  = MakeV3(5, 5, 0);
+                    GLint lightPosLoc = openGL->glGetUniformLocation(modelProgramId, "lightPos");
+                    openGL->glUniform3fv(lightPosLoc, 1, lightPosition.elements);
+
+                    GLint viewPosLoc = openGL->glGetUniformLocation(modelProgramId, "viewPos");
+                    openGL->glUniform3fv(viewPosLoc, 1, renderState->camera.position.elements);
+
+                    openGL->glActiveTexture(GL_TEXTURE0);
+                    R_OpenGL_Texture *whiteTexture = R_OpenGL_TextureFromHandle(openGL->whiteTextureHandle);
+                    glBindTexture(GL_TEXTURE_2D, whiteTexture->id);
 
                     static GLuint ssbo = 0;
                     if (ssbo == 0)
@@ -851,6 +884,7 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
                         openGL->glGenBuffers(1, &ssbo);
                         openGL->glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, ssbo);
                     }
+
                     openGL->glBindBuffer(GL_SHADER_STORAGE_BUFFER, ssbo);
                     openGL->glBufferData(GL_SHADER_STORAGE_BUFFER, count * sizeof(R_TexAddress), addresses,
                                          GL_DYNAMIC_DRAW);
@@ -858,7 +892,7 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
                     // openGL->glMultiDrawElements(GL_TRIANGLES, counts, GL_UNSIGNED_INT, startIndices,
                     //                             model->materialCount);
                     openGL->glMultiDrawElementsBaseVertex(GL_TRIANGLES, counts, GL_UNSIGNED_INT, startIndices,
-                                                          model->materialCount, baseVertices);
+                                                          params->numSurfaces, baseVertices);
                 }
                 R_OpenGL_EndShader(R_ShaderType_SkinnedMesh);
                 break;

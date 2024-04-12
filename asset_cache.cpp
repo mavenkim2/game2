@@ -272,62 +272,7 @@ internal void AS_EntryPoint(void *p)
         asset->lastModified = attributes.lastModified;
 
 #if 0
-        AS_Slot *slot = &as_state->assetSlots[(hash & (as_state->numSlots - 1))];
-        AS_Node *n        = 0;
-        // Find node with matching filename
-        BeginRMutex(&slot->mutex);
-        for (AS_Node *node = slot->first; node != 0; node = node->next)
-        {
-            if (node->asset.hash == hash)
-            {
-                n = node;
-                break;
-            }
-        }
-        // EndRMutex(&slot->mutex);
-
-        // If node doesn't exist, add it to the hash table
-        if (n == 0)
-        {
-            TicketMutexScope(&as_state->mutex)
-            {
-                n = as_state->freeNode;
-                if (n == 0)
-                {
-                    n = PushStruct(as_state->arena, AS_Node);
-                }
-                else
-                {
-                    StackPop(as_state->freeNode);
-                }
-                n->asset.path = PushStr8Copy(as_state->arena, path);
-            }
-
-            BeginWMutex(&slot->mutex);
-            QueuePush(slot->first, slot->last, n);
-            EndWMutex(&slot->mutex);
-
-            n->asset.hash = hash;
-        }
-        // If node does exist, then it needs to be hot reloaded.
-        else
-        {
-            // Don't hot load if the texture is loading.
-            if (AtomicCompareExchangeU32(&n->asset.status, AS_Status_Unloaded, AS_Status_Loaded) !=
-                AS_Status_Loaded)
-            {
-                continue;
-            }
-            // Puts on free list
-            FreeBlocks(n);
-        }
-
-        // Update the node
-        n->asset.lastModified = attributes.lastModified;
-#endif
-
         u64 readCursor = 0;
-#if 0
         struct AssetFileHeader
         {
             AssetFileSectionHeader headers[4];
@@ -425,6 +370,7 @@ internal void AS_HotloadEntryPoint(void *p)
 //
 // TODO: create a pack file so you don't have to check the file extension
 // assets should either be loaded directly into main memory, or into a temp storage
+
 JOB_CALLBACK(AS_LoadAsset)
 {
     AS_Asset *asset = (AS_Asset *)data;
@@ -445,76 +391,67 @@ JOB_CALLBACK(AS_LoadAsset)
         tokenizer.input.size = asset->size;
         tokenizer.cursor     = tokenizer.input.str;
 
-        GetPointerValue(&tokenizer, &model->vertexCount);
-        GetPointerValue(&tokenizer, &model->indexCount);
+        GetPointerValue(&tokenizer, &model->numMeshes);
+        // TODO: LEAK (all pusharrays/structs in this method)
+        BeginTicketMutex(&as_state->allocator.ticketMutex);
+        model->meshes = PushArray(as_state->allocator.arena, Mesh, model->numMeshes);
+        EndTicketMutex(&as_state->allocator.ticketMutex);
 
-        // TODO: if the data is freed, this instantly goes bye bye. use a handle.
-        // what I'm thinking is that the memory itself is wrapped in a structure that is pointed to by a
-        // handle, instead of just pointing to the asset node which contains information you don't really need?
-        model->vertices = GetTokenCursor(&tokenizer, MeshVertex);
-        Advance(&tokenizer, sizeof(model->vertices[0]) * model->vertexCount);
-        model->indices = GetTokenCursor(&tokenizer, u32);
-        Advance(&tokenizer, sizeof(model->indices[0]) * model->indexCount);
-
-        // Materials
-        GetPointerValue(&tokenizer, &model->materialCount);
-        // Printf("material count: %u\n", model->materialCount);
-        model->materials = PushArray(arena, Material, model->materialCount);
-        for (u32 i = 0; i < model->materialCount; i++)
+        for (u32 i = 0; i < model->numMeshes; i++)
         {
-            Material *material = model->materials + i;
-            GetPointerValue(&tokenizer, &material->startIndex);
-            GetPointerValue(&tokenizer, &material->onePlusEndIndex);
-            // Printf("material start index: %u\n", material->startIndex);
-            // Printf("material end index: %u\n", material->onePlusEndIndex);
+            Mesh *mesh = &model->meshes[i];
+            GetPointerValue(&tokenizer, &mesh->surface.vertexCount);
+            mesh->surface.vertices = GetTokenCursor(&tokenizer, MeshVertex);
+            Advance(&tokenizer, sizeof(mesh->surface.vertices[0]) * mesh->surface.vertexCount);
+
+            GetPointerValue(&tokenizer, &mesh->surface.indexCount);
+            mesh->surface.indices = GetTokenCursor(&tokenizer, u32);
+            Advance(&tokenizer, sizeof(mesh->surface.indices[0]) * mesh->surface.indexCount);
+
+            GetPointerValue(&tokenizer, &mesh->surface.bounds);
+
+            Material *material = &mesh->material;
             for (u32 j = 0; j < TextureType_Count; j++)
             {
-                char marker[6];
-                Get(&tokenizer, &marker, 6);
-                // Printf("Marker: %s\n", marker);
-
                 string path;
-                path.str = GetPointer(&tokenizer, u8);
-                // Printf("Offset: %u\n", path.str);
-                if (path.str != tokenizer.input.str)
+                GetPointerValue(&tokenizer, &path.size);
+                if (path.size != 0)
                 {
-                    GetPointerValue(&tokenizer, &path.size);
+                    path.str = GetTokenCursor(&tokenizer, u8);
                     Advance(&tokenizer, (u32)path.size);
-                    // Printf("Size: %u\n", path.size);
-                    model->materials[i].textureHandles[j] = AS_GetAsset(path);
-                    // Printf("Texture Type: %u, File: %S\n", j, path);
+                    material->textureHandles[j] = AS_GetAsset(path);
+                    Printf("Texture Type: %u, File: %S\n", j, path);
                 }
-                else
-                {
-                    // Printf("Texture Type: %u Not found\n", j);
-                }
-                // Printf("\n");
             }
         }
 
         // Skeleton
         {
             string path;
-            path.str = GetPointer(&tokenizer, u8);
             GetPointerValue(&tokenizer, &path.size);
-            Advance(&tokenizer, (u32)path.size);
-
-            // Printf("Skeleton file name: %S\n", path);
-            model->skeleton = AS_GetAsset(path);
+            if (path.size != 0)
+            {
+                path.str = GetTokenCursor(&tokenizer, u8);
+                Advance(&tokenizer, (u32)path.size);
+                model->skeleton = AS_GetAsset(path);
+                Printf("Skeleton file name: %S\n", path);
+            }
         }
 
         Assert(EndOfBuffer(&tokenizer));
 
-        // TODO: these should be part of megabuffers
-        // model->vertexBuffer = R_AllocateBuffer(R_BufferType_Vertex, model->vertices,
-        //                                        sizeof(model->vertices[0]) * model->vertexCount);
-        // model->indexBuffer =
-        //     R_AllocateBuffer(R_BufferType_Index, model->indices, sizeof(model->indices[0]) * model->indexCount);
-        model->vertexBuffer = VC_AllocateBuffer(BufferType_Vertex, BufferUsage_Static, model->vertices,
-                                                sizeof(model->vertices[0]) * model->vertexCount);
+        // Load vertices and indices of each mesh to he GPU
+        for (u32 i = 0; i < model->numMeshes; i++)
+        {
+            Mesh *mesh = &model->meshes[i];
+            mesh->surface.vertexBuffer =
+                VC_AllocateBuffer(BufferType_Vertex, BufferUsage_Static, mesh->surface.vertices,
+                                  sizeof(mesh->surface.vertices[0]) * mesh->surface.vertexCount);
 
-        model->indexBuffer = VC_AllocateBuffer(BufferType_Index, BufferUsage_Static, model->indices,
-                                               sizeof(model->indices[0]) * model->indexCount);
+            mesh->surface.indexBuffer =
+                VC_AllocateBuffer(BufferType_Index, BufferUsage_Static, mesh->surface.indices,
+                                  sizeof(mesh->surface.indices[0]) * mesh->surface.indexCount);
+        }
 
         WriteBarrier();
         asset->status = AS_Status_Loaded;
@@ -565,7 +502,9 @@ JOB_CALLBACK(AS_LoadAsset)
             // pointer location. For now, I am storing the string data right after the offset and size, but
             // this could theoretically be moved elsewhere.
             // TODO: get rid of these types of allocations
-            skeleton.names = PushArray(arena, string, skeleton.count);
+            BeginTicketMutex(&as_state->allocator.ticketMutex);
+            skeleton.names = PushArray(as_state->allocator.arena, string, skeleton.count);
+            EndTicketMutex(&as_state->allocator.ticketMutex);
             for (u32 i = 0; i < count; i++)
             {
                 string *boneName = &skeleton.names[i];
