@@ -440,6 +440,7 @@ JOB_CALLBACK(AS_LoadAsset)
 
         Assert(EndOfBuffer(&tokenizer));
 
+        Init(&model->bounds);
         // Load vertices and indices of each mesh to he GPU
         for (u32 i = 0; i < model->numMeshes; i++)
         {
@@ -451,6 +452,7 @@ JOB_CALLBACK(AS_LoadAsset)
             mesh->surface.indexBuffer =
                 VC_AllocateBuffer(BufferType_Index, BufferUsage_Static, mesh->surface.indices,
                                   sizeof(mesh->surface.indices[0]) * mesh->surface.indexCount);
+            AddBounds(model->bounds, mesh->surface.bounds);
         }
 
         WriteBarrier();

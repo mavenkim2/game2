@@ -558,7 +558,8 @@ internal void G_Update(f32 dt)
         SkinModelToAnimation(&g_state->animPlayer, g_state->model, tforms1, skinningMatrices1);
         DebugDrawSkeleton(g_state->model, transform1, skinningMatrices1);
         // SkinModelToBindPose(&g_state->model, finalTransforms);
-        D_PushModel(g_state->model, transform1, skinningMatrices1, skeleton->count);
+        Mat4 mvp1 = renderState->transform * transform1;
+        D_PushModel(g_state->model, transform1, &mvp1, skinningMatrices1, skeleton->count);
 
         // Model 2
         translate       = Translate4(V3{0, 0, 30});
@@ -572,7 +573,8 @@ internal void G_Update(f32 dt)
         // PlayCurrentAnimation(g_state->worldArena, &g_state->animPlayer, dt, tforms2);
         // SkinModelToAnimation(&g_state->animPlayer, &g_state->model2, tforms2, finalTransforms2);
         SkinModelToBindPose(g_state->model2, skinningMatrices2);
-        D_PushModel(g_state->model2, transform2, skinningMatrices2, skeleton2->count);
+        Mat4 mvp2 = renderState->transform * transform2;
+        D_PushModel(g_state->model2, transform2, &mvp2, skinningMatrices2, skeleton2->count);
         // D_PushText(g_state->font, {0, 30}, 64, Str8Lit("What is going on?"));
         D_CollateDebugRecords();
 

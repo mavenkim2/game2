@@ -236,26 +236,91 @@ internal void D_EndFrame()
     R_SwapFrameData();
 }
 
+internal b32 D_IsInBounds(Rect3 bounds, Mat4 *mvp)
+{
+    V4 p;
+    p.w      = 1;
+    int bits = 0;
+    // Loop over every point on the AABB bounding box
+    for (u32 i = 0; i < 2; i++)
+    {
+        p.x = bounds[i][0];
+        for (u32 j = 0; j < 2; j++)
+        {
+            p.y = bounds[j][1];
+            for (u32 k = 0; k < 2; k++)
+            {
+                p.z = bounds[k][2];
+
+                // Find point in homogeneous clip space
+                V4 test = *mvp * p;
+
+                // Compare to the AABB
+                const f32 minW = -test.w;
+                const f32 maxW = test.w;
+                const f32 minZ = minW;
+
+                if (p.x > minW)
+                {
+                    bits |= (1 << 0);
+                }
+                if (p.x < maxW)
+                {
+                    bits |= (1 << 1);
+                }
+                if (p.y > minW)
+                {
+                    bits |= (1 << 2);
+                }
+                if (p.y < maxW)
+                {
+                    bits |= (1 << 3);
+                }
+                if (p.z > minZ)
+                {
+                    bits |= (1 << 4);
+                }
+                if (p.z < maxW)
+                {
+                    bits |= (1 << 5);
+                }
+            }
+        }
+    }
+    // If any bits not set, the model isn't in bounds
+    b32 result = (bits == 63);
+    return result;
+}
+
 // so i want to have a ring buffer between the game and the renderer. simple enough. let's start with single
 // threaded, similar to what we have now. right now the way the renderer works is that there's a permanent render
 // state global, and each frame the simulation/game sends data to the render pass to use, etc etc
 // yadda yadda.
-internal void D_PushModel(AS_Handle loadedModel, Mat4 transform, Mat4 *skinningMatrices = 0,
+internal void D_PushModel(AS_Handle loadedModel, Mat4 transform, Mat4 *mvp, Mat4 *skinningMatrices = 0,
                           u32 skinningMatricesCount = 0)
 {
     RenderState *state = renderState;
     if (!IsModelHandleNil(loadedModel))
     {
+        LoadedModel *model = GetModel(loadedModel);
+
+        // Frustum cull;
+        // TODO: the bounds for the model are currently wrong because of gltf
+        // (for some reason the model is massive and then shrunk down by a skinning matrix :)
+        DrawBox(model->bounds, {1, 0, 0, 1});
+        if (!D_IsInBounds(model->bounds, mvp))
+        {
+            return;
+        }
+
         if (skinningMatricesCount)
         {
             R_PassSkinnedMesh *pass       = R_GetPassFromKind(R_PassType_SkinnedMesh)->passSkinned;
             R_SkinnedMeshParamsNode *node = PushStruct(d_state->arena, R_SkinnedMeshParamsNode);
-            LoadedModel *model            = GetModel(loadedModel);
-            // TODO: frustum cull, probably using mvp matrix
 
             node->val.numSurfaces = model->numMeshes;
             D_Surface *surfaces   = (D_Surface *)R_FrameAlloc(node->val.numSurfaces * sizeof(*surfaces));
-            node->val.surfaces     = surfaces;
+            node->val.surfaces    = surfaces;
 
             for (u32 i = 0; i < model->numMeshes; i++)
             {
@@ -435,6 +500,13 @@ internal void DrawBox(V3 offset, V3 scale, V4 color)
     R_PrimitiveInst *inst = (R_PrimitiveInst *)R_BatchListPush(&group->batchList, 256);
     inst->color           = color;
     inst->transform       = transform;
+}
+
+internal void DrawBox(Rect3 rect, V4 color)
+{
+    V3 offset = (rect.minP + rect.maxP) / 2;
+    V3 scale  = rect.maxP - offset;
+    DrawBox(offset, scale, color);
 }
 
 internal void DrawSphere(V3 offset, f32 radius, V4 color)

@@ -211,8 +211,9 @@ struct Mesh
 struct LoadedModel
 {
     AS_Handle skeleton;
-    u32 numMeshes;
     Mesh *meshes;
+    u32 numMeshes;
+    Rect3 bounds;
 
     // MeshVertex *vertices;
     // u32 *indices;

@@ -26,6 +26,11 @@
 #define thread_global __thread
 #endif
 
+//////////////////////////////
+// SSE
+//
+#define SSE42
+
 // NOTE: so LSP doesn't grey out preproc directives, remove this when shippin
 #define INTERNAL    1
 #define UNOPTIMIZED 1

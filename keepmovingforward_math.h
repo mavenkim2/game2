@@ -2,6 +2,7 @@
 #define KEEPMOVINGFORWARD_MATH_H
 
 #include <math.h>
+#include <float.h>
 #include "crack.h"
 #ifdef LSP_INCLUDE
 #include "keepmovingforward_common.h"
@@ -161,6 +162,11 @@ union V3
         V2 yz;
     };
     f32 elements[3];
+
+    f32 operator[](const i32 index)
+    {
+        return elements[index];
+    }
 };
 
 union V3I32
@@ -318,6 +324,12 @@ union Rect3
         f32 maxY;
         f32 maxZ;
     };
+    V3 elements[2];
+
+    V3 operator[](const i32 index)
+    {
+        return elements[index];
+    }
 };
 
 union Quat
@@ -1036,7 +1048,6 @@ internal Mat4 Identity()
 internal V4 Transform(Mat4 a, V4 b)
 {
     V4 result;
-#define SSE42
 #ifdef SSE42
     __m128 c0 = _mm_load_ps((f32 *)(&a.a1));
     __m128 c1 = _mm_load_ps((f32 *)(&a.b1));
@@ -1079,20 +1090,62 @@ internal V4 Transform(Mat4 a, V4 b)
     return result;
 }
 
-internal V3 Transform(Mat4 m, V3 v)
+internal V4 Transform(Mat4 m, V3 v)
 {
-    V3 result;
+    V4 result;
     result.x = m.columns[0].x * v.x;
     result.y = m.columns[0].y * v.x;
     result.z = m.columns[0].z * v.x;
+    result.w = m.columns[0].w * v.x;
 
     result.x += m.columns[1].x * v.y;
     result.y += m.columns[1].y * v.y;
     result.z += m.columns[1].z * v.y;
+    result.w += m.columns[1].w * v.y;
 
     result.x += m.columns[2].x * v.z;
     result.y += m.columns[2].y * v.z;
     result.z += m.columns[2].z * v.z;
+    result.w += m.columns[2].w * v.z;
+
+    return result;
+}
+
+internal V4 Transform(Mat4 *m, V3 v)
+{
+    V4 result;
+#ifdef SSE42
+    __m128 c0 = _mm_load_ps((f32 *)(&m->a1));
+    __m128 c1 = _mm_load_ps((f32 *)(&m->b1));
+    __m128 c2 = _mm_load_ps((f32 *)(&m->c1));
+    __m128 c3 = _mm_load_ps((f32 *)(&m->d1));
+
+    __m128 vx = _mm_set1_ps(v.x);
+    __m128 vy = _mm_set1_ps(v.y);
+    __m128 vz = _mm_set1_ps(v.z);
+
+    __m128 vec = _mm_mul_ps(c0, vx);
+    vec        = _mm_add_ps(vec, _mm_mul_ps(c1, vy));
+    vec        = _mm_add_ps(vec, _mm_mul_ps(c2, vz));
+
+    _mm_store_ps((f32 *)&result.elements[0], vec);
+
+#else
+    result.x = m->columns[0].x * v.x;
+    result.y = m->columns[0].y * v.x;
+    result.z = m->columns[0].z * v.x;
+    result.w = m->columns[0].w * v.x;
+
+    result.x += m->columns[1].x * v.y;
+    result.y += m->columns[1].y * v.y;
+    result.z += m->columns[1].z * v.y;
+    result.w += m->columns[1].w * v.y;
+
+    result.x += m->columns[2].x * v.z;
+    result.y += m->columns[2].y * v.z;
+    result.z += m->columns[2].z * v.z;
+    result.w += m->columns[2].w * v.z;
+#endif
 
     return result;
 }
@@ -1105,7 +1158,7 @@ inline V4 operator*(Mat4 a, V4 b)
 
 inline V3 operator*(Mat4 a, V3 b)
 {
-    V3 result = Transform(a, b);
+    V3 result = Transform(a, b).xyz;
     return result;
 }
 
@@ -1402,6 +1455,12 @@ inline V2 GetRectCenter(Rect2 a)
 /*
  * RECTANGLE 3
  */
+inline void Init(Rect3 *a)
+{
+    a->minP.x = a->minP.y = a->minP.z = FLT_MAX;
+    a->maxP.x = a->maxP.y = a->maxP.z = FLT_MIN;
+}
+
 inline Rect3 Rect3BottomLeft(V3 pos, V3 size)
 {
     Rect3 result;
@@ -1437,6 +1496,17 @@ inline b8 AlmostEqual(V3 a, V3 b, f32 epsilon)
         result = 1;
     }
     return result;
+}
+
+inline void AddBounds(Rect3 &a, Rect3 &b)
+{
+    a.minX = a[0][0] < b[0][0] ? a[0][0] : b[0][0];
+    a.minY = a[0][1] < b[0][1] ? a[0][1] : b[0][1];
+    a.minZ = a[0][2] < b[0][2] ? a[0][2] : b[0][2];
+
+    a.maxX = a[1][0] > b[1][0] ? a[1][0] : b[1][0];
+    a.maxY = a[1][1] > b[1][1] ? a[1][1] : b[1][1];
+    a.maxZ = a[1][2] > b[1][2] ? a[1][2] : b[1][2];
 }
 
 /*

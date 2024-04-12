@@ -1108,34 +1108,33 @@ internal void OptimizeMesh(InputMesh *mesh)
 internal Rect3 GetMeshBounds(InputMesh *mesh)
 {
     Rect3 rect;
-    rect.minP.x = rect.minP.y = rect.minP.z = FLT_MAX;
-    rect.maxP.x = rect.maxP.y = rect.maxP.z = FLT_MIN;
+    Init(&rect);
     for (u32 i = 0; i < mesh->vertexCount; i++)
     {
         MeshVertex *vertex = &mesh->vertices[i];
-        if (vertex->position.x < rect.maxP.x)
-        {
-            rect.maxP.x = vertex->position.x;
-        }
-        if (vertex->position.x > rect.minP.x)
+        if (vertex->position.x < rect.minP.x)
         {
             rect.minP.x = vertex->position.x;
         }
-        if (vertex->position.y < rect.maxP.y)
+        if (vertex->position.x > rect.maxP.x)
         {
-            rect.maxP.y = vertex->position.y;
+            rect.maxP.x = vertex->position.x;
         }
-        if (vertex->position.y > rect.minP.y)
+        if (vertex->position.y < rect.minP.y)
         {
             rect.minP.y = vertex->position.y;
         }
-        if (vertex->position.z < rect.maxP.z)
+        if (vertex->position.y > rect.maxP.y)
         {
-            rect.maxP.z = vertex->position.z;
+            rect.maxP.y = vertex->position.y;
         }
-        if (vertex->position.z > rect.minP.z)
+        if (vertex->position.z < rect.minP.z)
         {
             rect.minP.z = vertex->position.z;
+        }
+        if (vertex->position.z > rect.maxP.z)
+        {
+            rect.maxP.z = vertex->position.z;
         }
     }
     return rect;

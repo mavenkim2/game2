@@ -206,7 +206,7 @@ internal void R_OpenGL_Init()
             string preprocess = Str8Lit("");
             switch (type)
             {
-                case R_ShaderType_Instanced3D: preprocess = Str8Lit("#define instanced 1\n"); break;
+                case R_ShaderType_Instanced3D: preprocess = Str8Lit("#define INSTANCED 1\n"); break;
                 case R_ShaderType_StaticMesh: continue;
                 default: break;
             }
@@ -439,144 +439,132 @@ struct RenderData
     u32 datumCount;
 };
 
-// i really just have to be ok with writing code that isn't perfectly 100% optimal perfect
-// actually nevermind, each frame when an entities data is submitted, the "delta" stuff (positions,
-// transformations, etc.) meaning data that visually changes is submitted. this information i guess is then
-// sorted by the entities id or something, and then sent to the renderer. the renderer then steps through
-// this newly submitted state and the old state, and if the entity id matches, it interpolates the data
-// using a lerp. if there's a teleportation or something, then instead of lerping, the entities "personal"
-// generation id is incremented (is this the same generation id as the one used to allocate/destroy
-// entities???????? i think a separate one). so basically if the entity id matches, it then checks the personal id
-// or whatever term you want, and then uses that to determine the interpolation pattern (lerp vs discrete).
-// finally this submits the data to the render which somehow uses this to do good in the world. god knows we need
-// something.
-
 // basically what this will do is take the render state as it is and flatten it so that it can be memcopied or
 // something
 
 // THIS IS DONE IN THE SIMULATION TO SUBMIT A RENDER STATE
 
-#if 0
-// this contains static data used in the game. this doesn't change from frame to frame
-enum R_RenderObjectType
-{
-    R_RenderType_SkinnedModel,
-};
-
-// contains data for skinned models
-struct R_RenderData
-{
-
-};
-
-typedef void R_ExtractData(
-struct R_RenderFeature 
-{
-     
-};
-
-// takes data from skinning matrices/game state/dynamic shit or something and then
+// #if 0
+// // this contains static data used in the game. this doesn't change from frame to frame
+// enum R_RenderObjectType
+// {
+//     R_RenderType_SkinnedModel,
+// };
 //
-// map individual data to a render feature or something, where the render feature defines entry points for
-// A. what data is taken from the game state
-// B. what data is put in the atomic ring buffer
-// C. how data is shoved into the renderer and how it is rendererd :)
-
-internal void R_SubmitRenderPass(RenderState *state)
-{
-    // TODO: maybe also sort here some how
-    AtomicRing *ring = &shared->g2rRing;
-
-    R_Pass3D *pass3D = state->passes[R_PassType_3D];
-    for (u32 i = 0; i < pass3D->groups.numGroups; i++)
-    {
-        R_Batch3DParams *params = &pass3D->groups[i].params;
-
-        params->
-    }
-
-    for (R_PassType type = (R_PassType)0; type < R_PassType_Count; type = (R_PassType)(type + 1))
-    {
-        state->passes[type];
-    }
-    pass->
-}
-
-internal u8 *R_Interpolate(Arena *arena, RenderState *oldState, RenderState *newState, f32 dt)
-{
-    u8 *pushBuffer = PushArray(arena, u8, newState->size);
-    u64 cursor     = 0;
-
-    f32 oldTimestamp = oldState->timestamp;
-    f32 newTimestamp = newState->timestamp;
-
-    for (u32 i = 0; i < ArrayLength(state->objects); i++)
-    {
-        RenderData *oldData = &oldState->objects[i].data;
-        RenderData *newData = &newState->objects[i].data;
-
-        // but this might not be true and for good reason. what if a thing gains attributes or something?
-        // who even knows
-        Assert(oldData->numPieces == newData->numPieces);
-        for (u32 datumIndex = 0; datumIndex < oldData->numPieces; datumIndex++)
-        {
-            RenderDatum *oldDatum = &oldData->piece[datumIndex];
-            RenderDatum *newDatum = &newData->piece[datumIndex];
-
-            u64 datumSize = 0;
-            switch (newDatum->type)
-            {
-                case DatumType_AnimationTransform:
-                {
-                    AnimationTransform *oldTform = (AnimationTransform *)oldDatum;
-                    AnimationTransform *newTform = (AnimationTransform *)newDatum;
-
-                    AnimationTransform result = Lerp(oldTform, newTform, dt);
-
-                    MemoryCopy(pushBuffer + cursor, &result, sizeof(result));
-                    cursor += AlignPow2(sizeof(result), 8);
-
-                    break;
-                }
-                case DatumType_Position:
-                {
-                    V3 *oldPosition = (V3 *)oldDatum;
-                    V3 *newPosition = (V3 *)newDatum;
-
-                    V3 result = Lerp(oldPosition, newPosition, dt);
-                    datumSize = sizeof(AnimationTransform);
-
-                    MemoryCopy(pushBuffer + cursor, &result, sizeof(result));
-                    cursor += AlignPow2(sizeof(result), 8);
-                    break;
-                }
-                default: Assert(!"Not valid data");
-            }
-        }
-    }
-    return pushBuffer;
-}
-
-internal void R_SubmitFrame(RenderState *state, f32 accumulator, f32 dt)
-{
-    f32 alpha = accumulator / dt;
-
-    R_Interpolate(lastState, newState, alpha);
-    // TODO: Ideally this is just a memcopy.
-}
-
-internal void R_EntryPoint(void *p)
-{
-    for (; shared->running;)
-    {
-        // StartAtomicRead(&shared->g2rRing, sizeof(u64));
-        // u64 readPos = shared->readPos;
-        // u64 size;
-        // RingReadStruct(
-        // R_EndFrame(state);
-    }
-}
-#endif
+// // contains data for skinned models
+// struct R_RenderData
+// {
+//
+// };
+//
+// typedef void R_ExtractData(
+// struct R_RenderFeature 
+// {
+//      
+// };
+//
+// // takes data from skinning matrices/game state/dynamic shit or something and then
+// //
+// // map individual data to a render feature or something, where the render feature defines entry points for
+// // A. what data is taken from the game state
+// // B. what data is put in the atomic ring buffer
+// // C. how data is shoved into the renderer and how it is rendererd :)
+//
+// internal void R_SubmitRenderPass(RenderState *state)
+// {
+//     // TODO: maybe also sort here some how
+//     AtomicRing *ring = &shared->g2rRing;
+//
+//     R_Pass3D *pass3D = state->passes[R_PassType_3D];
+//     for (u32 i = 0; i < pass3D->groups.numGroups; i++)
+//     {
+//         R_Batch3DParams *params = &pass3D->groups[i].params;
+//
+//         params->
+//     }
+//
+//     for (R_PassType type = (R_PassType)0; type < R_PassType_Count; type = (R_PassType)(type + 1))
+//     {
+//         state->passes[type];
+//     }
+//     pass->
+// }
+//
+// internal u8 *R_Interpolate(Arena *arena, RenderState *oldState, RenderState *newState, f32 dt)
+// {
+//     u8 *pushBuffer = PushArray(arena, u8, newState->size);
+//     u64 cursor     = 0;
+//
+//     f32 oldTimestamp = oldState->timestamp;
+//     f32 newTimestamp = newState->timestamp;
+//
+//     for (u32 i = 0; i < ArrayLength(state->objects); i++)
+//     {
+//         RenderData *oldData = &oldState->objects[i].data;
+//         RenderData *newData = &newState->objects[i].data;
+//
+//         // but this might not be true and for good reason. what if a thing gains attributes or something?
+//         // who even knows
+//         Assert(oldData->numPieces == newData->numPieces);
+//         for (u32 datumIndex = 0; datumIndex < oldData->numPieces; datumIndex++)
+//         {
+//             RenderDatum *oldDatum = &oldData->piece[datumIndex];
+//             RenderDatum *newDatum = &newData->piece[datumIndex];
+//
+//             u64 datumSize = 0;
+//             switch (newDatum->type)
+//             {
+//                 case DatumType_AnimationTransform:
+//                 {
+//                     AnimationTransform *oldTform = (AnimationTransform *)oldDatum;
+//                     AnimationTransform *newTform = (AnimationTransform *)newDatum;
+//
+//                     AnimationTransform result = Lerp(oldTform, newTform, dt);
+//
+//                     MemoryCopy(pushBuffer + cursor, &result, sizeof(result));
+//                     cursor += AlignPow2(sizeof(result), 8);
+//
+//                     break;
+//                 }
+//                 case DatumType_Position:
+//                 {
+//                     V3 *oldPosition = (V3 *)oldDatum;
+//                     V3 *newPosition = (V3 *)newDatum;
+//
+//                     V3 result = Lerp(oldPosition, newPosition, dt);
+//                     datumSize = sizeof(AnimationTransform);
+//
+//                     MemoryCopy(pushBuffer + cursor, &result, sizeof(result));
+//                     cursor += AlignPow2(sizeof(result), 8);
+//                     break;
+//                 }
+//                 default: Assert(!"Not valid data");
+//             }
+//         }
+//     }
+//     return pushBuffer;
+// }
+//
+// internal void R_SubmitFrame(RenderState *state, f32 accumulator, f32 dt)
+// {
+//     f32 alpha = accumulator / dt;
+//
+//     R_Interpolate(lastState, newState, alpha);
+//     // TODO: Ideally this is just a memcopy.
+// }
+//
+// internal void R_EntryPoint(void *p)
+// {
+//     for (; shared->running;)
+//     {
+//         // StartAtomicRead(&shared->g2rRing, sizeof(u64));
+//         // u64 readPos = shared->readPos;
+//         // u64 size;
+//         // RingReadStruct(
+//         // R_EndFrame(state);
+//     }
+// }
+// #endif
 
 internal void R_BeginFrame(i32 width, i32 height)
 {

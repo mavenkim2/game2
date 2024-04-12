@@ -326,7 +326,9 @@ internal void *R_FrameAlloc(const i32 inSize);
 // R_DELETE_TEXTURE_2D(R_DeleteTexture2D);
 // R_ALLOCATE_BUFFER(R_AllocateBuffer);
 
-internal void D_PushModel(AS_Handle loadedModel, Mat4 transform, Mat4 *skinningMatrices,
+internal void DrawBox(V3 offset, V3 scale, V4 color);
+internal void DrawBox(Rect3 rect, V4 color);
+internal void D_PushModel(AS_Handle loadedModel, Mat4 transform, Mat4 *mvp, Mat4 *skinningMatrices,
                           u32 skinningMatricesCount);
 internal void D_PushTextF(AS_Handle font, V2 startPos, f32 size, char *fmt, ...);
 inline R_Pass *R_GetPassFromKind(R_PassType type);
