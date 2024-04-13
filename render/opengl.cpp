@@ -171,7 +171,7 @@ internal void R_OpenGL_Init()
         // openGL->glGenBuffers(1, &openGL->scratchInstance);
 
         openGL->glBindBuffer(GL_ARRAY_BUFFER, openGL->scratchVbo);
-        openGL->scratchVboSize = kilobytes(64);
+        openGL->scratchVboSize = kilobytes(128);
         openGL->glBufferData(GL_ARRAY_BUFFER, openGL->scratchVboSize, 0, GL_DYNAMIC_DRAW);
 
         openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, openGL->scratchEbo);
@@ -458,9 +458,9 @@ struct RenderData
 // };
 //
 // typedef void R_ExtractData(
-// struct R_RenderFeature 
+// struct R_RenderFeature
 // {
-//      
+//
 // };
 //
 // // takes data from skinning matrices/game state/dynamic shit or something and then
@@ -937,6 +937,7 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
                         }
                         case R_Primitive_Points:
                         {
+                            glPointSize(5.f);
                             openGL->glBindBuffer(GL_ARRAY_BUFFER, openGL->scratchVbo);
                             u32 totalOffset = 0;
                             for (R_BatchNode *node = group->batchList.first; node != 0; node = node->next)

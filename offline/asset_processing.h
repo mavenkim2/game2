@@ -56,6 +56,7 @@ struct InputMesh
     u32 indexCount;
 
     InputMaterial material;
+    Rect3 bounds;
 };
 
 struct InputModel
@@ -183,3 +184,4 @@ struct AnimationJobWriteData
 
 internal void OptimizeMesh(InputMesh *mesh);
 internal Rect3 GetMeshBounds(InputMesh *mesh);
+internal void SkinModelToBindPose(const InputModel *inModel, Mat4 *outFinalTransforms);

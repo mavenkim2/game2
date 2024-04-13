@@ -307,7 +307,10 @@ internal void D_PushModel(AS_Handle loadedModel, Mat4 transform, Mat4 *mvp, Mat4
         // Frustum cull;
         // TODO: the bounds for the model are currently wrong because of gltf
         // (for some reason the model is massive and then shrunk down by a skinning matrix :)
-        DrawBox(model->bounds, {1, 0, 0, 1});
+        Rect3 bounds = model->bounds;
+        bounds.minP  = transform * bounds.minP;
+        bounds.maxP  = transform * bounds.maxP;
+        DrawBox(bounds, {1, 0, 0, 1});
         if (!D_IsInBounds(model->bounds, mvp))
         {
             return;
@@ -478,7 +481,7 @@ internal void DrawArrow(V3 from, V3 to, V4 color, f32 size)
         {
             up = {1, 0, 0};
         }
-        V3 perp = Normalize(Cross(Cross(dir, up), dir));
+        V3 perp = size * Normalize(Cross(Cross(dir, up), dir));
 
         DrawLine(to - dir + perp, to, color);
         DrawLine(to - dir - perp, to, color);
@@ -519,7 +522,7 @@ internal void DrawSphere(V3 offset, f32 radius, V4 color)
     inst->transform       = transform;
 }
 
-internal void DebugDrawSkeleton(AS_Handle model, Mat4 transform, Mat4 *skinningMatrices)
+internal void DebugDrawSkeleton(AS_Handle model, Mat4 transform, Mat4 *skinningMatrices, b32 showAxes = 0)
 {
     LoadedSkeleton *skeleton = GetSkeletonFromModel(model);
     loopi(0, skeleton->count)
@@ -527,12 +530,26 @@ internal void DebugDrawSkeleton(AS_Handle model, Mat4 transform, Mat4 *skinningM
         u32 parentId = skeleton->parents[i];
         if (parentId != -1)
         {
-            V3 childTranslation = GetTranslation(skinningMatrices[i] * Inverse(skeleton->inverseBindPoses[i]));
+            Mat4 bindPoseMatrix = Inverse(skeleton->inverseBindPoses[i]);
+            V3 childTranslation = GetTranslation(skinningMatrices[i] * bindPoseMatrix);
             V3 childPoint       = transform * childTranslation;
+
             V3 parentTranslation =
                 GetTranslation(skinningMatrices[parentId] * Inverse(skeleton->inverseBindPoses[parentId]));
             V3 parentPoint = transform * parentTranslation;
-            DrawLine(parentPoint, childPoint, Color_Green);
+            DrawLine(childPoint, parentPoint, Color_Green);
+
+            if (showAxes)
+            {
+                V3 axisPoint = Normalize(bindPoseMatrix.columns[0].xyz) + childPoint;
+                DrawArrow(childPoint, axisPoint, Color_Red, .2f);
+
+                axisPoint = Normalize(bindPoseMatrix.columns[1].xyz) + childPoint;
+                DrawArrow(childPoint, axisPoint, Color_Green, .2f);
+
+                axisPoint = Normalize(bindPoseMatrix.columns[2].xyz) + childPoint;
+                DrawArrow(childPoint, axisPoint, Color_Blue, .2f);
+            }
         }
     }
 }

@@ -546,7 +546,7 @@ internal void G_Update(f32 dt)
 
         renderState->camera = g_state->camera;
         // Model 1
-        Mat4 translate  = Translate4(V3{0, 0, 5});
+        Mat4 translate  = Translate4(V3{0, 20, 5});
         Mat4 scale      = Scale(V3{0.5f, 0.5f, 0.5f});
         Mat4 rotate     = Rotate4(MakeV3(1, 0, 0), PI / 2);
         Mat4 transform1 = translate * rotate * scale;
@@ -557,7 +557,7 @@ internal void G_Update(f32 dt)
         PlayCurrentAnimation(g_state->permanentArena, &g_state->animPlayer, dt, tforms1);
         SkinModelToAnimation(&g_state->animPlayer, g_state->model, tforms1, skinningMatrices1);
         DebugDrawSkeleton(g_state->model, transform1, skinningMatrices1);
-        // SkinModelToBindPose(&g_state->model, finalTransforms);
+        // SkinModelToBindPose(&g_state->model, skinningMatrices1);
         Mat4 mvp1 = renderState->transform * transform1;
         D_PushModel(g_state->model, transform1, &mvp1, skinningMatrices1, skeleton->count);
 

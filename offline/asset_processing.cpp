@@ -96,49 +96,40 @@ internal void *LoadAndWriteModel(void *ptr, Arena *arena)
 
     MeshNodeInfoArray infoArray;
     infoArray.items = PushArrayNoZero(scratch.arena, MeshNodeInfo, 200);
+    // TODO; hardcoded
     infoArray.cap   = 200;
     infoArray.count = 0;
     ProcessNode(scratch.arena, &infoArray, scene->mRootNode);
 
-    // TODO: this is very janky because assimp doesn't have a continuity in count b/t
-    // scene nodes, bones, and animation channels. probably need to get far away from assimp
-    // asap
+    Mat4 rootTransform;
     {
-        u32 shift = 0;
+        u32 skeletonCount = 0;
+        b32 rootNodeFound = 0;
+        Assert(infoArray.count >= model.skeleton.count);
+        for (u32 i = 0; i < infoArray.count; i++)
         {
-            MeshNodeInfo *info;
-            foreach (&infoArray, info)
+            MeshNodeInfo *info = &infoArray.items[i]; // + shift];
+            // TODO: if this becomes slow in future, generate a hash table that maps names of skeleton joints
+            // to their indices within the skeleton
+            i32 id = FindNodeIndex(&model.skeleton, info->name);
+            if (id == -1)
             {
-                string name    = info->name;
-                b32 inSkeleton = false;
-                for (u32 i = 0; i < model.skeleton.count; i++)
-                {
-                    if (name == model.skeleton.names[i])
-                    {
-                        inSkeleton = true;
-                        break;
-                    }
-                }
-                if (inSkeleton)
-                {
-                    break;
-                }
-                shift++;
+                Printf("Skipped node name: %S\n", info->name);
+                continue;
             }
-        }
-        u32 parentCount    = 0;
-        u32 transformCount = 0;
-        for (u32 i = 0; i < model.skeleton.count; i++)
-        {
-            MeshNodeInfo *info = &infoArray.items[i + shift];
-            string parentName  = info->parentName;
-            i32 parentId       = -1;
-            parentId           = FindNodeIndex(&model.skeleton, parentName);
 
-            model.skeleton.parents[parentCount++] = parentId;
-            Mat4 parentTransform                  = info->transformToParent;
+            skeletonCount++;
+            Assert(info->hasParent);
+            string parentName = info->parentName;
+            i32 parentId      = FindNodeIndex(&model.skeleton, parentName);
+
+            model.skeleton.parents[id] = parentId;
+            Mat4 parentTransform       = info->transformToParent;
+            // Root node
             if (parentId == -1)
             {
+                // NOTE: there should only be one node in the skeleton that has no parent.
+                Assert(rootNodeFound == 0);
                 parentId = FindMeshNodeInfo(&infoArray, parentName);
                 while (parentId != -1)
                 {
@@ -146,9 +137,40 @@ internal void *LoadAndWriteModel(void *ptr, Arena *arena)
                     parentTransform = info->transformToParent * parentTransform;
                     parentId        = FindMeshNodeInfo(&infoArray, info->parentName);
                 }
+                rootTransform = parentTransform;
+                rootNodeFound = 1;
             }
-            model.skeleton.transformsToParent[transformCount++] = parentTransform;
+            model.skeleton.transformsToParent[id] = parentTransform;
         }
+        Assert(skeletonCount == model.skeleton.count);
+        Assert(model.skeleton.parents[0] == -1);
+    }
+    Printf("Root ");
+    Print(rootTransform);
+    Printf("IBP ");
+    Print(model.skeleton.inverseBindPoses[0]);
+
+    Mat4 *bindPosePalette = PushArray(scratch.arena, Mat4, model.skeleton.count);
+    SkinModelToBindPose(&model, bindPosePalette);
+
+    // TODO: sigh
+    for (u32 i = 0; i < model.numMeshes; i++)
+    {
+        Rect3 bounds;
+        Init(&bounds);
+        InputMesh *mesh = &model.meshes[i];
+        for (u32 j = 0; j < mesh->vertexCount; j++)
+        {
+            MeshVertex *vertex  = &mesh->vertices[j];
+            Mat4 skinningMatrix = bindPosePalette[vertex->boneIds[0]] * vertex->boneWeights[0];
+            for (u32 k = 1; k < 4; k++)
+            {
+                skinningMatrix += bindPosePalette[vertex->boneIds[k]] * vertex->boneWeights[k];
+            }
+            V3 newPos = skinningMatrix * vertex->position;
+            AddBounds(bounds, newPos);
+        }
+        mesh->bounds = bounds;
     }
 
     JS_Counter counter = {};
@@ -569,8 +591,7 @@ internal void WriteModelToFile(InputModel *model, string directory, string filen
             Put(&builder, mesh->indexCount);
             Put(&builder, mesh->indices, sizeof(mesh->indices[0]) * mesh->indexCount);
 
-            Rect3 bounds = GetMeshBounds(mesh);
-            PutStruct(&builder, bounds);
+            PutStruct(&builder, mesh->bounds);
 
             // TODO: also bounds here
 
@@ -719,17 +740,17 @@ JOB_CALLBACK(WriteAnimationToFile)
 //
 internal i32 FindNodeIndex(Skeleton *skeleton, string name)
 {
-    i32 parentId = -1;
+    i32 id = -1;
     for (u32 i = 0; i < skeleton->count; i++)
     {
         string *ptrName = &skeleton->names[i];
         if (*ptrName == name)
         {
-            parentId = i;
+            id = i;
             break;
         }
     }
-    return parentId;
+    return id;
 }
 
 internal Mat4 ConvertAssimpMatrix4x4(aiMatrix4x4t<f32> m)
@@ -1138,6 +1159,35 @@ internal Rect3 GetMeshBounds(InputMesh *mesh)
         }
     }
     return rect;
+}
+
+internal void SkinModelToBindPose(const InputModel *inModel, Mat4 *outFinalTransforms)
+{
+    TempArena temp           = ScratchStart(0, 0);
+    const Skeleton *skeleton = &inModel->skeleton;
+    Mat4 *transformToParent  = PushArray(temp.arena, Mat4, skeleton->count);
+    i32 previousId           = -1;
+
+    for (i32 id = 0; id < (i32)skeleton->count; id++)
+    {
+        Mat4 parentTransform = skeleton->transformsToParent[id];
+        i32 parentId         = skeleton->parents[id];
+        if (parentId == -1)
+        {
+            transformToParent[id] = parentTransform;
+        }
+        else
+        {
+            Assert(!IsZero(transformToParent[parentId]));
+            transformToParent[id] = transformToParent[parentId] * parentTransform;
+        }
+
+        Assert(id > previousId);
+        previousId = id;
+        // TODO: there's probably a way of representing this in non matrix form somehow
+        outFinalTransforms[id] = transformToParent[id] * skeleton->inverseBindPoses[id];
+    }
+    ScratchEnd(temp);
 }
 
 // Model processing entry point

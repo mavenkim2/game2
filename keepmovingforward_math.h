@@ -1031,6 +1031,13 @@ inline Mat3 operator*(Mat3 a, Mat3 b)
  * MATRIX 4X4
  */
 
+inline void Print(Mat4 &matrix)
+{
+    Printf("Matrix:\n%f %f %f %f\n%f %f %f %f\n%f %f %f %f\n%f %f %f %f\n", matrix.a1, matrix.b1, matrix.c1,
+           matrix.d1, matrix.a2, matrix.b2, matrix.c2, matrix.d2, matrix.a3, matrix.b3, matrix.c3, matrix.d3,
+           matrix.a4, matrix.b4, matrix.c4, matrix.d4);
+}
+
 inline Mat4 MakeMat4(f32 a)
 {
     Mat4 result = {{
@@ -1096,17 +1103,16 @@ internal V4 Transform(Mat4 m, V3 v)
     result.x = m.columns[0].x * v.x;
     result.y = m.columns[0].y * v.x;
     result.z = m.columns[0].z * v.x;
-    result.w = m.columns[0].w * v.x;
 
     result.x += m.columns[1].x * v.y;
     result.y += m.columns[1].y * v.y;
     result.z += m.columns[1].z * v.y;
-    result.w += m.columns[1].w * v.y;
 
     result.x += m.columns[2].x * v.z;
     result.y += m.columns[2].y * v.z;
     result.z += m.columns[2].z * v.z;
-    result.w += m.columns[2].w * v.z;
+
+    result += m.columns[3];
 
     return result;
 }
@@ -1127,6 +1133,7 @@ internal V4 Transform(Mat4 *m, V3 v)
     __m128 vec = _mm_mul_ps(c0, vx);
     vec        = _mm_add_ps(vec, _mm_mul_ps(c1, vy));
     vec        = _mm_add_ps(vec, _mm_mul_ps(c2, vz));
+    vec        = _mm_add_ps(vec, c3);
 
     _mm_store_ps((f32 *)&result.elements[0], vec);
 
@@ -1134,17 +1141,16 @@ internal V4 Transform(Mat4 *m, V3 v)
     result.x = m->columns[0].x * v.x;
     result.y = m->columns[0].y * v.x;
     result.z = m->columns[0].z * v.x;
-    result.w = m->columns[0].w * v.x;
 
     result.x += m->columns[1].x * v.y;
     result.y += m->columns[1].y * v.y;
     result.z += m->columns[1].z * v.y;
-    result.w += m->columns[1].w * v.y;
 
     result.x += m->columns[2].x * v.z;
     result.y += m->columns[2].y * v.z;
     result.z += m->columns[2].z * v.z;
-    result.w += m->columns[2].w * v.z;
+
+    result += m->columns[3];
 #endif
 
     return result;
@@ -1191,10 +1197,10 @@ inline Mat4 operator/(Mat4 a, float b)
 inline Mat4 operator*(Mat4 a, float b)
 {
     Mat4 result;
-    result.columns[0] *= b;
-    result.columns[1] *= b;
-    result.columns[2] *= b;
-    result.columns[3] *= b;
+    result.columns[0] = a.columns[0] * b;
+    result.columns[1] = a.columns[1] * b;
+    result.columns[2] = a.columns[2] * b;
+    result.columns[3] = a.columns[3] * b;
     return result;
 }
 
@@ -1405,6 +1411,15 @@ inline V3 GetTranslation(Mat4 m)
     return result;
 }
 
+inline Mat4 &operator+=(Mat4 &a, Mat4 &b)
+{
+    a.columns[0] = a.columns[0] + b.columns[0];
+    a.columns[1] = a.columns[1] + b.columns[1];
+    a.columns[2] = a.columns[2] + b.columns[2];
+    a.columns[3] = a.columns[3] + b.columns[3];
+    return a;
+}
+
 /*
  * RECTANGLE 2
  */
@@ -1507,6 +1522,17 @@ inline void AddBounds(Rect3 &a, Rect3 &b)
     a.maxX = a[1][0] > b[1][0] ? a[1][0] : b[1][0];
     a.maxY = a[1][1] > b[1][1] ? a[1][1] : b[1][1];
     a.maxZ = a[1][2] > b[1][2] ? a[1][2] : b[1][2];
+}
+
+inline void AddBounds(Rect3 &a, V3 p)
+{
+    a.minX = a[0][0] < p.x ? a[0][0] : p.x;
+    a.minY = a[0][1] < p.y ? a[0][1] : p.y;
+    a.minZ = a[0][2] < p.z ? a[0][2] : p.z;
+
+    a.maxX = a[1][0] > p.x ? a[1][0] : p.x;
+    a.maxY = a[1][1] > p.y ? a[1][1] : p.y;
+    a.maxZ = a[1][2] > p.z ? a[1][2] : p.z;
 }
 
 /*
