@@ -7,7 +7,8 @@
 #include "vertex_cache.h"
 #endif
 
-// TODO: this will go away
+global const i32 GL_ATTRIB_INDEX_POSITION = 0;
+global const i32 GL_ATTRIB_INDEX_NORMAL   = 1;
 
 #define GL_TEXTURE_ARRAY_HANDLE_FLAG 0x8000000000000000
 const i32 cTexturesPerMaterial = 2;
@@ -24,16 +25,16 @@ global i32 win32OpenGLAttribs[] = {
     0,
 };
 
-global readonly i32 r_sizeFromFormatTable[R_TexFormat_Count] = {1, 4, 4};
+global readonly i32 r_sizeFromFormatTable[R_TexFormat_Count] = {1, 2, 3, 4, 3, 4};
 
 global string r_opengl_g_globalsPath = Str8Lit("src/shaders/global.glsl");
 
-global string r_opengl_g_vsPath[] = {Str8Lit("src/shaders/ui.vs"), Str8Lit("src/shaders/basic_3d.vs"),
+global string r_opengl_g_vsPath[] = {Str8Lit("src/shaders/ui.vs"),       Str8Lit("src/shaders/basic_3d.vs"),
                                      Str8Lit("src/shaders/basic_3d.vs"), Str8Lit(""),
-                                     Str8Lit("src/shaders/model.vs")};
-global string r_opengl_g_fsPath[] = {Str8Lit("src/shaders/ui.fs"), Str8Lit("src/shaders/basic_3d.fs"),
+                                     Str8Lit("src/shaders/model.vs"),    Str8Lit("src/shaders/terrain.vs")};
+global string r_opengl_g_fsPath[] = {Str8Lit("src/shaders/ui.fs"),       Str8Lit("src/shaders/basic_3d.fs"),
                                      Str8Lit("src/shaders/basic_3d.fs"), Str8Lit(""),
-                                     Str8Lit("src/shaders/model.fs")};
+                                     Str8Lit("src/shaders/model.fs"),    Str8Lit("src/shaders/terrain.fs")};
 
 internal void VSyncToggle(b32 enable)
 {
@@ -400,10 +401,13 @@ internal void R_Win32_OpenGL_Init(OS_Handle handle)
 
         OpenGLGetInfo();
 
-        openGL->defaultTextureFormat = GL_RGBA8;
+        openGL->srgb8TextureFormat  = GL_RGB8;
+        openGL->srgba8TextureFormat = GL_RGBA8;
+
         if (openGLInfo.textureExt)
         {
-            openGL->defaultTextureFormat = GL_SRGB8_ALPHA8;
+            openGL->srgb8TextureFormat  = GL_SRGB8;
+            openGL->srgba8TextureFormat = GL_SRGB8_ALPHA8;
         }
     }
     else
@@ -630,7 +634,51 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     }
 
-    // RENDER MODEL
+    // Height map
+    for (R_Command *command = renderState->head; command != 0; command = (R_Command *)command->next)
+    {
+        switch (command->type)
+        {
+            case R_CommandType_Null: continue;
+            case R_CommandType_Heightmap:
+            {
+                Heightmap *heightmap = &((R_CommandHeightMap *)command)->heightmap;
+                // GPUBuffer *buffer    = VC_GetBufferFromHandle(heightmap->vertexHandle, BufferType_Vertex);
+                // if (buffer)
+                // {
+                //     openGL->glBindBuffer(GL_ARRAY_BUFFER, R_OpenGL_GetBufferFromHandle(buffer->handle));
+                // }
+                //
+                // buffer = VC_GetBufferFromHandle(heightmap->indexHandle, BufferType_Index);
+                // if (buffer)
+                // {
+                //     openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, R_OpenGL_GetBufferFromHandle(buffer->handle));
+                // }
+                GLint id = openGL->shaders[R_ShaderType_Terrain].id;
+                openGL->glUseProgram(id);
+
+                openGL->glBindBuffer(GL_ARRAY_BUFFER, (GLuint)heightmap->vertexHandle);
+                openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, (GLuint)heightmap->indexHandle);
+
+                GLint transformLocation = openGL->glGetUniformLocation(id, "transform");
+                openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, renderState->transform.elements[0]);
+
+                openGL->glVertexAttribPointer(GL_ATTRIB_INDEX_POSITION, 3, GL_FLOAT, GL_FALSE, sizeof(V3), 0);
+                openGL->glEnableVertexAttribArray(GL_ATTRIB_INDEX_POSITION);
+
+                // i32 indexSize =
+                //     (i32)((heightmap->indexHandle >> VERTEX_CACHE_SIZE_SHIFT) & VERTEX_CACHE_SIZE_MASK) /
+                //     sizeof(u32);
+                // u64 indexOffset = (heightmap->indexHandle >> VERTEX_CACHE_OFFSET_SHIFT) &
+                // VERTEX_CACHE_OFFSET_MASK;
+
+                glDrawElements(GL_TRIANGLE_STRIP, (heightmap->width * (heightmap->height - 1)) * 2,
+                               GL_UNSIGNED_INT, 0);
+
+                break;
+            }
+        }
+    }
 
     for (R_PassType type = (R_PassType)0; type < R_PassType_Count; type = (R_PassType)(type + 1))
     {
@@ -658,17 +706,17 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
                     totalOffset += node->val.byteCount;
                 }
 
-                openGL->glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(R_RectInst),
+                openGL->glVertexAttribPointer(GL_ATTRIB_INDEX_POSITION, 2, GL_FLOAT, GL_FALSE, sizeof(R_RectInst),
                                               (void *)Offset(R_RectInst, pos));
                 openGL->glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(R_RectInst),
                                               (void *)Offset(R_RectInst, scale));
                 openGL->glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, sizeof(R_RectInst),
                                               (void *)Offset(R_RectInst, handle));
-                openGL->glEnableVertexAttribArray(0);
+                openGL->glEnableVertexAttribArray(GL_ATTRIB_INDEX_POSITION);
                 openGL->glEnableVertexAttribArray(1);
                 openGL->glEnableVertexAttribArray(2);
 
-                openGL->glVertexAttribDivisor(0, 1);
+                openGL->glVertexAttribDivisor(GL_ATTRIB_INDEX_POSITION, 1);
                 openGL->glVertexAttribDivisor(1, 1);
                 openGL->glVertexAttribDivisor(2, 1);
 
@@ -1342,18 +1390,14 @@ internal void R_OpenGL_LoadTextures()
         {
             R_Texture2DArray *array = &openGL->textureMap.arrayList[op->texSlice.hashIndex];
             Assert(array);
-            GLenum glFormat = R_OpenGL_GetFormat(array->topology.internalFormat);
+            GLenum glFormat = R_OpenGL_GetInternalFormat(array->topology.internalFormat);
             if (array->id == 0)
             {
                 glGenTextures(1, &array->id);
                 glBindTexture(GL_TEXTURE_2D_ARRAY, array->id);
-#if 0
-                openGL->glTexImage3D(GL_TEXTURE_2D_ARRAY, array->topology.levels, glFormat,
-                array->topology.width,
-                                     array->topology.height, array->depth, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0);
-#endif
                 openGL->glTexStorage3D(GL_TEXTURE_2D_ARRAY, array->topology.levels, glFormat,
                                        array->topology.width, array->topology.height, array->depth);
+
                 glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
                 glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
                 glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_REPEAT);
@@ -1398,9 +1442,10 @@ internal void R_OpenGL_LoadTextures()
 
                 openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, GetPbo(op->pboIndex));
 
-                GLenum glFormat = R_OpenGL_GetFormat(texture->format);
+                GLenum glFormat       = R_OpenGL_GetFormat(texture->format);
+                GLenum internalFormat = R_OpenGL_GetInternalFormat(texture->format);
 
-                glTexImage2D(GL_TEXTURE_2D, 0, glFormat, texture->width, texture->height, 0, GL_RGBA,
+                glTexImage2D(GL_TEXTURE_2D, 0, internalFormat, texture->width, texture->height, 0, glFormat,
                              GL_UNSIGNED_BYTE, 0);
 
                 // TODO: pass these in as params
@@ -1417,17 +1462,13 @@ internal void R_OpenGL_LoadTextures()
                 u32 slice               = op->texSlice.slice;
                 R_Texture2DArray *array = &openGL->textureMap.arrayList[op->texSlice.hashIndex];
 
-                GLenum format;
-                switch (array->topology.internalFormat)
-                {
-                    case R_TexFormat_R8: format = GL_RED; break;
-                    default: format = GL_RGBA; break;
-                }
+                GLenum format = R_OpenGL_GetFormat(array->topology.internalFormat);
                 glBindTexture(GL_TEXTURE_2D_ARRAY, array->id);
                 openGL->glBindBuffer(GL_PIXEL_UNPACK_BUFFER, GetPbo(op->pboIndex));
                 // Printf("%u\n", glGetError());
                 openGL->glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, slice, array->topology.width,
                                         array->topology.height, 1, format, GL_UNSIGNED_BYTE, 0);
+                free(op->data);
                 // Printf("%u\n", glGetError());
                 Printf("Width: %u\nHeight: %u\nFormat: %u\n\n", array->topology.width, array->topology.height,
                        format);
@@ -1708,3 +1749,7 @@ internal R_OpenGL_Texture *R_OpenGL_TextureFromHandle(R_Handle handle)
     }
     return texture;
 }
+
+//////////////////////////////
+// Buffer objects
+//

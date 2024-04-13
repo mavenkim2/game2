@@ -1097,34 +1097,14 @@ internal V4 Transform(Mat4 a, V4 b)
     return result;
 }
 
-internal V4 Transform(Mat4 m, V3 v)
-{
-    V4 result;
-    result.x = m.columns[0].x * v.x;
-    result.y = m.columns[0].y * v.x;
-    result.z = m.columns[0].z * v.x;
-
-    result.x += m.columns[1].x * v.y;
-    result.y += m.columns[1].y * v.y;
-    result.z += m.columns[1].z * v.y;
-
-    result.x += m.columns[2].x * v.z;
-    result.y += m.columns[2].y * v.z;
-    result.z += m.columns[2].z * v.z;
-
-    result += m.columns[3];
-
-    return result;
-}
-
-internal V4 Transform(Mat4 *m, V3 v)
+internal V4 Transform(Mat4 &m, V3 v)
 {
     V4 result;
 #ifdef SSE42
-    __m128 c0 = _mm_load_ps((f32 *)(&m->a1));
-    __m128 c1 = _mm_load_ps((f32 *)(&m->b1));
-    __m128 c2 = _mm_load_ps((f32 *)(&m->c1));
-    __m128 c3 = _mm_load_ps((f32 *)(&m->d1));
+    __m128 c0 = _mm_load_ps((f32 *)(&m.a1));
+    __m128 c1 = _mm_load_ps((f32 *)(&m.b1));
+    __m128 c2 = _mm_load_ps((f32 *)(&m.c1));
+    __m128 c3 = _mm_load_ps((f32 *)(&m.d1));
 
     __m128 vx = _mm_set1_ps(v.x);
     __m128 vy = _mm_set1_ps(v.y);
@@ -1138,19 +1118,19 @@ internal V4 Transform(Mat4 *m, V3 v)
     _mm_store_ps((f32 *)&result.elements[0], vec);
 
 #else
-    result.x = m->columns[0].x * v.x;
-    result.y = m->columns[0].y * v.x;
-    result.z = m->columns[0].z * v.x;
+    result.x = m.columns[0].x * v.x;
+    result.y = m.columns[0].y * v.x;
+    result.z = m.columns[0].z * v.x;
 
-    result.x += m->columns[1].x * v.y;
-    result.y += m->columns[1].y * v.y;
-    result.z += m->columns[1].z * v.y;
+    result.x += m.columns[1].x * v.y;
+    result.y += m.columns[1].y * v.y;
+    result.z += m.columns[1].z * v.y;
 
-    result.x += m->columns[2].x * v.z;
-    result.y += m->columns[2].y * v.z;
-    result.z += m->columns[2].z * v.z;
+    result.x += m.columns[2].x * v.z;
+    result.y += m.columns[2].y * v.z;
+    result.z += m.columns[2].z * v.z;
 
-    result += m->columns[3];
+    result += m.columns[3];
 #endif
 
     return result;

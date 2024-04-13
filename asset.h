@@ -34,6 +34,14 @@ struct Texture
     b32 loaded;
 };
 
+struct Heightmap
+{
+    VC_Handle vertexHandle;
+    VC_Handle indexHandle;
+    i32 width;
+    i32 height;
+};
+
 struct Iter
 {
     u8 *cursor;
@@ -277,5 +285,6 @@ inline f32 DecompressRotationChannel(u16 q)
     f32 result = DecompressFloat((u32)q, -1.f, 1.f, 16u);
     return result;
 }
+internal Heightmap CreateHeightmap(string filename);
 
 #endif

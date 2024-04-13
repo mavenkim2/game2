@@ -539,18 +539,69 @@ JOB_CALLBACK(AS_LoadAsset)
         {
             asset->texture.type = TextureType_Normal;
         }
-        R_TexFormat format = R_TexFormat_RGBA8;
-        switch (asset->texture.type)
-        {
-            case TextureType_Diffuse: format = R_TexFormat_SRGB; break;
-            case TextureType_Normal:
-            default: format = R_TexFormat_RGBA8; break;
-        }
+        // else if (FindSubstring(asset->path, Str8Lit("height"), 0, MatchFlag_CaseInsensitive) != aset->path.size)
+        // {
+        // }
+
         i32 width, height, nComponents;
         void *texData =
-            stbi_load_from_memory(AS_GetMemory(asset), (i32)asset->size, &width, &height, &nComponents, 4);
+            stbi_load_from_memory(AS_GetMemory(asset), (i32)asset->size, &width, &height, &nComponents, 0);
+
+        Assert(nComponents >= 1);
+
+        R_TexFormat format;
+        switch (nComponents)
+        {
+            case 1:
+            {
+                format = R_TexFormat_R8;
+                break;
+            }
+            case 3:
+            {
+                switch (asset->texture.type)
+                {
+                    case TextureType_Diffuse:
+                    {
+                        format = R_TexFormat_SRGB8;
+                        break;
+                    }
+                    case TextureType_Normal:
+                    {
+                        format = R_TexFormat_RGB8;
+                        break;
+                    }
+                    default: Assert(!"Invalid default");
+                };
+                break;
+            }
+            case 4:
+            {
+                switch (asset->texture.type)
+                {
+                    case TextureType_Diffuse:
+                    {
+                        format = R_TexFormat_SRGBA8;
+                        break;
+                    }
+                    case TextureType_Normal:
+                    {
+                        format = R_TexFormat_RGBA8;
+                        break;
+                    }
+                    default: Assert(!"Invalid default");
+                };
+                break;
+            }
+            default: Assert(!"Invalid default");
+        }
+
         asset->texture.width  = width;
         asset->texture.height = height;
+
+        // switch (nComponents):
+        // {
+        // }
 
         asset->texture.handle = R_AllocateTexture(texData, width, height, format);
         asset->status         = AS_Status_Loaded;

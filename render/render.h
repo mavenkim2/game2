@@ -36,8 +36,11 @@ struct Model;
 enum R_TexFormat
 {
     R_TexFormat_R8,
+    R_TexFormat_RG8,
+    R_TexFormat_RGB8,
     R_TexFormat_RGBA8,
-    R_TexFormat_SRGB,
+    R_TexFormat_SRGB8,
+    R_TexFormat_SRGBA8,
     R_TexFormat_Count,
 };
 struct DebugVertex
@@ -57,21 +60,49 @@ struct Material;
 struct LoadedSkeleton;
 struct LoadedModel;
 
-struct RenderCommand
+//////////////////////////////
+// Commands
+//
+
+const i32 cFrameBufferSize    = megabytes(64);
+const i32 cFrameDataNumFrames = 2;
+
+enum R_CommandType
 {
-    Model *model;
-    Mat4 transform;
+    R_CommandType_Null,
+    R_CommandType_Heightmap,
+};
 
-    Mat4 *finalBoneTransforms;
+struct R_Command
+{
+    R_CommandType type;
+    R_CommandType *next;
+};
 
-    Material *materials;
-    u32 numMaterials;
+struct R_CommandHeightMap
+{
+    R_CommandType type;
+    R_CommandType *next;
 
-    // TODO: not thrilled about these pointers
-    LoadedModel *loadedModel;
-    LoadedSkeleton *skeleton;
-    // R_Handle textureHandles[4];
-    // u32 numHandles;
+    Heightmap heightmap;
+};
+
+struct R_FrameData
+{
+    u8 *memory;
+    i32 volatile allocated;
+    R_Command *head;
+    R_Command *tail;
+};
+
+struct R_FrameState
+{
+    Arena *arena;
+    // R_TempMemoryNode *tempMemNodes;
+
+    R_FrameData frameData[cFrameDataNumFrames];
+    R_FrameData *currentFrameData;
+    u32 currentFrame;
 };
 
 struct AS_CacheState;
@@ -255,6 +286,7 @@ struct RenderState
     i32 height;
 
     R_Pass passes[R_PassType_Count];
+    R_Command *head;
 };
 
 enum R_BufferType
@@ -321,6 +353,7 @@ internal void R_UnmapGPUBuffer(GPUBuffer *buffer);
 internal void RenderFrameDataInit();
 internal void R_SwapFrameData();
 internal void *R_FrameAlloc(const i32 inSize);
+internal void *R_CreateCommand(i32 size);
 
 // R_ALLOCATE_TEXTURE_2D(R_AllocateTexture2D);
 // R_DELETE_TEXTURE_2D(R_DeleteTexture2D);
@@ -328,7 +361,7 @@ internal void *R_FrameAlloc(const i32 inSize);
 
 internal void DrawBox(V3 offset, V3 scale, V4 color);
 internal void DrawBox(Rect3 rect, V4 color);
-internal void D_PushModel(AS_Handle loadedModel, Mat4 transform, Mat4 *mvp, Mat4 *skinningMatrices,
+internal void D_PushModel(AS_Handle loadedModel, Mat4 transform, Mat4 &mvp, Mat4 *skinningMatrices,
                           u32 skinningMatricesCount);
 internal void D_PushTextF(AS_Handle font, V2 startPos, f32 size, char *fmt, ...);
 inline R_Pass *R_GetPassFromKind(R_PassType type);

@@ -1,6 +1,7 @@
 #ifndef ASSET_CACHE_H
 #define ASSET_CACHE_H
 
+#include "third_party/stb_image.h"
 #include "crack.h"
 #ifdef LSP_INCLUDE
 #include "keepmovingforward_common.h"

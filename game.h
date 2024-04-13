@@ -144,6 +144,8 @@ struct G_State
     AS_Handle model2;
 
     AS_Handle font;
+
+    Heightmap heightmap;
 };
 
 internal Manifold NarrowPhaseAABBCollision(const Rect3 a, const Rect3 b);

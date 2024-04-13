@@ -76,16 +76,20 @@ internal F_RasterInfo *F_Raster(Font *font, F_StyleNode *node, string str)
         i32 pitch     = width * 4;
         u8 *outBitmap = (u8 *)malloc(pitch * height);
 
+        // TODO: make this an atlas
         u8 *destRow = outBitmap + (height - 1) * pitch;
         u8 *src     = bitmap;
         for (i32 j = 0; j < height; j++)
         {
             u32 *pixel = (u32 *)destRow;
+            // u16 *pixel = (u16 *)destRow;
+            // u8 *pixel = destRow;
             for (i32 i = 0; i < width; i++)
             {
                 u8 gray  = *src++;
                 u8 alpha = 0xff;
                 *pixel++ = ((alpha << 24) | (gray << 16) | (gray << 8) | (gray << 0));
+                // *pixel++ = *src++;
             }
             destRow -= pitch;
         }
@@ -120,7 +124,7 @@ internal F_RasterInfo *F_Raster(Font *font, F_StyleNode *node, string str)
         info->advance = (i32)(advance * node->scale);
         if (width != 0 && height != 0)
         {
-            info->handle = R_AllocateTexture(outBitmap, width, height, R_TexFormat_RGBA8);
+            info->handle = R_AllocateTexture(outBitmap, width, height, R_TexFormat_RGBA8); // R_TexFormat_R8);
         }
     }
     return info;

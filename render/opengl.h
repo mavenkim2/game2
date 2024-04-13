@@ -121,6 +121,7 @@
 #define GL_GREEN_INTEGER 0x8D95
 #define GL_BLUE_INTEGER  0x8D96
 
+#define GL_RG             0x8227
 #define GL_RGBA32F        0x8814
 #define GL_RGB32F         0x8815
 #define GL_RGBA16F        0x881A
@@ -291,6 +292,7 @@ enum R_ShaderType
     R_ShaderType_Instanced3D,
     R_ShaderType_StaticMesh,
     R_ShaderType_SkinnedMesh,
+    R_ShaderType_Terrain,
     R_ShaderType_Count,
 };
 
@@ -419,7 +421,8 @@ struct OpenGL
     R_Shader shaders[R_ShaderType_Count];
 
     R_Handle whiteTextureHandle;
-    u32 defaultTextureFormat;
+    u32 srgb8TextureFormat;
+    u32 srgba8TextureFormat;
 
     GLuint scratchVbo;
     GLuint scratchEbo;
@@ -523,15 +526,36 @@ internal R_OpenGL_Buffer *R_OpenGL_BufferFromHandle(R_Handle handle);
 internal R_Handle R_OpenGL_HandleFromTexture(R_OpenGL_Texture *texture);
 internal R_OpenGL_Texture *R_OpenGL_TextureFromHandle(R_Handle handle);
 
-inline GLenum R_OpenGL_GetFormat(R_TexFormat format)
+inline GLenum R_OpenGL_GetInternalFormat(R_TexFormat format)
 {
     GLenum glFormat;
     switch (format)
     {
         case R_TexFormat_R8: glFormat = GL_R8; break;
-        case R_TexFormat_SRGB: glFormat = openGL->defaultTextureFormat; break;
-        case R_TexFormat_RGBA8:
+        case R_TexFormat_RG8: glFormat = GL_RG8; break;
+        case R_TexFormat_RGB8: glFormat = GL_RGB8; break;
+        case R_TexFormat_SRGB8: glFormat = openGL->srgb8TextureFormat; break;
+        case R_TexFormat_RGBA8: glFormat = GL_RGBA8; break;
+        case R_TexFormat_SRGBA8: glFormat = openGL->srgba8TextureFormat; break;
         default: glFormat = GL_RGBA8; break;
+    }
+    return glFormat;
+}
+
+inline GLenum R_OpenGL_GetFormat(R_TexFormat format)
+{
+    GLenum glFormat;
+    switch (format)
+    {
+        case R_TexFormat_R8: glFormat = GL_RED; break;
+        case R_TexFormat_RG8: glFormat = GL_RG; break;
+
+        case R_TexFormat_RGB8:
+        case R_TexFormat_SRGB8: glFormat = GL_RGB; break;
+
+        case R_TexFormat_RGBA8:
+        case R_TexFormat_SRGBA8: glFormat = GL_RGBA; break;
+        default: Assert(!"Invalid format");
     }
     return glFormat;
 }

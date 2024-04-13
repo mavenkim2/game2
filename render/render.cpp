@@ -236,7 +236,7 @@ internal void D_EndFrame()
     R_SwapFrameData();
 }
 
-internal b32 D_IsInBounds(Rect3 bounds, Mat4 *mvp)
+internal b32 D_IsInBounds(Rect3 bounds, Mat4 &mvp)
 {
     V4 p;
     p.w      = 1;
@@ -253,34 +253,34 @@ internal b32 D_IsInBounds(Rect3 bounds, Mat4 *mvp)
                 p.z = bounds[k][2];
 
                 // Find point in homogeneous clip space
-                V4 test = *mvp * p;
+                V4 test = mvp * p;
 
-                // Compare to the AABB
+                // Compare to the hcs AABB
                 const f32 minW = -test.w;
                 const f32 maxW = test.w;
                 const f32 minZ = minW;
 
-                if (p.x > minW)
+                if (test.x > minW)
                 {
                     bits |= (1 << 0);
                 }
-                if (p.x < maxW)
+                if (test.x < maxW)
                 {
                     bits |= (1 << 1);
                 }
-                if (p.y > minW)
+                if (test.y > minW)
                 {
                     bits |= (1 << 2);
                 }
-                if (p.y < maxW)
+                if (test.y < maxW)
                 {
                     bits |= (1 << 3);
                 }
-                if (p.z > minZ)
+                if (test.z > minZ)
                 {
                     bits |= (1 << 4);
                 }
-                if (p.z < maxW)
+                if (test.z < maxW)
                 {
                     bits |= (1 << 5);
                 }
@@ -292,11 +292,18 @@ internal b32 D_IsInBounds(Rect3 bounds, Mat4 *mvp)
     return result;
 }
 
+internal void D_PushHeightmap(Heightmap heightmap)
+{
+    R_CommandHeightMap *command = (R_CommandHeightMap *)R_CreateCommand(sizeof(*command));
+    command->type               = R_CommandType_Heightmap;
+    command->heightmap          = heightmap;
+}
+
 // so i want to have a ring buffer between the game and the renderer. simple enough. let's start with single
 // threaded, similar to what we have now. right now the way the renderer works is that there's a permanent render
 // state global, and each frame the simulation/game sends data to the render pass to use, etc etc
 // yadda yadda.
-internal void D_PushModel(AS_Handle loadedModel, Mat4 transform, Mat4 *mvp, Mat4 *skinningMatrices = 0,
+internal void D_PushModel(AS_Handle loadedModel, Mat4 transform, Mat4 &mvp, Mat4 *skinningMatrices = 0,
                           u32 skinningMatricesCount = 0)
 {
     RenderState *state = renderState;
@@ -554,25 +561,6 @@ internal void DebugDrawSkeleton(AS_Handle model, Mat4 transform, Mat4 *skinningM
     }
 }
 
-const i32 cFrameBufferSize    = megabytes(64);
-const i32 cFrameDataNumFrames = 2;
-
-struct R_FrameData
-{
-    u8 *memory;
-    i32 volatile allocated;
-};
-
-struct R_FrameState
-{
-    Arena *arena;
-    // R_TempMemoryNode *tempMemNodes;
-
-    R_FrameData frameData[cFrameDataNumFrames];
-    R_FrameData *currentFrameData;
-    u32 currentFrame;
-};
-
 // interesting trick: having "nodes" all start with the same header, and just casting between them based on
 // what the id is. kinda like inheritance except more powerful
 //
@@ -594,6 +582,11 @@ internal void RenderFrameDataInit()
     }
     gRenderFrameState->currentFrame     = 0;
     gRenderFrameState->currentFrameData = &gRenderFrameState->frameData[gRenderFrameState->currentFrame];
+
+    R_FrameData *data = gRenderFrameState->currentFrameData;
+    data->head = data->tail = (R_Command *)R_FrameAlloc(sizeof(R_Command));
+    data->head->type        = R_CommandType_Null;
+    data->head->next        = 0;
 }
 
 internal void *R_FrameAlloc(const i32 inSize)
@@ -615,6 +608,8 @@ internal b32 IsAligned(u8 *ptr, i32 alignment)
 
 internal void R_SwapFrameData()
 {
+    R_Command *currentHead              = gRenderFrameState->currentFrameData->head;
+    renderState->head = currentHead;
     u32 frameIndex                      = ++gRenderFrameState->currentFrame % cFrameDataNumFrames;
     gRenderFrameState->currentFrameData = &gRenderFrameState->frameData[frameIndex];
 
@@ -622,6 +617,20 @@ internal void R_SwapFrameData()
                 (u64)gRenderFrameState->currentFrameData->memory;
     // TODO: barrier?
     gRenderFrameState->currentFrameData->allocated = (i32)start;
+
+    R_FrameData *data = gRenderFrameState->currentFrameData;
+    data->head = data->tail = (R_Command *)R_FrameAlloc(sizeof(R_Command));
+    data->head->type        = R_CommandType_Null;
+    data->head->next        = 0;
+}
+
+internal void *R_CreateCommand(i32 size)
+{
+    R_Command *command                              = (R_Command *)R_FrameAlloc(size);
+    command->next                                   = 0;
+    gRenderFrameState->currentFrameData->tail->next = &command->type;
+    gRenderFrameState->currentFrameData->tail       = command;
+    return (void *)command;
 }
 
 //////////////////////////////

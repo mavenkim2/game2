@@ -390,74 +390,22 @@ internal void SkinModelToAnimation(const AnimationPlayer *inPlayer, const AS_Han
     ScratchEnd(temp);
 }
 
-#if 0
 internal AnimationTransform operator*(AnimationTransform p, AnimationTransform c)
 {
     AnimationTransform result;
     // TODO: is it c.translation * p.scale, then rotation?
-    result.translation = p.translation + (p.scale * RotateVector(c.translation, p.rotation));
+    result.translation = p.translation + (Hadamard(p.scale, RotateVector(c.translation, p.rotation)));
 
     Quat inverse = Conjugate(c.rotation);
     // TODO: i don't know how to do this faster
     Mat4 rotMatrix        = QuatToMatrix(c.rotation);
     Mat4 inverseRotMatrix = QuatToMatrix(Conjugate(c.rotation));
-    // this rotmatrix is with respect to the parent? so multiplying by the rotmatrix 
-    result.scale          = c.scale * rotMatrix * (p.scale * inverseRotMatrix);
-    result.scale = (inverseRotMatrix * p.scale) * (rotMatrix * c.scale);
-    result.rotation       = p.rotation * c.rotation;
+    // this rotmatrix is with respect to the parent? so multiplying by the rotmatrix
+    // result.scale    = c.scale * rotMatrix * (p.scale * inverseRotMatrix);
+    result.scale    = (inverseRotMatrix * p.scale) * (rotMatrix * c.scale);
+    result.rotation = p.rotation * c.rotation;
     return result;
 }
-#endif
-
-// internal void SkinModelToAnimationTest(const AnimationPlayer *inPlayer, const AS_Handle inModel,
-//                                        const AnimationTransform *inTransforms,
-//                                        AnimationTransform *outFinalTransforms)
-// {
-//     TempArena temp           = ScratchStart(0, 0);
-//     LoadedSkeleton *skeleton = GetSkeletonFromModel(inModel);
-//     Mat4 *transformToParent  = PushArray(temp.arena, Mat4, skeleton->count);
-//     i32 previousId           = -1;
-//
-//     loopi(0, skeleton->count)
-//     {
-//         const string name = skeleton->names[i];
-//         i32 id            = i;
-//
-//         i32 animationId = -1;
-//         for (u32 index = 0; index < inPlayer->currentAnimation->numNodes; index++)
-//         {
-//             if (inPlayer->currentAnimation->boneChannels[index].name == name)
-//             {
-//                 animationId = index;
-//                 break;
-//             }
-//         }
-//         Mat4 lerpedMatrix;
-//         if (animationId == -1)
-//         {
-//             lerpedMatrix = skeleton->transformsToParent[id];
-//         }
-//         else
-//         {
-//             lerpedMatrix = ConvertToMatrix(&inTransforms[animationId]);
-//         }
-//         i32 parentId = skeleton->parents[id];
-//         if (parentId == -1)
-//         {
-//             transformToParent[id] = lerpedMatrix;
-//         }
-//         else
-//         {
-//             Assert(!IsZero(transformToParent[parentId]));
-//             transformToParent[id] = transformToParent[parentId] * lerpedMatrix;
-//         }
-//
-//         Assert(id > previousId);
-//         previousId             = id;
-//         outFinalTransforms[id] = transformToParent[id] * skeleton->inverseBindPoses[id];
-//     }
-//     ScratchEnd(temp);
-// }
 
 internal void SkinModelToBindPose(AS_Handle model, Mat4 *finalTransforms)
 {
@@ -486,6 +434,75 @@ internal void SkinModelToBindPose(AS_Handle model, Mat4 *finalTransforms)
         finalTransforms[id] = transformToParent[id] * skeleton->inverseBindPoses[id];
     }
     ScratchEnd(temp);
+}
+
+// TODO IMPORTANT: move out the gl calls pls
+internal Heightmap CreateHeightmap(string filename)
+{
+    TempArena temp  = ScratchStart(0, 0);
+    const f32 scale = 20.f / 256.f;
+    const f32 shift = -30.f;
+
+    i32 width, height, nComponents;
+    u8 *buffer = stbi_load((char *)filename.str, &width, &height, &nComponents, 0);
+
+    // TODO: chunk this
+    V3 *vertices    = PushArray(temp.arena, V3, height * width);
+    u32 vertexCount = 0;
+    u32 totalCount  = width * height;
+    i32 stride      = width * nComponents;
+    for (i32 h = 0; h < height; h++)
+    {
+        for (i32 w = 0; w < width; w++)
+        {
+            u8 *data                = buffer + (h * stride + w * nComponents);
+            f32 z                   = (f32)(data[0] * scale + shift);
+            vertices[vertexCount++] = MakeV3(-width / 2.f + w, height / 2.f - h, z);
+        }
+    }
+
+    u32 *indices   = PushArray(temp.arena, u32, (height - 1) * width * 2);
+    u32 indexCount = 0;
+    for (i32 h = 0; h < height - 1; h++)
+    {
+        // Connect triangle strips with degenerate triangles
+        indices[indexCount++] = width * h + 1;
+        indices[indexCount++] = width * h + 1;
+        for (i32 w = 0; w < width; w++)
+        {
+            indices[indexCount++] = w + width * h;
+            indices[indexCount++] = w + width * (h + 1);
+        }
+        indices[indexCount++] = width - 1 + width * h;
+        indices[indexCount++] = width - 1 + width * h;
+    }
+
+    GLuint v;
+    openGL->glGenBuffers(1, &v);
+    openGL->glBindBuffer(GL_ARRAY_BUFFER, v);
+    openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(vertices[0]) * totalCount, vertices, GL_STATIC_DRAW);
+
+    // VC_AllocateBuffer(BufferType_Index, BufferUsage_Static, vertices, sizeof(vertices[0]) * totalCount);
+    // VC_Handle indexHandle =
+    //     VC_AllocateBuffer(BufferType_Vertex, BufferUsage_Static, indices, sizeof(indices[0]) * indexCount);
+
+    GLuint i;
+    openGL->glGenBuffers(1, &i);
+    openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, i);
+    openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices[0]) * indexCount, indices, GL_STATIC_DRAW);
+
+    VC_Handle vertexHandle = (u64)v;
+    VC_Handle indexHandle  = (u64)i;
+
+    Heightmap result;
+    result.vertexHandle = vertexHandle;
+    result.indexHandle  = indexHandle;
+    result.width        = width;
+    result.height       = height;
+
+    stbi_image_free(buffer);
+    ScratchEnd(temp);
+    return result;
 }
 
 #if 0

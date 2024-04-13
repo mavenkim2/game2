@@ -159,7 +159,7 @@ internal void G_Init()
     // ReadAnimationFile(g_state->worldArena, animation, Str8Lit("data/dragon_attack_01.anim"));
     AS_Handle anim = AS_GetAsset(Str8Lit("data/dragon/Qishilong_attack01.anim"));
     // AS_Handle anim = LoadAssetFile(Str8Lit("data/dragon/Qishilong_attack02.anim"));
-    g_state->font = AS_GetAsset(Str8Lit("data/liberation_mono.ttf"));
+    g_state->font      = AS_GetAsset(Str8Lit("data/liberation_mono.ttf"));
 
     g_state->level           = PushStruct(g_state->permanentArena, Level);
     g_state->camera.position = g_state->player.pos - V3{0, 10, 0};
@@ -198,6 +198,8 @@ internal void G_Init()
     g_state->bindings.bindings[I_Button_Swap]       = OS_Key_C;
     g_state->bindings.bindings[I_Button_LeftClick]  = OS_Mouse_L;
     g_state->bindings.bindings[I_Button_RightClick] = OS_Mouse_R;
+
+    g_state->heightmap = CreateHeightmap(Str8Lit("data/heightmap.png"));
 }
 
 internal OS_Event *GetKeyEvent(OS_Events *events, OS_Key key)
@@ -271,6 +273,7 @@ internal void G_Update(f32 dt)
             OS_Event *event = GetKeyEvent(&events, g_state->bindings.bindings[button]);
             if (event)
             {
+                Printf("Key: %u\n", button);
                 b32 isDown = event->type == OS_EventType_KeyPressed ? 1 : 0;
                 // u32 transition = isDown != newInput->buttons[button].keyDown;
                 u32 transition                                = event->transition;
@@ -559,7 +562,7 @@ internal void G_Update(f32 dt)
         DebugDrawSkeleton(g_state->model, transform1, skinningMatrices1);
         // SkinModelToBindPose(&g_state->model, skinningMatrices1);
         Mat4 mvp1 = renderState->transform * transform1;
-        D_PushModel(g_state->model, transform1, &mvp1, skinningMatrices1, skeleton->count);
+        D_PushModel(g_state->model, transform1, mvp1, skinningMatrices1, skeleton->count);
 
         // Model 2
         translate       = Translate4(V3{0, 0, 30});
@@ -574,7 +577,8 @@ internal void G_Update(f32 dt)
         // SkinModelToAnimation(&g_state->animPlayer, &g_state->model2, tforms2, finalTransforms2);
         SkinModelToBindPose(g_state->model2, skinningMatrices2);
         Mat4 mvp2 = renderState->transform * transform2;
-        D_PushModel(g_state->model2, transform2, &mvp2, skinningMatrices2, skeleton2->count);
+        D_PushModel(g_state->model2, transform2, mvp2, skinningMatrices2, skeleton2->count);
+        D_PushHeightmap(g_state->heightmap);
         // D_PushText(g_state->font, {0, 30}, 64, Str8Lit("What is going on?"));
         D_CollateDebugRecords();
 
