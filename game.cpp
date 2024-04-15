@@ -428,15 +428,14 @@ internal void G_Update(f32 dt)
             camera->forward.z = Sin(camera->pitch);
             camera->forward   = Normalize(camera->forward);
             camera->right     = Normalize(Cross(camera->forward, worldUp));
-            V3 up             = Normalize(Cross(camera->right, camera->forward));
+            // V3 up             = Normalize(Cross(camera->right, camera->forward));
 
             Mat4 projection =
                 Perspective4(renderState->fov, renderState->aspectRatio, renderState->nearZ, renderState->farZ);
-            Mat4 cameraMatrix = LookAt4(camera->position, camera->position + camera->forward, worldUp);
-            Mat3 dir          = ToMat3(camera->forward);
-            // Mat4 cameraMatrix;
+
+            Mat3 dir = ToMat3(camera->forward);
+            Mat4 cameraMatrix;
             CalculateViewMatrix(camera->position, dir, cameraMatrix);
-            // CameraTransform(camera->right, up, -camera->forward, camera->position);
 
             Mat4 transform = projection * cameraMatrix;
 
@@ -465,17 +464,19 @@ internal void G_Update(f32 dt)
                 V3 viewSpacePos = Inverse(projection) * MakeV3(mouseP, 0.f);
 
                 // View Space -> World Space
-                V3 worldSpacePos = Inverse(cameraMatrix) * viewSpacePos;
+                Mat4 viewToWorldSpace = Inverse(cameraMatrix);
+                V3 worldSpacePos      = viewToWorldSpace * viewSpacePos;
                 // V4 worldSpacePos = Inverse(cameraMatrix) * MakeV4(viewSpacePos, 0.f);
                 ray.mStartP = worldSpacePos;
-                ray.mDir    = camera->forward;
+                ray.mDir    = Normalize(ray.mStartP - camera->position);
 
                 if (playerController->leftClick.keyDown)
                 {
                     // DrawSphere(ray.mStartP, 10.f, Color_Red);
-                    DrawPoint(ray.mStartP, Color_Black);
-                    V3 p = ray.mStartP + ray.mDir * 10.f;
-                    DrawLine(ray.mStartP, p, Color_Black);
+                    // DrawPoint(ray.mStartP, Color_Black);
+                    V3 p = ray.mStartP + ray.mDir * 100.f;
+                    // DrawLine(ray.mStartP, p, Color_Black);
+                    DrawSphere(p, 2.f, Color_Red);
                     // DrawLine(camera->position, camera->position + camera->forward, Color_Black);
                 }
             }
