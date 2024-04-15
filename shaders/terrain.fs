@@ -3,6 +3,12 @@ out V4 FragColor;
 
 void main()
 {
-    f32 h = (height + 30.f)/20.f;
-    FragColor = V4(h, h, h, 1.f);
+    f32 h = (height + 30.f)/64.f;
+    f32 blue = h;
+    if (h <= 0.01)
+    {
+        blue = .5f;
+    }
+    FragColor = V4(h, h, blue, 1);
+
 }

@@ -19,7 +19,6 @@
 #endif
 
 #define STB_IMAGE_IMPLEMENTATION
-#define STBI_ONLY_PNG
 #include "third_party/stb_image.h"
 
 //////////////////////////////
@@ -436,6 +435,11 @@ JOB_CALLBACK(AS_LoadAsset)
                 model->skeleton = AS_GetAsset(path);
                 Printf("Skeleton file name: %S\n", path);
             }
+            else
+            {
+                // Nil handle
+                model->skeleton.i64[0] = 0;
+            }
         }
 
         Assert(EndOfBuffer(&tokenizer));
@@ -447,11 +451,11 @@ JOB_CALLBACK(AS_LoadAsset)
             Mesh *mesh = &model->meshes[i];
             mesh->surface.vertexBuffer =
                 VC_AllocateBuffer(BufferType_Vertex, BufferUsage_Static, mesh->surface.vertices,
-                                  sizeof(mesh->surface.vertices[0]) * mesh->surface.vertexCount);
+                                  sizeof(mesh->surface.vertices[0]), mesh->surface.vertexCount);
 
             mesh->surface.indexBuffer =
                 VC_AllocateBuffer(BufferType_Index, BufferUsage_Static, mesh->surface.indices,
-                                  sizeof(mesh->surface.indices[0]) * mesh->surface.indexCount);
+                                  sizeof(mesh->surface.indices[0]), mesh->surface.indexCount);
             AddBounds(model->bounds, mesh->surface.bounds);
         }
 
@@ -528,7 +532,7 @@ JOB_CALLBACK(AS_LoadAsset)
         WriteBarrier();
         asset->status = AS_Status_Loaded;
     }
-    else if (extension == Str8Lit("png"))
+    else if (extension == Str8Lit("png") || extension == Str8Lit("jpeg"))
     {
         asset->type = AS_Texture;
         if (FindSubstring(asset->path, Str8Lit("diffuse"), 0, MatchFlag_CaseInsensitive) != asset->path.size)

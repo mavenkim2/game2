@@ -27,13 +27,15 @@ global i32 win32OpenGLAttribs[] = {
 
 global readonly i32 r_sizeFromFormatTable[R_TexFormat_Count] = {1, 2, 3, 4, 3, 4};
 
+// TODO: absorb this into the shader type, instantiate a table containing the filenames as well as preprocess
+// defines also make uniforms more manageable by having
 global string r_opengl_g_globalsPath = Str8Lit("src/shaders/global.glsl");
 
 global string r_opengl_g_vsPath[] = {Str8Lit("src/shaders/ui.vs"),       Str8Lit("src/shaders/basic_3d.vs"),
-                                     Str8Lit("src/shaders/basic_3d.vs"), Str8Lit(""),
+                                     Str8Lit("src/shaders/basic_3d.vs"), Str8Lit("src/shaders/model.vs"),
                                      Str8Lit("src/shaders/model.vs"),    Str8Lit("src/shaders/terrain.vs")};
 global string r_opengl_g_fsPath[] = {Str8Lit("src/shaders/ui.fs"),       Str8Lit("src/shaders/basic_3d.fs"),
-                                     Str8Lit("src/shaders/basic_3d.fs"), Str8Lit(""),
+                                     Str8Lit("src/shaders/basic_3d.fs"), Str8Lit("src/shader/model.fs"),
                                      Str8Lit("src/shaders/model.fs"),    Str8Lit("src/shaders/terrain.fs")};
 
 internal void VSyncToggle(b32 enable)
@@ -118,7 +120,7 @@ internal GLuint R_OpenGL_CreateShader(string globalsPath, string vsPath, string 
 
 internal void R_OpenGL_HotloadShaders()
 {
-
+    TempArena temp = ScratchStart(0, 0);
     for (R_ShaderType type = (R_ShaderType)0; type < R_ShaderType_Count; type = (R_ShaderType)(type + 1))
     {
         R_Shader *shader        = openGL->shaders + type;
@@ -135,14 +137,18 @@ internal void R_OpenGL_HotloadShaders()
             string preprocess           = Str8Lit("");
             switch (type)
             {
-                case R_ShaderType_Instanced3D: preprocess = Str8Lit("#define instanced 1\n"); break;
-                case R_ShaderType_StaticMesh: continue;
+                case R_ShaderType_Instanced3D: preprocess = Str8Lit("#define INSTANCED 1\n"); break;
+                case R_ShaderType_SkinnedMesh: preprocess = Str8Lit("#define SKINNED 1\n");
+                case R_ShaderType_StaticMesh:
+                    preprocess = StrConcat(temp.arena, preprocess, Str8Lit("#define BLINN_PHONG 1\n"));
+                    break;
                 default: break;
             }
             openGL->shaders[type].id = R_OpenGL_CreateShader(r_opengl_g_globalsPath, r_opengl_g_vsPath[type],
                                                              r_opengl_g_fsPath[type], preprocess);
         }
     }
+    ScratchEnd(temp);
 }
 
 GL_DEBUG_CALLBACK(R_OpenGL_DebugCallback)
@@ -202,13 +208,17 @@ internal void R_OpenGL_Init()
 
     // Shaders
     {
+        TempArena temp = ScratchStart(0, 0);
         for (R_ShaderType type = (R_ShaderType)0; type < R_ShaderType_Count; type = (R_ShaderType)(type + 1))
         {
+            // TODO; put this in the table
             string preprocess = Str8Lit("");
             switch (type)
             {
                 case R_ShaderType_Instanced3D: preprocess = Str8Lit("#define INSTANCED 1\n"); break;
-                case R_ShaderType_StaticMesh: continue;
+                case R_ShaderType_SkinnedMesh: preprocess = Str8Lit("#define SKINNED 1\n");
+                case R_ShaderType_StaticMesh:
+                    preprocess = StrConcat(temp.arena, preprocess, Str8Lit("#define BLINN_PHONG 1\n"));
                 default: break;
             }
             openGL->shaders[type].id = R_OpenGL_CreateShader(r_opengl_g_globalsPath, r_opengl_g_vsPath[type],
@@ -220,7 +230,6 @@ internal void R_OpenGL_Init()
 
         // Add texture array samplers to programs once
 
-        TempArena temp       = ScratchStart(0, 0);
         GLint modelProgramId = openGL->shaders[R_ShaderType_SkinnedMesh].id;
         openGL->glUseProgram(modelProgramId);
 
@@ -398,6 +407,7 @@ internal void R_Win32_OpenGL_Init(OS_Handle handle)
         Win32GetOpenGLFunction(glBufferStorage);
         Win32GetOpenGLFunction(glMapBufferRange);
         Win32GetOpenGLFunction(glMultiDrawElementsBaseVertex);
+        Win32GetOpenGLFunction(glDrawElementsBaseVertex);
 
         OpenGLGetInfo();
 
@@ -643,42 +653,77 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
             case R_CommandType_Heightmap:
             {
                 Heightmap *heightmap = &((R_CommandHeightMap *)command)->heightmap;
-                // GPUBuffer *buffer    = VC_GetBufferFromHandle(heightmap->vertexHandle, BufferType_Vertex);
-                // if (buffer)
-                // {
-                //     openGL->glBindBuffer(GL_ARRAY_BUFFER, R_OpenGL_GetBufferFromHandle(buffer->handle));
-                // }
-                //
-                // buffer = VC_GetBufferFromHandle(heightmap->indexHandle, BufferType_Index);
-                // if (buffer)
-                // {
-                //     openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, R_OpenGL_GetBufferFromHandle(buffer->handle));
-                // }
+                GPUBuffer *buffer    = VC_GetBufferFromHandle(heightmap->vertexHandle, BufferType_Vertex);
+                if (buffer)
+                {
+                    openGL->glBindBuffer(GL_ARRAY_BUFFER, R_OpenGL_GetBufferFromHandle(buffer->handle));
+                }
+
+                buffer = VC_GetBufferFromHandle(heightmap->indexHandle, BufferType_Index);
+                if (buffer)
+                {
+                    openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, R_OpenGL_GetBufferFromHandle(buffer->handle));
+                }
+
                 GLint id = openGL->shaders[R_ShaderType_Terrain].id;
                 openGL->glUseProgram(id);
-
-                openGL->glBindBuffer(GL_ARRAY_BUFFER, (GLuint)heightmap->vertexHandle);
-                openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, (GLuint)heightmap->indexHandle);
 
                 GLint transformLocation = openGL->glGetUniformLocation(id, "transform");
                 openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, renderState->transform.elements[0]);
 
-                openGL->glVertexAttribPointer(GL_ATTRIB_INDEX_POSITION, 3, GL_FLOAT, GL_FALSE, sizeof(V3), 0);
+                GLint widthLoc = openGL->glGetUniformLocation(id, "width");
+                openGL->glUniform1f(widthLoc, (f32)heightmap->width);
+
+                GLint heightLoc = openGL->glGetUniformLocation(id, "inHeight");
+                openGL->glUniform1f(heightLoc, (f32)heightmap->height);
+
+                openGL->glVertexAttribPointer(GL_ATTRIB_INDEX_POSITION, 1, GL_FLOAT, GL_FALSE, sizeof(f32), 0);
                 openGL->glEnableVertexAttribArray(GL_ATTRIB_INDEX_POSITION);
 
-                // i32 indexSize =
-                //     (i32)((heightmap->indexHandle >> VERTEX_CACHE_SIZE_SHIFT) & VERTEX_CACHE_SIZE_MASK) /
-                //     sizeof(u32);
-                // u64 indexOffset = (heightmap->indexHandle >> VERTEX_CACHE_OFFSET_SHIFT) &
-                // VERTEX_CACHE_OFFSET_MASK;
+                i32 indexSize =
+                    (i32)(((heightmap->indexHandle >> VERTEX_CACHE_SIZE_SHIFT) & VERTEX_CACHE_SIZE_MASK) /
+                          sizeof(u32));
+                u64 indexOffset = (heightmap->indexHandle >> VERTEX_CACHE_OFFSET_SHIFT) & VERTEX_CACHE_OFFSET_MASK;
+                i32 baseVertex =
+                    (i32)((heightmap->vertexHandle >> VERTEX_CACHE_OFFSET_SHIFT) & VERTEX_CACHE_OFFSET_MASK) /
+                    sizeof(f32);
 
-                glDrawElements(GL_TRIANGLE_STRIP, (heightmap->width * (heightmap->height - 1)) * 2,
-                               GL_UNSIGNED_INT, 0);
+                openGL->glDrawElementsBaseVertex(GL_TRIANGLE_STRIP, indexSize, GL_UNSIGNED_INT,
+                                                 (GLvoid *)indexOffset, baseVertex);
 
                 break;
             }
         }
     }
+
+    // shadow pass
+    {
+#if 0
+        struct ShadowMap
+        {
+            u32 shadowMapId;
+            i32 width;
+            i32 height;
+        };
+        ShadowMap shadowMap;
+        shadowMap.width  = 1024;
+        shadowMap.height = 1024;
+
+        static b8 initialized = 0;
+        u32 shadowMapFBO;
+        u32 depthMap;
+        if (!initialized)
+        {
+            initialized = 1;
+            openGL->glGenFrameBuffers(1, &shadowMapFBO);
+            openGL->glGenTextures(1, &depthmap);
+            openGL->glBindFrameBuffer(GL_FRAMEBUFFER, shadowMapFBO);
+            openGL->glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_ATTACHMENT, shadowMap.width;
+                                 shadowMap.height, 0, GL_DEPTH_COMPONENT, GL_FLOAT, 0);
+            openGL->glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+        }
+#endif
+    };
 
     for (R_PassType type = (R_PassType)0; type < R_PassType_Count; type = (R_PassType)(type + 1))
     {
@@ -733,21 +778,36 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
                 glDisable(GL_BLEND);
                 break;
             }
-            case R_PassType_StaticMesh:
+            case R_PassType_Mesh:
             {
-                break;
-            }
-            case R_PassType_SkinnedMesh:
-            {
-                GLuint modelProgramId = openGL->shaders[R_ShaderType_SkinnedMesh].id;
-                openGL->glUseProgram(modelProgramId);
+                GLuint currentProgram = openGL->shaders[R_ShaderType_SkinnedMesh].id;
+                openGL->glUseProgram(currentProgram);
+                GLuint staticMeshProgramId  = openGL->shaders[R_ShaderType_StaticMesh].id;
+                GLuint skinnedMeshProgramId = openGL->shaders[R_ShaderType_SkinnedMesh].id;
                 // TEXTURE MAP
 
-                R_SkinnedMeshParamsList *list = &pass->passSkinned->list;
+                R_MeshParamsList *list = &pass->passMesh->list;
                 // TODO: remove reference to material in here
-                for (R_SkinnedMeshParamsNode *node = list->first; node != 0; node = node->next)
+                for (R_MeshParamsNode *node = list->first; node != 0; node = node->next)
                 {
-                    R_SkinnedMeshParams *params = &node->val;
+                    R_MeshParams *params = &node->val;
+
+                    if (params->skinningMatricesCount == 0)
+                    {
+                        if (currentProgram != staticMeshProgramId)
+                        {
+                            currentProgram = staticMeshProgramId;
+                            openGL->glUseProgram(currentProgram);
+                        }
+                    }
+                    else
+                    {
+                        if (currentProgram != skinnedMeshProgramId)
+                        {
+                            currentProgram = skinnedMeshProgramId;
+                            openGL->glUseProgram(currentProgram);
+                        }
+                    }
 
                     // TODO: the code assumes that all of the surfaces in the model are bound to the same
                     // buffer object.
@@ -890,29 +950,28 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
 
                     // MVP matrix
                     Mat4 newTransform       = renderState->transform * params->transform;
-                    GLint transformLocation = openGL->glGetUniformLocation(modelProgramId, "transform");
+                    GLint transformLocation = openGL->glGetUniformLocation(currentProgram, "transform");
                     openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, newTransform.elements[0]);
 
                     // Skinning matrices
                     // TODO: UBO or SSBO this
-                    GLint boneTformLocation = openGL->glGetUniformLocation(modelProgramId, "boneTransforms");
-                    openGL->glUniformMatrix4fv(boneTformLocation, params->skinningMatricesCount, GL_FALSE,
-                                               params->skinningMatrices[0].elements[0]);
+                    if (params->skinningMatricesCount != 0)
+                    {
+                        GLint boneTformLocation = openGL->glGetUniformLocation(currentProgram, "boneTransforms");
+                        openGL->glUniformMatrix4fv(boneTformLocation, params->skinningMatricesCount, GL_FALSE,
+                                                   params->skinningMatrices[0].elements[0]);
+                    }
 
-                    GLint modelLoc = openGL->glGetUniformLocation(modelProgramId, "model");
+                    GLint modelLoc = openGL->glGetUniformLocation(currentProgram, "model");
                     openGL->glUniformMatrix4fv(modelLoc, 1, GL_FALSE, params->transform.elements[0]);
 
                     // TODO: these don't have to be specified per draw. Use SSBO or UBO
                     V3 lightPosition  = MakeV3(5, 5, 0);
-                    GLint lightPosLoc = openGL->glGetUniformLocation(modelProgramId, "lightPos");
+                    GLint lightPosLoc = openGL->glGetUniformLocation(currentProgram, "lightPos");
                     openGL->glUniform3fv(lightPosLoc, 1, lightPosition.elements);
 
-                    GLint viewPosLoc = openGL->glGetUniformLocation(modelProgramId, "viewPos");
+                    GLint viewPosLoc = openGL->glGetUniformLocation(currentProgram, "viewPos");
                     openGL->glUniform3fv(viewPosLoc, 1, renderState->camera.position.elements);
-
-                    openGL->glActiveTexture(GL_TEXTURE0);
-                    R_OpenGL_Texture *whiteTexture = R_OpenGL_TextureFromHandle(openGL->whiteTextureHandle);
-                    glBindTexture(GL_TEXTURE_2D, whiteTexture->id);
 
                     static GLuint ssbo = 0;
                     if (ssbo == 0)
@@ -1116,6 +1175,7 @@ internal void R_OpenGL_StartShader(RenderState *state, R_ShaderType type, void *
             break;
         }
         case R_ShaderType_SkinnedMesh:
+        case R_ShaderType_StaticMesh:
         {
             openGL->glEnableVertexAttribArray(0);
             openGL->glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),

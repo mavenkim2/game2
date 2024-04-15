@@ -163,7 +163,11 @@ union V3
     };
     f32 elements[3];
 
-    f32 operator[](const i32 index)
+    f32 operator[](const i32 index) const
+    {
+        return elements[index];
+    }
+    f32 &operator[](const i32 index)
     {
         return elements[index];
     }
@@ -224,6 +228,15 @@ union V4
         f32 __a;
     };
     f32 elements[4];
+
+    f32 operator[](const i32 index) const
+    {
+        return elements[index];
+    }
+    f32 &operator[](const i32 index)
+    {
+        return elements[index];
+    }
 };
 
 union V4I32
@@ -264,6 +277,11 @@ union Mat3
 {
     f32 elements[3][3];
     V3 columns[3];
+
+    V3 &operator[](const i32 index)
+    {
+        return columns[index];
+    }
 };
 
 // NOTE: Matrix[COLUMN][ROW]
@@ -278,6 +296,11 @@ union Mat4
         f32 c1, c2, c3, c4;
         f32 d1, d2, d3, d4;
     };
+
+    V4 &operator[](const i32 index)
+    {
+        return columns[index];
+    }
 };
 
 union Rect2
@@ -1291,6 +1314,73 @@ inline Mat4 LookAt4(V3 eye, V3 center, V3 up)
     result.elements[3][3] = 1.0f;
 
     return result;
+}
+inline V3 GetRow(Mat3 *mat, i32 idx)
+{
+    V3 row;
+    row.x = mat->columns[0][idx];
+    row.y = mat->columns[1][idx];
+    row.z = mat->columns[2][idx];
+    return row;
+}
+
+// Returns a basis from a direction vector
+//     z    y
+//     |   /
+//     | /
+//     | _ _ _ x
+//
+
+// COLUMN MAJOR, EVERYTHING IS COLUMN MAJOR
+inline Mat3 ToMat3(V3 &v)
+{
+    Mat3 axis;
+
+    // Row 2
+    axis.columns[1] = v;
+
+    f32 d = v.x * v.x + v.y * v.y;
+    // Row 1
+    if (d == 0)
+    {
+        axis.columns[0][0] = 1.f;
+        axis.columns[0][1] = 1.f;
+        axis.columns[0][2] = 1.f;
+    }
+    else
+    {
+        f32 invSqrt        = 1 / SquareRoot(d);
+        axis.columns[0][0] = v.y * invSqrt;
+        axis.columns[0][1] = -v.x * invSqrt;
+        axis.columns[0][2] = 0.f;
+    }
+    axis.columns[2] = Cross(axis.columns[0], axis.columns[1]);
+
+    return axis;
+}
+
+// Converts from y forward to -z forward
+inline void CalculateViewMatrix(V3 origin, Mat3 &axis, Mat4 &out)
+{
+    out.elements[0][0] = axis[0][0];
+    out.elements[1][0] = axis[0][1];
+    out.elements[2][0] = axis[0][2];
+    out.elements[3][0] = -Dot(origin, axis.columns[0]);
+
+    out.elements[0][1] = axis[2][0];
+    out.elements[1][1] = axis[2][1];
+    out.elements[2][1] = axis[2][2];
+    out.elements[3][1] = -Dot(origin, axis.columns[2]);
+
+    out.elements[0][2] = -axis[1][0];
+    out.elements[1][2] = -axis[1][1];
+    out.elements[2][2] = -axis[1][2];
+    out.elements[3][2] = Dot(origin, axis.columns[1]);
+
+    out.elements[0][3] = 0;
+    out.elements[1][3] = 0;
+    out.elements[2][3] = 0;
+    out.elements[3][3] = 1.f;
 }
 
 inline Mat4 Mat4Rows3x3(V3 x, V3 y, V3 z)

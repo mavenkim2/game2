@@ -209,6 +209,10 @@ inline u32 AtomicExchange(u32 *dest, u32 src)
 {
     return (u32)_InterlockedExchange((long volatile *)dest, src);
 }
+inline i32 AtomicCompareExchange(i32 *dest, i32 src, i32 expected)
+{
+    return (i32)_InterlockedCompareExchange((long volatile *)dest, src, expected);
+}
 
 typedef void *PVOID;
 #define AtomicCompareExchangePtr(dest, src, expected)                                                             \

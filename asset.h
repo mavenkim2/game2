@@ -57,6 +57,14 @@ enum OBJLineType
     OBJ_Invalid,
 };
 
+struct StaticVertex
+{
+    V3 position;
+    V3 normal;
+    V2 uv;
+    V3 tangent;
+};
+
 struct MeshVertex
 {
     V3 position;

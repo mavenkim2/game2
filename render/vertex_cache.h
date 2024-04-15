@@ -40,4 +40,5 @@ struct VertexCacheState
 
 static VertexCacheState gVertexCache;
 
-internal VC_Handle VC_AllocateBuffer(BufferType bufferType, BufferUsageType usageType, void *data, i32 size);
+internal VC_Handle VC_AllocateBuffer(BufferType bufferType, BufferUsageType usageType, void *data, i32 elementSize,
+                                     i32 count);

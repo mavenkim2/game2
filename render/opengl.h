@@ -489,6 +489,7 @@ struct OpenGL
     OpenGLFunction(glBufferStorage);
     OpenGLFunction(glMapBufferRange);
     OpenGLFunction(glMultiDrawElementsBaseVertex);
+    OpenGLFunction(glDrawElementsBaseVertex);
 };
 
 global OpenGL _openGL;

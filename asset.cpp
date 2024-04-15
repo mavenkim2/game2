@@ -440,59 +440,58 @@ internal void SkinModelToBindPose(AS_Handle model, Mat4 *finalTransforms)
 internal Heightmap CreateHeightmap(string filename)
 {
     TempArena temp  = ScratchStart(0, 0);
-    const f32 scale = 20.f / 256.f;
+    const f32 scale = 64.f / 256.f;
     const f32 shift = -30.f;
 
     i32 width, height, nComponents;
     u8 *buffer = stbi_load((char *)filename.str, &width, &height, &nComponents, 0);
 
     // TODO: chunk this
-    V3 *vertices    = PushArray(temp.arena, V3, height * width);
-    u32 vertexCount = 0;
-    u32 totalCount  = width * height;
-    i32 stride      = width * nComponents;
+    f32 *altitudes = PushArray(temp.arena, f32, height * width);
+
+    // f32 *altitudes = PushArray(temp.arena, f32, height * width);
+
+    u32 count      = 0;
+    u32 totalCount = width * height;
+    i32 stride     = width * nComponents;
     for (i32 h = 0; h < height; h++)
     {
         for (i32 w = 0; w < width; w++)
         {
-            u8 *data                = buffer + (h * stride + w * nComponents);
-            f32 z                   = (f32)(data[0] * scale + shift);
-            vertices[vertexCount++] = MakeV3(-width / 2.f + w, height / 2.f - h, z);
+            u8 *data           = buffer + (h * stride + w * nComponents);
+            f32 z              = (f32)(data[0] * scale + shift);
+            altitudes[count++] = z;
+            // vertices[count++] = MakeV3(-width / 2.f + w, height / 2.f - h, z);
         }
     }
 
-    u32 *indices   = PushArray(temp.arena, u32, (height - 1) * width * 2);
+    u32 *indices   = PushArray(temp.arena, u32, (height - 1) * (6 + (width - 2) * 2));
     u32 indexCount = 0;
     for (i32 h = 0; h < height - 1; h++)
     {
         // Connect triangle strips with degenerate triangles
-        indices[indexCount++] = width * h + 1;
-        indices[indexCount++] = width * h + 1;
-        for (i32 w = 0; w < width; w++)
+        u32 index1            = (width * (h + 1));
+        u32 index2            = (width * h);
+        u32 index3            = (width * (h + 1)) + 1;
+        u32 index4            = (width * h) + 1;
+        indices[indexCount++] = index1;
+        indices[indexCount++] = index1;
+        indices[indexCount++] = index2;
+        indices[indexCount++] = index3;
+        indices[indexCount++] = index4;
+        for (i32 w = 2; w < width; w++)
         {
-            indices[indexCount++] = w + width * h;
             indices[indexCount++] = w + width * (h + 1);
+            indices[indexCount++] = w + width * h;
         }
-        indices[indexCount++] = width - 1 + width * h;
-        indices[indexCount++] = width - 1 + width * h;
+        indices[indexCount++] = width - 1 + (width)*h;
     }
 
-    GLuint v;
-    openGL->glGenBuffers(1, &v);
-    openGL->glBindBuffer(GL_ARRAY_BUFFER, v);
-    openGL->glBufferData(GL_ARRAY_BUFFER, sizeof(vertices[0]) * totalCount, vertices, GL_STATIC_DRAW);
+    VC_Handle vertexHandle =
+        VC_AllocateBuffer(BufferType_Vertex, BufferUsage_Static, altitudes, sizeof(altitudes[0]), count);
 
-    // VC_AllocateBuffer(BufferType_Index, BufferUsage_Static, vertices, sizeof(vertices[0]) * totalCount);
-    // VC_Handle indexHandle =
-    //     VC_AllocateBuffer(BufferType_Vertex, BufferUsage_Static, indices, sizeof(indices[0]) * indexCount);
-
-    GLuint i;
-    openGL->glGenBuffers(1, &i);
-    openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, i);
-    openGL->glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices[0]) * indexCount, indices, GL_STATIC_DRAW);
-
-    VC_Handle vertexHandle = (u64)v;
-    VC_Handle indexHandle  = (u64)i;
+    VC_Handle indexHandle =
+        VC_AllocateBuffer(BufferType_Index, BufferUsage_Static, indices, sizeof(indices[0]), indexCount);
 
     Heightmap result;
     result.vertexHandle = vertexHandle;

@@ -4,8 +4,8 @@
 #include "asset.h"
 #include "asset.cpp"
 #include "asset_cache.h"
-#include "render.h"
-#include "render.cpp"
+#include "/render/render.h"
+#include "/render/render.cpp"
 #include "debug.cpp"
 #include "game.h"
 #endif
@@ -153,13 +153,14 @@ internal void G_Init()
 
     g_state->model  = AS_GetAsset(Str8Lit("data/dragon/scene.model"));
     g_state->model2 = AS_GetAsset(Str8Lit("data/hero/scene.model"));
+    g_state->eva    = AS_GetAsset(Str8Lit("data/eva/Eva01.model"));
 
     KeyframedAnimation *animation = PushStruct(g_state->permanentArena, KeyframedAnimation);
 
     // ReadAnimationFile(g_state->worldArena, animation, Str8Lit("data/dragon_attack_01.anim"));
     AS_Handle anim = AS_GetAsset(Str8Lit("data/dragon/Qishilong_attack01.anim"));
     // AS_Handle anim = LoadAssetFile(Str8Lit("data/dragon/Qishilong_attack02.anim"));
-    g_state->font      = AS_GetAsset(Str8Lit("data/liberation_mono.ttf"));
+    g_state->font = AS_GetAsset(Str8Lit("data/liberation_mono.ttf"));
 
     g_state->level           = PushStruct(g_state->permanentArena, Level);
     g_state->camera.position = g_state->player.pos - V3{0, 10, 0};
@@ -313,6 +314,8 @@ internal void G_Update(f32 dt)
         }
     }
 
+    D_BeginFrame();
+
     // TODO: separate out movement code from input
     switch (g_state->cameraMode)
     {
@@ -371,7 +374,8 @@ internal void G_Update(f32 dt)
             {
                 *acceleration = -forward;
             }
-            Mat4 projection = Perspective4(Radians(45.f), 16.f / 9.f, .1f, 1000.f);
+            Mat4 projection =
+                Perspective4(renderState->fov, renderState->aspectRatio, renderState->nearZ, renderState->farZ);
 
             Mat4 transform = projection * cameraMatrix;
 
@@ -426,13 +430,55 @@ internal void G_Update(f32 dt)
             camera->right     = Normalize(Cross(camera->forward, worldUp));
             V3 up             = Normalize(Cross(camera->right, camera->forward));
 
-            Mat4 projection   = Perspective4(Radians(45.f), 16.f / 9.f, .1f, 10000.f);
+            Mat4 projection =
+                Perspective4(renderState->fov, renderState->aspectRatio, renderState->nearZ, renderState->farZ);
             Mat4 cameraMatrix = LookAt4(camera->position, camera->position + camera->forward, worldUp);
+            Mat3 dir          = ToMat3(camera->forward);
+            // Mat4 cameraMatrix;
+            CalculateViewMatrix(camera->position, dir, cameraMatrix);
             // CameraTransform(camera->right, up, -camera->forward, camera->position);
 
             Mat4 transform = projection * cameraMatrix;
 
             renderState->transform = transform;
+
+            // TODO: mouse project into world
+            {
+                // screen space -> homogeneous clip space -> view space -> world space
+                Mat4 screenSpaceToWorldMatrix = Inverse(transform);
+                V2 mouseP                     = playerController->mousePos;
+                V2 viewport                   = OS_GetWindowDimension(shared->windowHandle);
+                // Screen space ->NDC
+                mouseP.x = Clamp(2 * mouseP.x / viewport.x - 1, -1, 1);
+                mouseP.y = Clamp(1 - (2 * mouseP.y / viewport.y), -1, 1);
+
+                struct Ray
+                {
+                    V3 mStartP;
+                    V3 mDir;
+                };
+
+                Ray ray;
+                // TODO: do I need to convert from NDC to homogeneous clip space?
+
+                // NDC -> View Space
+                V3 viewSpacePos = Inverse(projection) * MakeV3(mouseP, 0.f);
+
+                // View Space -> World Space
+                V3 worldSpacePos = Inverse(cameraMatrix) * viewSpacePos;
+                // V4 worldSpacePos = Inverse(cameraMatrix) * MakeV4(viewSpacePos, 0.f);
+                ray.mStartP = worldSpacePos;
+                ray.mDir    = camera->forward;
+
+                if (playerController->leftClick.keyDown)
+                {
+                    // DrawSphere(ray.mStartP, 10.f, Color_Red);
+                    DrawPoint(ray.mStartP, Color_Black);
+                    V3 p = ray.mStartP + ray.mDir * 10.f;
+                    DrawLine(ray.mStartP, p, Color_Black);
+                    // DrawLine(camera->position, camera->position + camera->forward, Color_Black);
+                }
+            }
             break;
         }
     }
@@ -488,7 +534,6 @@ internal void G_Update(f32 dt)
         }
     }
 
-    D_BeginFrame();
     // Physics
     {
         // ConvexShape a;
@@ -531,6 +576,8 @@ internal void G_Update(f32 dt)
         DrawSphere(sphereA.center, sphereA.radius, color);
         DrawSphere(sphereB.center, sphereB.radius, color);
 
+        DrawSphere(player->pos, 2.f, color);
+
         DrawBox({5, 1, 1}, {2, 1, 1}, Color_Black);
         DrawBox({8, 3, 3}, {1, 4, 2}, Color_Green);
         DrawArrow({0, 0, 0}, {5, 0, 0}, {1, 0, 0, 1}, 1.f);
@@ -548,6 +595,7 @@ internal void G_Update(f32 dt)
         // DrawRectangle(&renderState, V2(0, 0), V2(renderState.width / 10, renderState.height / 10));
 
         renderState->camera = g_state->camera;
+
         // Model 1
         Mat4 translate  = Translate4(V3{0, 20, 5});
         Mat4 scale      = Scale(V3{0.5f, 0.5f, 0.5f});
@@ -567,8 +615,7 @@ internal void G_Update(f32 dt)
         // Model 2
         translate       = Translate4(V3{0, 0, 30});
         scale           = Scale(V3{1, 1, 1});
-        rotate          = Rotate4(MakeV3(1, 0, 0), PI / 2);
-        Mat4 transform2 = translate * rotate * scale;
+        Mat4 transform2 = translate * rotate;
 
         LoadedSkeleton *skeleton2   = GetSkeletonFromModel(g_state->model2);
         AnimationTransform *tforms2 = PushArray(g_state->frameArena, AnimationTransform, skeleton2->count);
@@ -578,8 +625,17 @@ internal void G_Update(f32 dt)
         SkinModelToBindPose(g_state->model2, skinningMatrices2);
         Mat4 mvp2 = renderState->transform * transform2;
         D_PushModel(g_state->model2, transform2, mvp2, skinningMatrices2, skeleton2->count);
-        D_PushHeightmap(g_state->heightmap);
-        // D_PushText(g_state->font, {0, 30}, 64, Str8Lit("What is going on?"));
+
+        // Eva model 01
+        translate       = Translate4(V3{10, 0, 0});
+        scale           = Scale(V3{1, 1, 1});
+        rotate          = Rotate4(MakeV3(1, 0, 0), PI / 2);
+        Mat4 transform3 = translate * rotate * scale;
+        Mat4 mvp3       = renderState->transform * transform3;
+
+        D_PushModel(g_state->eva, transform3, mvp3);
+
+        // D_PushHeightmap(g_state->heightmap);
         D_CollateDebugRecords();
 
         // R_SubmitFrame();

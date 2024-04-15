@@ -8,10 +8,11 @@ const i32 VERTEX_CACHE_STATIC_MASK  = 1;
 const i32 VERTEX_CACHE_OFFSET_SHIFT = 1;
 const i32 VERTEX_CACHE_OFFSET_MASK  = 0x1ffffff;
 const i32 VERTEX_CACHE_SIZE_SHIFT   = 26;
-const i32 VERTEX_CACHE_SIZE_MASK    = 0x7fffff;
-const i32 VERTEX_CACHE_FRAME_SHIFT  = 49;
-const i32 VERTEX_CACHE_FRAME_MASK   = 0x7fff;
+const i32 VERTEX_CACHE_SIZE_MASK    = 0x1ffffff;
+const i32 VERTEX_CACHE_FRAME_SHIFT  = 51;
+const i32 VERTEX_CACHE_FRAME_MASK   = 0x1fff;
 
+// must be smaller than 2^25 - 1
 const i32 VERTEX_CACHE_BUFFER_SIZE = 31 * 1024 * 1024;
 
 internal void VC_Init()
@@ -49,14 +50,15 @@ internal void VC_Init()
 }
 
 // TODO: static data asynchronously loaded needs to be queued. this only works with persistent mapping
-internal VC_Handle VC_AllocateBuffer(BufferType bufferType, BufferUsageType usageType, void *data, i32 size)
+internal VC_Handle VC_AllocateBuffer(BufferType bufferType, BufferUsageType usageType, void *data, i32 elementSize,
+                                     i32 count)
 {
     VC_Handle handle = 0;
 
     // TODO: this cannot be aligned because the size of MeshVertex is 76, so with an alignment of 16 the
     // MeshVertex will not be placed at an appropriate boundary in the buffer
     // technically it's possible but vertexattrib pointer would have to be weird so it's not worth it now
-    i32 alignedSize   = size; // AlignPow2(size, 16);
+
     GPUBuffer *buffer = 0;
     switch (usageType)
     {
@@ -98,17 +100,35 @@ internal VC_Handle VC_AllocateBuffer(BufferType bufferType, BufferUsageType usag
             break;
         }
     }
-    Assert(buffer->size >= buffer->offset + alignedSize);
-    i32 offset = AtomicAddI32(&buffer->offset, alignedSize);
-    R_UpdateBuffer(buffer, usageType, data, offset, size);
 
-    handle = ((u64)(offset & VERTEX_CACHE_OFFSET_MASK) << VERTEX_CACHE_OFFSET_SHIFT) |
-             ((u64)(size & VERTEX_CACHE_SIZE_MASK) << VERTEX_CACHE_SIZE_SHIFT) |
-             ((u64)(gVertexCache.currentFrame & VERTEX_CACHE_FRAME_MASK) << VERTEX_CACHE_FRAME_SHIFT);
+    // TODO: not sure about this. maybe in the future to keep things simpler all the vertex types will need to be
+    // power of 2 sizes
 
-    if (usageType == BufferUsage_Static)
+    for (;;)
     {
-        handle |= ((u64)VERTEX_CACHE_STATIC_MASK);
+        i32 initialOffset = buffer->offset;
+        i32 alignSize     = elementSize - (initialOffset % elementSize); // size + size; AlignPow2(size, 16);
+        i32 commitSize    = elementSize * count;
+        i32 totalSize     = commitSize + alignSize;
+
+        Assert(buffer->size >= initialOffset + totalSize);
+        Assert(totalSize <= VERTEX_CACHE_SIZE_MASK);
+        // i32 offset = AtomicAddI32(&buffer->offset, alignedSize);
+        if (AtomicCompareExchange(&buffer->offset, initialOffset + totalSize, initialOffset) == initialOffset)
+        {
+            i32 offset = initialOffset + alignSize;
+            R_UpdateBuffer(buffer, usageType, data, offset, commitSize);
+
+            handle = ((u64)(offset & VERTEX_CACHE_OFFSET_MASK) << VERTEX_CACHE_OFFSET_SHIFT) |
+                     ((u64)(commitSize & VERTEX_CACHE_SIZE_MASK) << VERTEX_CACHE_SIZE_SHIFT) |
+                     ((u64)(gVertexCache.currentFrame & VERTEX_CACHE_FRAME_MASK) << VERTEX_CACHE_FRAME_SHIFT);
+
+            if (usageType == BufferUsage_Static)
+            {
+                handle |= ((u64)VERTEX_CACHE_STATIC_MASK);
+            }
+            break;
+        }
     }
 
     return handle;

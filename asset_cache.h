@@ -1,7 +1,10 @@
 #ifndef ASSET_CACHE_H
 #define ASSET_CACHE_H
 
+#define STBI_ONLY_PNG
+#define STBI_ONLY_JPEG
 #include "third_party/stb_image.h"
+
 #include "crack.h"
 #ifdef LSP_INCLUDE
 #include "keepmovingforward_common.h"

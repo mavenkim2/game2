@@ -33,6 +33,12 @@ internal void D_Init()
     d_state->arena     = arena;
     RenderState *state = renderState;
 
+    // TODO: cvars?
+    state->fov         = Radians(45.f);
+    state->aspectRatio = 16.f / 9.f;
+    state->nearZ       = .1f;
+    state->farZ        = 1000.f;
+
     // DebugRenderer *debug = &state->debugRenderer;
 
     // Create sphere primitive
@@ -50,14 +56,9 @@ internal void D_Init()
                 state->passes[type].pass3D = PushStruct(arena, R_Pass3D);
                 break;
             }
-            case R_PassType_StaticMesh:
+            case R_PassType_Mesh:
             {
-                state->passes[type].passStatic = PushStruct(arena, R_PassStaticMesh);
-                break;
-            }
-            case R_PassType_SkinnedMesh:
-            {
-                state->passes[type].passSkinned = PushStruct(arena, R_PassSkinnedMesh);
+                state->passes[type].passMesh = PushStruct(arena, R_PassMesh);
                 break;
             }
             default: Assert(!"Invalid default case");
@@ -217,9 +218,9 @@ internal void D_BeginFrame()
                 }
                 break;
             }
-            case R_PassType_SkinnedMesh:
+            case R_PassType_Mesh:
             {
-                R_PassSkinnedMesh *pass = state->passes[type].passSkinned;
+                R_PassMesh *pass = state->passes[type].passMesh;
                 pass->list.first = pass->list.last = 0;
             }
             default:
@@ -323,40 +324,30 @@ internal void D_PushModel(AS_Handle loadedModel, Mat4 transform, Mat4 &mvp, Mat4
             return;
         }
 
-        if (skinningMatricesCount)
+        // Skinned mesh
+        R_PassMesh *pass       = R_GetPassFromKind(R_PassType_Mesh)->passMesh;
+        R_MeshParamsNode *node = PushStruct(d_state->arena, R_MeshParamsNode);
+
+        node->val.numSurfaces = model->numMeshes;
+        D_Surface *surfaces   = (D_Surface *)R_FrameAlloc(node->val.numSurfaces * sizeof(*surfaces));
+        node->val.surfaces    = surfaces;
+
+        for (u32 i = 0; i < model->numMeshes; i++)
         {
-            R_PassSkinnedMesh *pass       = R_GetPassFromKind(R_PassType_SkinnedMesh)->passSkinned;
-            R_SkinnedMeshParamsNode *node = PushStruct(d_state->arena, R_SkinnedMeshParamsNode);
+            Mesh *mesh         = &model->meshes[i];
+            D_Surface *surface = &surfaces[i];
 
-            node->val.numSurfaces = model->numMeshes;
-            D_Surface *surfaces   = (D_Surface *)R_FrameAlloc(node->val.numSurfaces * sizeof(*surfaces));
-            node->val.surfaces    = surfaces;
+            surface->vertexBuffer = mesh->surface.vertexBuffer;
+            surface->indexBuffer  = mesh->surface.indexBuffer;
 
-            for (u32 i = 0; i < model->numMeshes; i++)
-            {
-                Mesh *mesh         = &model->meshes[i];
-                D_Surface *surface = &surfaces[i];
-
-                surface->vertexBuffer = mesh->surface.vertexBuffer;
-                surface->indexBuffer  = mesh->surface.indexBuffer;
-
-                // TODO: ptr or copy?
-                surface->material = &mesh->material;
-            }
-
-            node->val.transform             = transform;
-            node->val.skinningMatrices      = skinningMatrices;
-            node->val.skinningMatricesCount = skinningMatricesCount;
-            QueuePush(pass->list.first, pass->list.last, node);
+            // TODO: ptr or copy?
+            surface->material = &mesh->material;
         }
-        else
-        {
-            R_PassStaticMesh *pass       = R_GetPassFromKind(R_PassType_StaticMesh)->passStatic;
-            R_StaticMeshParamsNode *node = PushStruct(d_state->arena, R_StaticMeshParamsNode);
-            node->val.transform          = transform;
-            node->val.mesh               = loadedModel;
-            QueuePush(pass->list.first, pass->list.last, node);
-        }
+
+        node->val.transform             = transform;
+        node->val.skinningMatrices      = skinningMatrices;
+        node->val.skinningMatricesCount = skinningMatricesCount;
+        QueuePush(pass->list.first, pass->list.last, node);
     }
 }
 
@@ -609,7 +600,7 @@ internal b32 IsAligned(u8 *ptr, i32 alignment)
 internal void R_SwapFrameData()
 {
     R_Command *currentHead              = gRenderFrameState->currentFrameData->head;
-    renderState->head = currentHead;
+    renderState->head                   = currentHead;
     u32 frameIndex                      = ++gRenderFrameState->currentFrame % cFrameDataNumFrames;
     gRenderFrameState->currentFrameData = &gRenderFrameState->frameData[frameIndex];
 
@@ -634,8 +625,92 @@ internal void *R_CreateCommand(i32 size)
 }
 
 //////////////////////////////
-// Render
+// Lights
 //
+enum LightType
+{
+    LightType_Directional,
+    LightType_Point,
+};
+struct Light
+{
+    LightType type;
+    V3 dir;
+};
+
+// Render to depth buffer from the perspective of the light, test vertices against this depth buffer
+// to see whether object is in shadow.
+// internal void R_CascadedShadowMap(Light *light)
+// {
+//     const i32 numCascades      = 4;
+//     const f32 cascadeDistances = {renderState->nearZ, renderState->farZ / 50.f, renderState->farZ / 25.f,
+//                                   renderState->farZ / 10.f, renderState->farZ / 2.f};
+//
+//     // Mat4 ndcToWorld = Inverse(renderState->transform);
+//
+//     // Step 0. Set up the mvp matrix for each frusta.
+//     Mat4 mvpMatrices[numCascades];
+//     for (i32 cascadeIndex = 0; cascadeIndex < numCascades; cascadeIndex++)
+//     {
+//         Mat4 view = mvpMatrices[cascadeIndex] =
+//     }
+//
+//     // Step 1. Get the corners of each of the view frusta
+//     V3 frustumVertices[numCascades][8];
+//     for (i32 cascadeIndex = 0; cascadeIndex < numCascades; cascadeIndex++)
+//     {
+//         i32 count = 0;
+//         for (i32 x = 0; x < 2; x++)
+//         {
+//             for (i32 y = 0; y < 2; y++)
+//             {
+//                 for (i32 z = 0; z < 2; z++)
+//                 {
+//                     // NOTE IMPORTANT: NDC is -1 to 1 is OpenGL, but for other APIs it is different
+//                     V4 p = {2 * x - 1, 2 * y - 1, 2 * z - 1.f, 1.f};
+//                     p    = mvpMatrices[cascadeIndex] * p;
+//
+//                     f32 oneOverW                           = 1 / p.w;
+//                     frustumVertices[cascadeIndex][count++] = p * oneOverW;
+//                 }
+//             }
+//         }
+//     }
+//
+//     // Step 2. Find light world to view matrix (first get center point of frusta)
+//     V3 center[numCascades] = {};
+//     for (i32 cascadeIndex = 0; cascadeIndex < numCascades; cascadeIndex++)
+//     {
+//         for (i32 i = 0; i < ArrayLength(frustumVertices[0]); i++)
+//         {
+//             center[cascadeIndex] += frustumVertices[cascadeIndex][i];
+//         }
+//         center[cascadeIndex] /= ArrayLength(frustumVertices[0]);
+//     }
+//
+//     // Step 3. Find orthographic projection of the light. To do this, convert frustum points
+//     // to the light's view space, and find the aabb of the frustum in this space. This determines the
+//     // bounds for the orthographic projection.
+//     Rect3 axisAlignedBox[numCascades];
+//     for (i32 cascadeIndex = 0; cascadeIndex < numCascades; cascadeIndex++)
+//     {
+//         Init(&axisAlignedBox[cascadeIndex]);
+//     }
+//     for (i32 cascadeIndex = 0; cascadeIndex < numCascades; cascadeIndex++)
+//     {
+//         AddBounds(axisAlignedBox[cascadeIndex], frustumVertices[cascadeIndex][i]);
+//     }
+//
+//     for (i32 cascadeIndex = 0; cascadeIndex < numCascades; cascadeIndex++)
+//     {
+//         if (axisAlignedBox.minZ < 0)
+//         {
+//             axisAlignedBox.minZ *=
+//         }
+//     }
+//     Mat4 orthographic = Orthographic4(axisAlignedBox.minX, axisAlignedBox.maxX, axisAlignedBox.minY,
+//                                       axisAlignedBox.maxY, axisAlignedBox.minZ, axisAlignedBox.maxZ);
+// }
 
 // Constants
 // #if 0

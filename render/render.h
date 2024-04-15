@@ -110,8 +110,7 @@ struct AS_CacheState;
 enum R_PassType
 {
     R_PassType_3D,
-    R_PassType_StaticMesh,
-    R_PassType_SkinnedMesh,
+    R_PassType_Mesh,
     R_PassType_UI,
     R_PassType_Count,
 };
@@ -216,7 +215,7 @@ struct D_Surface
     Material *material;
 };
 
-struct R_SkinnedMeshParams
+struct R_MeshParams
 {
     Mat4 transform;
     D_Surface *surfaces;
@@ -225,44 +224,21 @@ struct R_SkinnedMeshParams
     u32 skinningMatricesCount;
 };
 
-struct R_SkinnedMeshParamsNode
+struct R_MeshParamsNode
 {
-    R_SkinnedMeshParams val;
-    R_SkinnedMeshParamsNode *next;
+    R_MeshParams val;
+    R_MeshParamsNode *next;
 };
 
-struct R_SkinnedMeshParamsList
+struct R_MeshParamsList
 {
-    R_SkinnedMeshParamsNode *first;
-    R_SkinnedMeshParamsNode *last;
+    R_MeshParamsNode *first;
+    R_MeshParamsNode *last;
 };
 
-struct R_PassSkinnedMesh
+struct R_PassMesh
 {
-    R_SkinnedMeshParamsList list;
-};
-
-struct R_StaticMeshParams
-{
-    Mat4 transform;
-    AS_Handle mesh;
-};
-
-struct R_StaticMeshParamsNode
-{
-    R_StaticMeshParams val;
-    R_StaticMeshParamsNode *next;
-};
-
-struct R_StaticMeshParamsList
-{
-    R_StaticMeshParamsNode *first;
-    R_StaticMeshParamsNode *last;
-};
-
-struct R_PassStaticMesh
-{
-    R_StaticMeshParamsList list;
+    R_MeshParamsList list;
 };
 
 struct R_Pass
@@ -273,8 +249,7 @@ struct R_Pass
         void *ptr;
         R_PassUI *passUI;
         R_Pass3D *pass3D;
-        R_PassStaticMesh *passStatic;
-        R_PassSkinnedMesh *passSkinned;
+        R_PassMesh *passMesh;
     };
 };
 
@@ -284,6 +259,11 @@ struct RenderState
     Mat4 transform;
     i32 width;
     i32 height;
+
+    f32 fov;
+    f32 aspectRatio;
+    f32 nearZ;
+    f32 farZ;
 
     R_Pass passes[R_PassType_Count];
     R_Command *head;

@@ -2,6 +2,7 @@ layout (location = 0) in V3 pos;
 layout (location = 1) in V3 n;
 layout (location = 2) in V2 uv;
 layout (location = 3) in V3 tangent;
+
 layout (location = 4) in uvec4 boneIds;
 layout (location = 5) in vec4 boneWeights;
 
@@ -23,15 +24,19 @@ uniform V3 viewPos;
 
 void main()
 { 
+#ifdef SKINNED
     Mat4 boneTransform = boneTransforms[boneIds[0]] * boneWeights[0];
     boneTransform     += boneTransforms[boneIds[1]] * boneWeights[1];
     boneTransform     += boneTransforms[boneIds[2]] * boneWeights[2];
     boneTransform     += boneTransforms[boneIds[3]] * boneWeights[3];
 
-    V3 localPos = (model * V4(pos, 1.0)).xyz;
 
     // gl_Position = transform * V4(localPos, 1.0);
     gl_Position = transform * boneTransform * V4(pos, 1.0);
+#else
+    //gl_Position = transform * V4(pos, 1.0);
+#endif
+    V3 localPos = (model * V4(pos, 1.0)).xyz;
 
     // TODO: this should probably be calculated once on the cpu instead 
     // of for every vertex

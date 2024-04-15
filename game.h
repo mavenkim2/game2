@@ -140,8 +140,10 @@ struct G_State
 
     AnimationPlayer animPlayer;
 
+    // TODO: add entities please
     AS_Handle model;
     AS_Handle model2;
+    AS_Handle eva;
 
     AS_Handle font;
 

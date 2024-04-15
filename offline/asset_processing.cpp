@@ -86,136 +86,171 @@ internal void *LoadAndWriteModel(void *ptr, Arena *arena)
         Assert(!":(");
     }
 
-    filename                    = RemoveFileExtension(filename);
-    aiMatrix4x4t<f32> transform = scene->mRootNode->mTransformation;
-    model                       = LoadAllMeshes(scratch.arena, scene);
+    filename = RemoveFileExtension(filename);
 
-    // Load skeleton
-    model.skeleton.parents            = PushArray(scratch.arena, i32, scene->mMeshes[0]->mNumBones);
-    model.skeleton.transformsToParent = PushArray(scratch.arena, Mat4, scene->mMeshes[0]->mNumBones);
-
-    MeshNodeInfoArray infoArray;
-    infoArray.items = PushArrayNoZero(scratch.arena, MeshNodeInfo, 200);
-    // TODO; hardcoded
-    infoArray.cap   = 200;
-    infoArray.count = 0;
-    ProcessNode(scratch.arena, &infoArray, scene->mRootNode);
-
-    Mat4 rootTransform;
+    // Static mesh
+    if (scene->mMeshes[0]->mNumBones == 0)
     {
-        u32 skeletonCount = 0;
-        b32 rootNodeFound = 0;
-        Assert(infoArray.count >= model.skeleton.count);
-        for (u32 i = 0; i < infoArray.count; i++)
+        Mat4 rootTransform = ConvertAssimpMatrix4x4(scene->mRootNode->mTransformation);
+        model.numMeshes    = scene->mNumMeshes;
+        model.meshes       = PushArray(scratch.arena, InputMesh, model.numMeshes);
+        for (u32 i = 0; i < scene->mNumMeshes; i++)
         {
-            MeshNodeInfo *info = &infoArray.items[i]; // + shift];
-            // TODO: if this becomes slow in future, generate a hash table that maps names of skeleton joints
-            // to their indices within the skeleton
-            i32 id = FindNodeIndex(&model.skeleton, info->name);
-            if (id == -1)
+            InputMesh *inputMesh = &model.meshes[i];
+            aiMesh *mesh         = scene->mMeshes[i];
+            ProcessMesh(scratch.arena, inputMesh, scene, mesh);
+
+            Init(&inputMesh->bounds);
+            for (u32 vertexIndex = 0; vertexIndex < inputMesh->vertexCount; vertexIndex++)
             {
-                Printf("Skipped node name: %S\n", info->name);
-                continue;
+                inputMesh->vertices[vertexIndex].position =
+                    rootTransform * inputMesh->vertices[vertexIndex].position;
+                AddBounds(inputMesh->bounds, inputMesh->vertices[vertexIndex].position);
             }
+        }
+        model.skeleton.filename.size = 0;
+        JS_Counter counter           = {};
+        ModelJobData modelData       = {};
+        modelData.model              = &model;
+        modelData.directory          = directory;
+        modelData.path               = PushStr8F(scratch.arena, "%S%S.model", directory, filename);
+        Printf("Writing model to file: %S\n", modelData.path);
+        JS_Kick(WriteModelToFile, &modelData, 0, Priority_Normal, &counter);
+        JS_Join(&counter);
+    }
+    // Skeletal mesh
+    else
+    {
+        aiMatrix4x4t<f32> transform = scene->mRootNode->mTransformation;
+        model                       = LoadAllMeshes(scratch.arena, scene);
 
-            skeletonCount++;
-            Assert(info->hasParent);
-            string parentName = info->parentName;
-            i32 parentId      = FindNodeIndex(&model.skeleton, parentName);
+        // Load skeleton
+        model.skeleton.parents            = PushArray(scratch.arena, i32, scene->mMeshes[0]->mNumBones);
+        model.skeleton.transformsToParent = PushArray(scratch.arena, Mat4, scene->mMeshes[0]->mNumBones);
 
-            model.skeleton.parents[id] = parentId;
-            Mat4 parentTransform       = info->transformToParent;
-            // Root node
-            if (parentId == -1)
+        MeshNodeInfoArray infoArray;
+        infoArray.items = PushArrayNoZero(scratch.arena, MeshNodeInfo, 200);
+        // TODO; hardcoded
+        infoArray.cap   = 200;
+        infoArray.count = 0;
+        ProcessNode(scratch.arena, &infoArray, scene->mRootNode);
+
+        Mat4 rootTransform;
+        {
+            u32 skeletonCount = 0;
+            b32 rootNodeFound = 0;
+            Assert(infoArray.count >= model.skeleton.count);
+            for (u32 i = 0; i < infoArray.count; i++)
             {
-                // NOTE: there should only be one node in the skeleton that has no parent.
-                Assert(rootNodeFound == 0);
-                parentId = FindMeshNodeInfo(&infoArray, parentName);
-                while (parentId != -1)
+                MeshNodeInfo *info = &infoArray.items[i]; // + shift];
+                // TODO: if this becomes slow in future, generate a hash table that maps names of skeleton joints
+                // to their indices within the skeleton
+                i32 id = FindNodeIndex(&model.skeleton, info->name);
+                if (id == -1)
                 {
-                    info            = &infoArray.items[parentId];
-                    parentTransform = info->transformToParent * parentTransform;
-                    parentId        = FindMeshNodeInfo(&infoArray, info->parentName);
+                    Printf("Skipped node name: %S\n", info->name);
+                    continue;
                 }
-                rootTransform = parentTransform;
-                rootNodeFound = 1;
+
+                skeletonCount++;
+                Assert(info->hasParent);
+                string parentName = info->parentName;
+                i32 parentId      = FindNodeIndex(&model.skeleton, parentName);
+
+                model.skeleton.parents[id] = parentId;
+                Mat4 parentTransform       = info->transformToParent;
+                // Root node
+                if (parentId == -1)
+                {
+                    // NOTE: there should only be one node in the skeleton that has no parent.
+                    Assert(rootNodeFound == 0);
+                    parentId = FindMeshNodeInfo(&infoArray, parentName);
+                    while (parentId != -1)
+                    {
+                        info            = &infoArray.items[parentId];
+                        parentTransform = info->transformToParent * parentTransform;
+                        parentId        = FindMeshNodeInfo(&infoArray, info->parentName);
+                    }
+                    rootTransform = parentTransform;
+                    rootNodeFound = 1;
+                }
+                model.skeleton.transformsToParent[id] = parentTransform;
             }
-            model.skeleton.transformsToParent[id] = parentTransform;
+            Assert(skeletonCount == model.skeleton.count);
+            Assert(model.skeleton.parents[0] == -1);
         }
-        Assert(skeletonCount == model.skeleton.count);
-        Assert(model.skeleton.parents[0] == -1);
-    }
-    Printf("Root ");
-    Print(rootTransform);
-    Printf("IBP ");
-    Print(model.skeleton.inverseBindPoses[0]);
+        Printf("Root ");
+        Print(rootTransform);
+        Printf("IBP ");
+        Print(model.skeleton.inverseBindPoses[0]);
 
-    Mat4 *bindPosePalette = PushArray(scratch.arena, Mat4, model.skeleton.count);
-    SkinModelToBindPose(&model, bindPosePalette);
+        Mat4 *bindPosePalette = PushArray(scratch.arena, Mat4, model.skeleton.count);
+        SkinModelToBindPose(&model, bindPosePalette);
 
-    // TODO: sigh
-    for (u32 i = 0; i < model.numMeshes; i++)
-    {
-        Rect3 bounds;
-        Init(&bounds);
-        InputMesh *mesh = &model.meshes[i];
-        for (u32 j = 0; j < mesh->vertexCount; j++)
+        // Compute vertex bounds in bind pose
+        for (u32 i = 0; i < model.numMeshes; i++)
         {
-            MeshVertex *vertex  = &mesh->vertices[j];
-            Mat4 skinningMatrix = bindPosePalette[vertex->boneIds[0]] * vertex->boneWeights[0];
-            for (u32 k = 1; k < 4; k++)
+            Rect3 bounds;
+            Init(&bounds);
+            InputMesh *mesh = &model.meshes[i];
+            for (u32 j = 0; j < mesh->vertexCount; j++)
             {
-                skinningMatrix += bindPosePalette[vertex->boneIds[k]] * vertex->boneWeights[k];
+                MeshVertex *vertex  = &mesh->vertices[j];
+                Mat4 skinningMatrix = bindPosePalette[vertex->boneIds[0]] * vertex->boneWeights[0];
+                for (u32 k = 1; k < 4; k++)
+                {
+                    skinningMatrix += bindPosePalette[vertex->boneIds[k]] * vertex->boneWeights[k];
+                }
+                V3 newPos = skinningMatrix * vertex->position;
+                AddBounds(bounds, newPos);
             }
-            V3 newPos = skinningMatrix * vertex->position;
-            AddBounds(bounds, newPos);
+            mesh->bounds = bounds;
         }
-        mesh->bounds = bounds;
-    }
 
-    JS_Counter counter = {};
-    // Process all animations and write to file
-    JS_Counter animationCounter = {};
-    u32 numAnimations           = scene->mNumAnimations;
-    AnimationJobData *jobData   = PushArray(scratch.arena, AnimationJobData, numAnimations);
-    Printf("Number of animations: %u\n", numAnimations);
-    {
+        JS_Counter counter = {};
+        // Process all animations and write to file
+        JS_Counter animationCounter = {};
+        u32 numAnimations           = scene->mNumAnimations;
+        AnimationJobData *jobData   = PushArray(scratch.arena, AnimationJobData, numAnimations);
+        Printf("Number of animations: %u\n", numAnimations);
+        {
+            for (u32 i = 0; i < numAnimations; i++)
+            {
+                jobData[i].outAnimation = PushStruct(scratch.arena, CompressedKeyframedAnimation);
+                jobData[i].inAnimation  = scene->mAnimations[i];
+                JS_Kick(ProcessAnimation, &jobData[i], 0, Priority_Normal, &animationCounter);
+            }
+            JS_Join(&animationCounter);
+        }
+
+        // AnimationJobWriteData *writeData = PushArray(scratch.arena, AnimationJobWriteData, numAnimations);
         for (u32 i = 0; i < numAnimations; i++)
         {
-            jobData[i].outAnimation = PushStruct(scratch.arena, CompressedKeyframedAnimation);
-            jobData[i].inAnimation  = scene->mAnimations[i];
-            JS_Kick(ProcessAnimation, &jobData[i], 0, Priority_Normal, &animationCounter);
+            AnimationJobWriteData *data = PushStruct(scratch.arena, AnimationJobWriteData);
+            data->animation             = jobData[i].outAnimation;
+            data->path                  = PushStr8F(scratch.arena, "%S%S.anim", directory, jobData[i].outName);
+            Printf("Writing animation to file: %S\n", data->path);
+            JS_Kick(WriteAnimationToFile, data, 0, Priority_Normal, &counter);
         }
-        JS_Join(&animationCounter);
+
+        // Write skeleton file
+        SkeletonJobData skelData = {};
+        skelData.skeleton        = &model.skeleton;
+        skelData.path            = PushStr8F(scratch.arena, "%S%S.skel", directory, filename);
+        Printf("Writing skeleton to file: %S\n", skelData.path);
+        JS_Kick(WriteSkeletonToFile, &skelData, 0, Priority_Normal, &counter);
+
+        // Write model file (vertex data & dependencies)
+        model.skeleton.filename = StrConcat(scratch.arena, filename, Str8Lit(".skel"));
+        ModelJobData modelData  = {};
+        modelData.model         = &model;
+        modelData.directory     = directory;
+        modelData.path          = PushStr8F(scratch.arena, "%S%S.model", directory, filename);
+        Printf("Writing model to file: %S\n", modelData.path);
+        JS_Kick(WriteModelToFile, &modelData, 0, Priority_Normal, &counter);
+
+        JS_Join(&counter);
     }
-
-    // AnimationJobWriteData *writeData = PushArray(scratch.arena, AnimationJobWriteData, numAnimations);
-    for (u32 i = 0; i < numAnimations; i++)
-    {
-        AnimationJobWriteData *data = PushStruct(scratch.arena, AnimationJobWriteData);
-        data->animation             = jobData[i].outAnimation;
-        data->path                  = PushStr8F(scratch.arena, "%S%S.anim", directory, jobData[i].outName);
-        Printf("Writing animation to file: %S\n", data->path);
-        JS_Kick(WriteAnimationToFile, data, 0, Priority_Normal, &counter);
-    }
-
-    // Write skeleton file
-    SkeletonJobData skelData = {};
-    skelData.skeleton        = &model.skeleton;
-    skelData.path            = PushStr8F(scratch.arena, "%S%S.skel", directory, filename);
-    Printf("Writing skeleton to file: %S\n", skelData.path);
-    JS_Kick(WriteSkeletonToFile, &skelData, 0, Priority_Normal, &counter);
-
-    // Write model file (vertex data & dependencies)
-    model.skeleton.filename = StrConcat(scratch.arena, filename, Str8Lit(".skel"));
-    ModelJobData modelData  = {};
-    modelData.model         = &model;
-    modelData.directory     = directory;
-    modelData.path          = PushStr8F(scratch.arena, "%S%S.model", directory, filename);
-    Printf("Writing model to file: %S\n", modelData.path);
-    JS_Kick(WriteModelToFile, &modelData, 0, Priority_Normal, &counter);
-
-    JS_Join(&counter);
     ScratchEnd(scratch);
     return 0;
 }
@@ -243,10 +278,7 @@ internal InputModel LoadAllMeshes(Arena *arena, const aiScene *scene)
 
     for (i32 i = 0; i < scene->mNumMeshes; i++)
     {
-        aiMesh *mesh             = scene->mMeshes[i];
-        model.meshes[i].vertices = PushArrayNoZero(arena, MeshVertex, mesh->mNumVertices);
-        model.meshes[i].indices  = PushArrayNoZero(arena, u32, mesh->mNumFaces * 3);
-        // ProcessMesh(arena, &model, scene, mesh);
+        aiMesh *mesh = scene->mMeshes[i];
         ProcessMesh(arena, &model.meshes[i], scene, mesh);
     }
 
@@ -285,9 +317,8 @@ internal InputModel LoadAllMeshes(Arena *arena, const aiScene *scene)
 // internal void ProcessMesh(Arena *arena, InputModel *model, const aiScene *scene, const aiMesh *mesh)
 internal void ProcessMesh(Arena *arena, InputMesh *inputMesh, const aiScene *scene, const aiMesh *mesh)
 {
-    // u32 baseVertex = model->vertexCount;
-    // u32 baseIndex  = model->indexCount;
-
+    inputMesh->vertices = PushArrayNoZero(arena, MeshVertex, mesh->mNumVertices);
+    inputMesh->indices  = PushArrayNoZero(arena, u32, mesh->mNumFaces * 3);
     for (u32 i = 0; i < mesh->mNumVertices; i++)
     {
         MeshVertex vertex = {};
@@ -615,9 +646,16 @@ internal void WriteModelToFile(InputModel *model, string directory, string filen
             }
         }
 
-        string output = StrConcat(temp.arena, directory, model->skeleton.filename);
-        PutU64(&builder, output.size);
-        Put(&builder, output);
+        if (model->skeleton.filename.size != 0)
+        {
+            string output = StrConcat(temp.arena, directory, model->skeleton.filename);
+            PutU64(&builder, output.size);
+            Put(&builder, output);
+        }
+        else
+        {
+            PutU64(&builder, 0);
+        }
     }
 
     b32 success = WriteEntireFile(&builder, filename);
