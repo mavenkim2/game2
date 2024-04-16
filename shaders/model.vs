@@ -23,7 +23,7 @@ uniform Mat4 transform;
 uniform Mat4 boneTransforms[MAX_BONES];
 
 uniform Mat4 model;
-uniform Mat4 modelViewMatrix;
+uniform Mat4 viewMatrix;
 uniform V3 lightDir; 
 uniform V3 viewPos;
 
@@ -36,19 +36,24 @@ void main()
     boneTransform     += boneTransforms[boneIds[3]] * boneWeights[3];
 
 
-    // gl_Position = transform * V4(localPos, 1.0);
-    gl_Position = transform * boneTransform * V4(pos, 1.0);
+    V3 modelSpacePos = (boneTransform * V4(pos, 1.0)).xyz;
+    V3 worldSpacePos = (model * V4(modelSpacePos, 1.0)).xyz;
+    gl_Position = transform * V4(modelSpacePos, 1.0);
+
+    mat3 modelToWorld = mat3(model * boneTransform);
+    modelToWorld = transpose(inverse(modelToWorld));
+    V3 n = normalize(modelToWorld * n);
+    V3 t = normalize(modelToWorld * tangent);
+    // NOTE: only have to do this if there is non uniform scale
+    t = normalize(t - dot(t, n) * n);
 #else
     gl_Position = transform * V4(pos, 1.0);
-#endif
-    V3 localPos = (model * V4(pos, 1.0)).xyz;
-
-    // TODO: this should probably be calculated once on the cpu instead 
-    // of for every vertex
+    V3 worldSpacePos = (model * V4(pos, 1.0)).xyz;
     mat3 normalMatrix = transpose(inverse(mat3(model)));
     V3 t = normalize(normalMatrix * tangent);
     V3 n = normalize(normalMatrix * n);
     t = normalize(t - dot(t, n) * n);
+#endif
     V3 b = cross(n, t);
     // Inverse of orthonormal basis is just the transpose
     mat3 tbn = transpose(mat3(t, b, n));
@@ -56,10 +61,10 @@ void main()
     result.outUv = uv;
     result.tangentLightDir = tbn * lightDir;
     result.tangentViewPos = tbn * viewPos;
-    result.tangentFragPos = tbn * localPos;
+    result.tangentFragPos = tbn * worldSpacePos;
 
-    result.viewFragPos = modelViewMatrix * V4(pos, 1.0);
-    result.worldFragPos = localPos;
+    result.viewFragPos = viewMatrix * V4(worldSpacePos, 1.f);
+    result.worldFragPos = worldSpacePos;
     result.worldLightDir = lightDir;
     result.drawId = gl_DrawID;
 }

@@ -153,6 +153,7 @@ internal GLuint R_OpenGL_CreateShader(string globalsPath, string vsPath, string 
     return id;
 }
 
+// TODO: this loading code is duplicated from the startup code
 internal void R_OpenGL_HotloadShaders()
 {
     TempArena temp = ScratchStart(0, 0);
@@ -170,17 +171,36 @@ internal void R_OpenGL_HotloadShaders()
             shader->fsLastModified      = fsLastModified;
             shader->globalsLastModified = globalsLastModified;
             string preprocess           = Str8Lit("");
+            string gs                   = {};
             switch (type)
             {
-                case R_ShaderType_Instanced3D: preprocess = Str8Lit("#define INSTANCED 1\n"); break;
-                case R_ShaderType_SkinnedMesh: preprocess = Str8Lit("#define SKINNED 1\n");
+                case R_ShaderType_Instanced3D:
+                {
+                    preprocess = Str8Lit("#define INSTANCED 1\n");
+                    break;
+                }
+                case R_ShaderType_SkinnedMesh:
+                {
+                    preprocess = Str8Lit("#define SKINNED 1\n");
+                } // fallthrough
                 case R_ShaderType_StaticMesh:
+                {
                     preprocess = StrConcat(temp.arena, preprocess, Str8Lit("#define BLINN_PHONG 1\n"));
                     break;
+                }
+                case R_ShaderType_DepthSkinned:
+                {
+                    preprocess = Str8Lit("#define SKINNED 1\n");
+                } // fallthrough
+                case R_ShaderType_Depth:
+                {
+                    gs = Str8Lit("src/shaders/depth.gs");
+                    break;
+                }
                 default: break;
             }
             openGL->shaders[type].id = R_OpenGL_CreateShader(r_opengl_g_globalsPath, r_opengl_g_vsPath[type],
-                                                             r_opengl_g_fsPath[type], {}, preprocess);
+                                                             r_opengl_g_fsPath[type], gs, preprocess);
         }
     }
     ScratchEnd(temp);
@@ -241,6 +261,41 @@ internal void R_OpenGL_Init()
         openGL->textureMap.arrayList = PushArray(openGL->arena, R_Texture2DArray, openGL->textureMap.maxSlots);
     }
 
+    {
+        // see render.cpp same constant should be
+
+        openGL->glGenFramebuffers(1, &openGL->shadowMapPassFBO);
+        glGenTextures(1, &openGL->depthMapTextureArray);
+        glBindTexture(GL_TEXTURE_2D_ARRAY, openGL->depthMapTextureArray);
+
+        // TODO: glTexStorage3D?
+        openGL->glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_DEPTH_COMPONENT32F, cShadowMapSize, cShadowMapSize,
+                             cNumCascades, 0, GL_DEPTH_COMPONENT, GL_FLOAT, 0);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+
+        f32 borderColor[4] = {1.f, 1.f, 1.f, 1.f};
+        // sampling outside of the atlas returns not in shadow
+        glTexParameterfv(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_BORDER_COLOR, borderColor);
+
+        openGL->glBindFramebuffer(GL_FRAMEBUFFER, openGL->shadowMapPassFBO);
+        openGL->glFramebufferTexture(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, openGL->depthMapTextureArray, 0);
+        glDrawBuffer(GL_NONE);
+        glReadBuffer(GL_NONE);
+        GLint status = openGL->glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        if (status != GL_FRAMEBUFFER_COMPLETE)
+        {
+            Printf("Error: %u\n", status);
+        }
+        openGL->glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+        openGL->glGenBuffers(1, &openGL->lightMatrixUBO);
+        openGL->glBindBuffer(GL_UNIFORM_BUFFER, openGL->lightMatrixUBO);
+        openGL->glBufferData(GL_UNIFORM_BUFFER, sizeof(Mat4) * 16, 0, GL_DYNAMIC_DRAW);
+    }
+
     // Shaders
     {
         TempArena temp = ScratchStart(0, 0);
@@ -283,8 +338,7 @@ internal void R_OpenGL_Init()
             openGL->shaders[type].fsLastModified      = OS_GetLastWriteTime(r_opengl_g_fsPath[type]);
         }
 
-        // Add texture array samplers to programs once
-
+        // Shader initial setup
         GLint modelProgramId = openGL->shaders[R_ShaderType_SkinnedMesh].id;
         openGL->glUseProgram(modelProgramId);
 
@@ -297,11 +351,24 @@ internal void R_OpenGL_Init()
 
         GLint textureLoc = openGL->glGetUniformLocation(modelProgramId, "textureMaps");
         openGL->glUniform1iv(textureLoc, openGL->textureMap.maxSlots, samplerIds);
+        openGL->glBindBufferBase(GL_UNIFORM_BUFFER, 0, openGL->lightMatrixUBO);
+
+        modelProgramId = openGL->shaders[R_ShaderType_StaticMesh].id;
+        openGL->glUseProgram(modelProgramId);
+
+        textureLoc = openGL->glGetUniformLocation(modelProgramId, "textureMaps");
+        openGL->glUniform1iv(textureLoc, openGL->textureMap.maxSlots, samplerIds);
+        openGL->glBindBufferBase(GL_UNIFORM_BUFFER, 0, openGL->lightMatrixUBO);
 
         GLint uiProgramId = openGL->shaders[R_ShaderType_UI].id;
         openGL->glUseProgram(uiProgramId);
         textureLoc = openGL->glGetUniformLocation(uiProgramId, "textureMaps");
         openGL->glUniform1iv(textureLoc, openGL->textureMap.maxSlots, samplerIds);
+
+        openGL->glUseProgram(openGL->shaders[R_ShaderType_Depth].id);
+        openGL->glBindBufferBase(GL_UNIFORM_BUFFER, 0, openGL->lightMatrixUBO);
+        openGL->glUseProgram(openGL->shaders[R_ShaderType_DepthSkinned].id);
+        openGL->glBindBufferBase(GL_UNIFORM_BUFFER, 0, openGL->lightMatrixUBO);
 
         ScratchEnd(temp);
     }
@@ -317,47 +384,6 @@ internal void R_OpenGL_Init()
         data[0]                    = 0xffffffff;
         openGL->whiteTextureHandle = R_AllocateTexture2D((u8 *)data, 1, 1, R_TexFormat_RGBA8);
     }
-    // Framebuffers
-    {
-        // see render.cpp same constant should be
-
-        openGL->glGenFramebuffers(1, &openGL->shadowMapPassFBO);
-        glGenTextures(1, &openGL->depthMapTextureArray);
-        glBindTexture(GL_TEXTURE_2D_ARRAY, openGL->depthMapTextureArray);
-
-        // TODO: glTexStorage3D?
-        openGL->glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_DEPTH_COMPONENT32F, cShadowMapSize, cShadowMapSize,
-                             cNumCascades, 0, GL_DEPTH_COMPONENT, GL_FLOAT, 0);
-        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-
-        f32 borderColor[4] = {1.f, 1.f, 1.f, 1.f};
-        // sampling outside of the atlas returns not in shadow
-        glTexParameterfv(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_BORDER_COLOR, borderColor);
-
-        openGL->glBindFramebuffer(GL_FRAMEBUFFER, openGL->shadowMapPassFBO);
-        openGL->glFramebufferTexture(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, openGL->depthMapTextureArray, 0);
-        glDrawBuffer(GL_NONE);
-        glReadBuffer(GL_NONE);
-        GLint status = openGL->glCheckFramebufferStatus(GL_FRAMEBUFFER);
-        if (status != GL_FRAMEBUFFER_COMPLETE)
-        {
-            Printf("Error: %u\n", status);
-        }
-        openGL->glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-        openGL->glGenBuffers(1, &openGL->lightMatrixUBO);
-        openGL->glBindBuffer(GL_UNIFORM_BUFFER, openGL->lightMatrixUBO);
-        openGL->glBufferData(GL_UNIFORM_BUFFER, sizeof(Mat4) * 16, 0, GL_DYNAMIC_DRAW);
-
-        openGL->glUseProgram(openGL->shaders[R_ShaderType_Depth].id);
-        openGL->glBindBufferBase(GL_UNIFORM_BUFFER, 0, openGL->lightMatrixUBO);
-        openGL->glUseProgram(openGL->shaders[R_ShaderType_DepthSkinned].id);
-        openGL->glBindBufferBase(GL_UNIFORM_BUFFER, 0, openGL->lightMatrixUBO);
-    }
-
     VSyncToggle(1);
 }
 
@@ -505,8 +531,6 @@ internal void R_Win32_OpenGL_Init(OS_Handle handle)
         Win32GetOpenGLFunction(glDrawElementsBaseVertex);
         Win32GetOpenGLFunction(glGenFramebuffers);
         Win32GetOpenGLFunction(glBindFramebuffer);
-        // Win32GetOpenGLFunction(glReadBuffer);
-        // Win32GetOpenGLFunction(glDrawBuffer);
         Win32GetOpenGLFunction(glFramebufferTexture);
         Win32GetOpenGLFunction(glCheckFramebufferStatus);
         Win32GetOpenGLFunction(glUniform1fv);
@@ -735,11 +759,11 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
     }
 
     // Shadow map pass
+    Mat4 lightViewProjectionMatrices[cNumCascades];
     {
         // openGL->glActiveTexture(GL_TEXTURE0 + 1);
         // glBindTexture(GL_TEXTURE_2D_ARRAY, openGL->depthMapTextureArray);
 
-        Mat4 lightViewProjectionMatrices[cNumCascades];
         R_CascadedShadowMap(&renderState->light, lightViewProjectionMatrices);
 
         openGL->glBindFramebuffer(GL_FRAMEBUFFER, openGL->shadowMapPassFBO);
@@ -1198,22 +1222,26 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
                     GLint viewPosLoc = openGL->glGetUniformLocation(currentProgram, "viewPos");
                     openGL->glUniform3fv(viewPosLoc, 1, renderState->camera.position.elements);
 
-                    openGL->glBindBufferBase(GL_UNIFORM_BUFFER, 0, openGL->lightMatrixUBO);
+                    // Light space matrices (for testing fragment depths against shadow atlas)
+                    openGL->glBindBuffer(GL_UNIFORM_BUFFER, openGL->lightMatrixUBO);
+                    openGL->glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(Mat4) * cNumCascades,
+                                            lightViewProjectionMatrices);
 
-                    const f32 cascadeDistances[cNumCascades + 1] = {
-                        renderState->nearZ,       renderState->farZ / 50.f, renderState->farZ / 25.f,
-                        renderState->farZ / 10.f, renderState->farZ / 2.f,  renderState->farZ};
+                    // Finding what frusta the fragment is in
+                    const f32 cascadeDistances[cNumSplits] = {renderState->farZ / 50.f, renderState->farZ / 25.f,
+                                                              renderState->farZ / 10.f, renderState->farZ / 2.f};
+
                     GLint cascadeDistancesLoc = openGL->glGetUniformLocation(currentProgram, "cascadeDistances");
                     openGL->glUniform1fv(cascadeDistancesLoc, ArrayLength(cascadeDistances), cascadeDistances);
 
+                    // Shadow maps generated in previous pass
                     GLint shadowMapLoc = openGL->glGetUniformLocation(currentProgram, "shadowMaps");
                     openGL->glUniform1i(shadowMapLoc, 32);
                     openGL->glActiveTexture(GL_TEXTURE0 + 32);
                     glBindTexture(GL_TEXTURE_2D_ARRAY, openGL->depthMapTextureArray);
 
-                    Mat4 modelViewMatrix = renderState->viewMatrix * params->transform;
-                    GLint modelViewLoc   = openGL->glGetUniformLocation(currentProgram, "modelViewMatrix");
-                    openGL->glUniformMatrix4fv(modelViewLoc, 1, GL_FALSE, modelViewMatrix.elements[0]);
+                    GLint viewMatrixLoc = openGL->glGetUniformLocation(currentProgram, "viewMatrix");
+                    openGL->glUniformMatrix4fv(viewMatrixLoc, 1, GL_FALSE, renderState->viewMatrix.elements[0]);
 
                     static GLuint ssbo = 0;
                     if (ssbo == 0)
@@ -1226,8 +1254,6 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
                     openGL->glBufferData(GL_SHADER_STORAGE_BUFFER, count * sizeof(R_TexAddress), addresses,
                                          GL_DYNAMIC_DRAW);
 
-                    // openGL->glMultiDrawElements(GL_TRIANGLES, counts, GL_UNSIGNED_INT, startIndices,
-                    //                             model->materialCount);
                     openGL->glMultiDrawElementsBaseVertex(GL_TRIANGLES, counts, GL_UNSIGNED_INT, startIndices,
                                                           params->numSurfaces, baseVertices);
                 }
@@ -1486,6 +1512,7 @@ internal void R_OpenGL_EndShader(R_ShaderType type)
             openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
             break;
         }
+        case R_ShaderType_StaticMesh:
         case R_ShaderType_SkinnedMesh:
         {
             glBindTexture(GL_TEXTURE_2D, 0);

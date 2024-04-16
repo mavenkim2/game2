@@ -1,5 +1,5 @@
-out V4 FragColor;
+// out V4 FragColor;
 void main()
 {
-    FragColor = V4(1.f, 1.f, 1.f, 1.f);
+    // FragColor = V4(1.f, 1.f, 1.f, 1.f);
 }

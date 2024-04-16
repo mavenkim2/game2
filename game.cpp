@@ -620,7 +620,7 @@ internal void G_Update(f32 dt)
         D_PushModel(g_state->model, transform1, mvp1, skinningMatrices1, skeleton->count);
 
         // Model 2
-        translate       = Translate4(V3{0, 20, 30});
+        translate       = Translate4(V3{0, 20, 20});
         scale           = Scale(V3{1, 1, 1});
         Mat4 transform2 = translate * rotate;
 

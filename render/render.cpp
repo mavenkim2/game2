@@ -659,7 +659,6 @@ internal void R_CascadedShadowMap(const Light *inLight, Mat4 *outLightViewProjec
     V3 frustumVertices[cNumCascades][8];
     for (i32 cascadeIndex = 0; cascadeIndex < cNumCascades; cascadeIndex++)
     {
-        i32 count = 0;
         for (i32 x = 0; x < 2; x++)
         {
             for (i32 y = 0; y < 2; y++)
@@ -670,8 +669,8 @@ internal void R_CascadedShadowMap(const Light *inLight, Mat4 *outLightViewProjec
                     p    = mvpMatrices[cascadeIndex] * p;
 
                     // Why this?
-                    f32 oneOverW                           = 1 / p.w;
-                    frustumVertices[cascadeIndex][count++] = p.xyz * oneOverW;
+                    f32 oneOverW                                                  = 1 / p.w;
+                    frustumVertices[cascadeIndex][(z << 2) | (y << 1) | (x << 0)] = p.xyz * oneOverW;
                 }
             }
         }
@@ -680,29 +679,19 @@ internal void R_CascadedShadowMap(const Light *inLight, Mat4 *outLightViewProjec
     // Step 2. Find light world to view matrix (first get center point of frusta)
 
     // Light direction is specified from surface -> light origin
-    // V3 lightDir = -inLight->dir;
-    // lightDir    = Normalize(lightDir);
-    // // Default light direction is {0, 0, -1}
-    // if (lightDir.x == 0 && lightDir.y == 0 && lightDir.z == 0)
-    // {
-    //     lightDir.z = -1.f;
-    // }
-    //
-    // Mat3 lightAxis = ToMat3(lightDir);
-    Mat4 lightWorldToViewMatrix[cNumCascades];
-    // TODO: I don't understand this code from doom 3 bfg
-    // CalculateViewMatrix(renderState->camera.position, lightAxis, lightWorldToViewMatrix);
-    V3 centers[cNumCascades] = {};
-    for (i32 cascadeIndex = 0; cascadeIndex < cNumCascades; cascadeIndex++)
+    V3 lightDir = -inLight->dir;
+    lightDir    = Normalize(lightDir);
+    // Default light direction is {0, 0, -1}
+    if (lightDir.x == 0 && lightDir.y == 0 && lightDir.z == 0)
     {
-        for (i32 i = 0; i < 8; i++)
-        {
-            centers[cascadeIndex] += frustumVertices[cascadeIndex][i];
-        }
-        centers[cascadeIndex] /= 8;
-        lightWorldToViewMatrix[cascadeIndex] =
-            LookAt4(centers[cascadeIndex] + inLight->dir, centers[cascadeIndex], {1, 0, 0});
+        lightDir.z = -1.f;
     }
+
+    Mat3 lightAxis = ToMat3(lightDir);
+    Mat4 lightWorldToViewMatrix;
+    // TODO: I don't understand this code from doom 3 bfg
+    CalculateViewMatrix(renderState->camera.position, lightAxis, lightWorldToViewMatrix);
+    V3 centers[cNumCascades] = {};
 
     Rect3 bounds[cNumCascades];
     for (i32 cascadeIndex = 0; cascadeIndex < cNumCascades; cascadeIndex++)
@@ -714,9 +703,7 @@ internal void R_CascadedShadowMap(const Light *inLight, Mat4 *outLightViewProjec
         // Loop over each corner of each frusta
         for (i32 i = 0; i < 8; i++)
         {
-            V4 result = Transform(lightWorldToViewMatrix[cascadeIndex], frustumVertices[cascadeIndex][i]);
-            // TODO: I don't understand these divides.
-            result.x /= result.w;
+            V4 result = Transform(lightWorldToViewMatrix, frustumVertices[cascadeIndex][i]);
             AddBounds(bounds[cascadeIndex], result.xyz);
         }
     }
@@ -728,10 +715,10 @@ internal void R_CascadedShadowMap(const Light *inLight, Mat4 *outLightViewProjec
         Rect3 *currentBounds = &bounds[i];
         outLightViewProjectionMatrices[i] =
             // TODO: for some reason (probably a good one), the near and far are
-            // negated in doom3
+            // negated in doom3 and swapped
             Orthographic4(currentBounds->minX, currentBounds->maxX, currentBounds->minY, currentBounds->maxY,
-                          currentBounds->minZ, currentBounds->maxZ) *
-            lightWorldToViewMatrix[i];
+                          -currentBounds->maxZ, -currentBounds->minZ) *
+            lightWorldToViewMatrix;
     }
 }
 

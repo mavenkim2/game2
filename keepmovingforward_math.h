@@ -1348,10 +1348,12 @@ inline Mat3 ToMat3(V3 &v)
 {
     Mat3 axis;
 
-    // Row 2
-    axis.columns[1] = v;
+    V3 forward = Normalize(v);
 
-    f32 d = v.x * v.x + v.y * v.y;
+    // Row 2
+    axis.columns[1] = forward;
+
+    f32 d = forward.x * forward.x + forward.y * forward.y;
     // Row 1
     if (d == 0)
     {
@@ -1362,8 +1364,8 @@ inline Mat3 ToMat3(V3 &v)
     else
     {
         f32 invSqrt        = 1 / SquareRoot(d);
-        axis.columns[0][0] = v.y * invSqrt;
-        axis.columns[0][1] = -v.x * invSqrt;
+        axis.columns[0][0] = forward.y * invSqrt;
+        axis.columns[0][1] = -forward.x * invSqrt;
         axis.columns[0][2] = 0.f;
     }
     axis.columns[2] = Cross(axis.columns[0], axis.columns[1]);

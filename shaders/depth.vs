@@ -17,7 +17,7 @@ void main()
     boneTransform     += boneTransforms[boneIds[2]] * boneWeights[2];
     boneTransform     += boneTransforms[boneIds[3]] * boneWeights[3];
 
-    gl_Position = boneTransform * V4(pos, 1.0);
+    gl_Position = modelTransform * boneTransform * V4(pos, 1.0);
 #else
     gl_Position = modelTransform * V4(pos, 1.0);
 #endif
