@@ -61,6 +61,22 @@ struct LoadedSkeleton;
 struct LoadedModel;
 
 //////////////////////////////
+// Lights
+//
+
+enum LightType
+{
+    LightType_Directional,
+    LightType_Point,
+};
+struct Light
+{
+    LightType type;
+    V3 pos;
+    V3 dir;
+};
+
+//////////////////////////////
 // Commands
 //
 
@@ -256,6 +272,7 @@ struct R_Pass
 struct RenderState
 {
     Camera camera;
+    Mat4 viewMatrix;
     Mat4 transform;
     i32 width;
     i32 height;
@@ -267,6 +284,8 @@ struct RenderState
 
     R_Pass passes[R_PassType_Count];
     R_Command *head;
+
+    Light light;
 };
 
 enum R_BufferType
@@ -334,10 +353,11 @@ internal void RenderFrameDataInit();
 internal void R_SwapFrameData();
 internal void *R_FrameAlloc(const i32 inSize);
 internal void *R_CreateCommand(i32 size);
+internal void R_EndFrame();
 
-// R_ALLOCATE_TEXTURE_2D(R_AllocateTexture2D);
-// R_DELETE_TEXTURE_2D(R_DeleteTexture2D);
-// R_ALLOCATE_BUFFER(R_AllocateBuffer);
+//////////////////////////////
+// Renderer backend
+//
 
 internal void DrawBox(V3 offset, V3 scale, V4 color);
 internal void DrawBox(Rect3 rect, V4 color);
@@ -347,8 +367,17 @@ internal void D_PushTextF(AS_Handle font, V2 startPos, f32 size, char *fmt, ...)
 inline R_Pass *R_GetPassFromKind(R_PassType type);
 internal u8 *R_BatchListPush(R_BatchList *list, u32 instCap);
 
-internal void R_EndFrame();
+//////////////////////////////
+// Shadow mapping
+//
+const i32 cNumSplits     = 4;
+const i32 cNumCascades   = cNumSplits + 1;
+const i32 cShadowMapSize = 1024;
+internal void R_CascadedShadowMap(const Light *inLight, Mat4 *outLightViewProjectionMatrices);
 
+//////////////////////////////
+// Handles
+//
 inline b8 R_HandleMatch(R_Handle a, R_Handle b)
 {
     b8 result = (a.u64[0] == b.u64[0] && a.u64[1] == b.u64[1]);

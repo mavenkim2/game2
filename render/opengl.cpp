@@ -33,10 +33,12 @@ global string r_opengl_g_globalsPath = Str8Lit("src/shaders/global.glsl");
 
 global string r_opengl_g_vsPath[] = {Str8Lit("src/shaders/ui.vs"),       Str8Lit("src/shaders/basic_3d.vs"),
                                      Str8Lit("src/shaders/basic_3d.vs"), Str8Lit("src/shaders/model.vs"),
-                                     Str8Lit("src/shaders/model.vs"),    Str8Lit("src/shaders/terrain.vs")};
+                                     Str8Lit("src/shaders/model.vs"),    Str8Lit("src/shaders/terrain.vs"),
+                                     Str8Lit("src/shaders/depth.vs"),    Str8Lit("src/shaders/depth.vs")};
 global string r_opengl_g_fsPath[] = {Str8Lit("src/shaders/ui.fs"),       Str8Lit("src/shaders/basic_3d.fs"),
                                      Str8Lit("src/shaders/basic_3d.fs"), Str8Lit("src/shader/model.fs"),
-                                     Str8Lit("src/shaders/model.fs"),    Str8Lit("src/shaders/terrain.fs")};
+                                     Str8Lit("src/shaders/model.fs"),    Str8Lit("src/shaders/terrain.fs"),
+                                     Str8Lit("src/shaders/depth.fs"),    Str8Lit("src/shaders/depth.fs")};
 
 internal void VSyncToggle(b32 enable)
 {
@@ -54,7 +56,7 @@ internal void VSyncToggle(b32 enable)
 #endif
 }
 
-internal GLuint R_OpenGL_CompileShader(char *globals, char *vs, char *fs)
+internal GLuint R_OpenGL_CompileShader(char *globals, char *vs, char *fs, char *gs)
 {
     GLuint vertexShaderId      = openGL->glCreateShader(GL_VERTEX_SHADER);
     GLchar *vertexShaderCode[] = {
@@ -72,9 +74,26 @@ internal GLuint R_OpenGL_CompileShader(char *globals, char *vs, char *fs)
     openGL->glShaderSource(fragmentShaderId, ArrayLength(fragmentShaderCode), fragmentShaderCode, 0);
     openGL->glCompileShader(fragmentShaderId);
 
+    GLint geometryShaderId = -1;
+    if (gs)
+    {
+        geometryShaderId             = openGL->glCreateShader(GL_GEOMETRY_SHADER);
+        GLchar *geometryShaderCode[] = {
+            globals,
+            gs,
+        };
+        openGL->glShaderSource(geometryShaderId, ArrayLength(geometryShaderCode), geometryShaderCode, 0);
+        openGL->glCompileShader(geometryShaderId);
+    }
+
     GLuint shaderProgramId = openGL->glCreateProgram();
     openGL->glAttachShader(shaderProgramId, vertexShaderId);
     openGL->glAttachShader(shaderProgramId, fragmentShaderId);
+
+    if (gs)
+    {
+        openGL->glAttachShader(shaderProgramId, geometryShaderId);
+    }
     openGL->glLinkProgram(shaderProgramId);
 
     openGL->glValidateProgram(shaderProgramId);
@@ -92,15 +111,27 @@ internal GLuint R_OpenGL_CompileShader(char *globals, char *vs, char *fs)
         Printf("Vertex shader errors: %s\n", vertexShaderErrors);
         Printf("Fragment shader errors: %s\n", fragmentShaderErrors);
         Printf("Program errors: %s\n", programErrors);
+
+        if (gs)
+        {
+            char geometryShaderErrors[4096];
+            openGL->glGetShaderInfoLog(geometryShaderId, 4096, 0, geometryShaderErrors);
+            Printf("Geometry shader errors: %s\n", geometryShaderErrors);
+        }
     }
 
     openGL->glDeleteShader(vertexShaderId);
     openGL->glDeleteShader(fragmentShaderId);
+    if (gs)
+    {
+        openGL->glDeleteShader(geometryShaderId);
+    }
 
     return shaderProgramId;
 }
 
-internal GLuint R_OpenGL_CreateShader(string globalsPath, string vsPath, string fsPath, string preprocess)
+internal GLuint R_OpenGL_CreateShader(string globalsPath, string vsPath, string fsPath, string gsPath,
+                                      string preprocess)
 {
     TempArena temp = ScratchStart(0, 0);
 
@@ -109,10 +140,14 @@ internal GLuint R_OpenGL_CreateShader(string globalsPath, string vsPath, string 
     string gTemp = OS_ReadEntireFile(temp.arena, globalsPath);
     string vs    = OS_ReadEntireFile(temp.arena, vsPath);
     string fs    = OS_ReadEntireFile(temp.arena, fsPath);
-
+    string gs    = {};
+    if (gsPath.size != 0)
+    {
+        gs = OS_ReadEntireFile(temp.arena, gsPath);
+    }
     string globals = StrConcat(temp.arena, gTemp, preprocess);
 
-    GLuint id = R_OpenGL_CompileShader((char *)globals.str, (char *)vs.str, (char *)fs.str);
+    GLuint id = R_OpenGL_CompileShader((char *)globals.str, (char *)vs.str, (char *)fs.str, (char *)gs.str);
 
     ScratchEnd(temp);
     return id;
@@ -145,7 +180,7 @@ internal void R_OpenGL_HotloadShaders()
                 default: break;
             }
             openGL->shaders[type].id = R_OpenGL_CreateShader(r_opengl_g_globalsPath, r_opengl_g_vsPath[type],
-                                                             r_opengl_g_fsPath[type], preprocess);
+                                                             r_opengl_g_fsPath[type], {}, preprocess);
         }
     }
     ScratchEnd(temp);
@@ -213,16 +248,36 @@ internal void R_OpenGL_Init()
         {
             // TODO; put this in the table
             string preprocess = Str8Lit("");
+            string gs         = {};
             switch (type)
             {
-                case R_ShaderType_Instanced3D: preprocess = Str8Lit("#define INSTANCED 1\n"); break;
-                case R_ShaderType_SkinnedMesh: preprocess = Str8Lit("#define SKINNED 1\n");
+                case R_ShaderType_Instanced3D:
+                {
+                    preprocess = Str8Lit("#define INSTANCED 1\n");
+                    break;
+                }
+                case R_ShaderType_SkinnedMesh:
+                {
+                    preprocess = Str8Lit("#define SKINNED 1\n");
+                } // fallthrough
                 case R_ShaderType_StaticMesh:
+                {
                     preprocess = StrConcat(temp.arena, preprocess, Str8Lit("#define BLINN_PHONG 1\n"));
+                    break;
+                }
+                case R_ShaderType_DepthSkinned:
+                {
+                    preprocess = Str8Lit("#define SKINNED 1\n");
+                } // fallthrough
+                case R_ShaderType_Depth:
+                {
+                    gs = Str8Lit("src/shaders/depth.gs");
+                    break;
+                }
                 default: break;
             }
             openGL->shaders[type].id = R_OpenGL_CreateShader(r_opengl_g_globalsPath, r_opengl_g_vsPath[type],
-                                                             r_opengl_g_fsPath[type], preprocess);
+                                                             r_opengl_g_fsPath[type], gs, preprocess);
             openGL->shaders[type].globalsLastModified = OS_GetLastWriteTime(r_opengl_g_globalsPath);
             openGL->shaders[type].vsLastModified      = OS_GetLastWriteTime(r_opengl_g_vsPath[type]);
             openGL->shaders[type].fsLastModified      = OS_GetLastWriteTime(r_opengl_g_fsPath[type]);
@@ -261,6 +316,46 @@ internal void R_OpenGL_Init()
         u32 *data                  = PushStruct(openGL->arena, u32);
         data[0]                    = 0xffffffff;
         openGL->whiteTextureHandle = R_AllocateTexture2D((u8 *)data, 1, 1, R_TexFormat_RGBA8);
+    }
+    // Framebuffers
+    {
+        // see render.cpp same constant should be
+
+        openGL->glGenFramebuffers(1, &openGL->shadowMapPassFBO);
+        glGenTextures(1, &openGL->depthMapTextureArray);
+        glBindTexture(GL_TEXTURE_2D_ARRAY, openGL->depthMapTextureArray);
+
+        // TODO: glTexStorage3D?
+        openGL->glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_DEPTH_COMPONENT32F, cShadowMapSize, cShadowMapSize,
+                             cNumCascades, 0, GL_DEPTH_COMPONENT, GL_FLOAT, 0);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+        glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+
+        f32 borderColor[4] = {1.f, 1.f, 1.f, 1.f};
+        // sampling outside of the atlas returns not in shadow
+        glTexParameterfv(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_BORDER_COLOR, borderColor);
+
+        openGL->glBindFramebuffer(GL_FRAMEBUFFER, openGL->shadowMapPassFBO);
+        openGL->glFramebufferTexture(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, openGL->depthMapTextureArray, 0);
+        glDrawBuffer(GL_NONE);
+        glReadBuffer(GL_NONE);
+        GLint status = openGL->glCheckFramebufferStatus(GL_FRAMEBUFFER);
+        if (status != GL_FRAMEBUFFER_COMPLETE)
+        {
+            Printf("Error: %u\n", status);
+        }
+        openGL->glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+        openGL->glGenBuffers(1, &openGL->lightMatrixUBO);
+        openGL->glBindBuffer(GL_UNIFORM_BUFFER, openGL->lightMatrixUBO);
+        openGL->glBufferData(GL_UNIFORM_BUFFER, sizeof(Mat4) * 16, 0, GL_DYNAMIC_DRAW);
+
+        openGL->glUseProgram(openGL->shaders[R_ShaderType_Depth].id);
+        openGL->glBindBufferBase(GL_UNIFORM_BUFFER, 0, openGL->lightMatrixUBO);
+        openGL->glUseProgram(openGL->shaders[R_ShaderType_DepthSkinned].id);
+        openGL->glBindBufferBase(GL_UNIFORM_BUFFER, 0, openGL->lightMatrixUBO);
     }
 
     VSyncToggle(1);
@@ -408,6 +503,13 @@ internal void R_Win32_OpenGL_Init(OS_Handle handle)
         Win32GetOpenGLFunction(glMapBufferRange);
         Win32GetOpenGLFunction(glMultiDrawElementsBaseVertex);
         Win32GetOpenGLFunction(glDrawElementsBaseVertex);
+        Win32GetOpenGLFunction(glGenFramebuffers);
+        Win32GetOpenGLFunction(glBindFramebuffer);
+        // Win32GetOpenGLFunction(glReadBuffer);
+        // Win32GetOpenGLFunction(glDrawBuffer);
+        Win32GetOpenGLFunction(glFramebufferTexture);
+        Win32GetOpenGLFunction(glCheckFramebufferStatus);
+        Win32GetOpenGLFunction(glUniform1fv);
 
         OpenGLGetInfo();
 
@@ -606,6 +708,8 @@ internal void R_EndFrame()
 internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int clientHeight)
 {
     TIMED_FUNCTION();
+    TempArena temp = ScratchStart(0, 0);
+
     // Load queued buffers and textures
     {
         R_OpenGL_LoadBuffers();
@@ -613,22 +717,9 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
         R_OpenGL_LoadTextures();
     }
 
-    TempArena temp = ScratchStart(0, 0);
-    // Initialize texture array (for everyone
-    {
-        for (u32 i = 0; i < openGL->textureMap.maxSlots; i++)
-        {
-            R_Texture2DArray *aList = &openGL->textureMap.arrayList[i];
-            openGL->glActiveTexture(GL_TEXTURE0 + i);
-            glBindTexture(GL_TEXTURE_2D_ARRAY, aList->id);
-        }
-    }
-
     // INITIALIZE
     {
         // as_state = renderState->as_state;
-        glViewport(0, 0, clientWidth, clientHeight);
-
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_TEXTURE_2D);
         glEnable(GL_CULL_FACE);
@@ -639,9 +730,173 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
         }
         glCullFace(GL_BACK);
         glClearColor(0.5f, 0.5f, 0.5f, 1.f);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         // glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    }
+
+    // Shadow map pass
+    {
+        // openGL->glActiveTexture(GL_TEXTURE0 + 1);
+        // glBindTexture(GL_TEXTURE_2D_ARRAY, openGL->depthMapTextureArray);
+
+        Mat4 lightViewProjectionMatrices[cNumCascades];
+        R_CascadedShadowMap(&renderState->light, lightViewProjectionMatrices);
+
+        openGL->glBindFramebuffer(GL_FRAMEBUFFER, openGL->shadowMapPassFBO);
+        glViewport(0, 0, cShadowMapSize, cShadowMapSize);
+        glClear(GL_DEPTH_BUFFER_BIT);
+        glCullFace(GL_FRONT);
+
+        R_PassMesh *pass   = renderState->passes[R_PassType_Mesh].passMesh;
+        GLuint skinnedProg = openGL->shaders[R_ShaderType_DepthSkinned].id;
+        GLuint staticProg  = openGL->shaders[R_ShaderType_Depth].id;
+        GLuint currentProg = skinnedProg;
+        openGL->glUseProgram(currentProg);
+        openGL->glBindBuffer(GL_UNIFORM_BUFFER, openGL->lightMatrixUBO);
+        openGL->glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(Mat4) * cNumCascades, lightViewProjectionMatrices);
+
+        // TODO: find a way to collapse this with the render pass below
+        R_MeshParamsList *list = &pass->list;
+        for (R_MeshParamsNode *node = list->first; node != 0; node = node->next)
+        {
+            R_MeshParams *params = &node->val;
+
+            if (params->skinningMatricesCount == 0)
+            {
+                if (currentProg != staticProg)
+                {
+                    currentProg = staticProg;
+                    openGL->glUseProgram(currentProg);
+                }
+            }
+            else
+            {
+                if (currentProg != skinnedProg)
+                {
+                    currentProg = skinnedProg;
+                    openGL->glUseProgram(currentProg);
+                }
+            }
+            GLint vertexApiObject = -1;
+            GLint indexApiObject  = -1;
+
+            // TODO: maybe this goes outside of the platform layer
+            GLsizei *counts     = PushArray(temp.arena, GLsizei, params->numSurfaces);
+            void **startIndices = PushArray(temp.arena, void *, params->numSurfaces);
+            GLint *baseVertices = PushArray(temp.arena, GLint, params->numSurfaces);
+
+            for (u32 i = 0; i < params->numSurfaces; i++)
+            {
+                D_Surface *surface     = &params->surfaces[i];
+                VC_Handle vertexHandle = surface->vertexBuffer;
+                VC_Handle indexHandle  = surface->indexBuffer;
+
+                // 1. Bind the vertex buffer
+                GPUBuffer *vertexBuffer = VC_GetBufferFromHandle(vertexHandle, BufferType_Vertex);
+                if (vertexBuffer)
+                {
+                    GLint newVertexApiObject = R_OpenGL_GetBufferFromHandle(vertexBuffer->handle);
+                    if (vertexApiObject != -1 && newVertexApiObject != vertexApiObject)
+                    {
+                        Assert(!"Surfaces not all bound to the same vertex buffer.");
+                    }
+                    if (vertexApiObject == -1)
+                    {
+                        openGL->glBindBuffer(GL_ARRAY_BUFFER, newVertexApiObject);
+                    }
+                    vertexApiObject = newVertexApiObject;
+                }
+
+                GPUBuffer *indexBuffer = VC_GetBufferFromHandle(indexHandle, BufferType_Index);
+                if (indexBuffer)
+                {
+                    GLint newIndexApiObject = R_OpenGL_GetBufferFromHandle(indexBuffer->handle);
+                    if (indexApiObject != -1 && newIndexApiObject != indexApiObject)
+                    {
+                        Assert(!"Surfaces not all bound to the same index buffer.");
+                    }
+                    if (indexApiObject == -1)
+                    {
+                        openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, newIndexApiObject);
+                    }
+                    indexApiObject = newIndexApiObject;
+                }
+
+                // 2. Set up the multidraw
+
+                i32 vertexOffset = (i32)((vertexHandle >> VERTEX_CACHE_OFFSET_SHIFT) & VERTEX_CACHE_OFFSET_MASK) /
+                                   sizeof(MeshVertex);
+
+                u64 indexOffset = (u64)((indexHandle >> VERTEX_CACHE_OFFSET_SHIFT) & VERTEX_CACHE_OFFSET_MASK);
+
+                i32 indexSize =
+                    (i32)((indexHandle >> VERTEX_CACHE_SIZE_SHIFT) & VERTEX_CACHE_SIZE_MASK) / sizeof(u32);
+
+                counts[i]       = indexSize;
+                startIndices[i] = (void *)(indexOffset);
+                baseVertices[i] = vertexOffset;
+            }
+
+            openGL->glEnableVertexAttribArray(0);
+            openGL->glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
+                                          (void *)Offset(MeshVertex, position));
+
+            openGL->glEnableVertexAttribArray(1);
+            openGL->glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
+                                          (void *)Offset(MeshVertex, normal));
+
+            openGL->glEnableVertexAttribArray(2);
+            openGL->glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
+                                          (void *)Offset(MeshVertex, uv));
+
+            openGL->glEnableVertexAttribArray(3);
+            openGL->glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
+                                          (void *)Offset(MeshVertex, tangent));
+
+            openGL->glEnableVertexAttribArray(4);
+            openGL->glVertexAttribIPointer(4, 4, GL_UNSIGNED_INT, sizeof(MeshVertex),
+                                           (void *)Offset(MeshVertex, boneIds));
+
+            openGL->glEnableVertexAttribArray(5);
+            openGL->glVertexAttribPointer(5, 4, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
+                                          (void *)Offset(MeshVertex, boneWeights));
+
+            // TODO: uniform blocks so we can just push a struct or something instead of having to do
+            // these all manually
+
+            // Skinning matrices
+            // TODO: UBO or SSBO this
+            if (params->skinningMatricesCount != 0)
+            {
+                GLint boneTformLocation = openGL->glGetUniformLocation(currentProg, "boneTransforms");
+                openGL->glUniformMatrix4fv(boneTformLocation, params->skinningMatricesCount, GL_FALSE,
+                                           params->skinningMatrices[0].elements[0]);
+            }
+
+            GLint modelLoc = openGL->glGetUniformLocation(currentProg, "modelTransform");
+            openGL->glUniformMatrix4fv(modelLoc, 1, GL_FALSE, params->transform.elements[0]);
+
+            // Light matrices
+            openGL->glMultiDrawElementsBaseVertex(GL_TRIANGLES, counts, GL_UNSIGNED_INT, startIndices,
+                                                  params->numSurfaces, baseVertices);
+        }
+
+        glCullFace(GL_BACK);
+        glViewport(0, 0, clientWidth, clientHeight);
+        openGL->glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        openGL->glBindBuffer(GL_UNIFORM_BUFFER, 0);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    }
+
+    // Bind texture map slots
+    {
+        for (u32 i = 0; i < openGL->textureMap.maxSlots; i++)
+        {
+            R_Texture2DArray *aList = &openGL->textureMap.arrayList[i];
+            openGL->glActiveTexture(GL_TEXTURE0 + i);
+            glBindTexture(GL_TEXTURE_2D_ARRAY, aList->id);
+        }
     }
 
     // Height map
@@ -695,35 +950,6 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
             }
         }
     }
-
-    // shadow pass
-    {
-#if 0
-        struct ShadowMap
-        {
-            u32 shadowMapId;
-            i32 width;
-            i32 height;
-        };
-        ShadowMap shadowMap;
-        shadowMap.width  = 1024;
-        shadowMap.height = 1024;
-
-        static b8 initialized = 0;
-        u32 shadowMapFBO;
-        u32 depthMap;
-        if (!initialized)
-        {
-            initialized = 1;
-            openGL->glGenFrameBuffers(1, &shadowMapFBO);
-            openGL->glGenTextures(1, &depthmap);
-            openGL->glBindFrameBuffer(GL_FRAMEBUFFER, shadowMapFBO);
-            openGL->glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_ATTACHMENT, shadowMap.width;
-                                 shadowMap.height, 0, GL_DEPTH_COMPONENT, GL_FLOAT, 0);
-            openGL->glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
-        }
-#endif
-    };
 
     for (R_PassType type = (R_PassType)0; type < R_PassType_Count; type = (R_PassType)(type + 1))
     {
@@ -966,12 +1192,28 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
                     openGL->glUniformMatrix4fv(modelLoc, 1, GL_FALSE, params->transform.elements[0]);
 
                     // TODO: these don't have to be specified per draw. Use SSBO or UBO
-                    V3 lightPosition  = MakeV3(5, 5, 0);
-                    GLint lightPosLoc = openGL->glGetUniformLocation(currentProgram, "lightPos");
-                    openGL->glUniform3fv(lightPosLoc, 1, lightPosition.elements);
+                    GLint lightDir = openGL->glGetUniformLocation(currentProgram, "lightDir");
+                    openGL->glUniform3fv(lightDir, 1, renderState->light.dir.elements);
 
                     GLint viewPosLoc = openGL->glGetUniformLocation(currentProgram, "viewPos");
                     openGL->glUniform3fv(viewPosLoc, 1, renderState->camera.position.elements);
+
+                    openGL->glBindBufferBase(GL_UNIFORM_BUFFER, 0, openGL->lightMatrixUBO);
+
+                    const f32 cascadeDistances[cNumCascades + 1] = {
+                        renderState->nearZ,       renderState->farZ / 50.f, renderState->farZ / 25.f,
+                        renderState->farZ / 10.f, renderState->farZ / 2.f,  renderState->farZ};
+                    GLint cascadeDistancesLoc = openGL->glGetUniformLocation(currentProgram, "cascadeDistances");
+                    openGL->glUniform1fv(cascadeDistancesLoc, ArrayLength(cascadeDistances), cascadeDistances);
+
+                    GLint shadowMapLoc = openGL->glGetUniformLocation(currentProgram, "shadowMaps");
+                    openGL->glUniform1i(shadowMapLoc, 32);
+                    openGL->glActiveTexture(GL_TEXTURE0 + 32);
+                    glBindTexture(GL_TEXTURE_2D_ARRAY, openGL->depthMapTextureArray);
+
+                    Mat4 modelViewMatrix = renderState->viewMatrix * params->transform;
+                    GLint modelViewLoc   = openGL->glGetUniformLocation(currentProgram, "modelViewMatrix");
+                    openGL->glUniformMatrix4fv(modelViewLoc, 1, GL_FALSE, modelViewMatrix.elements[0]);
 
                     static GLuint ssbo = 0;
                     if (ssbo == 0)
@@ -1811,5 +2053,26 @@ internal R_OpenGL_Texture *R_OpenGL_TextureFromHandle(R_Handle handle)
 }
 
 //////////////////////////////
-// Buffer objects
+// Tex parameters
 //
+
+enum TexParams
+{
+    TexParams_Nearest,
+    TexParams_Linear,
+    TexParams_Repeat,
+    TexParams_Clamp,
+    TexParams_ClampToBorder
+};
+
+#if 0
+internal void R_OpenGL_SetTexParams(TexParams minFilter, TexParams maxFilter, TexParams wrapS, TexParams wrapT)
+{
+
+    switch (minFilter)
+    {
+        case TexParams_Nearest:
+    }
+    glTexParameteri
+}
+#endif

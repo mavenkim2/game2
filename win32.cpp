@@ -509,8 +509,10 @@ LRESULT Win32_Callback(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
             break;
         }
         case WM_KEYUP:
-        case WM_KEYDOWN:
         case WM_SYSKEYUP:
+        {
+        }
+        case WM_KEYDOWN:
         case WM_SYSKEYDOWN:
         {
             u32 keyCode = (u32)wParam;
@@ -589,6 +591,9 @@ LRESULT Win32_Callback(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
         }
         case WM_KILLFOCUS:
         {
+            OS_Event event;
+            event.type = OS_EventType_LoseFocus;
+            Win32_AddEvent(event);
             ReleaseCapture();
             break;
         }

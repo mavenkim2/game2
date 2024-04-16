@@ -168,6 +168,11 @@
 #define GL_MAP_WRITE_BIT          0x0002
 #define GL_MAP_UNSYNCHRONIZED_BIT 0x0020
 
+#define GL_CLAMP_TO_BORDER 0x812D
+
+#define GL_GEOMETRY_SHADER 0x8DD9
+#define GL_UNIFORM_BUFFER  0x8A11
+
 // WINDOWS
 #define WGL_CONTEXT_MAJOR_VERSION_ARB 0x2091
 #define WGL_CONTEXT_MINOR_VERSION_ARB 0x2092
@@ -267,6 +272,13 @@ typedef void WINAPI type_glBindBufferBase(GLenum target, GLuint index, GLuint bu
 typedef void WINAPI type_glDrawArraysInstanced(GLenum mode, GLint first, GLsizei count, GLsizei primcount);
 typedef void WINAPI type_glBufferStorage(GLenum target, GLsizeiptr size, const void *data, GLbitfield flags);
 typedef void *WINAPI type_glMapBufferRange(GLenum target, GLintptr offset, GLsizeiptr length, GLbitfield access);
+typedef void WINAPI type_glGenFramebuffers(GLsizei n, GLuint *framebuffers);
+typedef void WINAPI type_glBindFramebuffer(GLenum target, GLuint framebuffer);
+typedef void WINAPI type_glFramebufferTexture(GLenum target, GLenum attachment, GLuint texture, GLint level);
+// typedef void WINAPI type_glDrawBuffer(GLenum buf);
+// typedef void WINAPI type_glReadBuffer(GLenum src);
+typedef GLenum WINAPI type_glCheckFramebufferStatus(GLenum target);
+typedef void WINAPI type_glUniform1fv(GLint location, GLsizei count, const GLfloat *value);
 
 #define GL_DEBUG_CALLBACK(name)                                                                                   \
     void WINAPI name(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length,                      \
@@ -293,6 +305,8 @@ enum R_ShaderType
     R_ShaderType_StaticMesh,
     R_ShaderType_SkinnedMesh,
     R_ShaderType_Terrain,
+    R_ShaderType_Depth,
+    R_ShaderType_DepthSkinned,
     R_ShaderType_Count,
 };
 
@@ -441,6 +455,11 @@ struct OpenGL
     R_Texture2DArrayMap textureMap;
     GLint maxSlices;
 
+    // Shadow map stuff
+    GLuint shadowMapPassFBO;
+    GLuint depthMapTextureArray;
+    GLuint lightMatrixUBO;
+
     OpenGLFunction(glGenBuffers);
     OpenGLFunction(glBindBuffer);
     OpenGLFunction(glBufferData);
@@ -490,6 +509,13 @@ struct OpenGL
     OpenGLFunction(glMapBufferRange);
     OpenGLFunction(glMultiDrawElementsBaseVertex);
     OpenGLFunction(glDrawElementsBaseVertex);
+    OpenGLFunction(glGenFramebuffers);
+    OpenGLFunction(glBindFramebuffer);
+    // OpenGLFunction(glReadBuffer);
+    // OpenGLFunction(glDrawBuffer);
+    OpenGLFunction(glFramebufferTexture);
+    OpenGLFunction(glCheckFramebufferStatus);
+    OpenGLFunction(glUniform1fv);
 };
 
 global OpenGL _openGL;
@@ -502,7 +528,8 @@ internal void R_Init(Arena *arena, OS_Handle handle);
 internal void R_OpenGL_Init();
 internal void R_Win32_OpenGL_Init(OS_Handle handle);
 internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int clientHeight);
-internal GLuint R_OpenGL_CreateShader(string globalsPath, string vsPath, string fsPath, string preprocess);
+internal GLuint R_OpenGL_CreateShader(string globalsPath, string vsPath, string fsPath, string gsPath,
+                                      string preprocess);
 internal GLuint R_OpenGL_CompileShader(char *globals, char *vs, char *fs);
 
 internal void R_OpenGL_StartShader(RenderState *state, R_ShaderType type, void *group);

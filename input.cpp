@@ -81,6 +81,9 @@ internal void EndAtomicWrite(AtomicRing *ring)
 
 internal void I_Init() {}
 
+// TODO: sometimes my keys stick down??? i think this happens on alt tab, like the key is held down, then the
+// capture is released, and then the key is let go but the app doesn't register it?
+// FIX: on a kill focus event set all keys to not down
 internal void I_PollInput()
 {
     TempArena temp = ScratchStart(0, 0);

@@ -351,6 +351,11 @@ internal void D_PushModel(AS_Handle loadedModel, Mat4 transform, Mat4 &mvp, Mat4
     }
 }
 
+internal void D_PushLight(Light *light)
+{
+    renderState->light = *light;
+}
+
 struct D_FontAlignment
 {
     V2 start;
@@ -627,90 +632,108 @@ internal void *R_CreateCommand(i32 size)
 //////////////////////////////
 // Lights
 //
-enum LightType
-{
-    LightType_Directional,
-    LightType_Point,
-};
-struct Light
-{
-    LightType type;
-    V3 dir;
-};
-
 // Render to depth buffer from the perspective of the light, test vertices against this depth buffer
 // to see whether object is in shadow.
-// internal void R_CascadedShadowMap(Light *light)
-// {
-//     const i32 numCascades      = 4;
-//     const f32 cascadeDistances = {renderState->nearZ, renderState->farZ / 50.f, renderState->farZ / 25.f,
-//                                   renderState->farZ / 10.f, renderState->farZ / 2.f};
-//
-//     // Mat4 ndcToWorld = Inverse(renderState->transform);
-//
-//     // Step 0. Set up the mvp matrix for each frusta.
-//     Mat4 mvpMatrices[numCascades];
-//     for (i32 cascadeIndex = 0; cascadeIndex < numCascades; cascadeIndex++)
-//     {
-//         Mat4 view = mvpMatrices[cascadeIndex] =
-//     }
-//
-//     // Step 1. Get the corners of each of the view frusta
-//     V3 frustumVertices[numCascades][8];
-//     for (i32 cascadeIndex = 0; cascadeIndex < numCascades; cascadeIndex++)
-//     {
-//         i32 count = 0;
-//         for (i32 x = 0; x < 2; x++)
-//         {
-//             for (i32 y = 0; y < 2; y++)
-//             {
-//                 for (i32 z = 0; z < 2; z++)
-//                 {
-//                     // NOTE IMPORTANT: NDC is -1 to 1 is OpenGL, but for other APIs it is different
-//                     V4 p = {2 * x - 1, 2 * y - 1, 2 * z - 1.f, 1.f};
-//                     p    = mvpMatrices[cascadeIndex] * p;
-//
-//                     f32 oneOverW                           = 1 / p.w;
-//                     frustumVertices[cascadeIndex][count++] = p * oneOverW;
-//                 }
-//             }
-//         }
-//     }
-//
-//     // Step 2. Find light world to view matrix (first get center point of frusta)
-//     V3 center[numCascades] = {};
-//     for (i32 cascadeIndex = 0; cascadeIndex < numCascades; cascadeIndex++)
-//     {
-//         for (i32 i = 0; i < ArrayLength(frustumVertices[0]); i++)
-//         {
-//             center[cascadeIndex] += frustumVertices[cascadeIndex][i];
-//         }
-//         center[cascadeIndex] /= ArrayLength(frustumVertices[0]);
-//     }
-//
-//     // Step 3. Find orthographic projection of the light. To do this, convert frustum points
-//     // to the light's view space, and find the aabb of the frustum in this space. This determines the
-//     // bounds for the orthographic projection.
-//     Rect3 axisAlignedBox[numCascades];
-//     for (i32 cascadeIndex = 0; cascadeIndex < numCascades; cascadeIndex++)
-//     {
-//         Init(&axisAlignedBox[cascadeIndex]);
-//     }
-//     for (i32 cascadeIndex = 0; cascadeIndex < numCascades; cascadeIndex++)
-//     {
-//         AddBounds(axisAlignedBox[cascadeIndex], frustumVertices[cascadeIndex][i]);
-//     }
-//
-//     for (i32 cascadeIndex = 0; cascadeIndex < numCascades; cascadeIndex++)
-//     {
-//         if (axisAlignedBox.minZ < 0)
-//         {
-//             axisAlignedBox.minZ *=
-//         }
-//     }
-//     Mat4 orthographic = Orthographic4(axisAlignedBox.minX, axisAlignedBox.maxX, axisAlignedBox.minY,
-//                                       axisAlignedBox.maxY, axisAlignedBox.minZ, axisAlignedBox.maxZ);
-// }
+internal void R_CascadedShadowMap(const Light *inLight, Mat4 *outLightViewProjectionMatrices)
+{
+    const f32 cascadeDistances[cNumCascades + 1] = {renderState->nearZ,       renderState->farZ / 50.f,
+                                                    renderState->farZ / 25.f, renderState->farZ / 10.f,
+                                                    renderState->farZ / 2.f,  renderState->farZ};
+    Assert(inLight->type == LightType_Directional);
+
+    // Mat4 ndcToWorld = Inverse(renderState->transform);
+
+    // Step 0. Set up the mvp matrix for each frusta.
+    Mat4 mvpMatrices[cNumCascades];
+    for (i32 cascadeIndex = 0; cascadeIndex < cNumCascades; cascadeIndex++)
+    {
+        Mat4 perspective = Perspective4(renderState->fov, renderState->aspectRatio, cascadeDistances[cascadeIndex],
+                                        cascadeDistances[cascadeIndex + 1]);
+        Mat4 viewPerspective = perspective * renderState->viewMatrix;
+        Mat4 inverse         = Inverse(viewPerspective);
+
+        mvpMatrices[cascadeIndex] = inverse;
+    }
+
+    // Step 1. Get the corners of each of the view frusta in world space.
+    V3 frustumVertices[cNumCascades][8];
+    for (i32 cascadeIndex = 0; cascadeIndex < cNumCascades; cascadeIndex++)
+    {
+        i32 count = 0;
+        for (i32 x = 0; x < 2; x++)
+        {
+            for (i32 y = 0; y < 2; y++)
+            {
+                for (i32 z = 0; z < 2; z++)
+                {
+                    V4 p = {2.f * x - 1, 2.f * y - 1, 2.f * z - 1.f, 1.f};
+                    p    = mvpMatrices[cascadeIndex] * p;
+
+                    // Why this?
+                    f32 oneOverW                           = 1 / p.w;
+                    frustumVertices[cascadeIndex][count++] = p.xyz * oneOverW;
+                }
+            }
+        }
+    }
+
+    // Step 2. Find light world to view matrix (first get center point of frusta)
+
+    // Light direction is specified from surface -> light origin
+    // V3 lightDir = -inLight->dir;
+    // lightDir    = Normalize(lightDir);
+    // // Default light direction is {0, 0, -1}
+    // if (lightDir.x == 0 && lightDir.y == 0 && lightDir.z == 0)
+    // {
+    //     lightDir.z = -1.f;
+    // }
+    //
+    // Mat3 lightAxis = ToMat3(lightDir);
+    Mat4 lightWorldToViewMatrix[cNumCascades];
+    // TODO: I don't understand this code from doom 3 bfg
+    // CalculateViewMatrix(renderState->camera.position, lightAxis, lightWorldToViewMatrix);
+    V3 centers[cNumCascades] = {};
+    for (i32 cascadeIndex = 0; cascadeIndex < cNumCascades; cascadeIndex++)
+    {
+        for (i32 i = 0; i < 8; i++)
+        {
+            centers[cascadeIndex] += frustumVertices[cascadeIndex][i];
+        }
+        centers[cascadeIndex] /= 8;
+        lightWorldToViewMatrix[cascadeIndex] =
+            LookAt4(centers[cascadeIndex] + inLight->dir, centers[cascadeIndex], {1, 0, 0});
+    }
+
+    Rect3 bounds[cNumCascades];
+    for (i32 cascadeIndex = 0; cascadeIndex < cNumCascades; cascadeIndex++)
+    {
+        Init(&bounds[cascadeIndex]);
+    }
+    for (i32 cascadeIndex = 0; cascadeIndex < cNumCascades; cascadeIndex++)
+    {
+        // Loop over each corner of each frusta
+        for (i32 i = 0; i < 8; i++)
+        {
+            V4 result = Transform(lightWorldToViewMatrix[cascadeIndex], frustumVertices[cascadeIndex][i]);
+            // TODO: I don't understand these divides.
+            result.x /= result.w;
+            AddBounds(bounds[cascadeIndex], result.xyz);
+        }
+    }
+
+    // TODO: instead of tightly fitting the frusta, the light's box could be tighter
+
+    for (i32 i = 0; i < cNumCascades; i++)
+    {
+        Rect3 *currentBounds = &bounds[i];
+        outLightViewProjectionMatrices[i] =
+            // TODO: for some reason (probably a good one), the near and far are
+            // negated in doom3
+            Orthographic4(currentBounds->minX, currentBounds->maxX, currentBounds->minY, currentBounds->maxY,
+                          currentBounds->minZ, currentBounds->maxZ) *
+            lightWorldToViewMatrix[i];
+    }
+}
 
 // Constants
 // #if 0

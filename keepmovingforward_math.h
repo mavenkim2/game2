@@ -1120,6 +1120,7 @@ internal V4 Transform(Mat4 a, V4 b)
     return result;
 }
 
+// Assumes w component of 1
 internal V4 Transform(Mat4 &m, V3 v)
 {
     V4 result;
@@ -1264,12 +1265,13 @@ inline Mat4 Perspective4(f32 fov, f32 aspectRatio, f32 nearZ, f32 farZ)
 {
     Mat4 result           = {};
     f32 cotangent         = 1.f / Tan(fov / 2);
+    f32 depth             = farZ - nearZ;
     result.elements[0][0] = cotangent / aspectRatio;
     result.elements[1][1] = cotangent;
     result.elements[2][3] = -1.f;
 
-    result.elements[2][2] = (nearZ + farZ) / (nearZ - farZ);
-    result.elements[3][2] = (2.f * nearZ * farZ) / (nearZ - farZ);
+    result.elements[2][2] = -(nearZ + farZ) / depth;
+    result.elements[3][2] = -(2.f * nearZ * farZ) / depth;
     return result;
 }
 
@@ -1324,6 +1326,16 @@ inline V3 GetRow(Mat3 *mat, i32 idx)
     return row;
 }
 
+inline V4 GetRow(Mat4 &mat, i32 idx)
+{
+    V4 row;
+    row.x = mat.columns[0][idx];
+    row.y = mat.columns[1][idx];
+    row.z = mat.columns[2][idx];
+    row.w = mat.columns[3][idx];
+    return row;
+}
+
 // Returns a basis from a direction vector
 //     z    y
 //     |   /
@@ -1344,8 +1356,8 @@ inline Mat3 ToMat3(V3 &v)
     if (d == 0)
     {
         axis.columns[0][0] = 1.f;
-        axis.columns[0][1] = 1.f;
-        axis.columns[0][2] = 1.f;
+        axis.columns[0][1] = 0.f;
+        axis.columns[0][2] = 0.f;
     }
     else
     {

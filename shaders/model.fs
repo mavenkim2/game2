@@ -27,15 +27,27 @@ layout (std430, binding = 1) buffer shaderStorageData
 uniform sampler2DArray textureMaps[32];
 #endif
 
-in V2 outUv;
-in V3 tangentLightDir;
-in V3 tangentViewPos;
-in V3 tangentFragPos;
-flat in int drawId;
+in VS_OUT
+{
+    in V2 outUv;
+    in V3 tangentLightDir;
+    in V3 tangentViewPos;
+    in V3 tangentFragPos;
 
-in V3 outN;
+    in V4 viewFragPos;
+    in V3 worldFragPos;
+    in V3 worldLightDir;
+    flat in int drawId;
+} fragment;
 
 out V4 FragColor;
+
+layout (std140, binding = 0) buffer lightMatrices 
+{
+    Mat4 lightViewProjectionMatrices[16];
+};
+uniform f32 cascadeDistances[5];
+uniform sampler2DArray shadowMaps;
 
 #define TEXTURES_PER_MATERIAL 2
 #define DIFFUSE_INDEX 0
@@ -45,40 +57,74 @@ void main()
 {
     // Normal texture units
 #ifdef SINGLE_DRAW
-    V3 normal = normalize(texture(normalMap, outUv).rgb * 2 - 1);
-    V3 color = texture(diffuseMap, outUv).rgb;
+    V3 normal = normalize(texture(normalMap, fragment.outUv).rgb * 2 - 1);
+    V3 color = texture(diffuseMap, fragment.outUv).rgb;
 #endif
 
     // Array of texture units
 #ifdef MULTI_DRAW
-    V3 normal = normalize(texture(textureMaps[TEXTURES_PER_MATERIAL * drawId + NORMAL_INDEX], outUv).rgb * 2 - 1);
+    V3 normal = normalize(texture(textureMaps[TEXTURES_PER_MATERIAL * fragment.drawId + NORMAL_INDEX], fragment.outUv).rgb * 2 - 1);
 
-    V3 color = texture(textureMaps[TEXTURES_PER_MATERIAL * drawId + DIFFUSE_INDEX], outUv).rgb;
+    V3 color = texture(textureMaps[TEXTURES_PER_MATERIAL * fragment.drawId + DIFFUSE_INDEX], fragment.outUv).rgb;
 #endif
 
 
     // Array of texture arrays
 #ifdef MULTI_DRAW_TEXTURE_ARRAY
-    TexAddress diffuseAddress = addresses[drawId * TEXTURES_PER_MATERIAL + DIFFUSE_INDEX];
-    TexAddress normAddress = addresses[drawId * TEXTURES_PER_MATERIAL + NORMAL_INDEX];
+    TexAddress diffuseAddress = addresses[fragment.drawId * TEXTURES_PER_MATERIAL + DIFFUSE_INDEX];
+    TexAddress normAddress = addresses[fragment.drawId * TEXTURES_PER_MATERIAL + NORMAL_INDEX];
 
-    V3 normal = normalize(texture(textureMaps[normAddress.container], vec3(outUv, normAddress.slice)).rgb * 2 - 1);
-    V3 color = texture(textureMaps[diffuseAddress.container], vec3(outUv, diffuseAddress.slice)).rgb;
+    V3 normal = normalize(texture(textureMaps[normAddress.container], vec3(fragment.outUv, normAddress.slice)).rgb * 2 - 1);
+    V3 color = texture(textureMaps[diffuseAddress.container], vec3(fragment.outUv, diffuseAddress.slice)).rgb;
 #endif
 
-    // Direction Phong Light
-    V3 lightDir = normalize(tangentLightDir);
+    // Shadow mapping
+    f32 viewZ = fragment.viewFragPos.z;
 
-    // TODO IMPORTANT: the light's color should be used for diffuse and specular, not the texture map color.
-    // also support light positions as well instead of just light directions
+// TODO: cvar
+    int shadowIndex = 4;
+    for (int i = 0; i < 4; i++)
+    {
+        if (viewZ < cascadeDistances[i])
+        {
+            shadowIndex = i;
+            break;
+        }
+    }
+
+    V4 lightSpacePos = lightViewProjectionMatrices[shadowIndex] * V4(fragment.worldFragPos, 1.f);
+    lightSpacePos.xyz /= lightSpacePos.w;
+    lightSpacePos = lightSpacePos * 0.5f + 0.5f;
+
+    // Shadow bias
+    // TODO: this normal is in tangent space I believe. need the tbn
+    f32 bias = max(0.05 * (1.0 - dot(normal, fragment.tangentLightDir)), 0.005);
+    bias *= 1/ (cascadeDistances[shadowIndex] * 0.5f);
+
+    // PCF
+    V2 texelSize = 1.0 / V2(textureSize(shadowMaps, 0));
+    f32 shadow = 0.f;
+    for (int x = -1; x <= 1; x++)
+    {
+        for (int y = -1; y <= 1; y++)
+        {
+            V2 shadowUV = lightSpacePos.xy + V2(x, y) * texelSize;
+            f32 depth = texture(shadowMaps, V3(shadowUV, shadowIndex)).r;
+            shadow += (lightSpacePos.z - bias) > depth ? 1.f : 0.f;
+        }
+    }
+    shadow /= 9.f;
+
+    // Direction Phong Light
+    V3 lightDir = normalize(fragment.tangentLightDir);
 
     //AMBIENT
-    V3 ambient = 0.1f * color;
+    V3 ambient = (0.1f * (1.f - shadow)) * color;
     //DIFFUSE
     f32 diffuseCosAngle = max(dot(normal, lightDir), 0.f);
     V3 diffuse = diffuseCosAngle * color;
     //SPECULAR
-    V3 toViewPosition = normalize(tangentViewPos - tangentFragPos);
+    V3 toViewPosition = normalize(fragment.tangentViewPos - fragment.tangentFragPos);
 #ifndef BLINN_PHONG
     V3 reflectVector = -lightDir + 2 * dot(normal, lightDir) * normal;
     f32 specularStrength = pow(max(dot(reflectVector, toViewPosition), 0.f), 64);

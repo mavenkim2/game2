@@ -6,20 +6,25 @@ layout (location = 3) in V3 tangent;
 layout (location = 4) in uvec4 boneIds;
 layout (location = 5) in vec4 boneWeights;
 
-out V2 outUv;
-out V3 tangentLightDir;
-out V3 tangentViewPos;
-out V3 tangentFragPos;
-out V3 outN;
-flat out int drawId;
+out VS_OUT
+{
+    out V2 outUv;
+    out V3 tangentLightDir;
+    out V3 tangentViewPos;
+    out V3 tangentFragPos;
 
-const int MAX_BONES = 200;
+    out V4 viewFragPos;
+    out V3 worldFragPos;
+    out V3 worldLightDir;
+    flat out int drawId;
+} result;
 
 uniform Mat4 transform; 
 uniform Mat4 boneTransforms[MAX_BONES];
 
 uniform Mat4 model;
-uniform V3 lightPos; 
+uniform Mat4 modelViewMatrix;
+uniform V3 lightDir; 
 uniform V3 viewPos;
 
 void main()
@@ -34,7 +39,7 @@ void main()
     // gl_Position = transform * V4(localPos, 1.0);
     gl_Position = transform * boneTransform * V4(pos, 1.0);
 #else
-    //gl_Position = transform * V4(pos, 1.0);
+    gl_Position = transform * V4(pos, 1.0);
 #endif
     V3 localPos = (model * V4(pos, 1.0)).xyz;
 
@@ -48,9 +53,13 @@ void main()
     // Inverse of orthonormal basis is just the transpose
     mat3 tbn = transpose(mat3(t, b, n));
 
-    tangentLightDir = tbn * V3(0, 0, 1);
-    tangentViewPos = tbn * viewPos;
-    tangentFragPos = tbn * localPos;
-    outUv = uv;
-    drawId = gl_DrawID;
+    result.outUv = uv;
+    result.tangentLightDir = tbn * lightDir;
+    result.tangentViewPos = tbn * viewPos;
+    result.tangentFragPos = tbn * localPos;
+
+    result.viewFragPos = modelViewMatrix * V4(pos, 1.0);
+    result.worldFragPos = localPos;
+    result.worldLightDir = lightDir;
+    result.drawId = gl_DrawID;
 }

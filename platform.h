@@ -216,6 +216,7 @@ enum OS_EventType
     OS_EventType_Quit,
     OS_EventType_KeyPressed,
     OS_EventType_KeyReleased,
+    OS_EventType_LoseFocus,
 };
 
 struct OS_Event

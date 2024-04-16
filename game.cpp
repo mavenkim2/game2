@@ -1,5 +1,6 @@
 #include "crack.h"
 #ifdef LSP_INCLUDE
+#include "platform.h"
 #include "keepmovingforward_common.h"
 #include "asset.h"
 #include "asset.cpp"
@@ -259,27 +260,31 @@ internal void G_Update(f32 dt)
         g_state->newInputIndex = (g_state->newInputIndex + 1) & 1;
         G_Input *newInput      = &g_state->input[g_state->newInputIndex];
         G_Input *oldInput      = &g_state->input[(g_state->newInputIndex + 1) & 1];
+        *newInput              = {};
 
         newInput->mousePos     = mousePos;
         newInput->lastMousePos = oldInput->mousePos;
 
-        for (I_Button button = (I_Button)0; button < I_Button_Count; button = (I_Button)(button + 1))
+        if (!GetEventType(&events, OS_EventType_LoseFocus))
         {
-            newInput->buttons[button].keyDown             = oldInput->buttons[button].keyDown;
-            newInput->buttons[button].halfTransitionCount = 0;
-        }
-
-        for (I_Button button = (I_Button)0; button < I_Button_Count; button = (I_Button)(button + 1))
-        {
-            OS_Event *event = GetKeyEvent(&events, g_state->bindings.bindings[button]);
-            if (event)
+            for (I_Button button = (I_Button)0; button < I_Button_Count; button = (I_Button)(button + 1))
             {
-                Printf("Key: %u\n", button);
-                b32 isDown = event->type == OS_EventType_KeyPressed ? 1 : 0;
-                // u32 transition = isDown != newInput->buttons[button].keyDown;
-                u32 transition                                = event->transition;
-                newInput->buttons[button].keyDown             = isDown;
-                newInput->buttons[button].halfTransitionCount = transition;
+                newInput->buttons[button].keyDown             = oldInput->buttons[button].keyDown;
+                newInput->buttons[button].halfTransitionCount = 0;
+            }
+
+            for (I_Button button = (I_Button)0; button < I_Button_Count; button = (I_Button)(button + 1))
+            {
+                OS_Event *event = GetKeyEvent(&events, g_state->bindings.bindings[button]);
+                if (event)
+                {
+                    Printf("Key: %u\n", button);
+                    b32 isDown = event->type == OS_EventType_KeyPressed ? 1 : 0;
+                    // u32 transition = isDown != newInput->buttons[button].keyDown;
+                    u32 transition                                = event->transition;
+                    newInput->buttons[button].keyDown             = isDown;
+                    newInput->buttons[button].halfTransitionCount = transition;
+                }
             }
         }
         playerController = newInput;
@@ -439,7 +444,8 @@ internal void G_Update(f32 dt)
 
             Mat4 transform = projection * cameraMatrix;
 
-            renderState->transform = transform;
+            renderState->viewMatrix = cameraMatrix;
+            renderState->transform  = transform;
 
             // TODO: mouse project into world
             {
@@ -614,7 +620,7 @@ internal void G_Update(f32 dt)
         D_PushModel(g_state->model, transform1, mvp1, skinningMatrices1, skeleton->count);
 
         // Model 2
-        translate       = Translate4(V3{0, 0, 30});
+        translate       = Translate4(V3{0, 20, 30});
         scale           = Scale(V3{1, 1, 1});
         Mat4 transform2 = translate * rotate;
 
@@ -634,7 +640,12 @@ internal void G_Update(f32 dt)
         Mat4 transform3 = translate * rotate * scale;
         Mat4 mvp3       = renderState->transform * transform3;
 
-        D_PushModel(g_state->eva, transform3, mvp3);
+        // D_PushModel(g_state->eva, transform3, mvp3);
+        Light light;
+        light.type = LightType_Directional;
+        light.dir  = MakeV3(0, 0, 1.f);
+        light.pos  = MakeV3(0.f, 0.f, 0.f);
+        D_PushLight(&light);
 
         // D_PushHeightmap(g_state->heightmap);
         D_CollateDebugRecords();
