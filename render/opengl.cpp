@@ -36,7 +36,7 @@ global string r_opengl_g_vsPath[] = {Str8Lit("src/shaders/ui.vs"),       Str8Lit
                                      Str8Lit("src/shaders/model.vs"),    Str8Lit("src/shaders/terrain.vs"),
                                      Str8Lit("src/shaders/depth.vs"),    Str8Lit("src/shaders/depth.vs")};
 global string r_opengl_g_fsPath[] = {Str8Lit("src/shaders/ui.fs"),       Str8Lit("src/shaders/basic_3d.fs"),
-                                     Str8Lit("src/shaders/basic_3d.fs"), Str8Lit("src/shader/model.fs"),
+                                     Str8Lit("src/shaders/basic_3d.fs"), Str8Lit("src/shaders/model.fs"),
                                      Str8Lit("src/shaders/model.fs"),    Str8Lit("src/shaders/terrain.fs"),
                                      Str8Lit("src/shaders/depth.fs"),    Str8Lit("src/shaders/depth.fs")};
 
@@ -130,10 +130,10 @@ internal GLuint R_OpenGL_CompileShader(char *globals, char *vs, char *fs, char *
     return shaderProgramId;
 }
 
-internal GLuint R_OpenGL_CreateShader(string globalsPath, string vsPath, string fsPath, string gsPath,
-                                      string preprocess)
+internal GLuint R_OpenGL_CreateShader(Arena *arena, string globalsPath, string vsPath, string fsPath,
+                                      string gsPath, string preprocess)
 {
-    TempArena temp = ScratchStart(0, 0);
+    TempArena temp = ScratchStart(&arena, 1);
 
     Printf("Vertex shader: %S\n", vsPath);
     Printf("Fragment shader: %S\n", fsPath);
@@ -199,8 +199,36 @@ internal void R_OpenGL_HotloadShaders()
                 }
                 default: break;
             }
-            openGL->shaders[type].id = R_OpenGL_CreateShader(r_opengl_g_globalsPath, r_opengl_g_vsPath[type],
-                                                             r_opengl_g_fsPath[type], gs, preprocess);
+            openGL->shaders[type].id =
+                R_OpenGL_CreateShader(temp.arena, r_opengl_g_globalsPath, r_opengl_g_vsPath[type],
+                                      r_opengl_g_fsPath[type], gs, preprocess);
+            GLint *samplerIds = 0;
+            samplerIds        = PushArray(temp.arena, GLint, openGL->textureMap.maxSlots);
+            for (u32 i = 0; i < openGL->textureMap.maxSlots; i++)
+            {
+                samplerIds[i] = i;
+            }
+
+            if (type == R_ShaderType_SkinnedMesh || type == R_ShaderType_StaticMesh)
+            {
+                GLint modelProgramId = openGL->shaders[type].id;
+                openGL->glUseProgram(modelProgramId);
+                GLint textureLoc = openGL->glGetUniformLocation(modelProgramId, "textureMaps");
+                openGL->glUniform1iv(textureLoc, openGL->textureMap.maxSlots, samplerIds);
+                openGL->glBindBufferBase(GL_UNIFORM_BUFFER, 0, openGL->lightMatrixUBO);
+            }
+            else if (type == R_ShaderType_UI)
+            {
+                GLint uiProgramId = openGL->shaders[R_ShaderType_UI].id;
+                openGL->glUseProgram(uiProgramId);
+                GLint textureLoc = openGL->glGetUniformLocation(uiProgramId, "textureMaps");
+                openGL->glUniform1iv(textureLoc, openGL->textureMap.maxSlots, samplerIds);
+            }
+            else if (type == R_ShaderType_Depth || type == R_ShaderType_DepthSkinned)
+            {
+                openGL->glUseProgram(openGL->shaders[type].id);
+                openGL->glBindBufferBase(GL_UNIFORM_BUFFER, 0, openGL->lightMatrixUBO);
+            }
         }
     }
     ScratchEnd(temp);
@@ -331,7 +359,7 @@ internal void R_OpenGL_Init()
                 }
                 default: break;
             }
-            openGL->shaders[type].id = R_OpenGL_CreateShader(r_opengl_g_globalsPath, r_opengl_g_vsPath[type],
+            openGL->shaders[type].id = R_OpenGL_CreateShader(temp.arena, r_opengl_g_globalsPath, r_opengl_g_vsPath[type],
                                                              r_opengl_g_fsPath[type], gs, preprocess);
             openGL->shaders[type].globalsLastModified = OS_GetLastWriteTime(r_opengl_g_globalsPath);
             openGL->shaders[type].vsLastModified      = OS_GetLastWriteTime(r_opengl_g_vsPath[type]);
@@ -765,7 +793,6 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
         // glBindTexture(GL_TEXTURE_2D_ARRAY, openGL->depthMapTextureArray);
 
         R_CascadedShadowMap(&renderState->light, lightViewProjectionMatrices);
-
         openGL->glBindFramebuffer(GL_FRAMEBUFFER, openGL->shadowMapPassFBO);
         glViewport(0, 0, cShadowMapSize, cShadowMapSize);
         glClear(GL_DEPTH_BUFFER_BIT);
@@ -909,7 +936,6 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
         glViewport(0, 0, clientWidth, clientHeight);
         openGL->glBindFramebuffer(GL_FRAMEBUFFER, 0);
         openGL->glBindBuffer(GL_UNIFORM_BUFFER, 0);
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     }
 
@@ -1224,8 +1250,6 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
 
                     // Light space matrices (for testing fragment depths against shadow atlas)
                     openGL->glBindBuffer(GL_UNIFORM_BUFFER, openGL->lightMatrixUBO);
-                    openGL->glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(Mat4) * cNumCascades,
-                                            lightViewProjectionMatrices);
 
                     // Finding what frusta the fragment is in
                     const f32 cascadeDistances[cNumSplits] = {renderState->farZ / 50.f, renderState->farZ / 25.f,

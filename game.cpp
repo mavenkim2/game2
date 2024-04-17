@@ -613,9 +613,9 @@ internal void G_Update(f32 dt)
         AnimationTransform *tforms1 = PushArray(g_state->frameArena, AnimationTransform, skeleton->count);
         Mat4 *skinningMatrices1     = PushArray(g_state->frameArena, Mat4, skeleton->count);
         PlayCurrentAnimation(g_state->permanentArena, &g_state->animPlayer, dt, tforms1);
-        SkinModelToAnimation(&g_state->animPlayer, g_state->model, tforms1, skinningMatrices1);
+        // SkinModelToAnimation(&g_state->animPlayer, g_state->model, tforms1, skinningMatrices1);
         DebugDrawSkeleton(g_state->model, transform1, skinningMatrices1);
-        // SkinModelToBindPose(&g_state->model, skinningMatrices1);
+        SkinModelToBindPose(g_state->model, skinningMatrices1);
         Mat4 mvp1 = renderState->transform * transform1;
         D_PushModel(g_state->model, transform1, mvp1, skinningMatrices1, skeleton->count);
 
@@ -634,13 +634,13 @@ internal void G_Update(f32 dt)
         D_PushModel(g_state->model2, transform2, mvp2, skinningMatrices2, skeleton2->count);
 
         // Eva model 01
-        translate       = Translate4(V3{10, 0, 0});
-        scale           = Scale(V3{1, 1, 1});
+        translate       = Translate4(V3{-10, 10, 0});
+        scale           = Scale(V3{.1f, .1f, .1f});
         rotate          = Rotate4(MakeV3(1, 0, 0), PI / 2);
-        Mat4 transform3 = translate * rotate * scale;
+        Mat4 transform3 = translate * scale;
         Mat4 mvp3       = renderState->transform * transform3;
 
-        // D_PushModel(g_state->eva, transform3, mvp3);
+        D_PushModel(g_state->eva, transform3, mvp3);
         Light light;
         light.type = LightType_Directional;
         light.dir  = MakeV3(0, 0, 1.f);

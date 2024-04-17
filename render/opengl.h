@@ -528,8 +528,8 @@ internal void R_Init(Arena *arena, OS_Handle handle);
 internal void R_OpenGL_Init();
 internal void R_Win32_OpenGL_Init(OS_Handle handle);
 internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int clientHeight);
-internal GLuint R_OpenGL_CreateShader(string globalsPath, string vsPath, string fsPath, string gsPath,
-                                      string preprocess);
+internal GLuint R_OpenGL_CreateShader(Arena *arena, string globalsPath, string vsPath, string fsPath,
+                                      string gsPath, string preprocess);
 internal GLuint R_OpenGL_CompileShader(char *globals, char *vs, char *fs);
 
 internal void R_OpenGL_StartShader(RenderState *state, R_ShaderType type, void *group);

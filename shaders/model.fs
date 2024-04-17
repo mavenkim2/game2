@@ -42,10 +42,11 @@ in VS_OUT
 
 out V4 FragColor;
 
-layout (std140, binding = 0) buffer lightMatrices 
+layout (std140, binding = 0) uniform lightMatrices 
 {
     Mat4 lightViewProjectionMatrices[16];
 };
+
 uniform f32 cascadeDistances[4];
 uniform sampler2DArray shadowMaps;
 
@@ -101,9 +102,10 @@ void main()
     lightSpacePos = lightSpacePos * 0.5f + 0.5f;
 
     // Shadow bias
-    // TODO: this normal is in tangent space I believe. need the tbn
     f32 bias = max(0.05 * (1.0 - dot(normal, fragment.tangentLightDir)), 0.005);
     f32 biasModifier = 2;
+
+    // TODO: doesn't work for shadows in the furthest frustum, since cascadeDistances is only 4 big
     bias *= biasModifier / (cascadeDistances[shadowIndex]);
 
     // PCF
@@ -114,7 +116,7 @@ void main()
         for (int y = -1; y <= 1; y++)
         {
             V2 shadowUV = lightSpacePos.xy + V2(x, y) * texelSize;
-            f32 depth = texture(shadowMaps, V3(shadowUV, shadowIndex)).r;
+            f32 depth = texture(shadowMaps, V3(shadowUV, shadowIndex)).g;
             shadow += (lightSpacePos.z - bias) > depth ? 1.f : 0.f;
         }
     }
@@ -131,7 +133,7 @@ void main()
     //SPECULAR
     V3 toViewPosition = normalize(fragment.tangentViewPos - fragment.tangentFragPos);
 
-#ifndef BLINN_PHONG
+#if BLINN_PHONG
     V3 reflectVector = -lightDir + 2 * dot(normal, lightDir) * normal;
     f32 specularStrength = pow(max(dot(reflectVector, toViewPosition), 0.f), 64);
 
@@ -145,8 +147,9 @@ void main()
     f32 spec = specularStrength;
     V3 specular = spec * color;
 
-    V3 outColor = (ambient + diffuse + specular) * shadow;
-    // V3 outColor = V3(1, 1, 1) * lightSpacePos.z;
+    // V3 outColor = V3(1, 1, 1) * ((4 - shadowIndex) * .25);
+    // V3 outColor = V3(lightSpacePos.z, 0, 0);
+    V3 outColor = (ambient + diffuse + specular) * (1 - .8 * shadow);
 
     // Debug
     // FragColor = V4(normal, 1.0);

@@ -1557,7 +1557,8 @@ inline V2 GetRectCenter(Rect2 a)
 inline void Init(Rect3 *a)
 {
     a->minP.x = a->minP.y = a->minP.z = FLT_MAX;
-    a->maxP.x = a->maxP.y = a->maxP.z = FLT_MIN;
+    a->maxP.x = a->maxP.y = a->maxP.z = -FLT_MAX;
+    // a->maxP.x = a->maxP.y = a->maxP.z = FLT_MIN;//-FLT_MAX;
 }
 
 inline Rect3 Rect3BottomLeft(V3 pos, V3 size)

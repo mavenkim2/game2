@@ -1,6 +1,7 @@
 #include "../crack.h"
-#include <algorithm>
 #ifdef LSP_INCLUDE
+#include "../keepmovingforward_math.h"
+#include <algorithm>
 #include "../asset.h"
 #include "../asset_cache.h"
 #include "render.h"
@@ -634,6 +635,8 @@ internal void *R_CreateCommand(i32 size)
 //
 // Render to depth buffer from the perspective of the light, test vertices against this depth buffer
 // to see whether object is in shadow.
+
+// TODO: frustum culling cuts out fragments that cast shadows. use the light's frustum to cull
 internal void R_CascadedShadowMap(const Light *inLight, Mat4 *outLightViewProjectionMatrices)
 {
     const f32 cascadeDistances[cNumCascades + 1] = {renderState->nearZ,       renderState->farZ / 50.f,
@@ -644,6 +647,9 @@ internal void R_CascadedShadowMap(const Light *inLight, Mat4 *outLightViewProjec
     // Mat4 ndcToWorld = Inverse(renderState->transform);
 
     // Step 0. Set up the mvp matrix for each frusta.
+
+    // TODO IMPORTANT: since the frustum fuckery is happening on transitions (i.e. going from one frustum to a
+    // higher quality or lower quality one), try making the frusta overlap a little bit (see rbdoom)
     Mat4 mvpMatrices[cNumCascades];
     for (i32 cascadeIndex = 0; cascadeIndex < cNumCascades; cascadeIndex++)
     {
@@ -691,7 +697,19 @@ internal void R_CascadedShadowMap(const Light *inLight, Mat4 *outLightViewProjec
     Mat4 lightWorldToViewMatrix;
     // TODO: I don't understand this code from doom 3 bfg
     CalculateViewMatrix(renderState->camera.position, lightAxis, lightWorldToViewMatrix);
+
     V3 centers[cNumCascades] = {};
+    Mat4 lightViewMatrices[cNumCascades];
+    for (i32 cascadeIndex = 0; cascadeIndex < cNumCascades; cascadeIndex++)
+    {
+        for (i32 i = 0; i < 8; i++)
+        {
+            centers[cascadeIndex] += frustumVertices[cascadeIndex][i];
+        }
+        centers[cascadeIndex] /= 8;
+        lightViewMatrices[cascadeIndex] =
+            LookAt4(centers[cascadeIndex] + inLight->dir, centers[cascadeIndex], renderState->camera.forward);
+    }
 
     Rect3 bounds[cNumCascades];
     for (i32 cascadeIndex = 0; cascadeIndex < cNumCascades; cascadeIndex++)
@@ -703,7 +721,8 @@ internal void R_CascadedShadowMap(const Light *inLight, Mat4 *outLightViewProjec
         // Loop over each corner of each frusta
         for (i32 i = 0; i < 8; i++)
         {
-            V4 result = Transform(lightWorldToViewMatrix, frustumVertices[cascadeIndex][i]);
+            V4 result = Transform(lightViewMatrices[cascadeIndex], frustumVertices[cascadeIndex][i]);
+            result.xyz /= result.w;
             AddBounds(bounds[cascadeIndex], result.xyz);
         }
     }
@@ -717,8 +736,11 @@ internal void R_CascadedShadowMap(const Light *inLight, Mat4 *outLightViewProjec
             // TODO: for some reason (probably a good one), the near and far are
             // negated in doom3 and swapped
             Orthographic4(currentBounds->minX, currentBounds->maxX, currentBounds->minY, currentBounds->maxY,
-                          -currentBounds->maxZ, -currentBounds->minZ) *
-            lightWorldToViewMatrix;
+                          // Clamp(0, currentBounds->minZ, 100000), Abs(currentBounds->maxZ));
+            currentBounds->minZ, currentBounds->maxZ);
+                          // -currentBounds->maxZ, -currentBounds->minZ) *
+            lightViewMatrices[i];
+        // lightWorldToViewMatrix;
     }
 }
 
