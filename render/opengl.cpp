@@ -359,8 +359,9 @@ internal void R_OpenGL_Init()
                 }
                 default: break;
             }
-            openGL->shaders[type].id = R_OpenGL_CreateShader(temp.arena, r_opengl_g_globalsPath, r_opengl_g_vsPath[type],
-                                                             r_opengl_g_fsPath[type], gs, preprocess);
+            openGL->shaders[type].id =
+                R_OpenGL_CreateShader(temp.arena, r_opengl_g_globalsPath, r_opengl_g_vsPath[type],
+                                      r_opengl_g_fsPath[type], gs, preprocess);
             openGL->shaders[type].globalsLastModified = OS_GetLastWriteTime(r_opengl_g_globalsPath);
             openGL->shaders[type].vsLastModified      = OS_GetLastWriteTime(r_opengl_g_vsPath[type]);
             openGL->shaders[type].fsLastModified      = OS_GetLastWriteTime(r_opengl_g_fsPath[type]);
@@ -788,11 +789,12 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
 
     // Shadow map pass
     Mat4 lightViewProjectionMatrices[cNumCascades];
+    f32 cascadeDistances[cNumSplits];
     {
         // openGL->glActiveTexture(GL_TEXTURE0 + 1);
         // glBindTexture(GL_TEXTURE_2D_ARRAY, openGL->depthMapTextureArray);
 
-        R_CascadedShadowMap(&renderState->light, lightViewProjectionMatrices);
+        R_CascadedShadowMap(&renderState->light, lightViewProjectionMatrices, cascadeDistances);
         openGL->glBindFramebuffer(GL_FRAMEBUFFER, openGL->shadowMapPassFBO);
         glViewport(0, 0, cShadowMapSize, cShadowMapSize);
         glClear(GL_DEPTH_BUFFER_BIT);
@@ -1158,6 +1160,11 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
                         // 3. Set up texture addresses for each surface (to be sent to ssbo)
 
                         Material *material = surface->material;
+                        if (!material)
+                        {
+                            baseTexture += cTexturesPerMaterial;
+                            continue;
+                        }
                         for (u32 j = 0; j < TextureType_Count; j++)
                         {
                             R_Handle textureHandle = GetTextureRenderHandle(material->textureHandles[j]);
@@ -1252,9 +1259,6 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
                     openGL->glBindBuffer(GL_UNIFORM_BUFFER, openGL->lightMatrixUBO);
 
                     // Finding what frusta the fragment is in
-                    const f32 cascadeDistances[cNumSplits] = {renderState->farZ / 50.f, renderState->farZ / 25.f,
-                                                              renderState->farZ / 10.f, renderState->farZ / 2.f};
-
                     GLint cascadeDistancesLoc = openGL->glGetUniformLocation(currentProgram, "cascadeDistances");
                     openGL->glUniform1fv(cascadeDistancesLoc, ArrayLength(cascadeDistances), cascadeDistances);
 

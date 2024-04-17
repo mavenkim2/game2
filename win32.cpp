@@ -129,6 +129,11 @@ internal OS_Handle OS_OpenFile(OS_AccessFlags flags, string path)
     {
         result.handle = (u64)file;
     }
+    else
+    {
+        Printf("Could not open file: %S\n", path);
+        Assert(!"Temp");
+    }
     return result;
 }
 

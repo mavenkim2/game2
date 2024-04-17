@@ -603,6 +603,56 @@ internal void G_Update(f32 dt)
 
         renderState->camera = g_state->camera;
 
+        static b8 test = 0;
+        static VC_Handle vertex;
+        static VC_Handle index;
+        if (!test)
+        {
+            test = 1;
+            MeshVertex vertices[4];
+            vertices[0].position = {-1, -1, 0};
+            vertices[1].position = {1, -1, 0};
+            vertices[2].position = {1, 1, 0};
+            vertices[3].position = {-1, 1, 0};
+
+            vertices[0].normal = {0, 0, 1.f};
+            vertices[1].normal = {0, 0, 1.f};
+            vertices[2].normal = {0, 0, 1.f};
+            vertices[3].normal = {0, 0, 1.f};
+
+            u32 indices[6];
+            indices[0] = 0;
+            indices[1] = 1;
+            indices[2] = 2;
+            indices[3] = 0;
+            indices[4] = 2;
+            indices[5] = 3;
+
+            vertex = VC_AllocateBuffer(BufferType_Vertex, BufferUsage_Static, vertices, sizeof(MeshVertex), 4);
+            index  = VC_AllocateBuffer(BufferType_Index, BufferUsage_Static, indices, sizeof(u32), 6);
+        }
+
+        Mat4 transform  = Identity();
+        transform[0][0] = 3;
+        transform[1][1] = 3;
+        transform[2][2] = 3;
+
+        R_PassMesh *pass       = R_GetPassFromKind(R_PassType_Mesh)->passMesh;
+        R_MeshParamsNode *node = PushStruct(d_state->arena, R_MeshParamsNode);
+
+        node->val.numSurfaces = 1;
+        D_Surface *surfaces   = (D_Surface *)R_FrameAlloc(node->val.numSurfaces * sizeof(*surfaces));
+        node->val.surfaces    = surfaces;
+
+        D_Surface *surface = &surfaces[0];
+
+        surface->vertexBuffer = vertex;
+        surface->indexBuffer  = index;
+
+        // TODO: ptr or copy?
+
+        QueuePush(pass->list.first, pass->list.last, node);
+
         // Model 1
         Mat4 translate  = Translate4(V3{0, 20, 5});
         Mat4 scale      = Scale(V3{0.5f, 0.5f, 0.5f});

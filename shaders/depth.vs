@@ -11,7 +11,7 @@ uniform Mat4 boneTransforms[MAX_BONES];
 
 void main()
 {
-#ifdef SKINNED
+#if SKINNED
     Mat4 boneTransform = boneTransforms[boneIds[0]] * boneWeights[0];
     boneTransform     += boneTransforms[boneIds[1]] * boneWeights[1];
     boneTransform     += boneTransforms[boneIds[2]] * boneWeights[2];

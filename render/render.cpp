@@ -38,7 +38,7 @@ internal void D_Init()
     state->fov         = Radians(45.f);
     state->aspectRatio = 16.f / 9.f;
     state->nearZ       = .1f;
-    state->farZ        = 1000.f;
+    state->farZ        = 10000.f;
 
     // DebugRenderer *debug = &state->debugRenderer;
 
@@ -305,6 +305,7 @@ internal void D_PushHeightmap(Heightmap heightmap)
 // threaded, similar to what we have now. right now the way the renderer works is that there's a permanent render
 // state global, and each frame the simulation/game sends data to the render pass to use, etc etc
 // yadda yadda.
+
 internal void D_PushModel(AS_Handle loadedModel, Mat4 transform, Mat4 &mvp, Mat4 *skinningMatrices = 0,
                           u32 skinningMatricesCount = 0)
 {
@@ -635,31 +636,63 @@ internal void *R_CreateCommand(i32 size)
 //
 // Render to depth buffer from the perspective of the light, test vertices against this depth buffer
 // to see whether object is in shadow.
+// Returns splits cascade distances, and splits + 1 matrices
+internal void R_ShadowMapFrusta(i32 splits, f32 splitWeight, Mat4 *outMatrices, f32 *outSplits)
+{
+    f32 nearZStart = 1.f;
+    f32 farZEnd    = 2000;
+    f32 nearZ      = nearZStart;
+    f32 farZ       = farZEnd;
+    f32 lambda     = splitWeight;
+    f32 ratio      = farZEnd / nearZStart;
+
+    for (i32 i = 1; i <= splits + 1; i++)
+    {
+        f32 si = i / (f32)(splits + 1);
+        if (i > 1)
+        {
+            nearZ = farZ - (farZ * 0.005f);
+        }
+        // NOTE: ???
+        farZ = 1.005f * lambda * (nearZStart * Powf(ratio, si)) +
+               (1 - lambda) * (nearZStart + (farZEnd - nearZStart) * si);
+
+        Mat4 matrix        = Perspective4(renderState->fov, renderState->aspectRatio, nearZ, farZ);
+        Mat4 result        = matrix * renderState->viewMatrix;
+        outMatrices[i - 1] = Inverse(result);
+        if (i <= splits)
+        {
+            outSplits[i - 1] = farZ;
+        }
+    }
+}
 
 // TODO: frustum culling cuts out fragments that cast shadows. use the light's frustum to cull
-internal void R_CascadedShadowMap(const Light *inLight, Mat4 *outLightViewProjectionMatrices)
+internal void R_CascadedShadowMap(const Light *inLight, Mat4 *outLightViewProjectionMatrices,
+                                  f32 *outCascadeDistances)
 {
-    const f32 cascadeDistances[cNumCascades + 1] = {renderState->nearZ,       renderState->farZ / 50.f,
-                                                    renderState->farZ / 25.f, renderState->farZ / 10.f,
-                                                    renderState->farZ / 2.f,  renderState->farZ};
+    Mat4 mvpMatrices[cNumCascades];
+    f32 cascadeDistances[cNumSplits];
+    R_ShadowMapFrusta(cNumSplits, .9f, mvpMatrices, cascadeDistances);
+    // f32 farZ = 2000.f;
+    //
+    // const f32 cascadeDistances[cNumCascades + 1] = {3.f, farZ / 50.f, farZ / 25.f, farZ / 10.f, farZ / 2.f,
+    // farZ};
     Assert(inLight->type == LightType_Directional);
-
-    // Mat4 ndcToWorld = Inverse(renderState->transform);
 
     // Step 0. Set up the mvp matrix for each frusta.
 
-    // TODO IMPORTANT: since the frustum fuckery is happening on transitions (i.e. going from one frustum to a
-    // higher quality or lower quality one), try making the frusta overlap a little bit (see rbdoom)
-    Mat4 mvpMatrices[cNumCascades];
-    for (i32 cascadeIndex = 0; cascadeIndex < cNumCascades; cascadeIndex++)
-    {
-        Mat4 perspective = Perspective4(renderState->fov, renderState->aspectRatio, cascadeDistances[cascadeIndex],
-                                        cascadeDistances[cascadeIndex + 1]);
-        Mat4 viewPerspective = perspective * renderState->viewMatrix;
-        Mat4 inverse         = Inverse(viewPerspective);
-
-        mvpMatrices[cascadeIndex] = inverse;
-    }
+    // Mat4 mvpMatrices[cNumCascades];
+    // for (i32 cascadeIndex = 0; cascadeIndex < cNumCascades; cascadeIndex++)
+    // {
+    //     Mat4 perspective = Perspective4(renderState->fov, renderState->aspectRatio,
+    //     cascadeDistances[cascadeIndex],
+    //                                     cascadeDistances[cascadeIndex + 1]);
+    //     Mat4 viewPerspective = perspective * renderState->viewMatrix;
+    //     Mat4 inverse         = Inverse(viewPerspective);
+    //
+    //     mvpMatrices[cascadeIndex] = inverse;
+    // }
 
     // Step 1. Get the corners of each of the view frusta in world space.
     V3 frustumVertices[cNumCascades][8];
@@ -721,7 +754,8 @@ internal void R_CascadedShadowMap(const Light *inLight, Mat4 *outLightViewProjec
         // Loop over each corner of each frusta
         for (i32 i = 0; i < 8; i++)
         {
-            V4 result = Transform(lightViewMatrices[cascadeIndex], frustumVertices[cascadeIndex][i]);
+            V4 result = Transform(/*lightWorldToViewMatrix*/ lightViewMatrices[cascadeIndex],
+                                  frustumVertices[cascadeIndex][i]);
             result.xyz /= result.w;
             AddBounds(bounds[cascadeIndex], result.xyz);
         }
@@ -732,15 +766,70 @@ internal void R_CascadedShadowMap(const Light *inLight, Mat4 *outLightViewProjec
     for (i32 i = 0; i < cNumCascades; i++)
     {
         Rect3 *currentBounds = &bounds[i];
+        f32 zNear            = -currentBounds->maxZ;
+        f32 zFar             = -currentBounds->minZ;
+        f32 mult             = 10;
+
+        // TODO: instead of this hand wavy code, use the bounds of the light for the znear and far
+        // NOTE: the problem I was having was that there were too tight transitions and no overlap
+        // between cascade splits, which is problematic when the light direction and the camera forward
+        // are parallel.
+        // gl polygon offset?
+
+        // float3 offset_lookup(sampler2D map, float4 loc, float2 offset)
+        // {
+        //     return tex2Dproj(map, float4(loc.xy + offset * texmapscale * loc.w, loc.z, loc.w));
+        // }
+        // float sum = 0;
+        // float x, y;
+        // for (y = -1.5; y <= 1.5; y += 1.0)
+        //     for (x = -1.5; x <= 1.5; x += 1.0)
+        //         sum += offset_lookup(shadowmap, shadowCoord, float2(x, y));
+        // shadowCoeff = sum / 16.0;
+        //
+        // offset = (float)(frac(position.xy * 0.5) > 0.25); // mod offset.y += offset.x;  // y ^= x in floating point
+        // if (offset.y > 1.1) offset.y = 0;
+        // shadowCoeff = (offset_lookup(shadowmap, sCoord, offset + float2(-1.5, 0.5)) +
+        //                offset_lookup(shadowmap, sCoord, offset + float2(0.5, 0.5)) +
+        //                offset_lookup(shadowmap, sCoord, offset + float2(-1.5, -1.5)) +
+        //                offset_lookup(shadowmap, sCoord, offset + float2(0.5, -1.5))) *
+        //               0.25;
+
+        if (i == 0)
+        {
+            zNear -= 2.f;
+            zFar += 2.f;
+        }
+        if (zNear < 0)
+        {
+            zNear *= 10;
+        }
+        else
+        {
+            zNear /= 10;
+        }
+        if (zFar < 0)
+        {
+            zFar /= 10;
+        }
+        else
+        {
+            zFar *= 10;
+        }
+
         outLightViewProjectionMatrices[i] =
             // TODO: for some reason (probably a good one), the near and far are
             // negated in doom3 and swapped
             Orthographic4(currentBounds->minX, currentBounds->maxX, currentBounds->minY, currentBounds->maxY,
-                          // Clamp(0, currentBounds->minZ, 100000), Abs(currentBounds->maxZ));
-            currentBounds->minZ, currentBounds->maxZ);
-                          // -currentBounds->maxZ, -currentBounds->minZ) *
-            lightViewMatrices[i];
+                          zNear, zFar);
+        // currentBounds->minZ, currentBounds->maxZ);
+        // -currentBounds->maxZ, -currentBounds->minZ) *
+        lightViewMatrices[i];
         // lightWorldToViewMatrix;
+        if (i < cNumSplits)
+        {
+            outCascadeDistances[i] = cascadeDistances[i + 1];
+        }
     }
 }
 

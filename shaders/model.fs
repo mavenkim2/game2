@@ -102,25 +102,26 @@ void main()
     lightSpacePos = lightSpacePos * 0.5f + 0.5f;
 
     // Shadow bias
-    f32 bias = max(0.05 * (1.0 - dot(normal, fragment.tangentLightDir)), 0.005);
+    f32 bias = max(0.1 * (1.0 - dot(normal, fragment.tangentLightDir)), 0.005);
     f32 biasModifier = 2;
 
     // TODO: doesn't work for shadows in the furthest frustum, since cascadeDistances is only 4 big
     bias *= biasModifier / (cascadeDistances[shadowIndex]);
+    bias += 0.008;
 
     // PCF
     V2 texelSize = 1.0 / V2(textureSize(shadowMaps, 0));
     f32 shadow = 0.f;
-    for (int x = -1; x <= 1; x++)
+    for (float x = -1.5f; x <= 1.5f; x+=1.f)
     {
-        for (int y = -1; y <= 1; y++)
+        for (float y = -1.5f; y <= 1.5f; y+=1.f)
         {
             V2 shadowUV = lightSpacePos.xy + V2(x, y) * texelSize;
-            f32 depth = texture(shadowMaps, V3(shadowUV, shadowIndex)).g;
+            f32 depth = texture(shadowMaps, V3(shadowUV, shadowIndex)).r;
             shadow += (lightSpacePos.z - bias) > depth ? 1.f : 0.f;
         }
     }
-    shadow /= 9.f;
+    shadow /= 16.f;
 
     // Direction Phong Light
     V3 lightDir = normalize(fragment.tangentLightDir);
