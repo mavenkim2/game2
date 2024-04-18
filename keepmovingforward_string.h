@@ -13,6 +13,10 @@ struct string
 {
     u8 *str;
     u64 size;
+
+    string();
+    string(const char *text);
+    void operator=(const char *text);
 };
 
 #define STB_SPRINTF_IMPLEMENTATION
@@ -34,7 +38,7 @@ internal u8 CharToUpper(u8 c);
 //
 internal string Str8(u8 *str, u64 size);
 inline string Substr8(string str, u64 min, u64 max);
-internal u64 CalculateCStringLength(char *cstr);
+internal u64 CalculateCStringLength(const char *cstr);
 internal string PushStr8F(Arena *arena, char *fmt, ...);
 internal string PushStr8FV(Arena *arena, char *fmt, va_list args);
 internal string PushStr8Copy(Arena *arena, string str);
@@ -131,11 +135,11 @@ inline void ConvertPointerToOffset(u8 *buffer, u64 location, u64 offset);
 
 #define GetPointerValue(tokenizer, ptr) Get(tokenizer, ptr, sizeof(*ptr))
 #define GetPointer(tokenizer, type)     (type *)GetPointer_(tokenizer)
-#define GetArray(tokenizer, array, count_)                                                                        \
-    do                                                                                                            \
-    {                                                                                                             \
-        array.count = count_;                                                                                     \
-        Get(tokenizer, array.items, sizeof(array.items[0]) * count_);                                             \
+#define GetArray(tokenizer, array, count_)                            \
+    do                                                                \
+    {                                                                 \
+        array.count = count_;                                         \
+        Get(tokenizer, array.items, sizeof(array.items[0]) * count_); \
     } while (0)
 
 #define GetTokenCursor(tokenizer, type) (type *)GetCursor_(tokenizer)

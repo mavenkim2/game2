@@ -9,6 +9,28 @@
 #endif
 
 //////////////////////////////
+// Constructors
+//
+string::string(const char *text)
+{
+    if (text)
+    {
+        *this = Str8C(text);
+    }
+}
+
+string::string() {}
+
+// TODO: allocations
+void string::operator=(const char *text)
+{
+    if (text)
+    {
+        *this = Str8C(text);
+    }
+}
+
+//////////////////////////////
 // Char
 //
 inline b32 CharIsWhitespace(u8 c)
@@ -86,7 +108,7 @@ inline string Substr8(string str, u64 min, u64 max)
     str.str += min;
     return str;
 }
-internal u64 CalculateCStringLength(char *cstr)
+internal u64 CalculateCStringLength(const char *cstr)
 {
     u64 length = 0;
     for (; cstr[length]; length++)

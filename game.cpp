@@ -663,9 +663,9 @@ internal void G_Update(f32 dt)
         AnimationTransform *tforms1 = PushArray(g_state->frameArena, AnimationTransform, skeleton->count);
         Mat4 *skinningMatrices1     = PushArray(g_state->frameArena, Mat4, skeleton->count);
         PlayCurrentAnimation(g_state->permanentArena, &g_state->animPlayer, dt, tforms1);
-        // SkinModelToAnimation(&g_state->animPlayer, g_state->model, tforms1, skinningMatrices1);
+        SkinModelToAnimation(&g_state->animPlayer, g_state->model, tforms1, skinningMatrices1);
         DebugDrawSkeleton(g_state->model, transform1, skinningMatrices1);
-        SkinModelToBindPose(g_state->model, skinningMatrices1);
+        // SkinModelToBindPose(g_state->model, skinningMatrices1);
         Mat4 mvp1 = renderState->transform * transform1;
         D_PushModel(g_state->model, transform1, mvp1, skinningMatrices1, skeleton->count);
 
@@ -693,7 +693,8 @@ internal void G_Update(f32 dt)
         D_PushModel(g_state->eva, transform3, mvp3);
         Light light;
         light.type = LightType_Directional;
-        light.dir  = MakeV3(0, 0, 1.f);
+        light.dir  = MakeV3(0, .75f, .25f);
+        light.dir = Normalize(light.dir);
         light.pos  = MakeV3(0.f, 0.f, 0.f);
         D_PushLight(&light);
 

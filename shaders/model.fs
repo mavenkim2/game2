@@ -19,7 +19,7 @@ struct TexAddress
     f32 slice;
 };
 
-layout (std430, binding = 1) buffer shaderStorageData
+layout (std430, binding = 1) readonly buffer shaderStorageData
 {
     TexAddress addresses[];
 };

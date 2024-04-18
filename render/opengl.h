@@ -280,8 +280,8 @@ typedef void WINAPI type_glFramebufferTexture(GLenum target, GLenum attachment, 
 typedef GLenum WINAPI type_glCheckFramebufferStatus(GLenum target);
 typedef void WINAPI type_glUniform1fv(GLint location, GLsizei count, const GLfloat *value);
 
-#define GL_DEBUG_CALLBACK(name)                                                                                   \
-    void WINAPI name(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length,                      \
+#define GL_DEBUG_CALLBACK(name)                                                              \
+    void WINAPI name(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, \
                      const GLchar *message, const void *userParam)
 
 typedef GL_DEBUG_CALLBACK(GLDebugCallback);
@@ -297,6 +297,9 @@ global wgl_create_context_attribs_arb *wglCreateContextAttribsARB;
 
 #define OpenGLFunction(name) type_##name *name
 
+//////////////////////////////
+// Progs
+//
 enum R_ShaderType
 {
     R_ShaderType_UI,
@@ -309,15 +312,85 @@ enum R_ShaderType
     R_ShaderType_DepthSkinned,
     R_ShaderType_Count,
 };
-
-struct R_Shader
+enum R_GlobalUniformsType
 {
-    GLuint id;
-
-    u64 globalsLastModified;
-    u64 vsLastModified;
-    u64 fsLastModified;
+    Uniform_ViewPosition,
+    MAX_UNIFORMS,
 };
+
+enum R_ShaderLoadFlag
+{
+    ShaderLoadFlag_Skinned       = 1 << 0,
+    ShaderLoadFlag_ShadowMaps    = 1 << 1,
+    ShaderLoadFlag_TextureArrays = 1 << 2,
+};
+
+struct R_ShaderLoadInfo
+{
+    R_ShaderType mType;
+    const char *mName;
+    struct R_ShaderMacro
+    {
+        const char *mName;
+        const char *mDef;
+    } mMacros[2];
+    u32 mShaderStageFlags;
+    u32 mShaderLoadFlags;
+};
+
+struct Shader
+{
+    string mName;
+    u64 mLastModifiedVS;
+    u64 mLastModifiedFS;
+    u64 mLastModifiedGS;
+};
+
+struct Program
+{
+    R_BufferHandle mApiObject;
+};
+
+enum
+{
+    ShaderStage_Index       = 1 << 0,
+    ShaderStage_Tesselation = 1 << 1,
+    ShaderStage_Geometry    = 1 << 2,
+    ShaderStage_Fragment    = 1 << 3,
+    ShaderStage_Compute     = 1 << 4,
+    ShaderStage_Default     = ShaderStage_Index | ShaderStage_Fragment,
+};
+
+class R_ProgramManager
+{
+public:
+    void SetGlobalUniform(R_GlobalUniformsType type, const f32 value[4]);
+    void SetGlobalUniform(R_GlobalUniformsType type, const f32 values[], i32 num);
+
+    void InitPrograms();
+    void HotloadPrograms();
+
+    R_BufferHandle GetProgramApiObject(R_ShaderType type);
+
+    const string cGlobalsPath = "src/shaders/global.glsl";
+    u64 mLastModifiedGlobals;
+
+    R_ShaderLoadInfo mShaderLoadInfo[R_ShaderType_Count];
+
+    Shader mShaders[R_ShaderType_Count];
+
+    Program mPrograms[R_ShaderType_Count];
+
+    // NOTE: even if a uniform is a 3x3 or 3-n vector/matrix, pad it to a v4
+    V4 mGlobalUniforms[MAX_UNIFORMS];
+
+    R_BufferHandle mConstantBuffer;
+
+private:
+    void LoadPrograms();
+};
+
+global R_ProgramManager gRenderProgramManager;
 
 struct R_OpenGL_Buffer
 {
@@ -431,8 +504,6 @@ struct OpenGL
     GLuint pbos[4];
     u32 pboIndex;
     u64 firstUsedPboIndex;
-
-    R_Shader shaders[R_ShaderType_Count];
 
     R_Handle whiteTextureHandle;
     u32 srgb8TextureFormat;

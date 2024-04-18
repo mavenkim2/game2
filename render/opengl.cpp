@@ -9,6 +9,7 @@
 
 global const i32 GL_ATTRIB_INDEX_POSITION = 0;
 global const i32 GL_ATTRIB_INDEX_NORMAL   = 1;
+global const i32 GL_SHADOW_MAP_BINDING    = 0;
 
 #define GL_TEXTURE_ARRAY_HANDLE_FLAG 0x8000000000000000
 const i32 cTexturesPerMaterial = 2;
@@ -29,16 +30,6 @@ global readonly i32 r_sizeFromFormatTable[R_TexFormat_Count] = {1, 2, 3, 4, 3, 4
 
 // TODO: absorb this into the shader type, instantiate a table containing the filenames as well as preprocess
 // defines also make uniforms more manageable by having
-global string r_opengl_g_globalsPath = Str8Lit("src/shaders/global.glsl");
-
-global string r_opengl_g_vsPath[] = {Str8Lit("src/shaders/ui.vs"),       Str8Lit("src/shaders/basic_3d.vs"),
-                                     Str8Lit("src/shaders/basic_3d.vs"), Str8Lit("src/shaders/model.vs"),
-                                     Str8Lit("src/shaders/model.vs"),    Str8Lit("src/shaders/terrain.vs"),
-                                     Str8Lit("src/shaders/depth.vs"),    Str8Lit("src/shaders/depth.vs")};
-global string r_opengl_g_fsPath[] = {Str8Lit("src/shaders/ui.fs"),       Str8Lit("src/shaders/basic_3d.fs"),
-                                     Str8Lit("src/shaders/basic_3d.fs"), Str8Lit("src/shaders/model.fs"),
-                                     Str8Lit("src/shaders/model.fs"),    Str8Lit("src/shaders/terrain.fs"),
-                                     Str8Lit("src/shaders/depth.fs"),    Str8Lit("src/shaders/depth.fs")};
 
 internal void VSyncToggle(b32 enable)
 {
@@ -153,87 +144,6 @@ internal GLuint R_OpenGL_CreateShader(Arena *arena, string globalsPath, string v
     return id;
 }
 
-// TODO: this loading code is duplicated from the startup code
-internal void R_OpenGL_HotloadShaders()
-{
-    TempArena temp = ScratchStart(0, 0);
-    for (R_ShaderType type = (R_ShaderType)0; type < R_ShaderType_Count; type = (R_ShaderType)(type + 1))
-    {
-        R_Shader *shader        = openGL->shaders + type;
-        u64 vsLastModified      = OS_GetLastWriteTime(r_opengl_g_vsPath[type]);
-        u64 fsLastModified      = OS_GetLastWriteTime(r_opengl_g_fsPath[type]);
-        u64 globalsLastModified = OS_GetLastWriteTime(r_opengl_g_globalsPath);
-        if (vsLastModified != shader->vsLastModified || fsLastModified != shader->fsLastModified ||
-            globalsLastModified != shader->globalsLastModified)
-        {
-            openGL->glDeleteProgram(shader->id);
-            shader->vsLastModified      = vsLastModified;
-            shader->fsLastModified      = fsLastModified;
-            shader->globalsLastModified = globalsLastModified;
-            string preprocess           = Str8Lit("");
-            string gs                   = {};
-            switch (type)
-            {
-                case R_ShaderType_Instanced3D:
-                {
-                    preprocess = Str8Lit("#define INSTANCED 1\n");
-                    break;
-                }
-                case R_ShaderType_SkinnedMesh:
-                {
-                    preprocess = Str8Lit("#define SKINNED 1\n");
-                } // fallthrough
-                case R_ShaderType_StaticMesh:
-                {
-                    preprocess = StrConcat(temp.arena, preprocess, Str8Lit("#define BLINN_PHONG 1\n"));
-                    break;
-                }
-                case R_ShaderType_DepthSkinned:
-                {
-                    preprocess = Str8Lit("#define SKINNED 1\n");
-                } // fallthrough
-                case R_ShaderType_Depth:
-                {
-                    gs = Str8Lit("src/shaders/depth.gs");
-                    break;
-                }
-                default: break;
-            }
-            openGL->shaders[type].id =
-                R_OpenGL_CreateShader(temp.arena, r_opengl_g_globalsPath, r_opengl_g_vsPath[type],
-                                      r_opengl_g_fsPath[type], gs, preprocess);
-            GLint *samplerIds = 0;
-            samplerIds        = PushArray(temp.arena, GLint, openGL->textureMap.maxSlots);
-            for (u32 i = 0; i < openGL->textureMap.maxSlots; i++)
-            {
-                samplerIds[i] = i;
-            }
-
-            if (type == R_ShaderType_SkinnedMesh || type == R_ShaderType_StaticMesh)
-            {
-                GLint modelProgramId = openGL->shaders[type].id;
-                openGL->glUseProgram(modelProgramId);
-                GLint textureLoc = openGL->glGetUniformLocation(modelProgramId, "textureMaps");
-                openGL->glUniform1iv(textureLoc, openGL->textureMap.maxSlots, samplerIds);
-                openGL->glBindBufferBase(GL_UNIFORM_BUFFER, 0, openGL->lightMatrixUBO);
-            }
-            else if (type == R_ShaderType_UI)
-            {
-                GLint uiProgramId = openGL->shaders[R_ShaderType_UI].id;
-                openGL->glUseProgram(uiProgramId);
-                GLint textureLoc = openGL->glGetUniformLocation(uiProgramId, "textureMaps");
-                openGL->glUniform1iv(textureLoc, openGL->textureMap.maxSlots, samplerIds);
-            }
-            else if (type == R_ShaderType_Depth || type == R_ShaderType_DepthSkinned)
-            {
-                openGL->glUseProgram(openGL->shaders[type].id);
-                openGL->glBindBufferBase(GL_UNIFORM_BUFFER, 0, openGL->lightMatrixUBO);
-            }
-        }
-    }
-    ScratchEnd(temp);
-}
-
 GL_DEBUG_CALLBACK(R_OpenGL_DebugCallback)
 {
     if (severity == GL_DEBUG_SEVERITY_HIGH)
@@ -325,82 +235,83 @@ internal void R_OpenGL_Init()
     }
 
     // Shaders
-    {
-        TempArena temp = ScratchStart(0, 0);
-        for (R_ShaderType type = (R_ShaderType)0; type < R_ShaderType_Count; type = (R_ShaderType)(type + 1))
-        {
-            // TODO; put this in the table
-            string preprocess = Str8Lit("");
-            string gs         = {};
-            switch (type)
-            {
-                case R_ShaderType_Instanced3D:
-                {
-                    preprocess = Str8Lit("#define INSTANCED 1\n");
-                    break;
-                }
-                case R_ShaderType_SkinnedMesh:
-                {
-                    preprocess = Str8Lit("#define SKINNED 1\n");
-                } // fallthrough
-                case R_ShaderType_StaticMesh:
-                {
-                    preprocess = StrConcat(temp.arena, preprocess, Str8Lit("#define BLINN_PHONG 1\n"));
-                    break;
-                }
-                case R_ShaderType_DepthSkinned:
-                {
-                    preprocess = Str8Lit("#define SKINNED 1\n");
-                } // fallthrough
-                case R_ShaderType_Depth:
-                {
-                    gs = Str8Lit("src/shaders/depth.gs");
-                    break;
-                }
-                default: break;
-            }
-            openGL->shaders[type].id =
-                R_OpenGL_CreateShader(temp.arena, r_opengl_g_globalsPath, r_opengl_g_vsPath[type],
-                                      r_opengl_g_fsPath[type], gs, preprocess);
-            openGL->shaders[type].globalsLastModified = OS_GetLastWriteTime(r_opengl_g_globalsPath);
-            openGL->shaders[type].vsLastModified      = OS_GetLastWriteTime(r_opengl_g_vsPath[type]);
-            openGL->shaders[type].fsLastModified      = OS_GetLastWriteTime(r_opengl_g_fsPath[type]);
-        }
-
-        // Shader initial setup
-        GLint modelProgramId = openGL->shaders[R_ShaderType_SkinnedMesh].id;
-        openGL->glUseProgram(modelProgramId);
-
-        GLint *samplerIds = 0;
-        samplerIds        = PushArray(temp.arena, GLint, openGL->textureMap.maxSlots);
-        for (u32 i = 0; i < openGL->textureMap.maxSlots; i++)
-        {
-            samplerIds[i] = i;
-        }
-
-        GLint textureLoc = openGL->glGetUniformLocation(modelProgramId, "textureMaps");
-        openGL->glUniform1iv(textureLoc, openGL->textureMap.maxSlots, samplerIds);
-        openGL->glBindBufferBase(GL_UNIFORM_BUFFER, 0, openGL->lightMatrixUBO);
-
-        modelProgramId = openGL->shaders[R_ShaderType_StaticMesh].id;
-        openGL->glUseProgram(modelProgramId);
-
-        textureLoc = openGL->glGetUniformLocation(modelProgramId, "textureMaps");
-        openGL->glUniform1iv(textureLoc, openGL->textureMap.maxSlots, samplerIds);
-        openGL->glBindBufferBase(GL_UNIFORM_BUFFER, 0, openGL->lightMatrixUBO);
-
-        GLint uiProgramId = openGL->shaders[R_ShaderType_UI].id;
-        openGL->glUseProgram(uiProgramId);
-        textureLoc = openGL->glGetUniformLocation(uiProgramId, "textureMaps");
-        openGL->glUniform1iv(textureLoc, openGL->textureMap.maxSlots, samplerIds);
-
-        openGL->glUseProgram(openGL->shaders[R_ShaderType_Depth].id);
-        openGL->glBindBufferBase(GL_UNIFORM_BUFFER, 0, openGL->lightMatrixUBO);
-        openGL->glUseProgram(openGL->shaders[R_ShaderType_DepthSkinned].id);
-        openGL->glBindBufferBase(GL_UNIFORM_BUFFER, 0, openGL->lightMatrixUBO);
-
-        ScratchEnd(temp);
-    }
+    gRenderProgramManager.InitPrograms();
+    // {
+    //     TempArena temp = ScratchStart(0, 0);
+    //     for (R_ShaderType type = (R_ShaderType)0; type < R_ShaderType_Count; type = (R_ShaderType)(type + 1))
+    //     {
+    //         // TODO; put this in the table
+    //         string preprocess = Str8Lit("");
+    //         string gs         = {};
+    //         switch (type)
+    //         {
+    //             case R_ShaderType_Instanced3D:
+    //             {
+    //                 preprocess = Str8Lit("#define INSTANCED 1\n");
+    //                 break;
+    //             }
+    //             case R_ShaderType_SkinnedMesh:
+    //             {
+    //                 preprocess = Str8Lit("#define SKINNED 1\n");
+    //             } // fallthrough
+    //             case R_ShaderType_StaticMesh:
+    //             {
+    //                 preprocess = StrConcat(temp.arena, preprocess, Str8Lit("#define BLINN_PHONG 1\n"));
+    //                 break;
+    //             }
+    //             case R_ShaderType_DepthSkinned:
+    //             {
+    //                 preprocess = Str8Lit("#define SKINNED 1\n");
+    //             } // fallthrough
+    //             case R_ShaderType_Depth:
+    //             {
+    //                 gs = Str8Lit("src/shaders/depth.gs");
+    //                 break;
+    //             }
+    //             default: break;
+    //         }
+    //         openGL->shaders[type].id =
+    //             R_OpenGL_CreateShader(temp.arena, r_opengl_g_globalsPath, r_opengl_g_vsPath[type],
+    //                                   r_opengl_g_fsPath[type], gs, preprocess);
+    //         openGL->shaders[type].globalsLastModified = OS_GetLastWriteTime(r_opengl_g_globalsPath);
+    //         openGL->shaders[type].vsLastModified      = OS_GetLastWriteTime(r_opengl_g_vsPath[type]);
+    //         openGL->shaders[type].fsLastModified      = OS_GetLastWriteTime(r_opengl_g_fsPath[type]);
+    //     }
+    //
+    //     // Shader initial setup
+    //     GLint modelProgramId = openGL->shaders[R_ShaderType_SkinnedMesh].id;
+    //     openGL->glUseProgram(modelProgramId);
+    //
+    //     GLint *samplerIds = 0;
+    //     samplerIds        = PushArray(temp.arena, GLint, openGL->textureMap.maxSlots);
+    //     for (u32 i = 0; i < openGL->textureMap.maxSlots; i++)
+    //     {
+    //         samplerIds[i] = i;
+    //     }
+    //
+    //     GLint textureLoc = openGL->glGetUniformLocation(modelProgramId, "textureMaps");
+    //     openGL->glUniform1iv(textureLoc, openGL->textureMap.maxSlots, samplerIds);
+    //     openGL->glBindBufferBase(GL_UNIFORM_BUFFER, 0, openGL->lightMatrixUBO);
+    //
+    //     modelProgramId = openGL->shaders[R_ShaderType_StaticMesh].id;
+    //     openGL->glUseProgram(modelProgramId);
+    //
+    //     textureLoc = openGL->glGetUniformLocation(modelProgramId, "textureMaps");
+    //     openGL->glUniform1iv(textureLoc, openGL->textureMap.maxSlots, samplerIds);
+    //     openGL->glBindBufferBase(GL_UNIFORM_BUFFER, 0, openGL->lightMatrixUBO);
+    //
+    //     GLint uiProgramId = openGL->shaders[R_ShaderType_UI].id;
+    //     openGL->glUseProgram(uiProgramId);
+    //     textureLoc = openGL->glGetUniformLocation(uiProgramId, "textureMaps");
+    //     openGL->glUniform1iv(textureLoc, openGL->textureMap.maxSlots, samplerIds);
+    //
+    //     openGL->glUseProgram(openGL->shaders[R_ShaderType_Depth].id);
+    //     openGL->glBindBufferBase(GL_UNIFORM_BUFFER, 0, openGL->lightMatrixUBO);
+    //     openGL->glUseProgram(openGL->shaders[R_ShaderType_DepthSkinned].id);
+    //     openGL->glBindBufferBase(GL_UNIFORM_BUFFER, 0, openGL->lightMatrixUBO);
+    //
+    //     ScratchEnd(temp);
+    // }
 
     // Texture/buffer queues
     {
@@ -758,6 +669,141 @@ internal void R_EndFrame()
 #endif
 }
 
+// usage code:
+#if 0
+internal void usage()
+{
+    // globals/constants
+    if (gRenderProgramManager.uniformsChanged)
+    {
+        openGL->glBindBuffer(GL_UNIFORM_BUFFER, whatever);
+        openGL->glBufferSubData(GL_UNIFORM_BUFFER, 0, ArrayLength(gRenderProgramManager.globalUniforms),
+                                gRenderProgramManager.globalUniforms);
+    }
+}
+#endif
+
+void R_ProgramManager::InitPrograms()
+{
+    R_ShaderLoadInfo shaderLoadInfo[R_ShaderType_Count] =
+        {
+            {R_ShaderType_SkinnedMesh, "src/shaders/model", {{"SKINNED", "1"}, {"BLINN_PHONG", "1"}}, ShaderStage_Default, ShaderLoadFlag_Skinned | ShaderLoadFlag_TextureArrays},
+            {R_ShaderType_StaticMesh, "src/shaders/model", {{"SKINNED", "0"}, {"BLINN_PHONG", "1"}}, ShaderStage_Default, ShaderLoadFlag_TextureArrays},
+            {R_ShaderType_UI, "src/shaders/ui", {}, ShaderStage_Default, ShaderLoadFlag_TextureArrays},
+            {R_ShaderType_DepthSkinned, "src/shaders/depth", {{"SKINNED", "1"}}, ShaderStage_Default | ShaderStage_Geometry, ShaderLoadFlag_ShadowMaps},
+            {R_ShaderType_Depth, "src/shaders/depth", {{"SKINNED", "0"}}, ShaderStage_Default | ShaderStage_Geometry, ShaderLoadFlag_ShadowMaps},
+            {R_ShaderType_3D, "src/shaders/basic_3d", {}, ShaderStage_Default},
+            {R_ShaderType_Instanced3D, "src/shaders/basic_3d", {{"INSTANCED", "1"}}, ShaderStage_Default},
+            {R_ShaderType_Terrain, "src/shaders/terrain", {}, ShaderStage_Default},
+        };
+    MemoryCopy(mShaderLoadInfo, shaderLoadInfo, sizeof(R_ShaderLoadInfo) * R_ShaderType_Count);
+
+    for (i32 i = 0; i < R_ShaderType_Count; i++)
+    {
+        // TODO: having to manually allocate these strings isn't ideal.
+        mShaders[shaderLoadInfo[i].mType].mName = PushStr8Copy(openGL->arena, Str8C(shaderLoadInfo[i].mName));
+    }
+
+    LoadPrograms();
+
+    // TODO: make this function platform nonspecific by removing this
+    GLuint constantBuffer;
+    openGL->glGenBuffers(1, &constantBuffer);
+
+    openGL->glBindBuffer(GL_UNIFORM_BUFFER, constantBuffer);
+    openGL->glBufferData(GL_UNIFORM_BUFFER, sizeof(V4) * MAX_UNIFORMS, 0, GL_DYNAMIC_DRAW);
+    mConstantBuffer = (R_BufferHandle)constantBuffer;
+}
+
+void R_ProgramManager::HotloadPrograms()
+{
+    LoadPrograms();
+}
+
+void R_ProgramManager::LoadPrograms()
+{
+    TempArena temp          = ScratchStart(0, 0);
+    u64 lastModifiedGlobals = OS_GetLastWriteTime(cGlobalsPath);
+    for (R_ShaderType type = (R_ShaderType)0; type < R_ShaderType_Count; type = (R_ShaderType)(type + 1))
+    {
+        R_ShaderLoadInfo *loadInfo = &mShaderLoadInfo[type];
+        Shader *shader             = &mShaders[loadInfo->mType];
+
+        // TODO: operator overload with +
+        string vsPath = StrConcat(temp.arena, shader->mName, ".vs");
+        string fsPath = StrConcat(temp.arena, shader->mName, ".fs");
+
+        u64 lastModifiedVS = OS_GetLastWriteTime(vsPath);
+        u64 lastModifiedFS = OS_GetLastWriteTime(fsPath);
+
+        u64 lastModifiedGS = 0;
+        string gsPath      = "";
+        if (loadInfo->mShaderStageFlags & ShaderStage_Geometry)
+        {
+            gsPath         = StrConcat(temp.arena, shader->mName, ".gs");
+            lastModifiedGS = OS_GetLastWriteTime(gsPath);
+        }
+
+        if (lastModifiedVS != shader->mLastModifiedVS || lastModifiedFS != shader->mLastModifiedFS || lastModifiedGS != shader->mLastModifiedGS || lastModifiedGlobals != mLastModifiedGlobals)
+        {
+            mLastModifiedGlobals = lastModifiedGlobals;
+            Program *program     = &mPrograms[loadInfo->mType];
+            string preprocess    = "";
+            for (i32 macroIndex = 0; macroIndex < ArrayLength(loadInfo->mMacros); macroIndex++)
+            {
+                if (loadInfo->mMacros[macroIndex].mName != 0)
+                {
+                    preprocess = PushStr8F(temp.arena, "%S#define %s %s\n", preprocess, loadInfo->mMacros[macroIndex].mName, loadInfo->mMacros[macroIndex].mDef);
+                }
+            }
+
+            GLuint programId = (GLuint)program->mApiObject;
+            if (programId != 0)
+            {
+                openGL->glDeleteProgram(programId);
+            }
+
+            shader->mLastModifiedVS = lastModifiedVS;
+            shader->mLastModifiedFS = lastModifiedFS;
+            shader->mLastModifiedGS = lastModifiedGS;
+
+            programId           = R_OpenGL_CreateShader(temp.arena, cGlobalsPath, vsPath, fsPath, gsPath, preprocess);
+            program->mApiObject = (R_BufferHandle)programId;
+
+            GLint *samplerIds = 0;
+            samplerIds        = PushArray(temp.arena, GLint, openGL->textureMap.maxSlots);
+            for (u32 j = 0; j < openGL->textureMap.maxSlots; j++)
+            {
+                samplerIds[j] = j;
+            }
+
+            if (loadInfo->mShaderLoadFlags != 0)
+            {
+                openGL->glUseProgram(programId);
+            }
+            if (loadInfo->mShaderLoadFlags & ShaderLoadFlag_Skinned)
+            {
+                // TODO: ubo. for multi draws, need some way of offsetting
+            }
+            if (loadInfo->mShaderLoadFlags & ShaderLoadFlag_TextureArrays)
+            {
+                GLint textureLoc = openGL->glGetUniformLocation(programId, "textureMaps");
+                openGL->glUniform1iv(textureLoc, openGL->textureMap.maxSlots, samplerIds);
+            }
+            if (loadInfo->mShaderLoadFlags & ShaderLoadFlag_ShadowMaps)
+            {
+                openGL->glBindBufferBase(GL_UNIFORM_BUFFER, GL_SHADOW_MAP_BINDING, openGL->lightMatrixUBO);
+            }
+        }
+    }
+    ScratchEnd(temp);
+}
+
+R_BufferHandle R_ProgramManager::GetProgramApiObject(R_ShaderType type)
+{
+    return mPrograms[type].mApiObject;
+}
+
 internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int clientHeight)
 {
     TIMED_FUNCTION();
@@ -800,9 +846,10 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
         glClear(GL_DEPTH_BUFFER_BIT);
         glCullFace(GL_FRONT);
 
-        R_PassMesh *pass   = renderState->passes[R_PassType_Mesh].passMesh;
-        GLuint skinnedProg = openGL->shaders[R_ShaderType_DepthSkinned].id;
-        GLuint staticProg  = openGL->shaders[R_ShaderType_Depth].id;
+        R_PassMesh *pass = renderState->passes[R_PassType_Mesh].passMesh;
+
+        GLuint skinnedProg = (GLuint)gRenderProgramManager.GetProgramApiObject(R_ShaderType_DepthSkinned);
+        GLuint staticProg  = (GLuint)gRenderProgramManager.GetProgramApiObject(R_ShaderType_Depth);
         GLuint currentProg = skinnedProg;
         openGL->glUseProgram(currentProg);
         openGL->glBindBuffer(GL_UNIFORM_BUFFER, openGL->lightMatrixUBO);
@@ -972,7 +1019,7 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
                     openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, R_OpenGL_GetBufferFromHandle(buffer->handle));
                 }
 
-                GLint id = openGL->shaders[R_ShaderType_Terrain].id;
+                GLuint id = (GLuint)gRenderProgramManager.GetProgramApiObject(R_ShaderType_Terrain);
                 openGL->glUseProgram(id);
 
                 GLint transformLocation = openGL->glGetUniformLocation(id, "transform");
@@ -1012,7 +1059,7 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
             {
                 glEnable(GL_BLEND);
                 glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-                GLuint id = openGL->shaders[R_ShaderType_UI].id;
+                GLuint id = (GLuint)gRenderProgramManager.GetProgramApiObject(R_ShaderType_UI);
                 openGL->glUseProgram(id);
                 openGL->glBindBuffer(GL_ARRAY_BUFFER, openGL->scratchVbo);
                 u32 totalOffset = 0;
@@ -1046,7 +1093,22 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
                 f32 transform[] = {
                     // 2.f / (f32)clientWidth, 0, 0, -1, 2.f / (f32)clientHeight, 0, 0, -1, 0, 0, 1, 0, 0, 0,
                     // 0, 1,
-                    2.f / (f32)clientWidth, 0, 0, 0, 0, 2.f / (f32)clientHeight, 0, 0, 0, 0, 1, 0, -1, -1, 0, 1,
+                    2.f / (f32)clientWidth,
+                    0,
+                    0,
+                    0,
+                    0,
+                    2.f / (f32)clientHeight,
+                    0,
+                    0,
+                    0,
+                    0,
+                    1,
+                    0,
+                    -1,
+                    -1,
+                    0,
+                    1,
                 };
                 GLint transformLocation = openGL->glGetUniformLocation(id, "transform");
                 openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, transform);
@@ -1058,10 +1120,11 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
             }
             case R_PassType_Mesh:
             {
-                GLuint currentProgram = openGL->shaders[R_ShaderType_SkinnedMesh].id;
+                GLuint staticMeshProgramId  = (GLuint)gRenderProgramManager.GetProgramApiObject(R_ShaderType_StaticMesh);
+                GLuint skinnedMeshProgramId = (GLuint)gRenderProgramManager.GetProgramApiObject(R_ShaderType_SkinnedMesh);
+
+                GLuint currentProgram = skinnedMeshProgramId;
                 openGL->glUseProgram(currentProgram);
-                GLuint staticMeshProgramId  = openGL->shaders[R_ShaderType_StaticMesh].id;
-                GLuint skinnedMeshProgramId = openGL->shaders[R_ShaderType_SkinnedMesh].id;
                 // TEXTURE MAP
 
                 R_MeshParamsList *list = &pass->passMesh->list;
@@ -1408,17 +1471,17 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
     SwapBuffers(deviceContext);
 
     // TODO: integrate into asset system? but I'll have to queue
-    R_OpenGL_HotloadShaders();
+    gRenderProgramManager.HotloadPrograms();
 }
 
 internal void R_OpenGL_StartShader(RenderState *state, R_ShaderType type, void *inputGroup)
 {
+    GLuint id = (GLuint)gRenderProgramManager.GetProgramApiObject(type);
     switch (type)
     {
         case R_ShaderType_3D:
         {
             Assert(inputGroup == 0);
-            GLuint id = openGL->shaders[R_ShaderType_3D].id;
             openGL->glUseProgram(id);
             openGL->glEnableVertexAttribArray(0);
             openGL->glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(DebugVertex),
@@ -1432,7 +1495,6 @@ internal void R_OpenGL_StartShader(RenderState *state, R_ShaderType type, void *
         }
         case R_ShaderType_Instanced3D:
         {
-            GLuint id = openGL->shaders[R_ShaderType_Instanced3D].id;
             openGL->glUseProgram(id);
             R_Batch3DGroup *group = (R_Batch3DGroup *)inputGroup;
             openGL->glEnableVertexAttribArray(0);
@@ -1464,8 +1526,7 @@ internal void R_OpenGL_StartShader(RenderState *state, R_ShaderType type, void *
                                           (void *)(instanceOffsetStart + sizeof(V4) * 4));
             openGL->glVertexAttribDivisor(5, 1);
 
-            GLint transformLocation =
-                openGL->glGetUniformLocation(openGL->shaders[R_ShaderType_Instanced3D].id, "transform");
+            GLint transformLocation = openGL->glGetUniformLocation(id, "transform");
             openGL->glUniformMatrix4fv(transformLocation, 1, GL_FALSE, state->transform.elements[0]);
 
             break;

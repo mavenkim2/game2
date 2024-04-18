@@ -639,7 +639,7 @@ internal void *R_CreateCommand(i32 size)
 // Returns splits cascade distances, and splits + 1 matrices
 internal void R_ShadowMapFrusta(i32 splits, f32 splitWeight, Mat4 *outMatrices, f32 *outSplits)
 {
-    f32 nearZStart = 1.f;
+    f32 nearZStart = 3.f;
     f32 farZEnd    = 2000;
     f32 nearZ      = nearZStart;
     f32 farZ       = farZEnd;
@@ -717,6 +717,7 @@ internal void R_CascadedShadowMap(const Light *inLight, Mat4 *outLightViewProjec
 
     // Step 2. Find light world to view matrix (first get center point of frusta)
 
+#if 0
     // Light direction is specified from surface -> light origin
     V3 lightDir = -inLight->dir;
     lightDir    = Normalize(lightDir);
@@ -728,8 +729,8 @@ internal void R_CascadedShadowMap(const Light *inLight, Mat4 *outLightViewProjec
 
     Mat3 lightAxis = ToMat3(lightDir);
     Mat4 lightWorldToViewMatrix;
-    // TODO: I don't understand this code from doom 3 bfg
     CalculateViewMatrix(renderState->camera.position, lightAxis, lightWorldToViewMatrix);
+#endif
 
     V3 centers[cNumCascades] = {};
     Mat4 lightViewMatrices[cNumCascades];
@@ -740,8 +741,13 @@ internal void R_CascadedShadowMap(const Light *inLight, Mat4 *outLightViewProjec
             centers[cascadeIndex] += frustumVertices[cascadeIndex][i];
         }
         centers[cascadeIndex] /= 8;
-        lightViewMatrices[cascadeIndex] =
-            LookAt4(centers[cascadeIndex] + inLight->dir, centers[cascadeIndex], renderState->camera.forward);
+        V3 worldUp = {0, 0, 1};
+        if (inLight->dir.z >= .95f || inLight->dir.z <= .9f)
+        {
+            worldUp = renderState->camera.forward;
+        }
+        lightViewMatrices[cascadeIndex] = LookAt4(centers[cascadeIndex] + inLight->dir, centers[cascadeIndex],
+                                                  {0, 0, 1}); // renderState->camera.forward);
     }
 
     Rect3 bounds[cNumCascades];
@@ -754,9 +760,8 @@ internal void R_CascadedShadowMap(const Light *inLight, Mat4 *outLightViewProjec
         // Loop over each corner of each frusta
         for (i32 i = 0; i < 8; i++)
         {
-            V4 result = Transform(/*lightWorldToViewMatrix*/ lightViewMatrices[cascadeIndex],
-                                  frustumVertices[cascadeIndex][i]);
-            result.xyz /= result.w;
+            V4 result = Transform(lightViewMatrices[cascadeIndex], frustumVertices[cascadeIndex][i]);
+            // result.xyz /= result.w;
             AddBounds(bounds[cascadeIndex], result.xyz);
         }
     }
@@ -765,10 +770,12 @@ internal void R_CascadedShadowMap(const Light *inLight, Mat4 *outLightViewProjec
 
     for (i32 i = 0; i < cNumCascades; i++)
     {
+        // When viewing down the -z axis, the max is the near plane and the min is the far plane.
         Rect3 *currentBounds = &bounds[i];
-        f32 zNear            = -currentBounds->maxZ;
-        f32 zFar             = -currentBounds->minZ;
-        f32 mult             = 10;
+        // The orthographic projection expects 0 < n < f
+        f32 zNear = -currentBounds->maxZ;
+        f32 zFar  = -currentBounds->minZ;
+        f32 mult  = 10;
 
         // TODO: instead of this hand wavy code, use the bounds of the light for the znear and far
         // NOTE: the problem I was having was that there were too tight transitions and no overlap
@@ -787,9 +794,9 @@ internal void R_CascadedShadowMap(const Light *inLight, Mat4 *outLightViewProjec
         //         sum += offset_lookup(shadowmap, shadowCoord, float2(x, y));
         // shadowCoeff = sum / 16.0;
         //
-        // offset = (float)(frac(position.xy * 0.5) > 0.25); // mod offset.y += offset.x;  // y ^= x in floating point
-        // if (offset.y > 1.1) offset.y = 0;
-        // shadowCoeff = (offset_lookup(shadowmap, sCoord, offset + float2(-1.5, 0.5)) +
+        // offset = (float)(frac(position.xy * 0.5) > 0.25); // mod offset.y += offset.x;  // y ^= x in floating
+        // point if (offset.y > 1.1) offset.y = 0; shadowCoeff = (offset_lookup(shadowmap, sCoord, offset +
+        // float2(-1.5, 0.5)) +
         //                offset_lookup(shadowmap, sCoord, offset + float2(0.5, 0.5)) +
         //                offset_lookup(shadowmap, sCoord, offset + float2(-1.5, -1.5)) +
         //                offset_lookup(shadowmap, sCoord, offset + float2(0.5, -1.5))) *
@@ -817,13 +824,8 @@ internal void R_CascadedShadowMap(const Light *inLight, Mat4 *outLightViewProjec
             zFar *= 10;
         }
 
-        outLightViewProjectionMatrices[i] =
-            // TODO: for some reason (probably a good one), the near and far are
-            // negated in doom3 and swapped
-            Orthographic4(currentBounds->minX, currentBounds->maxX, currentBounds->minY, currentBounds->maxY,
-                          zNear, zFar);
-        // currentBounds->minZ, currentBounds->maxZ);
-        // -currentBounds->maxZ, -currentBounds->minZ) *
+        outLightViewProjectionMatrices[i] = Orthographic4(currentBounds->minX, currentBounds->maxX,
+                                                          currentBounds->minY, currentBounds->maxY, zNear, zFar);
         lightViewMatrices[i];
         // lightWorldToViewMatrix;
         if (i < cNumSplits)

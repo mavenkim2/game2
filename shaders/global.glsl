@@ -7,3 +7,4 @@
 #define Mat4 mat4
 
 const int MAX_BONES = 200;
+

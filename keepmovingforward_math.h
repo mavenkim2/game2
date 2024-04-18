@@ -1281,12 +1281,13 @@ inline Mat4 Orthographic4(f32 left, f32 right, f32 bottom, f32 top, f32 nearZ, f
 
     result.elements[0][0] = 2.0f / (right - left);
     result.elements[1][1] = 2.0f / (top - bottom);
-    result.elements[2][2] = 2.0f / (nearZ - farZ);
+    // Converts from right handed view space to left handed ndc by mirroring
+    result.elements[2][2] = -2.0f / (farZ - nearZ);
     result.elements[3][3] = 1.0f;
 
-    result.elements[3][0] = (left + right) / (left - right);
-    result.elements[3][1] = (bottom + top) / (bottom - top);
-    result.elements[3][2] = (nearZ + farZ) / (nearZ - farZ);
+    result.elements[3][0] = -(left + right) / (right - left);
+    result.elements[3][1] = -(bottom + top) / (top - bottom);
+    result.elements[3][2] = -(nearZ + farZ) / (farZ - nearZ);
 
     return result;
 }
