@@ -1,10 +1,9 @@
 const i32 cVertCacheNumFrames = 3;
 enum BufferType
 {
-    // BufferType_Pos,
-    // BufferType_Skinned,
     BufferType_Vertex,
     BufferType_Index,
+    BufferType_Uniform,
 };
 
 enum BufferUsageType
@@ -26,6 +25,7 @@ struct VertexCache
 {
     GPUBuffer vertexBuffer;
     GPUBuffer indexBuffer;
+    GPUBuffer uniformBuffer;
     BufferUsageType type;
 };
 

@@ -15,17 +15,23 @@ out VS_OUT
 
     out V4 viewFragPos;
     out V3 worldFragPos;
-    out V3 worldLightDir;
+    // out V3 worldLightDir;
     flat out int drawId;
 } result;
 
-uniform Mat4 transform; 
-uniform Mat4 boneTransforms[MAX_BONES];
+//struct ModelDrawParams 
+//{
+  //  Mat4 modelToWorldMatrix;
+ //   float skinningOffset; 
+//};
 
+//layout (std140, binding = 3) uniform perDrawUniforms
+//{
+ //   ModelDrawParams params[MAX_MODELS];
+//};
+
+uniform Mat4 boneTransforms[MAX_BONES];
 uniform Mat4 model;
-uniform Mat4 viewMatrix;
-uniform V3 lightDir; 
-uniform V3 viewPos;
 
 void main()
 { 
@@ -36,9 +42,9 @@ void main()
     boneTransform     += boneTransforms[boneIds[3]] * boneWeights[3];
 
 
-    V3 modelSpacePos = (boneTransform * V4(pos, 1.0)).xyz;
-    V3 worldSpacePos = (model * V4(modelSpacePos, 1.0)).xyz;
-    gl_Position = transform * V4(modelSpacePos, 1.0);
+    V4 modelSpacePos = boneTransform * V4(pos, 1.0);
+    V4 worldSpacePos = model * modelSpacePos;
+    gl_Position = viewPerspectiveMatrix * worldSpacePos;
 
     mat3 modelToWorld = mat3(model * boneTransform);
     modelToWorld = transpose(inverse(modelToWorld));
@@ -47,8 +53,8 @@ void main()
     // NOTE: only have to do this if there is non uniform scale
     t = normalize(t - dot(t, n) * n);
 #else
-    gl_Position = transform * V4(pos, 1.0);
-    V3 worldSpacePos = (model * V4(pos, 1.0)).xyz;
+    gl_Position = viewPerspectiveMatrix * model * V4(pos, 1.0);
+    V4 worldSpacePos = model * V4(pos, 1.0);
     mat3 normalMatrix = transpose(inverse(mat3(model)));
     V3 t = normalize(normalMatrix * tangent);
     V3 n = normalize(normalMatrix * n);
@@ -59,12 +65,12 @@ void main()
     mat3 tbn = transpose(mat3(t, b, n));
 
     result.outUv = uv;
-    result.tangentLightDir = tbn * lightDir;
-    result.tangentViewPos = tbn * viewPos;
-    result.tangentFragPos = tbn * worldSpacePos;
+    result.tangentLightDir = tbn * lightDir.xyz;
+    result.tangentViewPos = tbn * viewPosition.xyz;
+    result.tangentFragPos = tbn * worldSpacePos.xyz;
 
-    result.viewFragPos = viewMatrix * V4(worldSpacePos, 1.f);
-    result.worldFragPos = worldSpacePos;
-    result.worldLightDir = lightDir;
+    result.viewFragPos = viewMatrix * worldSpacePos;
+    result.worldFragPos = worldSpacePos.xyz;
+    //result.worldLightDir = lightDir.xyz;
     result.drawId = gl_DrawID;
 }

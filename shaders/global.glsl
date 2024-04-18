@@ -6,5 +6,15 @@
 #define V4 vec4
 #define Mat4 mat4
 
+layout (std140, binding = 2) uniform globalUniforms
+{
+    Mat4 viewPerspectiveMatrix;
+    Mat4 viewMatrix;
+    V4 viewPosition;
+    // TODO: light struct
+    V4 lightDir;
+    V4 cascadeDistances;
+};
+
 const int MAX_BONES = 200;
 

@@ -4,6 +4,7 @@ layout(triangle_strip, max_vertices = 3) out;
 
 layout (std140, binding = 0) uniform lightVPMatrices
 {
+    // TODO: maxLights * (numSplits + 1)
     Mat4 lightViewProjectionMatrices[16];
 };
 

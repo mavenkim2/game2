@@ -36,7 +36,7 @@ in VS_OUT
 
     in V4 viewFragPos;
     in V3 worldFragPos;
-    in V3 worldLightDir;
+    // in V3 worldLightDir;
     flat in int drawId;
 } fragment;
 
@@ -47,10 +47,7 @@ layout (std140, binding = 0) uniform lightMatrices
     Mat4 lightViewProjectionMatrices[16];
 };
 
-uniform f32 cascadeDistances[4];
 uniform sampler2DArray shadowMaps;
-
-uniform Mat4 viewMatrix;
 
 #define TEXTURES_PER_MATERIAL 2
 #define DIFFUSE_INDEX 0

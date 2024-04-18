@@ -693,9 +693,10 @@ internal void G_Update(f32 dt)
         D_PushModel(g_state->eva, transform3, mvp3);
         Light light;
         light.type = LightType_Directional;
-        light.dir  = MakeV3(0, .75f, .25f);
+        // light.dir  = MakeV3(0, .75f, .25f);
+        light.dir = MakeV3(0.f, 0.f, 1.f);
         light.dir = Normalize(light.dir);
-        light.pos  = MakeV3(0.f, 0.f, 0.f);
+        light.pos = MakeV3(0.f, 0.f, 0.f);
         D_PushLight(&light);
 
         // D_PushHeightmap(g_state->heightmap);

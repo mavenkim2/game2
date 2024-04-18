@@ -312,17 +312,32 @@ enum R_ShaderType
     R_ShaderType_DepthSkinned,
     R_ShaderType_Count,
 };
-enum R_GlobalUniformsType
-{
-    Uniform_ViewPosition,
-    MAX_UNIFORMS,
-};
 
 enum R_ShaderLoadFlag
 {
     ShaderLoadFlag_Skinned       = 1 << 0,
     ShaderLoadFlag_ShadowMaps    = 1 << 1,
     ShaderLoadFlag_TextureArrays = 1 << 2,
+};
+
+enum UniformType
+{
+    UniformType_Global,
+    UniformType_PerDraw,
+};
+
+// NOTE: these must match the order found in globals.glsl
+enum UniformParam
+{
+    // Globals
+    UniformParam_ViewPerspective = 0,
+    UniformParam_ViewMatrix      = 4,
+    UniformParam_ViewPosition    = 8,
+    UniformParam_LightDir,
+    UniformParam_CascadeDist,
+    MAX_GLOBAL_UNIFORMS,
+
+    // Per draw
 };
 
 struct R_ShaderLoadInfo
@@ -361,16 +376,26 @@ enum
     ShaderStage_Default     = ShaderStage_Index | ShaderStage_Fragment,
 };
 
+enum BindingLayout
+{
+    BindingLayout_MeshVertex,
+    BindingLayout_DebugVertex,
+};
+
 class R_ProgramManager
 {
 public:
-    void SetGlobalUniform(R_GlobalUniformsType type, const f32 value[4]);
-    void SetGlobalUniform(R_GlobalUniformsType type, const f32 values[], i32 num);
+    inline void SetUniform(UniformType type, i32 param, V4 value);
+    inline void SetUniform(UniformType type, i32 param, V3 value);
+    inline void SetUniform(UniformType type, UniformParam param, Mat4 *matrix);
+    inline void SetUniform(UniformType type, UniformParam param, f32 values[4]);
+    inline void CommitUniforms(UniformType type);
 
     void InitPrograms();
     void HotloadPrograms();
 
     R_BufferHandle GetProgramApiObject(R_ShaderType type);
+    void BindVertexAttribs(R_ShaderType type);
 
     const string cGlobalsPath = "src/shaders/global.glsl";
     u64 mLastModifiedGlobals;
@@ -382,9 +407,9 @@ public:
     Program mPrograms[R_ShaderType_Count];
 
     // NOTE: even if a uniform is a 3x3 or 3-n vector/matrix, pad it to a v4
-    V4 mGlobalUniforms[MAX_UNIFORMS];
-
-    R_BufferHandle mConstantBuffer;
+    V4 mGlobalUniforms[MAX_GLOBAL_UNIFORMS];
+    R_BufferHandle mGlobalUniformsBuffer;
+    b8 mUniformsAdded;
 
 private:
     void LoadPrograms();

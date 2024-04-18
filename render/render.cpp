@@ -100,13 +100,41 @@ internal void D_Init()
                 {
                     f32 point         = 1;
                     V3 cubeVertices[] = {
-                        {-point, -point, -point}, {point, -point, -point}, {point, point, -point},
-                        {-point, point, -point},  {-point, -point, point}, {point, -point, point},
-                        {point, point, point},    {-point, point, point},
+                        {-point, -point, -point},
+                        {point, -point, -point},
+                        {point, point, -point},
+                        {-point, point, -point},
+                        {-point, -point, point},
+                        {point, -point, point},
+                        {point, point, point},
+                        {-point, point, point},
                     };
 
                     u32 cubeIndices[] = {
-                        3, 0, 0, 4, 4, 7, 7, 3, 1, 2, 2, 6, 6, 5, 5, 1, 0, 1, 2, 3, 4, 5, 6, 7,
+                        3,
+                        0,
+                        0,
+                        4,
+                        4,
+                        7,
+                        7,
+                        3,
+                        1,
+                        2,
+                        2,
+                        6,
+                        6,
+                        5,
+                        5,
+                        1,
+                        0,
+                        1,
+                        2,
+                        3,
+                        4,
+                        5,
+                        6,
+                        7,
                     };
                     u32 vertexCount         = ArrayLength(cubeVertices);
                     u32 indexCount          = ArrayLength(cubeIndices);
@@ -741,13 +769,12 @@ internal void R_CascadedShadowMap(const Light *inLight, Mat4 *outLightViewProjec
             centers[cascadeIndex] += frustumVertices[cascadeIndex][i];
         }
         centers[cascadeIndex] /= 8;
-        V3 worldUp = {0, 0, 1};
-        if (inLight->dir.z >= .95f || inLight->dir.z <= .9f)
-        {
-            worldUp = renderState->camera.forward;
-        }
-        lightViewMatrices[cascadeIndex] = LookAt4(centers[cascadeIndex] + inLight->dir, centers[cascadeIndex],
-                                                  {0, 0, 1}); // renderState->camera.forward);
+        // V3 worldUp = {0, 0, 1};
+        // if (inLight->dir.z >= .95f || inLight->dir.z <= -.95f)
+        // {
+        //     worldUp = renderState->camera.forward;
+        // }
+        lightViewMatrices[cascadeIndex] = LookAt4(centers[cascadeIndex] + inLight->dir, centers[cascadeIndex], renderState->camera.forward);
     }
 
     Rect3 bounds[cNumCascades];
