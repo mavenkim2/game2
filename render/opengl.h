@@ -170,8 +170,10 @@
 
 #define GL_CLAMP_TO_BORDER 0x812D
 
-#define GL_GEOMETRY_SHADER 0x8DD9
-#define GL_UNIFORM_BUFFER  0x8A11
+#define GL_GEOMETRY_SHADER      0x8DD9
+#define GL_UNIFORM_BUFFER       0x8A11
+#define GL_DRAW_INDIRECT_BUFFER 0x8F3F
+#define GL_INFO_LOG_LENGTH      0x8B84
 
 // WINDOWS
 #define WGL_CONTEXT_MAJOR_VERSION_ARB 0x2091
@@ -279,6 +281,7 @@ typedef void WINAPI type_glFramebufferTexture(GLenum target, GLenum attachment, 
 // typedef void WINAPI type_glReadBuffer(GLenum src);
 typedef GLenum WINAPI type_glCheckFramebufferStatus(GLenum target);
 typedef void WINAPI type_glUniform1fv(GLint location, GLsizei count, const GLfloat *value);
+typedef void WINAPI type_glMultiDrawElementsIndirect(GLenum mode, GLenum type, const void *indirect, GLsizei drawcount, GLsizei stride);
 
 #define GL_DEBUG_CALLBACK(name)                                                              \
     void WINAPI name(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, \
@@ -305,19 +308,16 @@ enum R_ShaderType
     R_ShaderType_UI,
     R_ShaderType_3D,
     R_ShaderType_Instanced3D,
-    R_ShaderType_StaticMesh,
-    R_ShaderType_SkinnedMesh,
+    R_ShaderType_Mesh,
     R_ShaderType_Terrain,
     R_ShaderType_Depth,
-    R_ShaderType_DepthSkinned,
     R_ShaderType_Count,
 };
 
 enum R_ShaderLoadFlag
 {
-    ShaderLoadFlag_Skinned       = 1 << 0,
-    ShaderLoadFlag_ShadowMaps    = 1 << 1,
-    ShaderLoadFlag_TextureArrays = 1 << 2,
+    ShaderLoadFlag_ShadowMaps    = 1 << 0,
+    ShaderLoadFlag_TextureArrays = 1 << 1,
 };
 
 enum UniformType
@@ -368,12 +368,12 @@ struct Program
 
 enum
 {
-    ShaderStage_Index       = 1 << 0,
+    ShaderStage_Vertex      = 1 << 0,
     ShaderStage_Tesselation = 1 << 1,
     ShaderStage_Geometry    = 1 << 2,
     ShaderStage_Fragment    = 1 << 3,
     ShaderStage_Compute     = 1 << 4,
-    ShaderStage_Default     = ShaderStage_Index | ShaderStage_Fragment,
+    ShaderStage_Default     = ShaderStage_Vertex | ShaderStage_Fragment,
 };
 
 enum BindingLayout
@@ -391,7 +391,7 @@ public:
     inline void SetUniform(UniformType type, UniformParam param, f32 values[4]);
     inline void CommitUniforms(UniformType type);
 
-    void InitPrograms();
+    void Init();
     void HotloadPrograms();
 
     R_BufferHandle GetProgramApiObject(R_ShaderType type);
@@ -409,6 +409,9 @@ public:
     // NOTE: even if a uniform is a 3x3 or 3-n vector/matrix, pad it to a v4
     V4 mGlobalUniforms[MAX_GLOBAL_UNIFORMS];
     R_BufferHandle mGlobalUniformsBuffer;
+    R_BufferHandle mPerDrawBuffer;
+    R_BufferHandle mIndirectBuffer;
+
     b8 mUniformsAdded;
 
 private:
@@ -612,6 +615,7 @@ struct OpenGL
     OpenGLFunction(glFramebufferTexture);
     OpenGLFunction(glCheckFramebufferStatus);
     OpenGLFunction(glUniform1fv);
+    OpenGLFunction(glMultiDrawElementsIndirect);
 };
 
 global OpenGL _openGL;

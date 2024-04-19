@@ -11,19 +11,8 @@ uniform sampler2D normalMap;
 uniform sampler2D textureMaps[16];
 #endif
 
-// Multi draw texture array ssbo
+// TODO: bindless sparse :)
 #ifdef MULTI_DRAW_TEXTURE_ARRAY
-struct TexAddress 
-{
-    unsigned int container;
-    f32 slice;
-};
-
-layout (std430, binding = 1) readonly buffer shaderStorageData
-{
-    TexAddress addresses[];
-};
-
 uniform sampler2DArray textureMaps[32];
 #endif
 
@@ -64,18 +53,20 @@ void main()
     // Array of texture units
 #ifdef MULTI_DRAW
     V3 normal = normalize(texture(textureMaps[TEXTURES_PER_MATERIAL * fragment.drawId + NORMAL_INDEX], fragment.outUv).rgb * 2 - 1);
-
     V3 color = texture(textureMaps[TEXTURES_PER_MATERIAL * fragment.drawId + DIFFUSE_INDEX], fragment.outUv).rgb;
 #endif
 
-
     // Array of texture arrays
 #ifdef MULTI_DRAW_TEXTURE_ARRAY
-    TexAddress diffuseAddress = addresses[fragment.drawId * TEXTURES_PER_MATERIAL + DIFFUSE_INDEX];
-    TexAddress normAddress = addresses[fragment.drawId * TEXTURES_PER_MATERIAL + NORMAL_INDEX];
+    //TODO; might be y
+    unsigned int diffuseContainer = rMeshParams[fragment.drawId].mIndex[DIFFUSE_INDEX].x;
+    unsigned int normalContainer = rMeshParams[fragment.drawId].mIndex[NORMAL_INDEX].x;
 
-    V3 normal = normalize(texture(textureMaps[normAddress.container], vec3(fragment.outUv, normAddress.slice)).rgb * 2 - 1);
-    V3 color = texture(textureMaps[diffuseAddress.container], vec3(fragment.outUv, diffuseAddress.slice)).rgb;
+    float diffuseSlice = float(rMeshParams[fragment.drawId].mSlice[DIFFUSE_INDEX]);
+    float normalSlice = float(rMeshParams[fragment.drawId].mSlice[NORMAL_INDEX]);
+
+    V3 color = texture(textureMaps[diffuseContainer], vec3(fragment.outUv, diffuseSlice)).rgb;
+    V3 normal = normalize(texture(textureMaps[normalContainer], vec3(fragment.outUv, normalSlice)).rgb * 2 - 1);
 #endif
 
     // Shadow mapping

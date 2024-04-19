@@ -235,9 +235,10 @@ struct R_MeshParams
 {
     Mat4 transform;
     D_Surface *surfaces;
-    Mat4 *skinningMatrices;
+    // Mat4 *skinningMatrices;
+    VC_Handle jointHandle;
     u32 numSurfaces;
-    u32 skinningMatricesCount;
+    // u32 skinningMatricesCount;
 };
 
 struct R_MeshParamsNode
@@ -250,6 +251,7 @@ struct R_MeshParamsList
 {
     R_MeshParamsNode *first;
     R_MeshParamsNode *last;
+    u32 mTotalSurfaceCount;
 };
 
 struct R_PassMesh

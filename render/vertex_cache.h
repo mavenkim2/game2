@@ -14,28 +14,35 @@ enum BufferUsageType
 
 struct GPUBuffer
 {
-    R_BufferHandle handle;
-    u8 *mappedBufferBase;
-    i32 size;
-    i32 offset;
-    BufferType type;
+    R_BufferHandle mHandle;
+    u8 *mMappedBufferBase;
+    i32 mSize;
+    i32 mOffset;
+    BufferType mType;
 };
 
 struct VertexCache
 {
-    GPUBuffer vertexBuffer;
-    GPUBuffer indexBuffer;
-    GPUBuffer uniformBuffer;
-    BufferUsageType type;
+    GPUBuffer mVertexBuffer;
+    GPUBuffer mIndexBuffer;
+    GPUBuffer mUniformBuffer;
+    BufferUsageType mType;
 };
 
 struct VertexCacheState
 {
-    VertexCache staticData;
-    VertexCache frameData[cVertCacheNumFrames];
-    i32 currentFrame;
-    i32 currentIndex;
-    i32 currentDrawIndex;
+public:
+    b32 CheckStatic(VC_Handle handle);
+    b32 CheckSubmitted(VC_Handle handle);
+    b32 CheckCurrent(VC_Handle handle);
+    inline u64 GetOffset(VC_Handle handle);
+    inline u64 GetSize(VC_Handle handle);
+
+    VertexCache mStaticData;
+    VertexCache mFrameData[cVertCacheNumFrames];
+    i32 mCurrentFrame;
+    i32 mCurrentIndex;
+    i32 mCurrentDrawIndex;
 };
 
 static VertexCacheState gVertexCache;

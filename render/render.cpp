@@ -8,6 +8,7 @@
 #include "render_core.h"
 #include "../font.h"
 #include "../font.cpp"
+#include "vertex_cache.h"
 #endif
 
 global const V4 Color_Red               = {1, 0, 0, 1};
@@ -251,6 +252,7 @@ internal void D_BeginFrame()
             {
                 R_PassMesh *pass = state->passes[type].passMesh;
                 pass->list.first = pass->list.last = 0;
+                pass->list.mTotalSurfaceCount      = 0;
             }
             default:
             {
@@ -358,6 +360,8 @@ internal void D_PushModel(AS_Handle loadedModel, Mat4 transform, Mat4 &mvp, Mat4
         R_PassMesh *pass       = R_GetPassFromKind(R_PassType_Mesh)->passMesh;
         R_MeshParamsNode *node = PushStruct(d_state->arena, R_MeshParamsNode);
 
+        pass->list.mTotalSurfaceCount += model->numMeshes;
+
         node->val.numSurfaces = model->numMeshes;
         D_Surface *surfaces   = (D_Surface *)R_FrameAlloc(node->val.numSurfaces * sizeof(*surfaces));
         node->val.surfaces    = surfaces;
@@ -374,11 +378,98 @@ internal void D_PushModel(AS_Handle loadedModel, Mat4 transform, Mat4 &mvp, Mat4
             surface->material = &mesh->material;
         }
 
-        node->val.transform             = transform;
-        node->val.skinningMatrices      = skinningMatrices;
-        node->val.skinningMatricesCount = skinningMatricesCount;
+        node->val.transform = transform;
+
+        if (skinningMatricesCount)
+        {
+            node->val.jointHandle = VC_AllocateBuffer(BufferType_Uniform, BufferUsage_Dynamic, skinningMatrices,
+                                                      sizeof(skinningMatrices[0]), skinningMatricesCount);
+        }
         QueuePush(pass->list.first, pass->list.last, node);
     }
+}
+
+struct R_IndirectCmd
+{
+    u32 mCount;
+    u32 mInstanceCount;
+    u32 mFirstIndex;
+    u32 mBaseVertex;
+    u32 mBaseInstance;
+};
+
+// TODO: ?
+struct R_MeshPerDrawParams
+{
+    Mat4 mTransform;
+    u64 mIndex[TextureType_Count];
+    u32 mSlice[TextureType_Count];
+    i32 mJointOffset;
+    i32 _pad[3];
+};
+
+struct R_MeshPreparedDrawParams
+{
+    R_IndirectCmd *mIndirectBuffers;
+    R_MeshPerDrawParams *mPerMeshDrawParams;
+};
+
+// prepare to submit to gpu
+internal R_MeshPreparedDrawParams *D_PrepareMeshes()
+{
+    R_PassMesh *pass                     = renderState->passes[R_PassType_Mesh].passMesh;
+    R_MeshPreparedDrawParams *drawParams = (R_MeshPreparedDrawParams *)R_FrameAlloc(sizeof(R_MeshPreparedDrawParams));
+    drawParams->mIndirectBuffers         = (R_IndirectCmd *)R_FrameAlloc(sizeof(R_IndirectCmd) * pass->list.mTotalSurfaceCount);
+    drawParams->mPerMeshDrawParams       = (R_MeshPerDrawParams *)R_FrameAlloc(sizeof(R_MeshPerDrawParams) * pass->list.mTotalSurfaceCount);
+
+    i32 drawCount = 0;
+    // Per mesh
+    for (R_MeshParamsNode *node = pass->list.first; node != 0; node = node->next)
+    {
+        R_MeshParams *params = &node->val;
+
+        i32 jointOffset = -1;
+        if (params->jointHandle != 0)
+        {
+            if (!gVertexCache.CheckSubmitted(params->jointHandle))
+            {
+                continue;
+            }
+            jointOffset = (i32)(gVertexCache.GetOffset(params->jointHandle) / sizeof(Mat4));
+        }
+
+        // Per material
+        for (u32 surfaceCount = 0; surfaceCount < params->numSurfaces; surfaceCount++)
+        {
+            R_IndirectCmd *indirectBuffer     = &drawParams->mIndirectBuffers[drawCount];
+            R_MeshPerDrawParams *perMeshParam = &drawParams->mPerMeshDrawParams[drawCount];
+            D_Surface *surface                = &params->surfaces[surfaceCount];
+
+            perMeshParam->mTransform   = params->transform;
+            perMeshParam->mJointOffset = jointOffset;
+
+            indirectBuffer->mCount         = (u32)(gVertexCache.GetSize(surface->indexBuffer) / sizeof(u32));
+            indirectBuffer->mInstanceCount = 1;
+            indirectBuffer->mFirstIndex    = (u32)(gVertexCache.GetOffset(surface->indexBuffer) / sizeof(u32));
+            // TODO: this could change
+            indirectBuffer->mBaseVertex   = (u32)(gVertexCache.GetOffset(surface->vertexBuffer) / sizeof(MeshVertex));
+            indirectBuffer->mBaseInstance = 0;
+
+            drawCount++;
+            if (!surface->material)
+            {
+                continue;
+            }
+            for (i32 textureIndex = 0; textureIndex < TextureType_Count; textureIndex++)
+            {
+                R_Handle textureHandle             = GetTextureRenderHandle(surface->material->textureHandles[textureIndex]);
+                perMeshParam->mIndex[textureIndex] = (u64)textureHandle.u32[0];
+                // TODO: change the shader to reflect that this is a float :)
+                perMeshParam->mSlice[textureIndex] = textureHandle.u32[1];
+            }
+        }
+    }
+    return drawParams;
 }
 
 internal void D_PushLight(Light *light)
