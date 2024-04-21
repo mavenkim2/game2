@@ -854,7 +854,6 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
         openGL->glBindFramebuffer(GL_FRAMEBUFFER, openGL->shadowMapPassFBO);
         glViewport(0, 0, cShadowMapSize, cShadowMapSize);
         glClear(GL_DEPTH_BUFFER_BIT);
-        glCullFace(GL_FRONT);
 
         R_PassMesh *pass = renderState->passes[R_PassType_Mesh].passMesh;
 
@@ -882,91 +881,6 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
         // Per mesh draw parameters
         openGL->glBindBufferBase(GL_SHADER_STORAGE_BUFFER, GL_PER_DRAW_BUFFER_BINDING, (GLuint)gRenderProgramManager.mPerDrawBuffer);
         openGL->glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(R_MeshPerDrawParams) * list->mTotalSurfaceCount, drawParams->mPerMeshDrawParams);
-
-        /*
-        for (R_MeshParamsNode *node = list->first; node != 0; node = node->next)
-        {
-            R_MeshParams *params = &node->val;
-
-            if (params->skinningMatricesCount == 0)
-            {
-                if (currentProg != staticProg)
-                {
-                    currentProg = staticProg;
-                    openGL->glUseProgram(currentProg);
-                }
-            }
-            else
-            {
-                if (currentProg != skinnedProg)
-                {
-                    currentProg = skinnedProg;
-                    openGL->glUseProgram(currentProg);
-                }
-            }
-            GLint vertexApiObject = -1;
-            GLint indexApiObject  = -1;
-
-            // TODO: maybe this goes outside of the platform layer
-
-            GLsizei *counts     = PushArray(temp.arena, GLsizei, params->numSurfaces);
-            void **startIndices = PushArray(temp.arena, void *, params->numSurfaces);
-            GLint *baseVertices = PushArray(temp.arena, GLint, params->numSurfaces);
-
-            for (u32 i = 0; i < params->numSurfaces; i++)
-            {
-                D_Surface *surface     = &params->surfaces[i];
-                VC_Handle vertexHandle = surface->vertexBuffer;
-                VC_Handle indexHandle  = surface->indexBuffer;
-
-                // 1. Bind the vertex buffer
-                GPUBuffer *vertexBuffer = VC_GetBufferFromHandle(vertexHandle, BufferType_Vertex);
-                if (vertexBuffer)
-                {
-                    GLint newVertexApiObject = R_OpenGL_GetBufferFromHandle(vertexBuffer->handle);
-                    if (vertexApiObject != -1 && newVertexApiObject != vertexApiObject)
-                    {
-                        Assert(!"Surfaces not all bound to the same vertex buffer.");
-                    }
-                    if (vertexApiObject == -1)
-                    {
-                        openGL->glBindBuffer(GL_ARRAY_BUFFER, newVertexApiObject);
-                    }
-                    see the problem is that if i want this stuff to be in memory for more than one frame, it gets
-                        really really weird.
-                    vertexApiObject = newVertexApiObject;
-                }
-
-                GPUBuffer *indexBuffer = VC_GetBufferFromHandle(indexHandle, BufferType_Index);
-                if (indexBuffer)
-                {
-                    GLint newIndexApiObject = R_OpenGL_GetBufferFromHandle(indexBuffer->handle);
-                    if (indexApiObject != -1 && newIndexApiObject != indexApiObject)
-                    {
-                        Assert(!"Surfaces not all bound to the same index buffer.");
-                    }
-                    if (indexApiObject == -1)
-                    {
-                        openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, newIndexApiObject);
-                    }
-                    indexApiObject = newIndexApiObject;
-                }
-
-                // 2. Set up the multidraw
-
-                i32 vertexOffset = (i32)((vertexHandle >> VERTEX_CACHE_OFFSET_SHIFT) & VERTEX_CACHE_OFFSET_MASK) /
-                                   sizeof(MeshVertex);
-
-                u64 indexOffset = (u64)((indexHandle >> VERTEX_CACHE_OFFSET_SHIFT) & VERTEX_CACHE_OFFSET_MASK);
-
-                i32 indexSize =
-                    (i32)((indexHandle >> VERTEX_CACHE_SIZE_SHIFT) & VERTEX_CACHE_SIZE_MASK) / sizeof(u32);
-
-                counts[i]       = indexSize;
-                startIndices[i] = (void *)(indexOffset);
-                baseVertices[i] = vertexOffset;
-            }
-        } */
 
         openGL->glEnableVertexAttribArray(0);
         openGL->glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
@@ -997,8 +911,6 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
 
         // Skinning matrices
         // Light matrices
-        // openGL->glMultiDrawElementsBaseVertex(GL_TRIANGLES, counts, GL_UNSIGNED_INT, startIndices,
-        // params->numSurfaces, baseVertices);
         openGL->glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, 0, pass->list.mTotalSurfaceCount, 0);
 
         glCullFace(GL_BACK);

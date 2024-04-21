@@ -52,7 +52,7 @@ void main()
         gl_Position = viewPerspectiveMatrix * modelToWorldMatrix * V4(pos, 1.0);
         worldSpacePos = modelToWorldMatrix * V4(pos, 1.0);
         mat3 normalMatrix = transpose(inverse(mat3(modelToWorldMatrix)));
-        tN = normalize(normalMatrix * tN);
+        tN = normalize(normalMatrix * n);
         tT = normalize(normalMatrix * tangent);
         tT = normalize(tT - dot(tT, tN) * tN);
     }

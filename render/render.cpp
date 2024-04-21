@@ -39,7 +39,7 @@ internal void D_Init()
     state->fov         = Radians(45.f);
     state->aspectRatio = 16.f / 9.f;
     state->nearZ       = .1f;
-    state->farZ        = 10000.f;
+    state->farZ        = 1000.f;
 
     // DebugRenderer *debug = &state->debugRenderer;
 
@@ -335,11 +335,26 @@ internal void D_PushHeightmap(Heightmap heightmap)
 // threaded, similar to what we have now. right now the way the renderer works is that there's a permanent render
 // state global, and each frame the simulation/game sends data to the render pass to use, etc etc
 // yadda yadda.
+internal void D_PushModel(VC_Handle vertexBuffer, VC_Handle indexBuffer, Mat4 transform)
+{
+    R_PassMesh *pass       = R_GetPassFromKind(R_PassType_Mesh)->passMesh;
+    R_MeshParamsNode *node = PushStruct(d_state->arena, R_MeshParamsNode);
+
+    pass->list.mTotalSurfaceCount += 1;
+
+    node->val.numSurfaces = 1;
+    D_Surface *surface   = (D_Surface *)R_FrameAlloc(sizeof(*surface));
+    node->val.surfaces    = surface;
+
+    surface->vertexBuffer = vertexBuffer;
+    surface->indexBuffer  = indexBuffer;
+
+    node->val.transform = transform;
+}
 
 internal void D_PushModel(AS_Handle loadedModel, Mat4 transform, Mat4 &mvp, Mat4 *skinningMatrices = 0,
                           u32 skinningMatricesCount = 0)
 {
-    RenderState *state = renderState;
     if (!IsModelHandleNil(loadedModel))
     {
         LoadedModel *model = GetModel(loadedModel);
@@ -758,17 +773,17 @@ internal void *R_CreateCommand(i32 size)
 // Returns splits cascade distances, and splits + 1 matrices
 internal void R_ShadowMapFrusta(i32 splits, f32 splitWeight, Mat4 *outMatrices, f32 *outSplits)
 {
-    f32 nearZStart = 3.f;
-    f32 farZEnd    = 2000;
+    f32 nearZStart = renderState->nearZ;
+    f32 farZEnd    = renderState->farZ;
     f32 nearZ      = nearZStart;
     f32 farZ       = farZEnd;
     f32 lambda     = splitWeight;
     f32 ratio      = farZEnd / nearZStart;
 
-    for (i32 i = 1; i <= splits + 1; i++)
+    for (i32 i = 0; i < splits + 1; i++)
     {
-        f32 si = i / (f32)(splits + 1);
-        if (i > 1)
+        f32 si = (i + 1) / (f32)(splits + 1);
+        if (i > 0)
         {
             nearZ = farZ - (farZ * 0.005f);
         }
@@ -776,42 +791,27 @@ internal void R_ShadowMapFrusta(i32 splits, f32 splitWeight, Mat4 *outMatrices, 
         farZ = 1.005f * lambda * (nearZStart * Powf(ratio, si)) +
                (1 - lambda) * (nearZStart + (farZEnd - nearZStart) * si);
 
-        Mat4 matrix        = Perspective4(renderState->fov, renderState->aspectRatio, nearZ, farZ);
-        Mat4 result        = matrix * renderState->viewMatrix;
-        outMatrices[i - 1] = Inverse(result);
+        Mat4 matrix    = Perspective4(renderState->fov, renderState->aspectRatio, nearZ, farZ);
+        Mat4 result    = matrix * renderState->viewMatrix;
+        outMatrices[i] = Inverse(result);
         if (i <= splits)
         {
-            outSplits[i - 1] = farZ;
+            outSplits[i] = farZ;
         }
     }
 }
 
 // TODO: frustum culling cuts out fragments that cast shadows. use the light's frustum to cull
+// also restrict the bounds to more tightly enclose the bounds of the objects (for better quality shadows)
 internal void R_CascadedShadowMap(const Light *inLight, Mat4 *outLightViewProjectionMatrices,
                                   f32 *outCascadeDistances)
 {
     Mat4 mvpMatrices[cNumCascades];
-    f32 cascadeDistances[cNumSplits];
+    f32 cascadeDistances[cNumCascades];
     R_ShadowMapFrusta(cNumSplits, .9f, mvpMatrices, cascadeDistances);
-    // f32 farZ = 2000.f;
-    //
-    // const f32 cascadeDistances[cNumCascades + 1] = {3.f, farZ / 50.f, farZ / 25.f, farZ / 10.f, farZ / 2.f,
-    // farZ};
     Assert(inLight->type == LightType_Directional);
 
     // Step 0. Set up the mvp matrix for each frusta.
-
-    // Mat4 mvpMatrices[cNumCascades];
-    // for (i32 cascadeIndex = 0; cascadeIndex < cNumCascades; cascadeIndex++)
-    // {
-    //     Mat4 perspective = Perspective4(renderState->fov, renderState->aspectRatio,
-    //     cascadeDistances[cascadeIndex],
-    //                                     cascadeDistances[cascadeIndex + 1]);
-    //     Mat4 viewPerspective = perspective * renderState->viewMatrix;
-    //     Mat4 inverse         = Inverse(viewPerspective);
-    //
-    //     mvpMatrices[cascadeIndex] = inverse;
-    // }
 
     // Step 1. Get the corners of each of the view frusta in world space.
     V3 frustumVertices[cNumCascades][8];
@@ -829,6 +829,10 @@ internal void R_CascadedShadowMap(const Light *inLight, Mat4 *outLightViewProjec
                     // Why this?
                     f32 oneOverW                                                  = 1 / p.w;
                     frustumVertices[cascadeIndex][(z << 2) | (y << 1) | (x << 0)] = p.xyz * oneOverW;
+
+                    // test
+                    V4 result = Inverse(mvpMatrices[cascadeIndex]) * MakeV4(p.xyz * oneOverW, 1);
+                    int asdf  = 0;
                 }
             }
         }
@@ -836,21 +840,8 @@ internal void R_CascadedShadowMap(const Light *inLight, Mat4 *outLightViewProjec
 
     // Step 2. Find light world to view matrix (first get center point of frusta)
 
-#if 0
     // Light direction is specified from surface -> light origin
-    V3 lightDir = -inLight->dir;
-    lightDir    = Normalize(lightDir);
-    // Default light direction is {0, 0, -1}
-    if (lightDir.x == 0 && lightDir.y == 0 && lightDir.z == 0)
-    {
-        lightDir.z = -1.f;
-    }
-
-    Mat3 lightAxis = ToMat3(lightDir);
-    Mat4 lightWorldToViewMatrix;
-    CalculateViewMatrix(renderState->camera.position, lightAxis, lightWorldToViewMatrix);
-#endif
-
+    V3 worldUp               = renderState->camera.right;
     V3 centers[cNumCascades] = {};
     Mat4 lightViewMatrices[cNumCascades];
     for (i32 cascadeIndex = 0; cascadeIndex < cNumCascades; cascadeIndex++)
@@ -860,26 +851,17 @@ internal void R_CascadedShadowMap(const Light *inLight, Mat4 *outLightViewProjec
             centers[cascadeIndex] += frustumVertices[cascadeIndex][i];
         }
         centers[cascadeIndex] /= 8;
-        // V3 worldUp = {0, 0, 1};
-        // if (inLight->dir.z >= .95f || inLight->dir.z <= -.95f)
-        // {
-        //     worldUp = renderState->camera.forward;
-        // }
-        lightViewMatrices[cascadeIndex] = LookAt4(centers[cascadeIndex] + inLight->dir, centers[cascadeIndex], renderState->camera.forward);
+        lightViewMatrices[cascadeIndex] = LookAt4(centers[cascadeIndex] + inLight->dir, centers[cascadeIndex], worldUp);
     }
 
     Rect3 bounds[cNumCascades];
     for (i32 cascadeIndex = 0; cascadeIndex < cNumCascades; cascadeIndex++)
     {
         Init(&bounds[cascadeIndex]);
-    }
-    for (i32 cascadeIndex = 0; cascadeIndex < cNumCascades; cascadeIndex++)
-    {
         // Loop over each corner of each frusta
         for (i32 i = 0; i < 8; i++)
         {
             V4 result = Transform(lightViewMatrices[cascadeIndex], frustumVertices[cascadeIndex][i]);
-            // result.xyz /= result.w;
             AddBounds(bounds[cascadeIndex], result.xyz);
         }
     }
@@ -891,65 +873,17 @@ internal void R_CascadedShadowMap(const Light *inLight, Mat4 *outLightViewProjec
         // When viewing down the -z axis, the max is the near plane and the min is the far plane.
         Rect3 *currentBounds = &bounds[i];
         // The orthographic projection expects 0 < n < f
+        // TODO: use the bounds of the light instead
         f32 zNear = -currentBounds->maxZ;
         f32 zFar  = -currentBounds->minZ;
-        f32 mult  = 10;
 
-        // TODO: instead of this hand wavy code, use the bounds of the light for the znear and far
-        // NOTE: the problem I was having was that there were too tight transitions and no overlap
-        // between cascade splits, which is problematic when the light direction and the camera forward
-        // are parallel.
-        // gl polygon offset?
+        f32 extent = zFar - zNear;
 
-        // float3 offset_lookup(sampler2D map, float4 loc, float2 offset)
-        // {
-        //     return tex2Dproj(map, float4(loc.xy + offset * texmapscale * loc.w, loc.z, loc.w));
-        // }
-        // float sum = 0;
-        // float x, y;
-        // for (y = -1.5; y <= 1.5; y += 1.0)
-        //     for (x = -1.5; x <= 1.5; x += 1.0)
-        //         sum += offset_lookup(shadowmap, shadowCoord, float2(x, y));
-        // shadowCoeff = sum / 16.0;
-        //
-        // offset = (float)(frac(position.xy * 0.5) > 0.25); // mod offset.y += offset.x;  // y ^= x in floating
-        // point if (offset.y > 1.1) offset.y = 0; shadowCoeff = (offset_lookup(shadowmap, sCoord, offset +
-        // float2(-1.5, 0.5)) +
-        //                offset_lookup(shadowmap, sCoord, offset + float2(0.5, 0.5)) +
-        //                offset_lookup(shadowmap, sCoord, offset + float2(-1.5, -1.5)) +
-        //                offset_lookup(shadowmap, sCoord, offset + float2(0.5, -1.5))) *
-        //               0.25;
+        V3 shadowCameraPos = centers[i] - inLight->dir * zNear;
+        Mat4 fixedLookAt   = LookAt4(shadowCameraPos, centers[i], worldUp);
 
-        if (i == 0)
-        {
-            zNear -= 2.f;
-            zFar += 2.f;
-        }
-        if (zNear < 0)
-        {
-            zNear *= 10;
-        }
-        else
-        {
-            zNear /= 10;
-        }
-        if (zFar < 0)
-        {
-            zFar /= 10;
-        }
-        else
-        {
-            zFar *= 10;
-        }
-
-        outLightViewProjectionMatrices[i] = Orthographic4(currentBounds->minX, currentBounds->maxX,
-                                                          currentBounds->minY, currentBounds->maxY, zNear, zFar);
-        lightViewMatrices[i];
-        // lightWorldToViewMatrix;
-        if (i < cNumSplits)
-        {
-            outCascadeDistances[i] = cascadeDistances[i + 1];
-        }
+        outLightViewProjectionMatrices[i] = Orthographic4(currentBounds->minX, currentBounds->maxX, currentBounds->minY, currentBounds->maxY, 0, extent) * fixedLookAt;
+        outCascadeDistances[i]            = cascadeDistances[i];
     }
 }
 

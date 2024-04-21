@@ -72,7 +72,8 @@ enum LightType
 struct Light
 {
     LightType type;
-    V3 pos;
+    V3 origin;
+    V3 globalOrigin;
     V3 dir;
 };
 
@@ -372,7 +373,7 @@ internal u8 *R_BatchListPush(R_BatchList *list, u32 instCap);
 //////////////////////////////
 // Shadow mapping
 //
-const i32 cNumSplits     = 4;
+const i32 cNumSplits     = 3;
 const i32 cNumCascades   = cNumSplits + 1;
 const i32 cShadowMapSize = 1024;
 internal void R_CascadedShadowMap(const Light *inLight, Mat4 *outLightViewProjectionMatrices);

@@ -76,7 +76,7 @@ void main()
     int shadowIndex = 4;
     for (int i = 0; i < 4; i++)
     {
-        if (viewZ < cascadeDistances[i])
+        if (viewZ <= cascadeDistances[i])
         {
             shadowIndex = i;
             break;
@@ -95,7 +95,7 @@ void main()
 
     // TODO: doesn't work for shadows in the furthest frustum, since cascadeDistances is only 4 big
     bias *= biasModifier / (cascadeDistances[shadowIndex]);
-    bias += 0.008;
+    // bias += 0.0015;
 
     // PCF
     V2 texelSize = 1.0 / V2(textureSize(shadowMaps, 0));
@@ -115,7 +115,7 @@ void main()
     V3 lightDir = normalize(fragment.tangentLightDir);
 
     //AMBIENT
-    V3 ambient = 0.1f * color;
+    V3 ambient = 0.3f * color;
     //DIFFUSE
     f32 diffuseCosAngle = max(dot(normal, lightDir), 0.f);
     V3 diffuse = diffuseCosAngle * color;
@@ -123,14 +123,14 @@ void main()
     V3 toViewPosition = normalize(fragment.tangentViewPos - fragment.tangentFragPos);
 
 #if BLINN_PHONG
-    V3 reflectVector = -lightDir + 2 * dot(normal, lightDir) * normal;
-    f32 specularStrength = pow(max(dot(reflectVector, toViewPosition), 0.f), 64);
-
-#else
-    // Blinn phong 
     V3 halfway = normalize(lightDir + toViewPosition);
     f32 shininess = 16;
     f32 specularStrength = pow(max(dot(normal, halfway), 0.f), shininess);
+
+#else
+    V3 reflectVector = -lightDir + 2 * dot(normal, lightDir) * normal;
+    f32 specularStrength = pow(max(dot(reflectVector, toViewPosition), 0.f), 64);
+    // Blinn phong 
 #endif
 
     f32 spec = specularStrength;
