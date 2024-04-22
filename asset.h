@@ -20,7 +20,7 @@ enum TextureType
 {
     TextureType_Diffuse,
     TextureType_Normal,
-    TextureType_Specular,
+    TextureType_MR,
     TextureType_Height,
     TextureType_Count,
 };

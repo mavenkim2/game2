@@ -543,6 +543,10 @@ JOB_CALLBACK(AS_LoadAsset)
         {
             asset->texture.type = TextureType_Normal;
         }
+        else if (FindSubstring(asset->path, Str8Lit("metallic"), 0, MatchFlag_CaseInsensitive) != asset->path.size)
+        {
+            asset->texture.type = TextureType_MR;
+        }
         // else if (FindSubstring(asset->path, Str8Lit("height"), 0, MatchFlag_CaseInsensitive) != aset->path.size)
         // {
         // }
@@ -566,6 +570,7 @@ JOB_CALLBACK(AS_LoadAsset)
                 switch (asset->texture.type)
                 {
                     case TextureType_Diffuse:
+                    case TextureType_MR:
                     {
                         format = R_TexFormat_SRGB8;
                         break;
@@ -584,6 +589,7 @@ JOB_CALLBACK(AS_LoadAsset)
                 switch (asset->texture.type)
                 {
                     case TextureType_Diffuse:
+                    case TextureType_MR:
                     {
                         format = R_TexFormat_SRGBA8;
                         break;

@@ -6,6 +6,7 @@
 #define V4 vec4
 #define Mat4 mat4
 
+#define PI 3.14159265
 const int MAX_BONES = 200;
 
 // TODO: these should be passed in
@@ -21,8 +22,9 @@ struct MeshPerDrawParams
     uvec2 mIndex[MAX_TEXTURES_PER_MATERIAL];
     unsigned int mSlice[MAX_TEXTURES_PER_MATERIAL];
     int mJointOffset;
+    int mIsPBR;
 
-    int _pad[3];
+    int _pad[2];
 };
 
 layout (std140, binding = 2) uniform globalUniforms
@@ -40,9 +42,7 @@ layout (std430, binding = 3) readonly buffer perDrawUniforms
     MeshPerDrawParams rMeshParams[MAX_MESHES];
 };
 
-// NOTE: there's 
 layout (std140, binding = 4) uniform skinningMatrices
 {
     Mat4 rBoneTransforms[MAX_SKINNING_MATRICES];
 };
-

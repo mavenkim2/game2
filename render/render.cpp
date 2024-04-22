@@ -420,7 +420,8 @@ struct R_MeshPerDrawParams
     u64 mIndex[TextureType_Count];
     u32 mSlice[TextureType_Count];
     i32 mJointOffset;
-    i32 _pad[3];
+    i32 mIsPBR;
+    i32 _pad[2];
 };
 
 struct R_MeshPreparedDrawParams
@@ -462,6 +463,7 @@ internal R_MeshPreparedDrawParams *D_PrepareMeshes()
 
             perMeshParam->mTransform   = params->transform;
             perMeshParam->mJointOffset = jointOffset;
+            perMeshParam->mIsPBR = true;
 
             indirectBuffer->mCount         = (u32)(gVertexCache.GetSize(surface->indexBuffer) / sizeof(u32));
             indirectBuffer->mInstanceCount = 1;
@@ -478,6 +480,10 @@ internal R_MeshPreparedDrawParams *D_PrepareMeshes()
             for (i32 textureIndex = 0; textureIndex < TextureType_Count; textureIndex++)
             {
                 R_Handle textureHandle             = GetTextureRenderHandle(surface->material->textureHandles[textureIndex]);
+                if (textureIndex == TextureType_MR && textureHandle.u64[0] == 0)
+                {
+                    perMeshParam->mIsPBR = false;
+                }
                 perMeshParam->mIndex[textureIndex] = (u64)textureHandle.u32[0];
                 // TODO: change the shader to reflect that this is a float :)
                 perMeshParam->mSlice[textureIndex] = textureHandle.u32[1];

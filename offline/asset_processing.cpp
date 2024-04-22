@@ -91,7 +91,7 @@ internal void *LoadAndWriteModel(void *ptr, Arena *arena)
     // Static mesh
     if (scene->mMeshes[0]->mNumBones == 0)
     {
-        Mat4 rootTransform = ConvertAssimpMatrix4x4(scene->mRootNode->mTransformation);
+        // Mat4 rootTransform = ConvertAssimpMatrix4x4(scene->mRootNode->mTransformation);
         model.numMeshes    = scene->mNumMeshes;
         model.meshes       = PushArray(scratch.arena, InputMesh, model.numMeshes);
         for (u32 i = 0; i < scene->mNumMeshes; i++)
@@ -103,8 +103,8 @@ internal void *LoadAndWriteModel(void *ptr, Arena *arena)
             Init(&inputMesh->bounds);
             for (u32 vertexIndex = 0; vertexIndex < inputMesh->vertexCount; vertexIndex++)
             {
-                inputMesh->vertices[vertexIndex].position =
-                    rootTransform * inputMesh->vertices[vertexIndex].position;
+                // inputMesh->vertices[vertexIndex].position =
+                    // rootTransform * inputMesh->vertices[vertexIndex].position;
                 AddBounds(inputMesh->bounds, inputMesh->vertices[vertexIndex].position);
             }
         }
@@ -373,22 +373,33 @@ internal void ProcessMesh(Arena *arena, InputMesh *inputMesh, const aiScene *sce
         *texturePath = PathSkipLastSlash(*texturePath);
     }
     // Specular
-    for (u32 i = 0; i < mMaterial->GetTextureCount(aiTextureType_SPECULAR); i++)
-    {
-        aiString str;
-        mMaterial->GetTexture(aiTextureType_SPECULAR, i, &str);
-        string *texturePath = &material->texture[TextureType_Specular];
-        texturePath->size   = str.length;
-        texturePath->str    = PushArray(arena, u8, str.length);
-        MemoryCopy(texturePath->str, str.data, str.length);
-        *texturePath = PathSkipLastSlash(*texturePath);
-    }
+    // for (u32 i = 0; i < mMaterial->GetTextureCount(aiTextureType_SPECULAR); i++)
+    // {
+    //     aiString str;
+    //     mMaterial->GetTexture(aiTextureType_SPECULAR, i, &str);
+    //     string *texturePath = &material->texture[TextureType_Specular];
+    //     texturePath->size   = str.length;
+    //     texturePath->str    = PushArray(arena, u8, str.length);
+    //     MemoryCopy(texturePath->str, str.data, str.length);
+    //     *texturePath = PathSkipLastSlash(*texturePath);
+    // }
     // Normals
     for (u32 i = 0; i < mMaterial->GetTextureCount(aiTextureType_NORMALS); i++)
     {
         aiString str;
         mMaterial->GetTexture(aiTextureType_NORMALS, i, &str);
         string *texturePath = &material->texture[TextureType_Normal];
+        texturePath->size   = str.length;
+        texturePath->str    = PushArray(arena, u8, str.length);
+        MemoryCopy(texturePath->str, str.data, str.length);
+        *texturePath = PathSkipLastSlash(*texturePath);
+    }
+    // Metallic Roughness
+    for (u32 i = 0; i < mMaterial->GetTextureCount(aiTextureType_DIFFUSE_ROUGHNESS); i++)
+    {
+        aiString str;
+        mMaterial->GetTexture(aiTextureType_DIFFUSE_ROUGHNESS, i, &str);
+        string *texturePath = &material->texture[TextureType_MR];
         texturePath->size   = str.length;
         texturePath->str    = PushArray(arena, u8, str.length);
         MemoryCopy(texturePath->str, str.data, str.length);
@@ -542,7 +553,7 @@ internal string ProcessAnimation(Arena *arena, CompressedKeyframedAnimation *out
             rotation->rotation[1]                 = CompressRotationChannel(r.y);
             rotation->rotation[2]                 = CompressRotationChannel(r.z);
             rotation->rotation[3]                 = CompressRotationChannel(r.w);
-            rotation->time = ((f32)channel->mRotationKeys[j].mTime / (f32)inAnimation->mTicksPerSecond - time);
+            rotation->time                        = ((f32)channel->mRotationKeys[j].mTime / (f32)inAnimation->mTicksPerSecond - time);
         }
     }
     outAnimation->duration -= startTime == FLT_MAX ? 0 : startTime;

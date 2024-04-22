@@ -48,6 +48,7 @@ internal void G_EntryPoint(void *p)
     {
         frameTime = OS_NowSeconds();
 
+        // TODO: dll this and the endframe
         G_Update(frameDt * multiplier);
 
         // TODO: on another thread
@@ -687,7 +688,7 @@ internal void G_Update(f32 dt)
         translate       = Translate4(V3{-10, 10, 0});
         scale           = Scale(V3{.1f, .1f, .1f});
         rotate          = Rotate4(MakeV3(1, 0, 0), PI / 2);
-        Mat4 transform3 = translate * scale;
+        Mat4 transform3 = translate *  scale;
         Mat4 mvp3       = renderState->transform * transform3;
 
         D_PushModel(g_state->eva, transform3, mvp3);

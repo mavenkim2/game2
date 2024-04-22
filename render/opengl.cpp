@@ -99,9 +99,7 @@ internal GLuint R_OpenGL_CompileShader(char *globals, char *vs, char *fs, char *
     GLint success = false;
     openGL->glGetProgramiv(shaderProgramId, GL_LINK_STATUS, &success);
 
-    i32 infoLogLength = 0;
-    openGL->glGetProgramiv(shaderProgramId, GL_INFO_LOG_LENGTH, &infoLogLength);
-    if (infoLogLength > 1)
+    if (!success)
     {
         char vertexShaderErrors[4096];
         char fragmentShaderErrors[4096];
@@ -628,7 +626,7 @@ void R_ProgramManager::Init()
 {
     R_ShaderLoadInfo shaderLoadInfo[R_ShaderType_Count] =
         {
-            {R_ShaderType_Mesh, "src/shaders/model", {{"BLINN_PHONG", "1"}}, ShaderStage_Default, ShaderLoadFlag_TextureArrays},
+            {R_ShaderType_Mesh, "src/shaders/model", {{"USE_PBR", "1"}, {"MULTI_DRAW_TEXTURE_ARRAY", "1"}}, ShaderStage_Default, ShaderLoadFlag_TextureArrays},
             {R_ShaderType_UI, "src/shaders/ui", {}, ShaderStage_Default, ShaderLoadFlag_TextureArrays},
             {R_ShaderType_Depth, "src/shaders/depth", {}, ShaderStage_Default | ShaderStage_Geometry, ShaderLoadFlag_ShadowMaps},
             {R_ShaderType_3D, "src/shaders/basic_3d", {}, ShaderStage_Default},
@@ -739,10 +737,6 @@ void R_ProgramManager::LoadPrograms()
                 GLint textureLoc = openGL->glGetUniformLocation(programId, "textureMaps");
                 openGL->glUniform1iv(textureLoc, openGL->textureMap.maxSlots, samplerIds);
             }
-            // if (loadInfo->mShaderLoadFlags & ShaderLoadFlag_ShadowMaps)
-            // {
-            //     openGL->glBindBufferBase(GL_UNIFORM_BUFFER, GL_SHADOW_MAP_BINDING, openGL->lightMatrixUBO);
-            // }
         }
     }
     ScratchEnd(temp);
