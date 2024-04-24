@@ -7,6 +7,7 @@
 #define Mat4 mat4
 
 #define PI 3.14159265
+const int MAX_CASCADES = 4;
 const int MAX_BONES = 200;
 
 // TODO: these should be passed in

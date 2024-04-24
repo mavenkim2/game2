@@ -16,14 +16,17 @@ uniform sampler2DArray textureMaps[32];
 
 in VS_OUT
 {
-    in V2 outUv;
+    in V2 uv;
     in V3 tangentLightDir;
     in V3 tangentViewPos;
     in V3 tangentFragPos;
 
     in V4 viewFragPos;
     in V3 worldFragPos;
+
     // in V3 worldLightDir;
+    // in V3 worldViewPos;
+
     flat in int drawId;
 } fragment;
 
@@ -46,14 +49,14 @@ void main()
 {
     // Normal texture units
 #if SINGLE_DRAW
-    V3 normal = normalize(texture(normalMap, fragment.outUv).rgb * 2 - 1);
-    V3 albedo = texture(diffuseMap, fragment.outUv).rgb;
+    V3 normal = normalize(texture(normalMap, fragment.uv).rgb * 2 - 1);
+    V3 albedo = texture(diffuseMap, fragment.uv).rgb;
 #endif
 
     // Array of texture units
 #if MULTI_DRAW
-    V3 normal = normalize(texture(textureMaps[TEXTURES_PER_MATERIAL * fragment.drawId + NORMAL_INDEX], fragment.outUv).rgb * 2 - 1);
-    V3 albedo = texture(textureMaps[TEXTURES_PER_MATERIAL * fragment.drawId + DIFFUSE_INDEX], fragment.outUv).rgb;
+    V3 normal = normalize(texture(textureMaps[TEXTURES_PER_MATERIAL * fragment.drawId + NORMAL_INDEX], fragment.uv).rgb * 2 - 1);
+    V3 albedo = texture(textureMaps[TEXTURES_PER_MATERIAL * fragment.drawId + DIFFUSE_INDEX], fragment.uv).rgb;
 #endif
 
     // Array of texture arrays
@@ -67,10 +70,10 @@ void main()
     float normalSlice = float(rMeshParams[fragment.drawId].mSlice[NORMAL_INDEX]);
     float metallicSlice = float(rMeshParams[fragment.drawId].mSlice[MR_INDEX]);
 
-    V3 albedo = texture(textureMaps[diffuseContainer], vec3(fragment.outUv, diffuseSlice)).rgb;
-    V3 normal = normalize(texture(textureMaps[normalContainer], vec3(fragment.outUv, normalSlice)).rgb * 2 - 1);
+    V3 albedo = texture(textureMaps[diffuseContainer], vec3(fragment.uv, diffuseSlice)).rgb;
+    V3 normal = normalize(texture(textureMaps[normalContainer], vec3(fragment.uv, normalSlice)).rgb * 2 - 1);
 
-    V3 mr = texture(textureMaps[metallicContainer], vec3(fragment.outUv, metallicSlice)).rgb;
+    V4 mr = texture(textureMaps[metallicContainer], vec3(fragment.uv, metallicSlice)).rgba;
     f32 metalness = mr.b;
     f32 roughness = mr.g;
 #endif
@@ -101,7 +104,7 @@ void main()
 
     // TODO: doesn't work for shadows in the furthest frustum, since cascadeDistances is only 4 big
     bias *= biasModifier / (cascadeDistances[shadowIndex]);
-    // bias += 0.0015;
+    bias += 0.0015;
 
     // PCF
     V2 texelSize = 1.0 / V2(textureSize(shadowMaps, 0));
@@ -120,10 +123,13 @@ void main()
     // L and V
     V3 l = normalize(fragment.tangentLightDir);
     V3 v = normalize(fragment.tangentViewPos - fragment.tangentFragPos);
+    // V3 v = normalize(fragment.worldViewPos - fragment.worldFragPos);
+    // V3 l = normalize(fragment.worldLightDir);
+    V3 n = normal;
 
     V3 h = normalize(l + v);
-    f32 nDotV = max(dot(normal, v), 0.0);
-    f32 nDotL = max(dot(normal, l), 0.0);
+    f32 nDotV = max(dot(n, v), 0.0);
+    f32 nDotL = max(dot(n, l), 0.0);
 
     V3 outColor = V3(0.0);
     if (rMeshParams[fragment.drawId].mIsPBR == 1)
@@ -133,7 +139,7 @@ void main()
 
         // Distribution: % surface area of microfacets w/ normal of the halfway vector
         // Trowbridge-Reitz, dependent on h (microfacet normal)
-        f32 nDotH = max(dot(normal, h), 0.f);
+        f32 nDotH = max(dot(n, h), 0.f);
         f32 nDotH2 = nDotH * nDotH;
         f32 denom = nDotH2 * (a2 - 1.f) + 1.f;
         denom = PI * denom * denom;
@@ -144,7 +150,7 @@ void main()
         // Smith Schlick, dependent on roughness, n, v, l
         f32 k = roughness + 1.f;
         k = (k * k) / 8.f;
-         
+
         f32 geometryV = nDotV * (1.f - k) + k;
         f32 geometryL = nDotL * (1.f - k) + k;
         f32 geometryAndCTDenom = 1.f / (geometryV * geometryL * 4.f);
@@ -159,16 +165,17 @@ void main()
         // specular
         V3 f0 = V3(0.04);
         f0 = mix(f0, albedo.rgb, metalness);
-        V3 fresnel = f0 + (1 - f0) * pow(1 - hDotV, 5);
+        V3 fresnel = f0 + (1 - f0) * pow(1 - hDotV, 5.f);
 
-        V3 spec = V3(distribution) * V3(geometryAndCTDenom) * fresnel;
+        V3 spec = distribution * geometryAndCTDenom * fresnel;
 
         // lambert
         V3 kD = (V3(1.0) - fresnel) * (1 - metalness);
 
-        V3 radiance = V3(1, 1, 1);//V3(253/255.f, 184/255.f, 19/255.f);//lightColor;// * nDotL;
+        V3 radiance = V3(1, 1, 1);
 
-        outColor += /*V3(.1) * albedo + */((kD * albedo / PI) + spec) * nDotL * radiance * (1 - shadow);
+        outColor += ((kD * albedo / PI) + spec) * nDotL * radiance * (1 - shadow);
+
         // outColor = outColor / (outColor + V3(1.0));
         // outColor += specular;
         // outColor = V3(metalness);
@@ -184,9 +191,9 @@ void main()
 #if BLINN_PHONG
         //SPECULAR
         f32 shininess = 16;
-        f32 specularStrength = pow(max(dot(normal, h), 0.f), shininess);
+        f32 specularStrength = pow(max(dot(n, h), 0.f), shininess);
 #else
-        V3 reflectVector = -l + 2 * dot(normal, l) * normal;
+        V3 reflectVector = -l + 2 * dot(n, l) * n;
         f32 specularStrength = pow(max(dot(reflectVector, v), 0.f), 64);
 #endif
 

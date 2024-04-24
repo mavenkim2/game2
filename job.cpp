@@ -5,26 +5,27 @@
 #include "platform_inc.h"
 #endif
 
+global b32 volatile gTerminateJobThreads;
 internal void JobThreadEntryPoint(void *p);
-global JS_State *js_state;
 
 //////////////////////////////
 // Job System initialization
 //
 internal void JS_Init()
 {
-    Arena *arena    = ArenaAlloc(megabytes(8));
-    js_state        = PushStruct(arena, JS_State);
-    js_state->arena = arena;
+    Arena *arena       = ArenaAlloc(megabytes(8));
+    JS_State *js_state = PushStruct(arena, JS_State);
+    js_state->arena    = arena;
+    engine->SetJobState(js_state);
 
     // js_state->threadCount   = Clamp(OS_NumProcessors() - 1, 1, 8);
-    js_state->threadCount   = OS_NumProcessors();
-    js_state->readSemaphore = OS_CreateSemaphore(js_state->threadCount);
+    js_state->threadCount   = platform.OS_NumProcessors();
+    js_state->readSemaphore = platform.OS_CreateSemaphore(js_state->threadCount);
 
     // Initialize priority queues
-    js_state->highPriorityQueue.writeSemaphore   = OS_CreateSemaphore(js_state->threadCount);
-    js_state->normalPriorityQueue.writeSemaphore = OS_CreateSemaphore(js_state->threadCount);
-    js_state->lowPriorityQueue.writeSemaphore    = OS_CreateSemaphore(js_state->threadCount);
+    js_state->highPriorityQueue.writeSemaphore   = platform.OS_CreateSemaphore(js_state->threadCount);
+    js_state->normalPriorityQueue.writeSemaphore = platform.OS_CreateSemaphore(js_state->threadCount);
+    js_state->lowPriorityQueue.writeSemaphore    = platform.OS_CreateSemaphore(js_state->threadCount);
 
     js_state->threads = PushArray(arena, JS_Thread, js_state->threadCount);
 
@@ -34,8 +35,37 @@ internal void JS_Init()
     SetThreadIndex(0);
     for (u64 i = 1; i < js_state->threadCount; i++)
     {
-        js_state->threads[i].handle = OS_ThreadStart(JobThreadEntryPoint, (void *)i);
+        js_state->threads[i].handle = platform.OS_ThreadStart(JobThreadEntryPoint, (void *)i);
         js_state->threads[i].arena  = ArenaAlloc();
+    }
+}
+
+// Flush job queue
+internal void JS_Flush()
+{
+    gTerminateJobThreads = 1;
+    WriteBarrier();
+    JS_State *js_state = engine->GetJobState();
+    JS_Thread *thread  = &js_state->threads[0];
+    while (!JS_PopJob(&js_state->highPriorityQueue, thread) || !JS_PopJob(&js_state->normalPriorityQueue, thread) ||
+           !JS_PopJob(&js_state->lowPriorityQueue, thread))
+        ;
+
+    platform.OS_ReleaseSemaphores(js_state->readSemaphore, js_state->threadCount);
+
+    for (u64 i = 1; i < js_state->threadCount; i++)
+    {
+        platform.OS_ThreadJoin(js_state->threads[i].handle);
+    }
+}
+
+internal void JS_Restart()
+{
+    gTerminateJobThreads = 0;
+    JS_State *js_state   = engine->GetJobState();
+    for (u64 i = 1; i < js_state->threadCount; i++)
+    {
+        js_state->threads[i].handle = platform.OS_ThreadStart(JobThreadEntryPoint, (void *)i);
     }
 }
 
@@ -44,8 +74,9 @@ internal void JS_Init()
 //
 internal void JS_Kick(JobCallback *callback, void *data, Arena **arena, Priority priority, JS_Counter *counter = 0)
 {
-    u64 numJobs     = AtomicIncrementU64(&js_state->numJobs);
-    JS_Queue *queue = 0;
+    JS_State *js_state = engine->GetJobState();
+    u64 numJobs        = AtomicIncrementU64(&js_state->numJobs);
+    JS_Queue *queue    = 0;
 
     switch (priority)
     {
@@ -99,7 +130,7 @@ internal void JS_Kick(JobCallback *callback, void *data, Arena **arena, Priority
             newJob->counter  = counter;
 
             EndMutex(&queue->lock);
-            OS_ReleaseSemaphore(js_state->readSemaphore);
+            platform.OS_ReleaseSemaphore(js_state->readSemaphore);
 
             if (arena != 0)
             {
@@ -108,13 +139,14 @@ internal void JS_Kick(JobCallback *callback, void *data, Arena **arena, Priority
             break;
         }
         EndMutex(&queue->lock);
-        OS_SignalWait(queue->writeSemaphore);
+        platform.OS_SignalWait(queue->writeSemaphore);
     }
 }
 
 internal void JS_Join(JS_Counter *counter)
 {
-    u32 threadIndex = GetThreadIndex();
+    JS_State *js_state = engine->GetJobState();
+    u32 threadIndex    = GetThreadIndex();
 
     JS_Thread *thread = &js_state->threads[threadIndex];
 
@@ -145,7 +177,8 @@ internal void JS_Join(JS_Counter *counter)
 // data is handled?
 internal b32 JS_PopJob(JS_Queue *queue, JS_Thread *thread)
 {
-    b32 sleep = false;
+    JS_State *js_state = engine->GetJobState();
+    b32 sleep          = false;
     BeginMutex(&queue->lock);
     u64 curReadPos  = queue->readPos;
     u64 curWritePos = queue->writePos;
@@ -161,7 +194,7 @@ internal b32 JS_PopJob(JS_Queue *queue, JS_Thread *thread)
         JobCallback *func   = job->callback;
 
         EndMutex(&queue->lock);
-        OS_ReleaseSemaphore(queue->writeSemaphore);
+        platform.OS_ReleaseSemaphore(queue->writeSemaphore);
 
         if (arena == 0)
         {
@@ -186,21 +219,27 @@ internal b32 JS_PopJob(JS_Queue *queue, JS_Thread *thread)
 
 internal void JobThreadEntryPoint(void *p)
 {
-    u64 threadIndex   = (u64)p;
-    JS_Thread *thread = &js_state->threads[threadIndex];
+    JS_State *js_state = engine->GetJobState();
+    u64 threadIndex    = (u64)p;
+    JS_Thread *thread  = &js_state->threads[threadIndex];
+
+    ThreadContext tContext_ = {};
+    ThreadContextInitialize(&tContext_);
 
     TempArena temp = ScratchStart(0, 0);
     SetThreadName(PushStr8F(temp.arena, "[JS] Worker %u", threadIndex));
     ScratchEnd(temp);
 
-    for (;;)
+    for (; !gTerminateJobThreads;)
     {
         if (JS_PopJob(&js_state->highPriorityQueue, thread) && JS_PopJob(&js_state->normalPriorityQueue, thread) &&
             JS_PopJob(&js_state->lowPriorityQueue, thread))
         {
-            OS_SignalWait(js_state->readSemaphore);
+            platform.OS_SignalWait(js_state->readSemaphore);
         }
     }
+
+    ThreadContextRelease();
 }
 
 //////////////////////////////

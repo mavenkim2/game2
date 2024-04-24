@@ -13,7 +13,7 @@ struct DBG_State
     AS_Handle debugFont;
 };
 
-global DBG_State dbg_state;
+DBG_State dbg_state;
 
 struct DBG_Event
 {

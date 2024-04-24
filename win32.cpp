@@ -5,9 +5,10 @@
 #ifdef LSP_INCLUDE
 #include "keepmovingforward_math.h"
 #include "platform.h"
+#include "shared.h"
 #endif
 
-internal void Printf(char *fmt, ...)
+void Print(char *fmt, ...)
 {
     va_list va;
     va_start(va, fmt);
@@ -17,35 +18,12 @@ internal void Printf(char *fmt, ...)
     OutputDebugStringA(printBuffer);
 }
 
-struct Win32_State
-{
-    Arena *mArena;
-    Win32_Sync *mFreeSync;
-    i64 mPerformanceFrequency;
-    b32 mGranularSleep;
-
-    string mBinaryDirectory;
-
-    HINSTANCE mHInstance;
-
-    b32 mShowCursor;
-
-    Arena *mTempEventArena;
-    OS_EventList mEventsList;
-
-    TicketMutex mMutex;
-
-    u64 mStartCounter;
-
-    WINDOWPLACEMENT mWindowPosition = {sizeof(WINDOWPLACEMENT)};
-};
-
 global Win32_State *win32State;
 
 //////////////////////////////
 // Timing
 //
-internal f32 OS_GetWallClock()
+f32 OS_GetWallClock()
 {
     LARGE_INTEGER result;
     QueryPerformanceCounter(&result);
@@ -53,7 +31,7 @@ internal f32 OS_GetWallClock()
     return wallClock;
 }
 
-internal f32 OS_NowSeconds()
+f32 OS_NowSeconds()
 {
     f32 result;
 
@@ -70,14 +48,14 @@ internal f32 OS_NowSeconds()
 // File Information
 //
 
-internal u64 Win32DenseTimeFromSystemtime(SYSTEMTIME *sysTime)
+u64 Win32DenseTimeFromSystemtime(SYSTEMTIME *sysTime)
 {
     u64 result = sysTime->wYear * 12 + sysTime->wMonth * 31 + sysTime->wDay * 24 + sysTime->wHour * 60 +
                  sysTime->wMinute * 60 + sysTime->wSecond * 1000 + sysTime->wMilliseconds;
     return result;
 }
 
-internal u64 Win32DenseTimeFromFileTime(FILETIME *filetime)
+u64 Win32DenseTimeFromFileTime(FILETIME *filetime)
 {
     SYSTEMTIME systime = {};
     FileTimeToSystemTime(filetime, &systime);
@@ -85,7 +63,7 @@ internal u64 Win32DenseTimeFromFileTime(FILETIME *filetime)
     return result;
 }
 
-internal OS_FileAttributes OS_AttributesFromPath(string path)
+OS_ATTRIBUTES_FROM_PATH(OS_AttributesFromPath)
 {
     OS_FileAttributes result  = {};
     WIN32_FIND_DATAA findData = {};
@@ -101,7 +79,7 @@ internal OS_FileAttributes OS_AttributesFromPath(string path)
     return result;
 }
 
-internal u64 OS_GetLastWriteTime(string path)
+OS_GET_LAST_WRITE_TIME(OS_GetLastWriteTime)
 {
     OS_FileAttributes attrib = OS_AttributesFromPath(path);
     u64 result               = attrib.lastModified;
@@ -112,7 +90,7 @@ internal u64 OS_GetLastWriteTime(string path)
 // FILE I/O
 //
 
-internal OS_Handle OS_OpenFile(OS_AccessFlags flags, string path)
+OS_OPEN_FILE(OS_OpenFile)
 {
     OS_Handle result          = {};
     DWORD accessFlags         = 0;
@@ -137,7 +115,7 @@ internal OS_Handle OS_OpenFile(OS_AccessFlags flags, string path)
     return result;
 }
 
-internal void OS_CloseFile(OS_Handle input)
+OS_CLOSE_FILE(OS_CloseFile)
 {
     if (input.handle != 0)
     {
@@ -146,7 +124,7 @@ internal void OS_CloseFile(OS_Handle input)
     }
 }
 
-internal OS_FileAttributes OS_AttributesFromFile(OS_Handle input)
+OS_ATTRIBUTE_FROM_FILE(OS_AttributesFromFile)
 {
     OS_FileAttributes result = {};
     if (input.handle != 0)
@@ -166,7 +144,7 @@ internal OS_FileAttributes OS_AttributesFromFile(OS_Handle input)
 }
 
 // Reads part of a file, sequentially
-internal u32 OS_ReadFile(OS_Handle handle, void *out, u64 offset, u32 size)
+u32 OS_ReadFile(OS_Handle handle, void *out, u64 offset, u32 size)
 {
     u32 result  = 0;
     HANDLE file = (HANDLE)handle.handle;
@@ -181,7 +159,7 @@ internal u32 OS_ReadFile(OS_Handle handle, void *out, u64 offset, u32 size)
     return result;
 }
 
-internal u64 OS_ReadEntireFile(OS_Handle handle, void *out)
+OS_READ_FILE_HANDLE(OS_ReadEntireFile)
 {
     u64 totalReadSize   = 0;
     LARGE_INTEGER start = {};
@@ -208,7 +186,7 @@ internal u64 OS_ReadEntireFile(OS_Handle handle, void *out)
     return totalReadSize;
 }
 
-internal u64 OS_ReadEntireFile(string path, void *out)
+u64 OS_ReadEntireFile(string path, void *out)
 {
     OS_Handle handle = OS_OpenFile(OS_AccessFlag_Read | OS_AccessFlag_ShareRead, path);
     u64 result       = OS_ReadEntireFile(handle, out);
@@ -216,7 +194,7 @@ internal u64 OS_ReadEntireFile(string path, void *out)
     return result;
 }
 
-internal string OS_ReadEntireFile(Arena *arena, string path)
+OS_READ_ENTIRE_FILE(OS_ReadEntireFile)
 {
     OS_Handle handle = OS_OpenFile(OS_AccessFlag_Read | OS_AccessFlag_ShareRead, path);
 
@@ -232,7 +210,8 @@ internal string OS_ReadEntireFile(Arena *arena, string path)
     return result;
 }
 
-internal string ReadEntireFile(string filename)
+#if 0
+string ReadEntireFile(string filename)
 {
     string output     = {};
     HANDLE fileHandle = CreateFileA((char *)filename.str, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING,
@@ -274,7 +253,8 @@ internal string ReadEntireFile(string filename)
     return output;
 }
 
-internal b32 WriteFile(string filename, void *fileMemory, u32 fileSize)
+#endif
+OS_WRITE_FILE(OS_WriteFile)
 {
     b32 result = false;
     HANDLE fileHandle =
@@ -296,7 +276,7 @@ internal b32 WriteFile(string filename, void *fileMemory, u32 fileSize)
 //
 StaticAssert((sizeof(Win32_FileIter) <= sizeof(((OS_FileIter *)0)->memory)), fileIterSize);
 
-internal string OS_GetCurrentWorkingDirectory()
+string OS_GetCurrentWorkingDirectory()
 {
     DWORD length = GetCurrentDirectoryA(0, 0);
     u8 *path     = PushArray(win32State->mArena, u8, length);
@@ -307,7 +287,7 @@ internal string OS_GetCurrentWorkingDirectory()
     return result;
 }
 
-internal OS_FileIter OS_DirectoryIterStart(string path, OS_FileIterFlags flags)
+OS_FileIter OS_DirectoryIterStart(string path, OS_FileIterFlags flags)
 {
     OS_FileIter result;
     TempArena temp       = ScratchStart(0, 0);
@@ -318,7 +298,7 @@ internal OS_FileIter OS_DirectoryIterStart(string path, OS_FileIterFlags flags)
     return result;
 }
 
-internal b32 OS_DirectoryIterNext(Arena *arena, OS_FileIter *input, OS_FileProperties *out)
+b32 OS_DirectoryIterNext(Arena *arena, OS_FileIter *input, OS_FileProperties *out)
 {
     b32 done               = 0;
     Win32_FileIter *iter   = (Win32_FileIter *)input->memory;
@@ -354,7 +334,7 @@ internal b32 OS_DirectoryIterNext(Arena *arena, OS_FileIter *input, OS_FilePrope
             }
             if (!skip)
             {
-                out->size = ((u64)iter->findData.nFileSizeLow) | (((u64)iter->findData.nFileSizeHigh) << 32);
+                out->size         = ((u64)iter->findData.nFileSizeLow) | (((u64)iter->findData.nFileSizeHigh) << 32);
                 out->lastModified = Win32DenseTimeFromFileTime(&iter->findData.ftLastWriteTime);
                 out->isDirectory  = (attributes & FILE_ATTRIBUTE_DIRECTORY);
                 out->name         = PushStr8Copy(arena, Str8C(filename));
@@ -370,7 +350,7 @@ internal b32 OS_DirectoryIterNext(Arena *arena, OS_FileIter *input, OS_FilePrope
     return done;
 }
 
-internal void OS_DirectoryIterEnd(OS_FileIter *input)
+void OS_DirectoryIterEnd(OS_FileIter *input)
 {
     Win32_FileIter *iter = (Win32_FileIter *)input->memory;
     FindClose(iter->handle);
@@ -379,14 +359,14 @@ internal void OS_DirectoryIterEnd(OS_FileIter *input)
 //////////////////////////////
 // Memory
 //
-internal u64 OS_PageSize()
+OS_PAGE_SIZE(OS_PageSize)
 {
     SYSTEM_INFO info;
     GetSystemInfo(&info);
     return info.dwPageSize;
 }
 
-internal void *OS_Alloc(u64 size)
+OS_ALLOC(OS_Alloc)
 {
     u64 pageSnappedSize = size;
     pageSnappedSize += OS_PageSize() - 1;
@@ -395,26 +375,27 @@ internal void *OS_Alloc(u64 size)
     return ptr;
 }
 
-internal void *OS_Reserve(u64 size)
+OS_RESERVE(OS_Reserve)
 {
     void *ptr = VirtualAlloc(0, size, MEM_RESERVE, PAGE_READWRITE);
     return ptr;
 }
 
-internal b8 OS_Commit(void *ptr, u64 size)
+OS_COMMIT(OS_Commit)
 {
     b8 result = (VirtualAlloc(ptr, size, MEM_COMMIT, PAGE_READWRITE) != 0);
     return result;
 }
 
-internal void OS_Release(void *memory)
+OS_RELEASE(OS_Release)
 {
     VirtualFree(memory, 0, MEM_RELEASE);
 }
+
 //////////////////////////////
 // Initialization
 //
-internal void OS_Init()
+void OS_Init()
 {
     if (ThreadContextGet()->isMainThread)
     {
@@ -452,11 +433,12 @@ internal void OS_Init()
             win32State->mBinaryDirectory = PushStr8Copy(arena, binaryDirectory);
             ScratchEnd(temp);
         }
+        win32State = win32State;
     }
 }
 
 // TODO: this isn't quite right
-internal void Win32_AddEvent(OS_Event event)
+void Win32_AddEvent(OS_Event event)
 {
     OS_EventList *eventList = &win32State->mEventsList;
     OS_EventChunk *chunk    = eventList->last;
@@ -471,7 +453,7 @@ internal void Win32_AddEvent(OS_Event event)
     eventList->numEvents++;
 }
 
-internal OS_Event Win32_CreateKeyEvent(OS_Key key, b32 isDown)
+OS_Event Win32_CreateKeyEvent(OS_Key key, b32 isDown)
 {
     OS_Event event;
     event.key  = key;
@@ -626,7 +608,7 @@ LRESULT Win32_Callback(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
     return result;
 }
 
-internal OS_Handle OS_WindowInit()
+OS_Handle OS_WindowInit()
 {
     OS_Handle result          = {};
     WNDCLASSW windowClass     = {};
@@ -649,13 +631,13 @@ internal OS_Handle OS_WindowInit()
     return result;
 }
 
-internal string OS_GetBinaryDirectory()
+string OS_GetBinaryDirectory()
 {
     string result = win32State->mBinaryDirectory;
     return result;
 }
 
-internal V2 OS_GetCenter(OS_Handle handle, b32 screenToClient)
+OS_GET_CENTER(OS_GetCenter)
 {
     HWND windowHandle = (HWND)handle.handle;
 
@@ -673,7 +655,7 @@ internal V2 OS_GetCenter(OS_Handle handle, b32 screenToClient)
     return center;
 }
 
-internal V2 OS_GetWindowDimension(OS_Handle handle)
+V2 OS_GetWindowDimension(OS_Handle handle)
 {
     HWND window = (HWND)handle.handle;
     V2 result;
@@ -684,7 +666,7 @@ internal V2 OS_GetWindowDimension(OS_Handle handle)
     return result;
 }
 
-internal void OS_ToggleCursor(b32 on)
+OS_TOGGLE_CURSOR(OS_ToggleCursor)
 {
     win32State->mShowCursor = on;
 }
@@ -693,7 +675,7 @@ internal void OS_ToggleCursor(b32 on)
 // Windows
 //
 
-internal void OS_ToggleFullscreen(OS_Handle handle)
+void OS_ToggleFullscreen(OS_Handle handle)
 {
     HWND window = (HWND)handle.handle;
     DWORD style = GetWindowLong(window, GWL_STYLE);
@@ -721,7 +703,7 @@ internal void OS_ToggleFullscreen(OS_Handle handle)
 //////////////////////////////
 // Keyboard/Mouse
 //
-internal OS_Events OS_GetEvents(Arena *arena)
+OS_GET_EVENTS(OS_GetEvents)
 {
     win32State->mTempEventArena       = arena;
     win32State->mEventsList.numEvents = 0;
@@ -749,7 +731,7 @@ internal OS_Events OS_GetEvents(Arena *arena)
     return events;
 }
 
-internal V2 OS_GetMousePos(OS_Handle handle)
+OS_GET_MOUSE_POS(OS_GetMousePos)
 {
     POINT pos;
     V2 p = {};
@@ -763,14 +745,14 @@ internal V2 OS_GetMousePos(OS_Handle handle)
     return p;
 }
 
-internal b32 OS_WindowIsFocused(OS_Handle handle)
+b32 OS_WindowIsFocused(OS_Handle handle)
 {
     HWND window       = (HWND)handle.handle;
     HWND activeWindow = GetActiveWindow();
     return activeWindow == window;
 }
 
-internal void OS_SetMousePos(OS_Handle handle, V2 pos)
+OS_SET_MOUSE_POS(OS_SetMousePos)
 {
     if (OS_WindowIsFocused(handle))
     {
@@ -782,7 +764,7 @@ internal void OS_SetMousePos(OS_Handle handle, V2 pos)
 // Threads
 //
 
-internal Win32_Sync *Win32_SyncAlloc(Win32_SyncType type)
+Win32_Sync *Win32_SyncAlloc(Win32_SyncType type)
 {
     Win32_Sync *sync = win32State->mFreeSync;
     while (sync && AtomicCompareExchangePtr(&win32State->mFreeSync, sync->next, sync) != sync)
@@ -801,7 +783,7 @@ internal Win32_Sync *Win32_SyncAlloc(Win32_SyncType type)
     return sync;
 }
 
-internal void Win32_SyncFree(Win32_Sync *sync)
+void Win32_SyncFree(Win32_Sync *sync)
 {
     sync->type = Win32_SyncType_Null;
     sync->next = win32State->mFreeSync;
@@ -811,7 +793,18 @@ internal void Win32_SyncFree(Win32_Sync *sync)
     }
 }
 
-internal OS_Handle OS_ThreadStart(OS_ThreadFunction *func, void *ptr)
+DWORD Win32_ThreadProc(void *p)
+{
+    Win32_Sync *thread      = (Win32_Sync *)p;
+    OS_ThreadFunction *func = thread->thread.func;
+    void *ptr               = thread->thread.ptr;
+
+    BaseThreadEntry(func, ptr);
+
+    return 0;
+}
+
+OS_THREAD_START(OS_ThreadStart)
 {
     // TODO Hack: Have proper OS initialization
 
@@ -823,7 +816,7 @@ internal OS_Handle OS_ThreadStart(OS_ThreadFunction *func, void *ptr)
     return handle;
 }
 
-internal void OS_ThreadJoin(OS_Handle handle)
+OS_THREAD_JOIN(OS_ThreadJoin)
 {
     Win32_Sync *thread = (Win32_Sync *)handle.handle;
     if (thread && thread->type == Win32_SyncType_Thread && thread->thread.handle)
@@ -834,25 +827,14 @@ internal void OS_ThreadJoin(OS_Handle handle)
     Win32_SyncFree(thread);
 }
 
-internal DWORD Win32_ThreadProc(void *p)
-{
-    Win32_Sync *thread      = (Win32_Sync *)p;
-    OS_ThreadFunction *func = thread->thread.func;
-    void *ptr               = thread->thread.ptr;
-
-    BaseThreadEntry(func, ptr);
-
-    return 0;
-}
-
 // TODO: set thread names using raise exception as well?
-internal void OS_SetThreadName(string name)
+OS_SET_THREAD_NAME(OS_SetThreadName)
 {
     TempArena scratch = ScratchStart(0, 0);
 
-    u32 resultSize  = (u32)(2 * name.size);
-    wchar_t *result = (wchar_t *)PushArray(scratch.arena, u8, resultSize + 1);
-    resultSize      = MultiByteToWideChar(CP_UTF8, 0, (char *)name.str, (i32)name.size, result, (i32)resultSize);
+    u32 resultSize     = (u32)(2 * name.size);
+    wchar_t *result    = (wchar_t *)PushArray(scratch.arena, u8, resultSize + 1);
+    resultSize         = MultiByteToWideChar(CP_UTF8, 0, (char *)name.str, (i32)name.size, result, (i32)resultSize);
     result[resultSize] = 0;
     SetThreadDescription(GetCurrentThread(), result);
 
@@ -862,29 +844,35 @@ internal void OS_SetThreadName(string name)
 //////////////////////////////
 // Semaphores
 //
-internal OS_Handle OS_CreateSemaphore(u32 maxCount)
+OS_CREATE_SEMAPHORE(OS_CreateSemaphore)
 {
     HANDLE handle    = CreateSemaphoreEx(0, 0, maxCount, 0, 0, SEMAPHORE_ALL_ACCESS);
     OS_Handle result = {(u64)handle};
     return result;
 }
 
-internal void OS_ReleaseSemaphore(OS_Handle input)
+OS_RELEASE_SEMAPHORE(OS_ReleaseSemaphore)
 {
     HANDLE handle = (HANDLE)input.handle;
     ReleaseSemaphore(handle, 1, 0);
 }
 
-internal void OS_ReleaseSemaphore(OS_Handle input, u32 count)
+OS_RELEASE_SEMAPHORES(OS_ReleaseSemaphores)
 {
     HANDLE handle = (HANDLE)input.handle;
     ReleaseSemaphore(handle, count, 0);
 }
 
+OS_DELETE_SEMAPHORE(OS_DeleteSemaphore)
+{
+    HANDLE semaphore = (HANDLE)handle.handle;
+    CloseHandle(semaphore);
+}
+
 //////////////////////////////
 // Mutexes
 //
-internal OS_Handle OS_CreateMutex()
+OS_Handle OS_CreateMutex()
 {
     Win32_Sync *mutex = Win32_SyncAlloc(Win32_SyncType_Mutex);
     InitializeCriticalSection(&mutex->mutex);
@@ -892,20 +880,20 @@ internal OS_Handle OS_CreateMutex()
     return handle;
 }
 
-internal void OS_DeleteMutex(OS_Handle input)
+void OS_DeleteMutex(OS_Handle input)
 {
     Win32_Sync *mutex = (Win32_Sync *)input.handle;
     DeleteCriticalSection(&mutex->mutex);
     Win32_SyncFree(mutex);
 }
 
-internal void OS_TakeMutex(OS_Handle input)
+void OS_TakeMutex(OS_Handle input)
 {
     Win32_Sync *mutex = (Win32_Sync *)input.handle;
     EnterCriticalSection(&mutex->mutex);
 }
 
-internal void OS_DropMutex(OS_Handle input)
+void OS_DropMutex(OS_Handle input)
 {
     Win32_Sync *mutex = (Win32_Sync *)input.handle;
     LeaveCriticalSection(&mutex->mutex);
@@ -914,38 +902,38 @@ internal void OS_DropMutex(OS_Handle input)
 //////////////////////////////
 // Read/Write Mutex
 //
-internal OS_Handle OS_CreateRWMutex()
+OS_Handle OS_CreateRWMutex()
 {
     Win32_Sync *mutex = Win32_SyncAlloc(Win32_SyncType_RWMutex);
     InitializeSRWLock(&mutex->rwMutex);
     OS_Handle handle = {(u64)mutex};
     return handle;
 }
-internal void OS_DeleteRWMutex(OS_Handle input)
+void OS_DeleteRWMutex(OS_Handle input)
 {
     Win32_Sync *mutex = (Win32_Sync *)input.handle;
     Win32_SyncFree(mutex);
 }
 
-internal void OS_TakeRMutex(OS_Handle input)
+void OS_TakeRMutex(OS_Handle input)
 {
     Win32_Sync *mutex = (Win32_Sync *)input.handle;
     AcquireSRWLockShared(&mutex->rwMutex);
 }
 
-internal void OS_DropRMutex(OS_Handle input)
+void OS_DropRMutex(OS_Handle input)
 {
     Win32_Sync *mutex = (Win32_Sync *)input.handle;
     ReleaseSRWLockShared(&mutex->rwMutex);
 }
 
-internal void OS_TakeWMutex(OS_Handle input)
+void OS_TakeWMutex(OS_Handle input)
 {
     Win32_Sync *mutex = (Win32_Sync *)input.handle;
     AcquireSRWLockExclusive(&mutex->rwMutex);
 }
 
-internal void OS_DropWMutex(OS_Handle input)
+void OS_DropWMutex(OS_Handle input)
 {
     Win32_Sync *mutex = (Win32_Sync *)input.handle;
     ReleaseSRWLockExclusive(&mutex->rwMutex);
@@ -954,20 +942,20 @@ internal void OS_DropWMutex(OS_Handle input)
 //////////////////////////////
 // Condition Variables
 //
-internal OS_Handle OS_CreateConditionVariable()
+OS_Handle OS_CreateConditionVariable()
 {
     Win32_Sync *cvar = Win32_SyncAlloc(Win32_SyncType_CVar);
     InitializeConditionVariable(&cvar->cv);
     OS_Handle handle = {(u64)cvar};
     return handle;
 }
-internal void OS_DeleteConditionVariable(OS_Handle input)
+void OS_DeleteConditionVariable(OS_Handle input)
 {
     Win32_Sync *cvar = (Win32_Sync *)input.handle;
     Win32_SyncFree(cvar);
 }
 // TODO: be able to input a wait time?
-internal b32 OS_WaitConditionVariable(OS_Handle cv, OS_Handle m)
+b32 OS_WaitConditionVariable(OS_Handle cv, OS_Handle m)
 {
     b32 result        = 0;
     Win32_Sync *cvar  = (Win32_Sync *)cv.handle;
@@ -976,16 +964,16 @@ internal b32 OS_WaitConditionVariable(OS_Handle cv, OS_Handle m)
     return result;
 }
 
-internal b32 OS_WaitRConditionVariable(OS_Handle cv, OS_Handle m)
+b32 OS_WaitRConditionVariable(OS_Handle cv, OS_Handle m)
 {
     b32 result        = 0;
     Win32_Sync *cvar  = (Win32_Sync *)cv.handle;
     Win32_Sync *mutex = (Win32_Sync *)m.handle;
-    result = SleepConditionVariableSRW(&cvar->cv, &mutex->rwMutex, INFINITE, CONDITION_VARIABLE_LOCKMODE_SHARED);
+    result            = SleepConditionVariableSRW(&cvar->cv, &mutex->rwMutex, INFINITE, CONDITION_VARIABLE_LOCKMODE_SHARED);
     return result;
 }
 
-internal b32 OS_WaitRWConditionVariable(OS_Handle cv, OS_Handle m)
+b32 OS_WaitRWConditionVariable(OS_Handle cv, OS_Handle m)
 {
     b32 result        = 0;
     Win32_Sync *cvar  = (Win32_Sync *)cv.handle;
@@ -994,13 +982,13 @@ internal b32 OS_WaitRWConditionVariable(OS_Handle cv, OS_Handle m)
     return result;
 }
 
-internal void OS_SignalConditionVariable(OS_Handle cv)
+void OS_SignalConditionVariable(OS_Handle cv)
 {
     Win32_Sync *cvar = (Win32_Sync *)cv.handle;
     WakeConditionVariable(&cvar->cv);
 }
 
-internal void OS_BroadcastConditionVariable(OS_Handle cv)
+void OS_BroadcastConditionVariable(OS_Handle cv)
 {
     Win32_Sync *cvar = (Win32_Sync *)cv.handle;
     WakeAllConditionVariable(&cvar->cv);
@@ -1011,22 +999,22 @@ internal void OS_BroadcastConditionVariable(OS_Handle cv)
 //
 
 // NOTE: this sets the event to auto-reset after a successful wait.
-internal OS_Handle OS_CreateSignal()
+OS_Handle OS_CreateSignal()
 {
     HANDLE handle    = CreateEvent(0, 0, 0, 0);
     OS_Handle result = {(u64)handle};
     return result;
 }
 
-internal b32 OS_SignalWait(OS_Handle input, u32 time = U32Max)
+OS_SIGNAL_WAIT(OS_SignalWait)
 {
     HANDLE handle = (HANDLE)input.handle;
-    DWORD result  = WaitForSingleObject(handle, time);
-    Assert(result == WAIT_OBJECT_0 || (time != U32Max && result == WAIT_TIMEOUT));
+    DWORD result  = WaitForSingleObject(handle, U32Max);
+    Assert(result == WAIT_OBJECT_0 || result == WAIT_TIMEOUT);
     return (result == WAIT_OBJECT_0);
 }
 
-internal void OS_RaiseSignal(OS_Handle input)
+void OS_RaiseSignal(OS_Handle input)
 {
     HANDLE handle = (HANDLE)input.handle;
     SetEvent(handle);
@@ -1036,7 +1024,7 @@ internal void OS_RaiseSignal(OS_Handle input)
 // System Info
 //
 
-internal u32 OS_NumProcessors()
+OS_NUM_PROCESSORS(OS_NumProcessors)
 {
     SYSTEM_INFO systemInfo;
     GetSystemInfo(&systemInfo);
@@ -1046,7 +1034,68 @@ internal u32 OS_NumProcessors()
 //////////////////////////////
 // zzz
 //
-internal void OS_Sleep(u32 milliseconds)
+OS_SLEEP(OS_Sleep)
 {
     Sleep(milliseconds);
+}
+
+//////////////////////////////
+// DLL
+//
+struct OS_DLL
+{
+    OS_Handle mHandle;
+    string mSource;
+    string mLock;
+    string mTemp;
+
+    u64 mLastWriteTime;
+
+    void **mFunctions;
+    char **mFunctionNames;
+    u32 mFunctionCount;
+    b8 mValid;
+};
+
+void OS_LoadDLL(OS_DLL *dll)
+{
+    WIN32_FILE_ATTRIBUTE_DATA ignored;
+    OS_Handle result = {};
+    if (!GetFileAttributesExA((char *)(dll->mLock.str), GetFileExInfoStandard, &ignored))
+    {
+        CopyFileA((char *)(dll->mSource.str), (char *)(dll->mTemp.str), false);
+
+        HMODULE gameCodeDLL = LoadLibraryA((char *)(dll->mTemp.str));
+        dll->mHandle.handle = (u64)gameCodeDLL;
+        dll->mLastWriteTime = OS_GetLastWriteTime(dll->mSource);
+        dll->mValid         = true;
+
+        if (gameCodeDLL)
+        {
+            for (u32 i = 0; i < dll->mFunctionCount; i++)
+            {
+                void *func = (void *)GetProcAddress(gameCodeDLL, dll->mFunctionNames[i]);
+                if (func)
+                {
+                    dll->mFunctions[i] = func;
+                }
+                else
+                {
+                    OS_UnloadDLL(dll);
+                    return;
+                }
+            }
+        }
+    }
+}
+
+void OS_UnloadDLL(OS_DLL *dll)
+{
+    if (OS_GetLastWriteTime(dll->mSource) != dll->mLastWriteTime)
+    {
+        FreeLibrary((HMODULE)dll->mHandle.handle);
+        dll->mHandle.handle = 0;
+        dll->mLastWriteTime = 0;
+        dll->mValid         = false;
+    }
 }

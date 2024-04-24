@@ -8,14 +8,15 @@ layout (location = 5) in vec4 boneWeights;
 
 out VS_OUT
 {
-    out V2 outUv;
+    out V2 uv;
     out V3 tangentLightDir;
     out V3 tangentViewPos;
     out V3 tangentFragPos;
 
     out V4 viewFragPos;
     out V3 worldFragPos;
-    // out V3 worldLightDir;
+
+    //out V3 worldLightDir;
     flat out int drawId;
 } result;
 
@@ -61,13 +62,15 @@ void main()
     // Inverse of orthonormal basis is just the transpose
     mat3 tbn = transpose(mat3(tT, tB, tN));
 
-    result.outUv = uv;
+    result.uv = uv;
     result.tangentLightDir = tbn * lightDir.xyz;
     result.tangentViewPos = tbn * viewPosition.xyz;
     result.tangentFragPos = tbn * worldSpacePos.xyz;
 
     result.viewFragPos = viewMatrix * worldSpacePos;
     result.worldFragPos = worldSpacePos.xyz;
+
+    //result.worldViewPos = viewPosition.xyz;
     //result.worldLightDir = lightDir.xyz;
     result.drawId = gl_DrawID;
 }

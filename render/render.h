@@ -272,23 +272,15 @@ struct R_Pass
     };
 };
 
-struct RenderState
+//////////////////////////////
+// d state
+//
+
+// Retained information
+struct D_State
 {
-    Camera camera;
-    Mat4 viewMatrix;
-    Mat4 transform;
-    i32 width;
-    i32 height;
-
-    f32 fov;
-    f32 aspectRatio;
-    f32 nearZ;
-    f32 farZ;
-
-    R_Pass passes[R_PassType_Count];
-    R_Command *head;
-
-    Light light;
+    Arena *arena;
+    u64 frameStartPos;
 };
 
 enum R_BufferType
@@ -324,24 +316,6 @@ struct R_RectInst
     R_Handle handle;
 };
 
-//////////////////////////////////////////////////////////////////////////////////////////
-// ALL THE FUNCTIONS IN THIS SECTION MUST BE IMPLEMENTED PER PLATFORM!
-//
-
-// Textures
-#define R_ALLOCATE_TEXTURE_2D(name) R_Handle name(void *data, i32 width, i32 height, R_TexFormat format)
-typedef R_ALLOCATE_TEXTURE_2D(r_allocate_texture_2D);
-#define R_DELETE_TEXTURE_2D(name) void name(R_Handle handle)
-typedef R_DELETE_TEXTURE_2D(r_delete_texture_2D);
-
-// Buffers
-#define R_ALLOCATE_BUFFER(name) R_Handle name(R_BufferType type, void *data, u64 size)
-typedef R_ALLOCATE_BUFFER(r_allocate_buffer);
-internal void R_UpdateBuffer(GPUBuffer *buffer, BufferUsageType type, void *data, i32 offset, i32 size);
-internal void R_InitializeBuffer(GPUBuffer *ioBuffer, const BufferUsageType inUsageType, const i32 inSize);
-internal void R_MapGPUBuffer(GPUBuffer *buffer);
-internal void R_UnmapGPUBuffer(GPUBuffer *buffer);
-
 // internal R_Handle R_AllocateTemp(u64 size, void **out);
 // internal void R_FreeTemp(R_Handle temp);
 
@@ -376,7 +350,40 @@ internal u8 *R_BatchListPush(R_BatchList *list, u32 instCap);
 const i32 cNumSplits     = 3;
 const i32 cNumCascades   = cNumSplits + 1;
 const i32 cShadowMapSize = 1024;
-internal void R_CascadedShadowMap(const Light *inLight, Mat4 *outLightViewProjectionMatrices);
+internal void R_CascadedShadowMap(const Light *inLight, Mat4 *outLightViewProjectionMatrices,
+                                  f32 *outCascadeDistances);
+
+//////////////////////////////
+// Prepare GPU Cmd Buffers to submit
+//
+struct R_IndirectCmd
+{
+    u32 mCount;
+    u32 mInstanceCount;
+    u32 mFirstIndex;
+    u32 mBaseVertex;
+    u32 mBaseInstance;
+};
+
+// TODO: ?
+struct R_MeshPerDrawParams
+{
+    Mat4 mTransform;
+    u64 mIndex[TextureType_Count];
+    u32 mSlice[TextureType_Count];
+    i32 mJointOffset;
+    i32 mIsPBR;
+    i32 _pad[2];
+};
+
+struct R_MeshPreparedDrawParams
+{
+    R_IndirectCmd *mIndirectBuffers;
+    R_MeshPerDrawParams *mPerMeshDrawParams;
+};
+
+// prepare to submit to gpu
+internal R_MeshPreparedDrawParams *D_PrepareMeshes();
 
 //////////////////////////////
 // Handles
@@ -392,5 +399,36 @@ inline R_Handle R_HandleZero()
     R_Handle handle = {};
     return handle;
 }
+
+// Per frame information
+struct RenderState
+{
+    Camera camera;
+    Mat4 viewMatrix;
+    Mat4 transform;
+    i32 width;
+    i32 height;
+
+    f32 fov;
+    f32 aspectRatio;
+    f32 nearZ;
+    f32 farZ;
+
+    R_Pass passes[R_PassType_Count];
+    R_Command *head;
+
+    Light light;
+
+    // Vertex cache
+    VertexCacheState vertexCache;
+
+    // Frame cache
+    R_FrameState renderFrameState;
+
+    // Shadow maps
+    R_MeshPreparedDrawParams *drawParams;
+    Mat4 shadowMapMatrices[cNumCascades];
+    f32 cascadeDistances[cNumSplits];
+};
 
 #endif

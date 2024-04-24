@@ -54,113 +54,6 @@ struct OS_FileIter
 
 typedef void OS_ThreadFunction(void *);
 
-internal void Printf(char *fmt, ...);
-internal u64 OS_GetLastWriteTime(string filename);
-internal string ReadEntireFile(string filename);
-internal b32 WriteFile(string filename, void *fileMemory, u32 fileSize);
-internal u64 OS_PageSize();
-internal void *OS_Alloc(u64 size);
-internal void *OS_Reserve(u64 size);
-internal b8 OS_Commit(void *ptr, u64 size);
-internal void OS_Release(void *memory);
-
-/////////////////////////////////////////////////////
-// Initialization
-//
-internal void OS_Init();
-
-//////////////////////////////
-// Input
-//
-internal V2 OS_GetCenter(OS_Handle handle, b32 screenToClient);
-internal V2 OS_GetWindowDimension(OS_Handle handle);
-internal void OS_ToggleCursor(b32 on);
-internal V2 OS_GetMousePos(OS_Handle handle);
-internal void OS_SetMousePos(V2 pos);
-
-//////////////////////////////
-// Timing
-//
-internal f32 OS_GetWallClock();
-
-//////////////////////////////
-// File information
-//
-internal OS_FileAttributes OS_AttributesFromPath(string path);
-internal OS_FileAttributes OS_AttributesFromFile(OS_Handle input);
-
-//////////////////////////////
-// Files
-//
-
-internal OS_Handle OS_OpenFile(OS_AccessFlags flags, string path);
-internal void OS_CloseFile(OS_Handle input);
-internal OS_FileAttributes OS_AtributesFromFile(OS_Handle input);
-internal u64 OS_ReadEntireFile(OS_Handle handle, void *out);
-internal u64 OS_ReadEntireFile(string path, void *out);
-internal string OS_ReadEntireFile(Arena *arena, string path);
-internal u32 OS_ReadFile(OS_Handle handle, void *out, u64 offset, u32 size);
-
-/////////////////////////////////////////////////////
-// Threads
-//
-internal OS_Handle OS_ThreadAlloc(OS_ThreadFunction *func, void *ptr);
-internal OS_Handle OS_ThreadStart(OS_ThreadFunction *func, void *ptr);
-internal void OS_SetThreadName(string name);
-
-//////////////////////////////
-// Semaphores
-//
-internal OS_Handle OS_CreateSemaphore(u32 maxCount);
-internal void OS_ReleaseSemaphore(OS_Handle input);
-internal void OS_ReleaseSemaphore(OS_Handle input, u32 count);
-
-//////////////////////////////
-// Mutexes
-//
-internal OS_Handle OS_CreateMutex();
-internal void OS_DeleteMutex(OS_Handle input);
-internal void OS_TakeMutex(OS_Handle input);
-internal void OS_DropMutex(OS_Handle input);
-internal OS_Handle OS_CreateRWMutex();
-
-//////////////////////////////
-// Read/Write Mutex
-//
-internal void OS_DeleteRWMutex(OS_Handle input);
-internal void OS_TakeRMutex(OS_Handle input);
-internal void OS_DropRMutex(OS_Handle input);
-internal void OS_TakeWMutex(OS_Handle input);
-internal void OS_DropWMutex(OS_Handle input);
-
-//////////////////////////////
-// Condition Variables
-//
-internal OS_Handle OS_CreateConditionVariable();
-internal void OS_DeleteConditionVariable(OS_Handle input);
-internal b32 OS_WaitConditionVariable(OS_Handle cv, OS_Handle m);
-internal b32 OS_WaitRConditionVariable(OS_Handle cv, OS_Handle m);
-internal b32 OS_WaitRWConditionVariable(OS_Handle cv, OS_Handle m);
-internal void OS_SignalConditionVariable(OS_Handle cv);
-internal void OS_BroadcastConditionVariable(OS_Handle cv);
-
-//////////////////////////////
-/// Events
-///
-internal OS_Handle OS_CreateSignal();
-internal b32 OS_SignalWait(OS_Handle input, u32 time);
-internal void OS_RaiseSignal(OS_Handle input);
-
-/////////////////////////////////////////////////////
-// System Info
-//
-internal u32 OS_NumProcessors();
-
-//////////////////////////////
-// zzz
-//
-internal void OS_Sleep(u32 milliseconds);
-
 //////////////////////////////
 // I/O
 //
@@ -253,6 +146,138 @@ struct OS_EventList
     u32 numEvents;
 };
 
-internal OS_Events OS_GetEvents(Arena *arena);
+struct OS_DLL;
+
+void Print(char *fmt, ...);
+OS_Handle OS_WindowInit();
+
+f32 OS_NowSeconds();
+
+u64 OS_GetLastWriteTime(string filename);
+string ReadEntireFile(string filename);
+u64 OS_PageSize();
+void *OS_Alloc(u64 size);
+
+void *OS_Reserve(u64 size);
+b8 OS_Commit(void *ptr, u64 size);
+void OS_Release(void *memory);
+
+/////////////////////////////////////////////////////
+// Initialization
+//
+void OS_Init();
+
+//////////////////////////////
+// Input
+//
+V2 OS_GetCenter(OS_Handle handle, b32 screenToClient);
+V2 OS_GetWindowDimension(OS_Handle handle);
+void OS_ToggleCursor(b32 on);
+V2 OS_GetMousePos(OS_Handle handle);
+void OS_SetMousePos(V2 pos);
+
+//////////////////////////////
+// Timing
+//
+f32 OS_GetWallClock();
+
+//////////////////////////////
+// File information
+//
+OS_FileAttributes OS_AttributesFromPath(string path);
+OS_FileAttributes OS_AttributesFromFile(OS_Handle input);
+
+//////////////////////////////
+// Files
+//
+
+OS_Handle OS_OpenFile(OS_AccessFlags flags, string path);
+void OS_CloseFile(OS_Handle input);
+OS_FileAttributes OS_AtributesFromFile(OS_Handle input);
+u64 OS_ReadEntireFile(OS_Handle handle, void *out);
+u64 OS_ReadEntireFile(string path, void *out);
+string OS_ReadEntireFile(Arena *arena, string path);
+u32 OS_ReadFile(OS_Handle handle, void *out, u64 offset, u32 size);
+b32 OS_WriteFile(string filename, void *fileMemory, u32 fileSize);
+
+/////////////////////////////////////////////////////
+// Threads
+//
+OS_Handle OS_ThreadAlloc(OS_ThreadFunction *func, void *ptr);
+OS_Handle OS_ThreadStart(OS_ThreadFunction *func, void *ptr);
+void OS_SetThreadName(string name);
+
+//////////////////////////////
+// Semaphores
+//
+OS_Handle OS_CreateSemaphore(u32 maxCount);
+void OS_ReleaseSemaphore(OS_Handle input);
+void OS_ReleaseSemaphore(OS_Handle input, u32 count);
+
+//////////////////////////////
+// Mutexes
+//
+OS_Handle OS_CreateMutex();
+void OS_DeleteMutex(OS_Handle input);
+void OS_TakeMutex(OS_Handle input);
+void OS_DropMutex(OS_Handle input);
+OS_Handle OS_CreateRWMutex();
+
+//////////////////////////////
+// Read/Write Mutex
+//
+void OS_DeleteRWMutex(OS_Handle input);
+void OS_TakeRMutex(OS_Handle input);
+void OS_DropRMutex(OS_Handle input);
+void OS_TakeWMutex(OS_Handle input);
+void OS_DropWMutex(OS_Handle input);
+
+//////////////////////////////
+// Condition Variables
+//
+OS_Handle OS_CreateConditionVariable();
+void OS_DeleteConditionVariable(OS_Handle input);
+b32 OS_WaitConditionVariable(OS_Handle cv, OS_Handle m);
+b32 OS_WaitRConditionVariable(OS_Handle cv, OS_Handle m);
+b32 OS_WaitRWConditionVariable(OS_Handle cv, OS_Handle m);
+void OS_SignalConditionVariable(OS_Handle cv);
+void OS_BroadcastConditionVariable(OS_Handle cv);
+
+//////////////////////////////
+/// Events
+///
+OS_Handle OS_CreateSignal();
+b32 OS_SignalWait(OS_Handle input, u32 time = U32Max);
+void OS_RaiseSignal(OS_Handle input);
+
+/////////////////////////////////////////////////////
+// System Info
+//
+u32 OS_NumProcessors();
+
+//////////////////////////////
+// zzz
+//
+void OS_Sleep(u32 milliseconds);
+
+OS_Events OS_GetEvents(Arena *arena);
+
+//////////////////////////////
+// File directory
+//
+string OS_GetCurrentWorkingDirectory();
+OS_FileIter OS_DirectoryIterStart(string path, OS_FileIterFlags flags);
+b32 OS_DirectoryIterNext(Arena *arena, OS_FileIter *input, OS_FileProperties *out);
+void OS_DirectoryIterEnd(OS_FileIter *input);
+
+string OS_GetBinaryDirectory();
+void OS_ToggleFullscreen(OS_Handle handle);
+b32 OS_WindowIsFocused(OS_Handle handle);
+void OS_SetMousePos(OS_Handle handle, V2 pos);
+
+void OS_ThreadJoin(OS_Handle handle);
+
+void OS_UnloadDLL(OS_DLL *dll);
+void OS_LoadDLL(OS_DLL *dll);
 
 #endif

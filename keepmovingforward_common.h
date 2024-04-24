@@ -70,7 +70,8 @@ typedef i64 b64;
 #define gigabytes(value)   (megabytes(value) * 1024LL)
 #define terabytes(value)   (gigabytes(value) * 1024LL)
 
-internal void Printf(char *fmt, ...);
+typedef void print_func(char *fmt, ...);
+print_func *Printf;
 
 #ifdef COMPILER_MSVC
 #define Trap() __debugbreak()
@@ -79,22 +80,15 @@ internal void Printf(char *fmt, ...);
 #endif
 #if UNOPTIMIZED
 // #define Assert(expression) (!(expression) ? (*(volatile int *)0 = 0, 0) : 0)
-#define Assert(expression)                                                                                        \
-    if (expression)                                                                                               \
-    {                                                                                                             \
-    }                                                                                                             \
-    else                                                                                                          \
-    {                                                                                                             \
-        Printf("Assert fired\nExpression: %s\nFile: %s\nLine Num: %u\n", #expression, __FILE__, __LINE__);        \
-        Trap();                                                                                                   \
+#define Assert(expression)                                                                                 \
+    if (expression)                                                                                        \
+    {                                                                                                      \
+    }                                                                                                      \
+    else                                                                                                   \
+    {                                                                                                      \
+        Printf("Assert fired\nExpression: %s\nFile: %s\nLine Num: %u\n", #expression, __FILE__, __LINE__); \
+        Trap();                                                                                            \
     }
-// do
-// {
-//     if (!(expression))
-//     {
-//         Trap();
-//     }
-// } while (0);
 #else
 #define Assert(expression) (void)(expression)
 #endif
@@ -109,12 +103,12 @@ internal void Printf(char *fmt, ...);
 #endif
 
 #define Unreachable Assert(!"Unreachable")
-#define Swap(type, a, b)                                                                                          \
-    do                                                                                                            \
-    {                                                                                                             \
-        type _swapper_ = a;                                                                                       \
-        a              = b;                                                                                       \
-        b              = _swapper_;                                                                               \
+#define Swap(type, a, b)            \
+    do                              \
+    {                               \
+        type _swapper_ = a;         \
+        a              = b;         \
+        b              = _swapper_; \
     } while (0)
 
 // NOTE: does it matter that this is a u64 instead of uintptr_t?
@@ -126,22 +120,22 @@ internal void Printf(char *fmt, ...);
 #define MemoryZero(ptr, size) MemorySet((ptr), 0, (size))
 #define MemoryZeroStruct(ptr) MemorySet((ptr), 0, sizeof(*(ptr)))
 
-#define ArrayInit(arena, array, type, _cap)                                                                       \
-    do                                                                                                            \
-    {                                                                                                             \
-        array.cap   = _cap;                                                                                       \
-        array.items = PushArray(arena, type, _cap);                                                               \
+#define ArrayInit(arena, array, type, _cap)         \
+    do                                              \
+    {                                               \
+        array.cap   = _cap;                         \
+        array.items = PushArray(arena, type, _cap); \
     } while (0)
 
-#define Array(type)                                                                                               \
-    struct                                                                                                        \
-    {                                                                                                             \
-        type *items = 0;                                                                                          \
-        u32 count   = 0;                                                                                          \
-        u32 cap     = 0;                                                                                          \
+#define Array(type)      \
+    struct               \
+    {                    \
+        type *items = 0; \
+        u32 count   = 0; \
+        u32 cap     = 0; \
     }
-#define ArrayPush(array, item)                                                                                    \
-    Assert((array)->count < (array)->cap);                                                                        \
+#define ArrayPush(array, item)             \
+    Assert((array)->count < (array)->cap); \
     (array)->items[(array)->count++] = item
 
 // Loops
@@ -155,8 +149,8 @@ internal void Printf(char *fmt, ...);
     for (u32 STRING_JOIN(i, __LINE__) = 0; STRING_JOIN(i, __LINE__) < (array)->count; STRING_JOIN(i, __LINE__)++) \
         if ((val = (array)->items[STRING_JOIN(i, __LINE__)]), 1)
 
-#define foreach_index(array, ptr, index)                                                                          \
-    for (u32 index = 0; index < (array)->count; index++)                                                          \
+#define foreach_index(array, ptr, index)                 \
+    for (u32 index = 0; index < (array)->count; index++) \
         if ((ptr = (array)->items + index) != 0)
 
 #define loopi(start, end) for (u32 i = start; i < end; i++)
@@ -169,21 +163,21 @@ internal void Printf(char *fmt, ...);
 //
 #define CheckNull(p) ((p) == 0)
 #define SetNull(p)   ((p) = 0)
-#define QueuePush_NZ(f, l, n, next, zchk, zset)                                                                   \
+#define QueuePush_NZ(f, l, n, next, zchk, zset) \
     (zchk(f) ? (((f) = (l) = (n)), zset((n)->next)) : ((l)->next = (n), (l) = (n), zset((n)->next)))
 #define SLLStackPop_N(f, next)     ((f) = (f)->next)
 #define SLLStackPush_N(f, n, next) ((n)->next = (f), (f) = (n))
 
-#define DLLInsert_NPZ(f, l, p, n, next, prev, zchk, zset)                                                         \
-    (zchk(f)   ? (((f) = (l) = (n)), zset((n)->next), zset((n)->prev))                                            \
-     : zchk(p) ? (zset((n)->prev), (n)->next = (f), (zchk(f) ? (0) : ((f)->prev = (n))), (f) = (n))               \
-               : ((zchk((p)->next) ? (0) : (((p)->next->prev) = (n))), (n)->next = (p)->next, (n)->prev = (p),    \
+#define DLLInsert_NPZ(f, l, p, n, next, prev, zchk, zset)                                                      \
+    (zchk(f)   ? (((f) = (l) = (n)), zset((n)->next), zset((n)->prev))                                         \
+     : zchk(p) ? (zset((n)->prev), (n)->next = (f), (zchk(f) ? (0) : ((f)->prev = (n))), (f) = (n))            \
+               : ((zchk((p)->next) ? (0) : (((p)->next->prev) = (n))), (n)->next = (p)->next, (n)->prev = (p), \
                   (p)->next = (n), ((p) == (l) ? (l) = (n) : (0))))
 #define DLLPushBack_NPZ(f, l, n, next, prev, zchk, zset) DLLInsert_NPZ(f, l, l, n, next, prev, zchk, zset)
-#define DLLRemove_NPZ(f, l, n, next, prev, zchk, zset)                                                            \
-    (((f) == (n))   ? ((f) = (f)->next, (zchk(f) ? (zset(l)) : zset((f)->prev)))                                  \
-     : ((l) == (n)) ? ((l) = (l)->prev, (zchk(l) ? (zset(f)) : zset((l)->next)))                                  \
-                    : ((zchk((n)->next) ? (0) : ((n)->next->prev = (n)->prev)),                                   \
+#define DLLRemove_NPZ(f, l, n, next, prev, zchk, zset)                           \
+    (((f) == (n))   ? ((f) = (f)->next, (zchk(f) ? (zset(l)) : zset((f)->prev))) \
+     : ((l) == (n)) ? ((l) = (l)->prev, (zchk(l) ? (zset(f)) : zset((l)->next))) \
+                    : ((zchk((n)->next) ? (0) : ((n)->next->prev = (n)->prev)),  \
                        (zchk((n)->prev) ? (0) : ((n)->prev->next = (n)->next))))
 
 #define QueuePush(f, l, n) QueuePush_NZ(f, l, n, next, CheckNull, SetNull)
@@ -199,9 +193,9 @@ internal void Printf(char *fmt, ...);
 // Atomics
 //
 #if COMPILER_MSVC
-#define AtomicCompareExchangeU32(dest, src, expected)                                                             \
+#define AtomicCompareExchangeU32(dest, src, expected) \
     (u32)(_InterlockedCompareExchange((long volatile *)dest, src, expected))
-#define AtomicCompareExchangeU64(dest, src, expected)                                                             \
+#define AtomicCompareExchangeU64(dest, src, expected) \
     (u64) _InterlockedCompareExchange64((__int64 volatile *)dest, src, expected)
 
 // NOTE: returns the initial value
@@ -215,7 +209,7 @@ inline i32 AtomicCompareExchange(i32 *dest, i32 src, i32 expected)
 }
 
 typedef void *PVOID;
-#define AtomicCompareExchangePtr(dest, src, expected)                                                             \
+#define AtomicCompareExchangePtr(dest, src, expected) \
     _InterlockedCompareExchangePointer((volatile PVOID *)dest, src, expected)
 
 inline u32 AtomicIncrementU32(u32 volatile *dest)
@@ -251,8 +245,8 @@ inline i32 AtomicAddI32(i32 volatile *dest, i32 addend)
 #define AtomicDecrementU64(dest)   _InterlockedDecrement64((__int64 volatile *)dest)
 #define AtomicAddU32(dest, addend) _InterlockedExchangeAdd((long volatile *)dest, addend)
 #define AtomicAddU64(dest, addend) _InterlockedExchangeAdd64((__int64 volatile *)dest, addend)
-#define WriteBarrier()                                                                                            \
-    _WriteBarrier();                                                                                              \
+#define WriteBarrier() \
+    _WriteBarrier();   \
     _mm_sfence();
 #define ReadBarrier() _ReadBarrier();
 
@@ -377,5 +371,11 @@ inline void EndLock(FakeLock *lock)
 //
 #define Glue(a, b)             a##b
 #define StaticAssert(expr, ID) global u8 Glue(ID, __LINE__)[(expr) ? 1 : -1]
+
+#ifdef GAME_DLL
+#define SHARED extern
+#else
+#define SHARED
+#endif
 
 #endif

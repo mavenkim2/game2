@@ -52,7 +52,6 @@ struct AS_Asset;
 struct AS_Thread
 {
     OS_Handle handle;
-    Arena *arena;
 };
 
 // #if 0

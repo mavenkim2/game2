@@ -1,11 +1,25 @@
 #ifndef OPENGL_H
 #define OPENGL_H
 
-#include "../crack.h"
-#ifdef LSP_INCLUDE
-#include "./render.h"
+#include "../keepmovingforward_common.h"
+#include "../keepmovingforward_math.h"
+#include "../keepmovingforward_memory.h"
+#include "../keepmovingforward_string.h"
+#include "../platform_inc.h"
 #include "render_core.h"
-#endif
+#include "../shared.h"
+#include "../keepmovingforward_camera.h"
+#include "../thread_context.h"
+// #include "../font.h"
+// #include "../job.h"
+// #include "../asset.h"
+// #include "../asset_cache.h"
+// TODO: this one file is making me include 5 million other files?
+// #include "../debug.h"
+#include "../asset.h"
+
+#include "vertex_cache.h"
+#include "render.h"
 
 #if WINDOWS
 #include <windows.h>
@@ -397,7 +411,7 @@ public:
     R_BufferHandle GetProgramApiObject(R_ShaderType type);
     void BindVertexAttribs(R_ShaderType type);
 
-    const string cGlobalsPath = "src/shaders/global.glsl";
+    string cGlobalsPath;
     u64 mLastModifiedGlobals;
 
     R_ShaderLoadInfo mShaderLoadInfo[R_ShaderType_Count];
@@ -418,7 +432,16 @@ private:
     void LoadPrograms();
 };
 
-global R_ProgramManager gRenderProgramManager;
+struct OpenGLInfo
+{
+    char *version;
+    char *shaderVersion;
+    b32 framebufferArb;
+    b32 textureExt;
+    b32 shaderDrawParametersArb;
+    b32 persistentMap;
+    b8 sparse;
+};
 
 struct R_OpenGL_Buffer
 {
@@ -559,6 +582,12 @@ struct OpenGL
     GLuint depthMapTextureArray;
     GLuint lightMatrixUBO;
 
+    // prog manager
+    R_ProgramManager progManager;
+
+    // info
+    OpenGLInfo openGLInfo;
+
     OpenGLFunction(glGenBuffers);
     OpenGLFunction(glBindBuffer);
     OpenGLFunction(glBufferData);
@@ -618,16 +647,15 @@ struct OpenGL
     OpenGLFunction(glMultiDrawElementsIndirect);
 };
 
-global OpenGL _openGL;
-global OpenGL *openGL = &_openGL;
+global OpenGL *openGL;
 
 //////////////////////////////
 // Functions
 //
 internal void R_Init(Arena *arena, OS_Handle handle);
 internal void R_OpenGL_Init();
-internal void R_Win32_OpenGL_Init(OS_Handle handle);
-internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int clientHeight);
+internal OpenGL *R_Win32_OpenGL_Init(OS_Handle handle);
+internal void R_Win32_OpenGL_EndFrame(RenderState *renderState, HDC deviceContext, int clientWidth, int clientHeight);
 internal GLuint R_OpenGL_CreateShader(Arena *arena, string globalsPath, string vsPath, string fsPath,
                                       string gsPath, string preprocess);
 internal GLuint R_OpenGL_CompileShader(char *globals, char *vs, char *fs);
@@ -635,13 +663,16 @@ internal GLuint R_OpenGL_CompileShader(char *globals, char *vs, char *fs);
 internal void R_OpenGL_StartShader(RenderState *state, R_ShaderType type, void *group);
 internal void R_OpenGL_EndShader(R_ShaderType type);
 
-r_allocate_texture_2D *R_AllocateTexture;
-
-R_ALLOCATE_TEXTURE_2D(R_AllocateTexture2D);
-R_ALLOCATE_TEXTURE_2D(R_AllocateTextureInArray);
-R_ALLOCATE_BUFFER(R_AllocateBuffer);
+DLL R_ALLOCATE_TEXTURE_2D(R_AllocateTexture2D);
+DLL R_ALLOCATE_TEXTURE_2D(R_AllocateTextureInArray);
+DLL R_ALLOCATE_BUFFER(R_AllocateBuffer);
 internal void R_OpenGL_LoadBuffers();
 internal void R_OpenGL_LoadTextures();
+
+DLL void R_InitializeBuffer(GPUBuffer *ioBuffer, const BufferUsageType inUsageType, const i32 inSize);
+DLL void R_MapGPUBuffer(GPUBuffer *buffer);
+DLL void R_UnmapGPUBuffer(GPUBuffer *buffer);
+DLL void R_UpdateBuffer(GPUBuffer *buffer, BufferUsageType type, void *data, i32 offset, i32 size);
 
 //////////////////////////////
 // Handle
@@ -694,6 +725,7 @@ inline GLint R_OpenGL_GetBufferFromHandle(R_BufferHandle handle)
     return result;
 }
 
-global RenderState *renderState;
+// NOTE: this is completely unused in this translation unit.
+RendererApi renderer;
 
 #endif

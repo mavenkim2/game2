@@ -9,6 +9,7 @@
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "../third_party/stb_truetype.h"
 
+Engine *engine;
 //////////////////////////////
 // Globals
 //
@@ -92,8 +93,8 @@ internal void *LoadAndWriteModel(void *ptr, Arena *arena)
     if (scene->mMeshes[0]->mNumBones == 0)
     {
         // Mat4 rootTransform = ConvertAssimpMatrix4x4(scene->mRootNode->mTransformation);
-        model.numMeshes    = scene->mNumMeshes;
-        model.meshes       = PushArray(scratch.arena, InputMesh, model.numMeshes);
+        model.numMeshes = scene->mNumMeshes;
+        model.meshes    = PushArray(scratch.arena, InputMesh, model.numMeshes);
         for (u32 i = 0; i < scene->mNumMeshes; i++)
         {
             InputMesh *inputMesh = &model.meshes[i];
@@ -104,7 +105,7 @@ internal void *LoadAndWriteModel(void *ptr, Arena *arena)
             for (u32 vertexIndex = 0; vertexIndex < inputMesh->vertexCount; vertexIndex++)
             {
                 // inputMesh->vertices[vertexIndex].position =
-                    // rootTransform * inputMesh->vertices[vertexIndex].position;
+                // rootTransform * inputMesh->vertices[vertexIndex].position;
                 AddBounds(inputMesh->bounds, inputMesh->vertices[vertexIndex].position);
             }
         }
@@ -373,16 +374,17 @@ internal void ProcessMesh(Arena *arena, InputMesh *inputMesh, const aiScene *sce
         *texturePath = PathSkipLastSlash(*texturePath);
     }
     // Specular
-    // for (u32 i = 0; i < mMaterial->GetTextureCount(aiTextureType_SPECULAR); i++)
-    // {
-    //     aiString str;
-    //     mMaterial->GetTexture(aiTextureType_SPECULAR, i, &str);
-    //     string *texturePath = &material->texture[TextureType_Specular];
-    //     texturePath->size   = str.length;
-    //     texturePath->str    = PushArray(arena, u8, str.length);
-    //     MemoryCopy(texturePath->str, str.data, str.length);
-    //     *texturePath = PathSkipLastSlash(*texturePath);
-    // }
+    for (u32 i = 0; i < mMaterial->GetTextureCount(aiTextureType_UNKNOWN); i++)
+    {
+        aiString str;
+        mMaterial->GetTexture(aiTextureType_UNKNOWN, i, &str);
+        int pause = 5;
+        // string *texturePath = &material->texture[TextureType_Specular];
+        // texturePath->size   = str.length;
+        // texturePath->str    = PushArray(arena, u8, str.length);
+        // MemoryCopy(texturePath->str, str.data, str.length);
+        // *texturePath = PathSkipLastSlash(*texturePath);
+    }
     // Normals
     for (u32 i = 0; i < mMaterial->GetTextureCount(aiTextureType_NORMALS); i++)
     {
@@ -769,7 +771,7 @@ internal void WriteAnimationToFile(CompressedKeyframedAnimation *animation, stri
                                rotationWrites[i]);
     }
 
-    b32 success = WriteFile(filename, result.str, (u32)result.size);
+    b32 success = OS_WriteFile(filename, result.str, (u32)result.size);
     if (!success)
     {
         Printf("Failed to write file %S\n", filename);
@@ -1239,6 +1241,7 @@ internal void SkinModelToBindPose(const InputModel *inModel, Mat4 *outFinalTrans
     ScratchEnd(temp);
 }
 
+PlatformApi platform;
 // Model processing entry point
 int main(int argc, char *argv[])
 {

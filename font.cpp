@@ -11,14 +11,13 @@
 #include "third_party/stb_image_write.h"
 // internal void DrawText(string text, u32 fontSize, AS_Handle font, u32 x, u32 y) {}
 
-global F_State *f_state;
-
 struct AS_Node;
 
 internal void F_Init()
 {
-    Arena *arena           = ArenaAlloc();
-    f_state                = PushStruct(arena, F_State);
+    Arena *arena     = ArenaAlloc();
+    F_State *f_state = PushStruct(arena, F_State);
+    engine->SetFontState(f_state);
     f_state->arena         = arena;
     f_state->numStyleSlots = 1024;
     f_state->styleSlots    = PushArray(arena, F_StyleSlot, f_state->numStyleSlots);
@@ -35,6 +34,7 @@ internal F_Data F_InitializeFont(u8 *buffer)
 // internal F_Metrics F_GetMetrics(F_Handle font, f32 size) {}
 internal F_StyleNode *F_GetStyleFromFontSize(AS_Handle font, f32 size)
 {
+    F_State *f_state          = engine->GetFontState();
     u64 buffer[]              = {(u64)font.i64[0], (u64)Round(size)};
     u64 hash                  = HashFromString(Str8((u8 *)buffer, sizeof(buffer)));
     F_StyleSlot *slot         = &f_state->styleSlots[hash & (f_state->numStyleSlots - 1)];
@@ -124,7 +124,7 @@ internal F_RasterInfo *F_Raster(Font *font, F_StyleNode *node, string str)
         info->advance = (i32)(advance * node->scale);
         if (width != 0 && height != 0)
         {
-            info->handle = R_AllocateTexture(outBitmap, width, height, R_TexFormat_RGBA8); // R_TexFormat_R8);
+            info->handle = renderer.R_AllocateTexture(outBitmap, width, height, R_TexFormat_RGBA8); // R_TexFormat_R8);
         }
     }
     return info;

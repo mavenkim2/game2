@@ -39,12 +39,33 @@ struct Win32_FileIter
     WIN32_FIND_DATAA findData;
 };
 
-///////////////////////////////////////
-// Threads
-//
-internal Win32_Sync *Win32_SyncAlloc(Win32_SyncType type);
-internal void Win32_SyncFree(Win32_Sync *sync);
-internal DWORD Win32_ThreadProc(void *ptr);
+struct Win32_State
+{
+    Arena *mArena;
+    Win32_Sync *mFreeSync;
+    i64 mPerformanceFrequency;
+    b32 mGranularSleep;
+
+    string mBinaryDirectory;
+
+    HINSTANCE mHInstance;
+
+    b32 mShowCursor;
+
+    Arena *mTempEventArena;
+    OS_EventList mEventsList;
+
+    TicketMutex mMutex;
+
+    u64 mStartCounter;
+
+    WINDOWPLACEMENT mWindowPosition = {sizeof(WINDOWPLACEMENT)};
+};
+
+void Win32_AddEvent(OS_Event event);
+OS_Event Win32_CreateKeyEvent(OS_Key key, b32 isDown);
+Win32_Sync *Win32_SyncAlloc(Win32_SyncType type);
+void Win32_SyncFree(Win32_Sync *sync);
 
 //////////////////////////////
 // File information

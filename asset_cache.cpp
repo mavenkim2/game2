@@ -21,17 +21,14 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "third_party/stb_image.h"
 
-//////////////////////////////
-// Globals
-//
-global AS_CacheState *as_state = 0;
-
+global volatile b32 gTerminateThreads;
 // const i32 invalidIndex = -1;
 
 internal void AS_Init()
 {
-    Arena *arena    = ArenaAlloc(megabytes(512));
-    as_state        = PushStruct(arena, AS_CacheState);
+    Arena *arena            = ArenaAlloc(megabytes(512));
+    AS_CacheState *as_state = PushStruct(arena, AS_CacheState);
+    engine->SetAssetCacheState(as_state);
     as_state->arena = arena;
 
     // as_state->numSlots   = 1024;
@@ -70,45 +67,44 @@ internal void AS_Init()
     as_state->ringBuffer     = PushArray(arena, u8, as_state->ringBufferSize);
 
     as_state->threadCount    = 1; // Min(1, OS_NumProcessors() - 1);
-    as_state->readSemaphore  = OS_CreateSemaphore(as_state->threadCount);
-    as_state->writeSemaphore = OS_CreateSemaphore(as_state->threadCount);
+    as_state->readSemaphore  = platform.OS_CreateSemaphore(as_state->threadCount);
+    as_state->writeSemaphore = platform.OS_CreateSemaphore(as_state->threadCount);
 
     AS_InitializeAllocator();
 
     as_state->threads = PushArray(arena, AS_Thread, as_state->threadCount);
     for (u64 i = 0; i < as_state->threadCount; i++)
     {
-        as_state->threads[i].handle = OS_ThreadStart(AS_EntryPoint, (void *)i);
-        as_state->threads[i].arena  = ArenaAlloc();
+        as_state->threads[i].handle = platform.OS_ThreadStart(AS_EntryPoint, (void *)i);
     }
-#if 0
-    as_state->hotloadThread = OS_ThreadStart(AS_HotloadEntryPoint, 0);
-#endif
-
-#if 0
-    // Block allocator
-    // 64 2 megabyte blocks
-    // SEPARATE linked list of headers that point to spot in memory,
-
-    as_state->numBlocks           = 128;
-    as_state->blockSize           = megabytes(1);
-    as_state->blockBackingBuffer  = PushArray(arena, u8, as_state->numBlocks * as_state->blockSize);
-    as_state->memoryHeaderNodes   = PushArray(arena, AS_MemoryHeaderNode, as_state->numBlocks);
-    AS_MemoryHeaderNode *sentinel = &as_state->freeBlockSentinel;
-    sentinel->next                = sentinel;
-    sentinel->prev                = sentinel;
-    for (u32 i = 0; i < as_state->numBlocks; i++)
-    {
-        AS_MemoryHeaderNode *headerNode = &as_state->memoryHeaderNodes[i];
-        AS_MemoryHeader *header         = &headerNode->header;
-        header->buffer                  = as_state->blockBackingBuffer + as_state->blockSize * i;
-
-        headerNode->next       = sentinel;
-        headerNode->prev       = sentinel->prev;
-        headerNode->next->prev = headerNode;
-        headerNode->prev->next = headerNode;
-    }
-#endif
+    // #if 0
+    //     as_state->hotloadThread = OS_ThreadStart(AS_HotloadEntryPoint, 0);
+    // #endif
+    //
+    // #if 0
+    //     // Block allocator
+    //     // 64 2 megabyte blocks
+    //     // SEPARATE linked list of headers that point to spot in memory,
+    //
+    //     as_state->numBlocks           = 128;
+    //     as_state->blockSize           = megabytes(1);
+    //     as_state->blockBackingBuffer  = PushArray(arena, u8, as_state->numBlocks * as_state->blockSize);
+    //     as_state->memoryHeaderNodes   = PushArray(arena, AS_MemoryHeaderNode, as_state->numBlocks);
+    //     AS_MemoryHeaderNode *sentinel = &as_state->freeBlockSentinel;
+    //     sentinel->next                = sentinel;
+    //     sentinel->prev                = sentinel;
+    //     for (u32 i = 0; i < as_state->numBlocks; i++)
+    //     {
+    //         AS_MemoryHeaderNode *headerNode = &as_state->memoryHeaderNodes[i];
+    //         AS_MemoryHeader *header         = &headerNode->header;
+    //         header->buffer                  = as_state->blockBackingBuffer + as_state->blockSize * i;
+    //
+    //         headerNode->next       = sentinel;
+    //         headerNode->prev       = sentinel->prev;
+    //         headerNode->next->prev = headerNode;
+    //         headerNode->prev->next = headerNode;
+    //     }
+    // #endif
 
     // Asset tag trees
     as_state->tagMap.maxSlots = AS_TagKey_Count;
@@ -117,6 +113,33 @@ internal void AS_Init()
     {
         as_state->tagMap.slots[i].maxCount = 256;
         as_state->tagMap.slots[i].nodes    = PushArray(arena, AS_TagNode, as_state->tagMap.slots[i].maxCount);
+    }
+}
+
+internal void AS_Flush()
+{
+    gTerminateThreads = 1;
+    WriteBarrier();
+
+    AS_CacheState *as_state = engine->GetAssetCacheState();
+    platform.OS_ReleaseSemaphores(as_state->readSemaphore, as_state->threadCount);
+    // platform.OS_ReleaseSemaphores(js_state->readSemaphore, js_state->threadCount);
+    // platform.OS_ReleaseSemaphore(as_state->readSemaphore);
+    // platform.OS_ReleaseSemaphore(as_state->writeSemaphore);
+
+    for (u64 i = 0; i < as_state->threadCount; i++)
+    {
+        platform.OS_ThreadJoin(as_state->threads[i].handle);
+    }
+}
+
+internal void AS_Restart()
+{
+    gTerminateThreads       = 0;
+    AS_CacheState *as_state = engine->GetAssetCacheState();
+    for (u64 i = 0; i < as_state->threadCount; i++)
+    {
+        as_state->threads[i].handle = platform.OS_ThreadStart(AS_EntryPoint, (void *)i);
     }
 }
 
@@ -150,8 +173,9 @@ internal u64 RingWrite(u8 *base, u64 ringSize, u64 writePos, void *src, u64 srcS
 // TODO: timeout if it takes too long for a file to be loaded?
 internal b32 AS_EnqueueFile(string path)
 {
-    b32 sent      = 0;
-    u64 writeSize = sizeof(path.size) + path.size;
+    AS_CacheState *as_state = engine->GetAssetCacheState();
+    b32 sent                = 0;
+    u64 writeSize           = sizeof(path.size) + path.size;
     Assert(writeSize < as_state->ringBufferSize);
     for (;;)
     {
@@ -171,39 +195,37 @@ internal b32 AS_EnqueueFile(string path)
             break;
         }
         EndTicketMutex(&as_state->mutex);
-        OS_SignalWait(as_state->writeSemaphore);
+        // Ideally this should never signal
+        platform.OS_SignalWait(as_state->writeSemaphore);
     }
     if (sent)
     {
-        OS_ReleaseSemaphore(as_state->readSemaphore);
+        platform.OS_ReleaseSemaphore(as_state->readSemaphore);
     }
     return sent;
 }
 
 internal string AS_DequeueFile(Arena *arena)
 {
-    string result = {};
-    for (;;)
-    {
-        BeginTicketMutex(&as_state->mutex);
+    AS_CacheState *as_state = engine->GetAssetCacheState();
+    string result;
+    result.size = 0;
+    BeginTicketMutex(&as_state->mutex);
 
-        u64 availableSize = as_state->writePos - as_state->readPos;
-        if (availableSize >= sizeof(u64))
-        {
-            as_state->readPos +=
-                RingReadStruct(as_state->ringBuffer, as_state->ringBufferSize, as_state->readPos, &result.size);
-            result.str = PushArrayNoZero(arena, u8, result.size + 1);
-            as_state->readPos += RingRead(as_state->ringBuffer, as_state->ringBufferSize, as_state->readPos,
-                                          result.str, result.size);
-            as_state->readPos       = AlignPow2(as_state->readPos, 8);
-            result.str[result.size] = 0;
-            EndTicketMutex(&as_state->mutex);
-            break;
-        }
-        EndTicketMutex(&as_state->mutex);
-        OS_SignalWait(as_state->readSemaphore);
+    u64 availableSize = as_state->writePos - as_state->readPos;
+    if (availableSize >= sizeof(u64))
+    {
+        as_state->readPos +=
+            RingReadStruct(as_state->ringBuffer, as_state->ringBufferSize, as_state->readPos, &result.size);
+        result.str = PushArrayNoZero(arena, u8, result.size + 1);
+        as_state->readPos += RingRead(as_state->ringBuffer, as_state->ringBufferSize, as_state->readPos,
+                                      result.str, result.size);
+        as_state->readPos       = AlignPow2(as_state->readPos, 8);
+        result.str[result.size] = 0;
+        platform.OS_ReleaseSemaphore(as_state->writeSemaphore);
     }
-    OS_ReleaseSemaphore(as_state->writeSemaphore);
+    EndTicketMutex(&as_state->mutex);
+
     return result;
 }
 
@@ -215,132 +237,150 @@ internal string AS_DequeueFile(Arena *arena)
 // single-threaded, or if stuff can be timed so that it doesn't overlap somehow?
 internal void AS_EntryPoint(void *p)
 {
+    ThreadContext tContext_ = {};
+    ThreadContextInitialize(&tContext_);
+
+    AS_CacheState *as_state = engine->GetAssetCacheState();
     SetThreadName(Str8Lit("[AS] Scanner"));
-    for (;;)
+    for (; !gTerminateThreads;)
     {
         TempArena scratch = ScratchStart(0, 0);
-        string path       = AS_DequeueFile(scratch.arena);
+        string path;
+        path.size = 0;
 
-        OS_Handle handle             = OS_OpenFile(OS_AccessFlag_Read | OS_AccessFlag_ShareRead, path);
-        OS_FileAttributes attributes = OS_AttributesFromFile(handle);
-        // If the file doesn't exist, abort
-        if (attributes.lastModified == 0 && attributes.size == 0)
+        path = AS_DequeueFile(scratch.arena);
+
+        if (path.size != 0)
         {
-            continue;
-        }
 
-        // u64 hash = HashFromString(path);
-        // as_state->fileHash.
-
-        AS_Asset *asset = 0;
-
-        i32 hash = HashFromString(path);
-        Assert(((as_state->assetCapacity) & (as_state->assetCapacity - 1)) == 0);
-
-        // The asset should've been added to the cache already.
-        for (i32 i = AS_FirstInHash(hash); i != -1; i = AS_NextInHash(i))
-        {
-            AS_Asset *nextAsset = as_state->assets[i];
-            if (nextAsset->path == path)
-            {
-                asset = nextAsset;
-                break;
-            }
-        }
-
-        if (asset == 0)
-        {
-            Assert(!"Space for asset not made");
-        }
-
-        // Freed/new assets have a "lastModified" timestamp of 0. Assets to be hotloaded have a timestamp != 0.
-        if (asset->lastModified != 0)
-        {
-            // If the model is reloaded while it's still in the process of loading, cancel the request. (the
-            // hotload)
-            if (AtomicCompareExchangeU32(&asset->status, AS_Status_Unloaded, AS_Status_Loaded) != AS_Status_Loaded)
+            OS_Handle handle             = platform.OS_OpenFile(OS_AccessFlag_Read | OS_AccessFlag_ShareRead, path);
+            OS_FileAttributes attributes = platform.OS_AttributesFromFile(handle);
+            // If the file doesn't exist, abort
+            if (attributes.lastModified == 0 && attributes.size == 0)
             {
                 continue;
             }
 
-            BeginTicketMutex(&as_state->allocator.ticketMutex);
-            AS_Free(asset);
-            Printf("Asset freed");
-            EndTicketMutex(&as_state->allocator.ticketMutex);
-        }
-        asset->lastModified = attributes.lastModified;
+            // u64 hash = HashFromString(path);
+            // as_state->fileHash.
 
-#if 0
-        u64 readCursor = 0;
-        struct AssetFileHeader
-        {
-            AssetFileSectionHeader headers[4];
-        };
-        AssetFileHeader header;
+            AS_Asset *asset = 0;
 
-        // TODO: do I have to manually keep track of the offset?
-        readCursor += OS_ReadFile(handle, &header, readCursor, sizeof(header));
+            i32 hash = HashFromString(path);
+            Assert(((as_state->assetCapacity) & (as_state->assetCapacity - 1)) == 0);
 
-        // TODO: maybe it would just be better to have a temporary buffer hold the contents of the entire file
-        // instead of issuing multiple os read calls, but I feel like worrying about this is a waste of time.
-        for (i32 i = 0; i < ArrayLength(header.headers); i++)
-        {
-            AssetFileSectionHeader *sectionHeader = header.headers + i;
-            if (sectionHeader->size > 0)
+            // The asset should've been added to the cache already.
+            for (i32 i = AS_FirstInHash(hash); i != -1; i = AS_NextInHash(i))
             {
-                string tag = Str8((u8 *)sectionHeader->tag, 4);
-                // temporary memory
-                if (tag == Str8Lit("GPU ") || tag == Str8Lit("TEMP") || tag == Str8Lit("DBG"))
+                AS_Asset *nextAsset = as_state->assets[i];
+                if (nextAsset->path == path)
                 {
-                    // TODO: temporary block allocator or something? or allocating a piece of memory from the
-                    // renderer (i.e. the renderer owns the memory instead of the asset system?)
-
-                    u8 *memory = (u8 *)malloc(sectionHeader->size);
-                    Assert(sectionHeader->offset == readCursor);
-                    readCursor += OS_ReadFile(handle, memory, readCursor, sectionHeader->size);
-                }
-                else if (tag == Str8Lit("MAIN"))
-                {
-                    // TODO: this unfortunately has to be locked.
-                    BeginTicketMutex(&as_state->allocator.ticketMutex);
-                    asset->memoryBlock = AS_Alloc((i32)attributes.size);
-                    EndTicketMutex(&as_state->allocator.ticketMutex);
-
-                    asset->size =
-                        OS_ReadFile(handle, AS_GetMemory(asset->memoryBlock), readCursor, sectionHeader->size);
-                    Assert(asset->size == attributes.size);
-                    readCursor += asset->size;
-                }
-                else
-                {
-                    Assert(!"Invalid tag");
+                    asset = nextAsset;
+                    break;
                 }
             }
-#endif
 
-        BeginTicketMutex(&as_state->allocator.ticketMutex);
-        asset->memoryBlock = AS_Alloc((i32)attributes.size);
-        EndTicketMutex(&as_state->allocator.ticketMutex);
+            if (asset == 0)
+            {
+                Assert(!"Space for asset not made");
+            }
 
-        asset->size = OS_ReadEntireFile(handle, AS_GetMemory(asset));
-        OS_CloseFile(handle);
+            // Freed/new assets have a "lastModified" timestamp of 0. Assets to be hotloaded have a timestamp != 0.
+            if (asset->lastModified != 0)
+            {
+                // If the model is reloaded while it's still in the process of loading, cancel the request. (the
+                // hotload)
+                if (AtomicCompareExchangeU32(&asset->status, AS_Status_Unloaded, AS_Status_Loaded) != AS_Status_Loaded)
+                {
+                    continue;
+                }
 
-        // TODO IMPORTANT: virtual protect the memory so it can only be read
+                BeginTicketMutex(&as_state->allocator.ticketMutex);
+                AS_Free(asset);
+                Printf("Asset freed");
+                EndTicketMutex(&as_state->allocator.ticketMutex);
+            }
+            asset->lastModified = attributes.lastModified;
 
-        // Process the raw asset data
-        JS_Kick(AS_LoadAsset, asset, 0, Priority_Low);
-        ScratchEnd(scratch);
+            // #if 0
+            //         u64 readCursor = 0;
+            //         struct AssetFileHeader
+            //         {
+            //             AssetFileSectionHeader headers[4];
+            //         };
+            //         AssetFileHeader header;
+            //
+            //         // TODO: do I have to manually keep track of the offset?
+            //         readCursor += platform.OS_ReadFile(handle, &header, readCursor, sizeof(header));
+            //
+            //         // TODO: maybe it would just be better to have a temporary buffer hold the contents of the entire file
+            //         // instead of issuing multiple os read calls, but I feel like worrying about this is a waste of time.
+            //         for (i32 i = 0; i < ArrayLength(header.headers); i++)
+            //         {
+            //             AssetFileSectionHeader *sectionHeader = header.headers + i;
+            //             if (sectionHeader->size > 0)
+            //             {
+            //                 string tag = Str8((u8 *)sectionHeader->tag, 4);
+            //                 // temporary memory
+            //                 if (tag == Str8Lit("GPU ") || tag == Str8Lit("TEMP") || tag == Str8Lit("DBG"))
+            //                 {
+            //                     // TODO: temporary block allocator or something? or allocating a piece of memory from the
+            //                     // renderer (i.e. the renderer owns the memory instead of the asset system?)
+            //
+            //                     u8 *memory = (u8 *)malloc(sectionHeader->size);
+            //                     Assert(sectionHeader->offset == readCursor);
+            //                     readCursor += platform.OS_ReadFile(handle, memory, readCursor, sectionHeader->size);
+            //                 }
+            //                 else if (tag == Str8Lit("MAIN"))
+            //                 {
+            //                     // TODO: this unfortunately has to be locked.
+            //                     BeginTicketMutex(&as_state->allocator.ticketMutex);
+            //                     asset->memoryBlock = AS_Alloc((i32)attributes.size);
+            //                     EndTicketMutex(&as_state->allocator.ticketMutex);
+            //
+            //                     asset->size =
+            //                         platform.OS_ReadFile(handle, AS_GetMemory(asset->memoryBlock), readCursor, sectionHeader->size);
+            //                     Assert(asset->size == attributes.size);
+            //                     readCursor += asset->size;
+            //                 }
+            //                 else
+            //                 {
+            //                     Assert(!"Invalid tag");
+            //                 }
+            //             }
+            // #endif
+
+            BeginTicketMutex(&as_state->allocator.ticketMutex);
+            asset->memoryBlock = AS_Alloc((i32)attributes.size);
+            EndTicketMutex(&as_state->allocator.ticketMutex);
+
+            asset->size = platform.OS_ReadFileHandle(handle, AS_GetMemory(asset));
+            platform.OS_CloseFile(handle);
+
+            // TODO IMPORTANT: virtual protect the memory so it can only be read
+
+            // Process the raw asset data
+            JS_Kick(AS_LoadAsset, asset, 0, Priority_Low);
+            ScratchEnd(scratch);
+        }
+        else
+        {
+            ScratchEnd(scratch);
+            platform.OS_SignalWait(as_state->readSemaphore);
+        }
     }
+    ThreadContextRelease();
 }
 
-// TODO BUG: every once in a while hot loading just fails? I'm pretty sure this is an issue with
-// how I'm checking the filetimes. also for some reason every time the file is modified, the
-// write time is modified twice sometimes
 internal void AS_HotloadEntryPoint(void *p)
 {
+    ThreadContext tContext_ = {};
+    ThreadContextInitialize(&tContext_);
+
+    AS_CacheState *as_state = engine->GetAssetCacheState();
     SetThreadName(Str8Lit("[AS] Hotload"));
 
-    for (;;)
+    for (; !gTerminateThreads;)
     {
         for (i32 i = 0; i < as_state->assetEndOfList; i++)
         {
@@ -348,7 +388,7 @@ internal void AS_HotloadEntryPoint(void *p)
             if (asset->lastModified)
             {
                 // If the asset was modified, its write time changes. Need to hotload.
-                OS_FileAttributes attributes = OS_AttributesFromPath(asset->path);
+                OS_FileAttributes attributes = platform.OS_AttributesFromPath(asset->path);
                 u64 lastModified             = asset->lastModified;
                 if (attributes.lastModified != 0 && attributes.lastModified != lastModified)
                 {
@@ -360,8 +400,9 @@ internal void AS_HotloadEntryPoint(void *p)
                 }
             }
         }
-        OS_Sleep(100);
+        platform.OS_Sleep(100);
     }
+    ThreadContextRelease();
 }
 
 //////////////////////////////
@@ -372,7 +413,8 @@ internal void AS_HotloadEntryPoint(void *p)
 
 JOB_CALLBACK(AS_LoadAsset)
 {
-    AS_Asset *asset = (AS_Asset *)data;
+    AS_CacheState *as_state = engine->GetAssetCacheState();
+    AS_Asset *asset         = (AS_Asset *)data;
     if (AtomicCompareExchangeU32(&asset->status, AS_Status_Queued, AS_Status_Unloaded) != AS_Status_Unloaded)
     {
         return 0;
@@ -444,18 +486,19 @@ JOB_CALLBACK(AS_LoadAsset)
 
         Assert(EndOfBuffer(&tokenizer));
 
+        RenderState *state = engine->GetRenderState();
         Init(&model->bounds);
         // Load vertices and indices of each mesh to he GPU
         for (u32 i = 0; i < model->numMeshes; i++)
         {
             Mesh *mesh = &model->meshes[i];
             mesh->surface.vertexBuffer =
-                VC_AllocateBuffer(BufferType_Vertex, BufferUsage_Static, mesh->surface.vertices,
-                                  sizeof(mesh->surface.vertices[0]), mesh->surface.vertexCount);
+                state->vertexCache.VC_AllocateBuffer(BufferType_Vertex, BufferUsage_Static, mesh->surface.vertices,
+                                                     sizeof(mesh->surface.vertices[0]), mesh->surface.vertexCount);
 
             mesh->surface.indexBuffer =
-                VC_AllocateBuffer(BufferType_Index, BufferUsage_Static, mesh->surface.indices,
-                                  sizeof(mesh->surface.indices[0]), mesh->surface.indexCount);
+                state->vertexCache.VC_AllocateBuffer(BufferType_Index, BufferUsage_Static, mesh->surface.indices,
+                                                     sizeof(mesh->surface.indices[0]), mesh->surface.indexCount);
             AddBounds(model->bounds, mesh->surface.bounds);
         }
 
@@ -613,7 +656,7 @@ JOB_CALLBACK(AS_LoadAsset)
         // {
         // }
 
-        asset->texture.handle = R_AllocateTexture(texData, width, height, format);
+        asset->texture.handle = renderer.R_AllocateTexture(texData, width, height, format);
         asset->status         = AS_Status_Loaded;
     }
     else if (extension == Str8Lit("ttf"))
@@ -687,7 +730,8 @@ internal void AS_UnloadAsset(AS_Asset *asset)
 
 internal AS_Asset *AS_GetAssetFromHandle(AS_Handle handle)
 {
-    Assert(sizeof(handle) <= 16);
+    AS_CacheState *as_state = engine->GetAssetCacheState();
+    // Assert(sizeof(handle) <= 16);
 
     AS_Asset *result = 0;
     i32 index        = handle.i32[0];
@@ -703,6 +747,7 @@ internal AS_Asset *AS_GetAssetFromHandle(AS_Handle handle)
 // NOTE: I refuse to synchronize this.
 internal AS_Asset *AS_AllocAsset(const string inPath)
 {
+    AS_CacheState *as_state = engine->GetAssetCacheState();
     BeginFakeLock(&as_state->fakeLock);
 
     AS_Asset *asset = 0;
@@ -738,6 +783,7 @@ internal AS_Asset *AS_AllocAsset(const string inPath)
 
 internal void AS_FreeAsset(AS_Handle handle)
 {
+    AS_CacheState *as_state = engine->GetAssetCacheState();
     BeginFakeLock(&as_state->fakeLock);
     AS_Asset *asset = AS_GetAssetFromHandle(handle);
     if (asset)
@@ -756,8 +802,9 @@ internal void AS_FreeAsset(AS_Handle handle)
 
 internal AS_Handle AS_GetAsset_(const string inPath, const b32 inLoadIfNotFound = 1)
 {
-    AS_Handle result = {};
-    result.i32[0]    = -1;
+    AS_CacheState *as_state = engine->GetAssetCacheState();
+    AS_Handle result        = {};
+    result.i32[0]           = -1;
 
     i32 hash = HashFromString(inPath);
     for (i32 i = AS_FirstInHash(hash); i != -1; i = AS_NextInHash(i))
@@ -1094,13 +1141,15 @@ inline b8 IsAnimNil(KeyframedAnimation *anim)
 //
 internal i32 AS_FirstInHash(i32 hash)
 {
-    i32 result = as_state->fileHash.hash[hash & as_state->fileHash.hashMask];
+    AS_CacheState *as_state = engine->GetAssetCacheState();
+    i32 result              = as_state->fileHash.hash[hash & as_state->fileHash.hashMask];
     return result;
 }
 
 internal i32 AS_NextInHash(i32 index)
 {
-    i32 result = as_state->fileHash.indexChain[index];
+    AS_CacheState *as_state = engine->GetAssetCacheState();
+    i32 result              = as_state->fileHash.indexChain[index];
     return result;
 }
 
@@ -1112,6 +1161,7 @@ internal i32 AS_FirstInHash(string path)
 
 internal void AS_AddInHash(i32 key, i32 index)
 {
+    AS_CacheState *as_state              = engine->GetAssetCacheState();
     i32 hash                             = key & as_state->fileHash.hashMask;
     as_state->fileHash.indexChain[index] = as_state->fileHash.hash[hash];
     as_state->fileHash.hash[hash]        = index;
@@ -1119,7 +1169,8 @@ internal void AS_AddInHash(i32 key, i32 index)
 
 internal void AS_RemoveFromHash(i32 key, i32 index)
 {
-    i32 hash = key & as_state->fileHash.hashMask;
+    AS_CacheState *as_state = engine->GetAssetCacheState();
+    i32 hash                = key & as_state->fileHash.hashMask;
     if (as_state->fileHash.hash[hash] == index)
     {
         as_state->fileHash.hash[hash] = -1;
@@ -1163,8 +1214,9 @@ internal void AS_RemoveFromHash(i32 key, i32 index)
 // and https://github.com/id-Software/DOOM-3-BFG/blob/1caba1979589971b5ed44e315d9ead30b278d8b4/neo/idlib/Heap.h
 internal AS_BTreeNode *AS_AllocNode()
 {
-    AS_BTree *tree        = &as_state->allocator.bTree;
-    AS_BTreeNode *newNode = tree->free;
+    AS_CacheState *as_state = engine->GetAssetCacheState();
+    AS_BTree *tree          = &as_state->allocator.bTree;
+    AS_BTreeNode *newNode   = tree->free;
 
     if (newNode == 0)
     {
@@ -1187,6 +1239,7 @@ internal AS_BTreeNode *AS_AllocNode()
 
 internal void AS_FreeNode(AS_BTreeNode *node)
 {
+    AS_CacheState *as_state = engine->GetAssetCacheState();
     StackPush(as_state->allocator.bTree.free, node);
 }
 
@@ -1194,7 +1247,8 @@ internal void AS_FreeNode(AS_BTreeNode *node)
 // This simplifies the control flow complexity.
 internal AS_BTreeNode *AS_AddNode(AS_MemoryBlockNode *memNode)
 {
-    AS_BTree *tree = &as_state->allocator.bTree;
+    AS_CacheState *as_state = engine->GetAssetCacheState();
+    AS_BTree *tree          = &as_state->allocator.bTree;
     // Assert(memNode->size < as_state->allocator.baseBlockSize);
     AS_BTreeNode *newNode = 0;
 
@@ -1279,6 +1333,8 @@ internal AS_BTreeNode *AS_AddNode(AS_MemoryBlockNode *memNode)
             newNode->parent = node;
             node->numChildren++;
 
+#if 0
+
             // TODO: not sure if this is correct. need some way of visualizing this tree
             if (node != root && node->numChildren > tree->maxChildren)
             {
@@ -1288,10 +1344,11 @@ internal AS_BTreeNode *AS_AddNode(AS_MemoryBlockNode *memNode)
                     node->prev->key = node->prev->last->key;
                 }
             }
+#endif
 
             return newNode;
         }
-#if 0
+#if 1
         if (child->numChildren > tree->maxChildren)
         {
             AS_SplitNode(child);
@@ -1313,6 +1370,7 @@ internal AS_BTreeNode *AS_AddNode(AS_MemoryBlockNode *memNode)
 
 internal void AS_RemoveNode(AS_BTreeNode *node)
 {
+    AS_CacheState *as_state = engine->GetAssetCacheState();
     Assert(node->memoryBlock != 0);
     // Unlink from parent
     if (node->prev)
@@ -1378,9 +1436,10 @@ internal void AS_RemoveNode(AS_BTreeNode *node)
 
 internal void AS_SplitNode(AS_BTreeNode *node)
 {
-    AS_BTreeNode *newNode = AS_AllocNode();
-    newNode->parent       = node->parent;
-    AS_BTreeNode *child   = node->first;
+    AS_CacheState *as_state = engine->GetAssetCacheState();
+    AS_BTreeNode *newNode   = AS_AllocNode();
+    newNode->parent         = node->parent;
+    AS_BTreeNode *child     = node->first;
 
     Assert(node->parent->numChildren < as_state->allocator.bTree.maxChildren);
 
@@ -1419,6 +1478,7 @@ internal void AS_SplitNode(AS_BTreeNode *node)
 
 internal AS_BTreeNode *AS_MergeNodes(AS_BTreeNode *node1, AS_BTreeNode *node2)
 {
+    AS_CacheState *as_state = engine->GetAssetCacheState();
     Assert(node1->parent == node2->parent);
     Assert(node1->next == node2 && node2->prev == node1);
     Assert(node1->memoryBlock == 0 && node2->memoryBlock == 0);
@@ -1454,7 +1514,8 @@ internal AS_BTreeNode *AS_MergeNodes(AS_BTreeNode *node1, AS_BTreeNode *node2)
 
 internal AS_BTreeNode *AS_FindMemoryBlock(i32 size)
 {
-    AS_BTreeNode *root = as_state->allocator.bTree.root;
+    AS_CacheState *as_state = engine->GetAssetCacheState();
+    AS_BTreeNode *root      = as_state->allocator.bTree.root;
 
     AS_BTreeNode *result = 0;
     if (root != 0)
@@ -1484,6 +1545,7 @@ internal AS_BTreeNode *AS_FindMemoryBlock(i32 size)
 
 internal void AS_InitializeAllocator()
 {
+    AS_CacheState *as_state               = engine->GetAssetCacheState();
     Arena *arena                          = ArenaAlloc();
     as_state->allocator.arena             = arena;
     as_state->allocator.bTree.root        = PushStruct(arena, AS_BTreeNode);
@@ -1505,6 +1567,7 @@ internal u8 *AS_GetMemory(AS_Asset *asset)
 
 internal AS_MemoryBlockNode *AS_Alloc(i32 size)
 {
+    AS_CacheState *as_state             = engine->GetAssetCacheState();
     i32 alignedSize                     = AlignPow2(size, 16);
     AS_DynamicBlockAllocator *allocator = &as_state->allocator;
     allocator->usedBlocks++;
@@ -1581,6 +1644,7 @@ internal AS_MemoryBlockNode *AS_Alloc(i32 size)
 
 internal void AS_Free(AS_MemoryBlockNode *memoryBlock)
 {
+    AS_CacheState *as_state = engine->GetAssetCacheState();
     Assert(memoryBlock->node == 0);
     Assert(memoryBlock->isBaseBlock == 0 || memoryBlock->isBaseBlock == 1);
     // Merge the next node if it's free and part of the same contiguous chain

@@ -1,12 +1,9 @@
-#include "../crack.h"
-#ifdef LSP_INCLUDE
-#include "../asset.h"
-#include "../asset_cache.h"
-#include "./render.h"
-#include "./render.cpp"
-#include "./opengl.h"
-#include "vertex_cache.h"
-#endif
+#include "opengl.h"
+
+#include "../keepmovingforward_memory.cpp"
+#include "../keepmovingforward_string.cpp"
+#include "../thread_context.cpp"
+#include "vertex_cache.cpp"
 
 global const i32 GL_ATTRIB_INDEX_POSITION = 0;
 global const i32 GL_ATTRIB_INDEX_NORMAL   = 1;
@@ -142,13 +139,13 @@ internal GLuint R_OpenGL_CreateShader(Arena *arena, string globalsPath, string v
 
     Printf("Vertex shader: %S\n", vsPath);
     Printf("Fragment shader: %S\n", fsPath);
-    string gTemp = OS_ReadEntireFile(temp.arena, globalsPath);
-    string vs    = OS_ReadEntireFile(temp.arena, vsPath);
-    string fs    = OS_ReadEntireFile(temp.arena, fsPath);
+    string gTemp = platform.OS_ReadEntireFile(temp.arena, globalsPath);
+    string vs    = platform.OS_ReadEntireFile(temp.arena, vsPath);
+    string fs    = platform.OS_ReadEntireFile(temp.arena, fsPath);
     string gs    = {};
     if (gsPath.size != 0)
     {
-        gs = OS_ReadEntireFile(temp.arena, gsPath);
+        gs = platform.OS_ReadEntireFile(temp.arena, gsPath);
     }
     string globals = StrConcat(temp.arena, gTemp, preprocess);
 
@@ -249,7 +246,7 @@ internal void R_OpenGL_Init()
     }
 
     // Shaders
-    gRenderProgramManager.Init();
+    openGL->progManager.Init();
 
     // Texture/buffer queues
     {
@@ -265,37 +262,24 @@ internal void R_OpenGL_Init()
     VSyncToggle(1);
 }
 
-struct OpenGLInfo
-{
-    char *version;
-    char *shaderVersion;
-    b32 framebufferArb;
-    b32 textureExt;
-    b32 shaderDrawParametersArb;
-    b32 persistentMap;
-    b8 sparse;
-};
-
-global OpenGLInfo openGLInfo;
-
 internal void OpenGLGetInfo()
 {
     // TODO: I think you have to check wgl get extension string first? who even knows let's just use vulkan
     if (openGL->glGetStringi)
     {
-        openGLInfo.version       = (char *)glGetString(GL_VERSION);
-        openGLInfo.shaderVersion = (char *)glGetString(GL_SHADING_LANGUAGE_VERSION);
-        GLint numExtensions      = 0;
+        openGL->openGLInfo.version       = (char *)glGetString(GL_VERSION);
+        openGL->openGLInfo.shaderVersion = (char *)glGetString(GL_SHADING_LANGUAGE_VERSION);
+        GLint numExtensions              = 0;
         glGetIntegerv(GL_NUM_EXTENSIONS, &numExtensions);
         loopi(0, (u32)numExtensions)
         {
             char *extension = (char *)openGL->glGetStringi(GL_EXTENSIONS, i);
-            if (Str8C(extension) == Str8Lit("GL_EXT_framebuffer_sRGB")) openGLInfo.framebufferArb = true;
-            else if (Str8C(extension) == Str8Lit("GL_ARB_framebuffer_sRGB")) openGLInfo.framebufferArb = true;
-            else if (Str8C(extension) == Str8Lit("GL_EXT_texture_sRGB")) openGLInfo.textureExt = true;
+            if (Str8C(extension) == Str8Lit("GL_EXT_framebuffer_sRGB")) openGL->openGLInfo.framebufferArb = true;
+            else if (Str8C(extension) == Str8Lit("GL_ARB_framebuffer_sRGB")) openGL->openGLInfo.framebufferArb = true;
+            else if (Str8C(extension) == Str8Lit("GL_EXT_texture_sRGB")) openGL->openGLInfo.textureExt = true;
             else if (Str8C(extension) == Str8Lit("GL_ARB_shader_draw_parameters"))
             {
-                openGLInfo.shaderDrawParametersArb = true;
+                openGL->openGLInfo.shaderDrawParametersArb = true;
                 Printf("gl_DrawID should work\n");
             }
             else if (Str8C(extension) == Str8Lit("GL_ARB_texture_non_power_of_two"))
@@ -304,27 +288,44 @@ internal void OpenGLGetInfo()
             }
             else if (Str8C(extension) == Str8Lit("GL_ARB_buffer_storage"))
             {
-                openGLInfo.persistentMap = true;
+                openGL->openGLInfo.persistentMap = true;
             }
         }
     }
 };
 
-internal void R_Init(Arena *arena, OS_Handle handle)
+Shared *shared;
+PlatformApi platform;
+
+DLL R_INIT(R_Init)
 {
-    renderState = PushStruct(arena, RenderState);
+    if (ioRenderMem->mIsHotloaded || !ioRenderMem->mIsLoaded)
+    {
+        platform                  = ioRenderMem->mPlatform;
+        Printf                    = platform.Printf;
+        ioRenderMem->mIsHotloaded = 0;
+        shared                    = ioRenderMem->mShared;
+        ThreadContextSet(ioRenderMem->mTctx);
+        openGL = (OpenGL *)ioRenderMem->mRenderer;
+    }
+
 #if WINDOWS
-    R_Win32_OpenGL_Init(handle);
-    R_AllocateTexture = R_AllocateTextureInArray;
+    if (!ioRenderMem->mIsLoaded)
+    {
+        ioRenderMem->mIsLoaded = 1;
+        ioRenderMem->mRenderer = (PlatformRenderer *)R_Win32_OpenGL_Init(handle);
+    }
 #else
 #error OS not implemented
 #endif
 }
 
-internal void R_Win32_OpenGL_Init(OS_Handle handle)
+internal OpenGL *R_Win32_OpenGL_Init(OS_Handle handle)
 {
-    HWND window = (HWND)handle.handle;
-    HDC dc      = GetDC(window);
+    OpenGL *openGL_ = (OpenGL *)platform.OS_Alloc(sizeof(OpenGL));
+    openGL          = openGL_;
+    HWND window     = (HWND)handle.handle;
+    HDC dc          = GetDC(window);
 
     PIXELFORMATDESCRIPTOR desiredPixelFormat = {};
     desiredPixelFormat.nSize                 = sizeof(desiredPixelFormat);
@@ -419,7 +420,7 @@ internal void R_Win32_OpenGL_Init(OS_Handle handle)
         openGL->srgb8TextureFormat  = GL_RGB8;
         openGL->srgba8TextureFormat = GL_RGBA8;
 
-        if (openGLInfo.textureExt)
+        if (openGL->openGLInfo.textureExt)
         {
             openGL->srgb8TextureFormat  = GL_SRGB8;
             openGL->srgba8TextureFormat = GL_SRGB8_ALPHA8;
@@ -431,10 +432,8 @@ internal void R_Win32_OpenGL_Init(OS_Handle handle)
     }
     R_OpenGL_Init();
     ReleaseDC(window, dc);
+    return openGL_;
 };
-
-// global RenderState *lastState;
-// global RenderState *newState;
 
 enum DatumType
 {
@@ -595,13 +594,13 @@ internal void R_BeginFrame(i32 width, i32 height)
     // group->quadCount   = 0;
 }
 
-internal void R_EndFrame()
+DLL R_ENDFRAME(R_EndFrame)
 {
 #if WINDOWS
-    V2 viewport       = OS_GetWindowDimension(shared->windowHandle);
+    V2 viewport       = platform.OS_GetWindowDimension(shared->windowHandle);
     HWND window       = (HWND)shared->windowHandle.handle;
     HDC deviceContext = GetDC(window);
-    R_Win32_OpenGL_EndFrame(deviceContext, (i32)viewport.x, (i32)viewport.y);
+    R_Win32_OpenGL_EndFrame(renderState, deviceContext, (i32)viewport.x, (i32)viewport.y);
     ReleaseDC(window, deviceContext);
 #else
 #error
@@ -613,11 +612,11 @@ internal void R_EndFrame()
 internal void usage()
 {
     // globals/constants
-    if (gRenderProgramManager.uniformsChanged)
+    if (openGL->progManager.uniformsChanged)
     {
         openGL->glBindBuffer(GL_UNIFORM_BUFFER, whatever);
-        openGL->glBufferSubData(GL_UNIFORM_BUFFER, 0, ArrayLength(gRenderProgramManager.globalUniforms),
-                                gRenderProgramManager.globalUniforms);
+        openGL->glBufferSubData(GL_UNIFORM_BUFFER, 0, ArrayLength(openGL->progManager.globalUniforms),
+                                openGL->progManager.globalUniforms);
     }
 }
 #endif
@@ -634,6 +633,7 @@ void R_ProgramManager::Init()
             {R_ShaderType_Terrain, "src/shaders/terrain", {}, ShaderStage_Default},
         };
     MemoryCopy(mShaderLoadInfo, shaderLoadInfo, sizeof(R_ShaderLoadInfo) * R_ShaderType_Count);
+    cGlobalsPath = PushStr8Copy(openGL->arena, Str8Lit("src/shaders/global.glsl"));
 
     for (i32 i = 0; i < R_ShaderType_Count; i++)
     {
@@ -674,7 +674,7 @@ void R_ProgramManager::HotloadPrograms()
 void R_ProgramManager::LoadPrograms()
 {
     TempArena temp          = ScratchStart(0, 0);
-    u64 lastModifiedGlobals = OS_GetLastWriteTime(cGlobalsPath);
+    u64 lastModifiedGlobals = platform.OS_GetLastWriteTime(cGlobalsPath);
     for (R_ShaderType type = (R_ShaderType)0; type < R_ShaderType_Count; type = (R_ShaderType)(type + 1))
     {
         R_ShaderLoadInfo *loadInfo = &mShaderLoadInfo[type];
@@ -684,15 +684,15 @@ void R_ProgramManager::LoadPrograms()
         string vsPath = StrConcat(temp.arena, shader->mName, ".vs");
         string fsPath = StrConcat(temp.arena, shader->mName, ".fs");
 
-        u64 lastModifiedVS = OS_GetLastWriteTime(vsPath);
-        u64 lastModifiedFS = OS_GetLastWriteTime(fsPath);
+        u64 lastModifiedVS = platform.OS_GetLastWriteTime(vsPath);
+        u64 lastModifiedFS = platform.OS_GetLastWriteTime(fsPath);
 
         u64 lastModifiedGS = 0;
         string gsPath      = "";
         if (loadInfo->mShaderStageFlags & ShaderStage_Geometry)
         {
             gsPath         = StrConcat(temp.arena, shader->mName, ".gs");
-            lastModifiedGS = OS_GetLastWriteTime(gsPath);
+            lastModifiedGS = platform.OS_GetLastWriteTime(gsPath);
         }
 
         if (lastModifiedVS != shader->mLastModifiedVS || lastModifiedFS != shader->mLastModifiedFS || lastModifiedGS != shader->mLastModifiedGS || lastModifiedGlobals != mLastModifiedGlobals)
@@ -796,9 +796,9 @@ void R_ProgramManager::CommitUniforms(UniformType type)
     }
 }
 
-internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int clientHeight)
+internal void R_Win32_OpenGL_EndFrame(RenderState *renderState, HDC deviceContext, int clientWidth, int clientHeight)
 {
-    TIMED_FUNCTION();
+    // TIMED_FUNCTION();
     TempArena temp = ScratchStart(0, 0);
 
     // Load queued buffers and textures
@@ -810,12 +810,11 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
 
     // INITIALIZE
     {
-        // as_state = renderState->as_state;
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_TEXTURE_2D);
         glEnable(GL_CULL_FACE);
         // TODO: NOT SAFE!
-        if (openGLInfo.framebufferArb)
+        if (openGL->openGLInfo.framebufferArb)
         {
             glEnable(GL_FRAMEBUFFER_SRGB);
         }
@@ -826,24 +825,23 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
     }
 
     // Set global uniforms
-    gRenderProgramManager.SetUniform(UniformType_Global, UniformParam_ViewPerspective, &renderState->transform);
-    gRenderProgramManager.SetUniform(UniformType_Global, UniformParam_ViewMatrix, &renderState->viewMatrix);
-    gRenderProgramManager.SetUniform(UniformType_Global, UniformParam_ViewPosition, renderState->camera.position);
-    gRenderProgramManager.SetUniform(UniformType_Global, UniformParam_LightDir, renderState->light.dir);
+    openGL->progManager.SetUniform(UniformType_Global, UniformParam_ViewPerspective, &renderState->transform);
+    openGL->progManager.SetUniform(UniformType_Global, UniformParam_ViewMatrix, &renderState->viewMatrix);
+    openGL->progManager.SetUniform(UniformType_Global, UniformParam_ViewPosition, renderState->camera.position);
+    openGL->progManager.SetUniform(UniformType_Global, UniformParam_LightDir, renderState->light.dir);
 
-    openGL->glBindBufferBase(GL_UNIFORM_BUFFER, GL_GLOBALUNIFORMS_BINDING, (GLuint)gRenderProgramManager.mGlobalUniformsBuffer);
+    openGL->glBindBufferBase(GL_UNIFORM_BUFFER, GL_GLOBALUNIFORMS_BINDING, (GLuint)openGL->progManager.mGlobalUniformsBuffer);
     // Shadow map pass
-    Mat4 lightViewProjectionMatrices[cNumCascades];
-    R_MeshPreparedDrawParams *drawParams = D_PrepareMeshes();
+    Mat4 *lightViewProjectionMatrices    = renderState->shadowMapMatrices;
+    R_MeshPreparedDrawParams *drawParams = renderState->drawParams; // D_PrepareMeshes();
 
-    f32 cascadeDistances[cNumSplits];
+    f32 *cascadeDistances = renderState->cascadeDistances; //[cNumSplits];
     {
         // openGL->glActiveTexture(GL_TEXTURE0 + 1);
         // glBindTexture(GL_TEXTURE_2D_ARRAY, openGL->depthMapTextureArray);
 
-        R_CascadedShadowMap(&renderState->light, lightViewProjectionMatrices, cascadeDistances);
-        gRenderProgramManager.SetUniform(UniformType_Global, UniformParam_CascadeDist, cascadeDistances);
-        gRenderProgramManager.CommitUniforms(UniformType_Global);
+        openGL->progManager.SetUniform(UniformType_Global, UniformParam_CascadeDist, cascadeDistances);
+        openGL->progManager.CommitUniforms(UniformType_Global);
 
         openGL->glBindFramebuffer(GL_FRAMEBUFFER, openGL->shadowMapPassFBO);
         glViewport(0, 0, cShadowMapSize, cShadowMapSize);
@@ -851,29 +849,29 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
 
         R_PassMesh *pass = renderState->passes[R_PassType_Mesh].passMesh;
 
-        GLuint currentProg = (GLuint)gRenderProgramManager.GetProgramApiObject(R_ShaderType_Depth);
+        GLuint currentProg = (GLuint)openGL->progManager.GetProgramApiObject(R_ShaderType_Depth);
         openGL->glUseProgram(currentProg);
         openGL->glBindBufferBase(GL_UNIFORM_BUFFER, GL_SHADOW_MAP_BINDING, openGL->lightMatrixUBO);
         openGL->glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(Mat4) * cNumCascades, lightViewProjectionMatrices);
 
-        GLuint jointBuffer = (GLuint)gVertexCache.mFrameData[gVertexCache.mCurrentDrawIndex].mUniformBuffer.mHandle;
+        GLuint jointBuffer = (GLuint)renderState->vertexCache.mFrameData[renderState->vertexCache.mCurrentDrawIndex].mUniformBuffer.mHandle;
         openGL->glBindBufferBase(GL_UNIFORM_BUFFER, GL_SKINNING_MATRIX_BINDING, jointBuffer);
 
         // TODO: find a way to collapse this with the render pass below
         R_MeshParamsList *list = &pass->list;
 
         // TODO: this just uses the static data. need to handle the dynamic data.
-        openGL->glBindBuffer(GL_ARRAY_BUFFER, (GLuint)gVertexCache.mStaticData.mVertexBuffer.mHandle);
-        openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, (GLuint)gVertexCache.mStaticData.mIndexBuffer.mHandle);
+        openGL->glBindBuffer(GL_ARRAY_BUFFER, (GLuint)renderState->vertexCache.mStaticData.mVertexBuffer.mHandle);
+        openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, (GLuint)renderState->vertexCache.mStaticData.mIndexBuffer.mHandle);
 
         // Skinning matrices
-        openGL->glBindBufferBase(GL_UNIFORM_BUFFER, GL_SKINNING_MATRIX_BINDING, (GLuint)gVertexCache.mFrameData[gVertexCache.mCurrentDrawIndex].mUniformBuffer.mHandle);
+        openGL->glBindBufferBase(GL_UNIFORM_BUFFER, GL_SKINNING_MATRIX_BINDING, (GLuint)renderState->vertexCache.mFrameData[renderState->vertexCache.mCurrentDrawIndex].mUniformBuffer.mHandle);
 
         // Indirect buffer
-        openGL->glBindBuffer(GL_DRAW_INDIRECT_BUFFER, (GLuint)gRenderProgramManager.mIndirectBuffer);
+        openGL->glBindBuffer(GL_DRAW_INDIRECT_BUFFER, (GLuint)openGL->progManager.mIndirectBuffer);
         openGL->glBufferSubData(GL_DRAW_INDIRECT_BUFFER, 0, list->mTotalSurfaceCount * sizeof(R_IndirectCmd), drawParams->mIndirectBuffers);
         // Per mesh draw parameters
-        openGL->glBindBufferBase(GL_SHADER_STORAGE_BUFFER, GL_PER_DRAW_BUFFER_BINDING, (GLuint)gRenderProgramManager.mPerDrawBuffer);
+        openGL->glBindBufferBase(GL_SHADER_STORAGE_BUFFER, GL_PER_DRAW_BUFFER_BINDING, (GLuint)openGL->progManager.mPerDrawBuffer);
         openGL->glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(R_MeshPerDrawParams) * list->mTotalSurfaceCount, drawParams->mPerMeshDrawParams);
 
         openGL->glEnableVertexAttribArray(0);
@@ -933,19 +931,19 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
             case R_CommandType_Heightmap:
             {
                 Heightmap *heightmap = &((R_CommandHeightMap *)command)->heightmap;
-                GPUBuffer *buffer    = VC_GetBufferFromHandle(heightmap->vertexHandle, BufferType_Vertex);
+                GPUBuffer *buffer    = renderState->vertexCache.VC_GetBufferFromHandle(heightmap->vertexHandle, BufferType_Vertex);
                 if (buffer)
                 {
                     openGL->glBindBuffer(GL_ARRAY_BUFFER, R_OpenGL_GetBufferFromHandle(buffer->mHandle));
                 }
 
-                buffer = VC_GetBufferFromHandle(heightmap->indexHandle, BufferType_Index);
+                buffer = renderState->vertexCache.VC_GetBufferFromHandle(heightmap->indexHandle, BufferType_Index);
                 if (buffer)
                 {
                     openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, R_OpenGL_GetBufferFromHandle(buffer->mHandle));
                 }
 
-                GLuint id = (GLuint)gRenderProgramManager.GetProgramApiObject(R_ShaderType_Terrain);
+                GLuint id = (GLuint)openGL->progManager.GetProgramApiObject(R_ShaderType_Terrain);
                 openGL->glUseProgram(id);
 
                 GLint widthLoc = openGL->glGetUniformLocation(id, "width");
@@ -982,19 +980,14 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
             {
                 glEnable(GL_BLEND);
                 glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-                GLuint id = (GLuint)gRenderProgramManager.GetProgramApiObject(R_ShaderType_UI);
+                GLuint id = (GLuint)openGL->progManager.GetProgramApiObject(R_ShaderType_UI);
                 openGL->glUseProgram(id);
                 openGL->glBindBuffer(GL_ARRAY_BUFFER, openGL->scratchVbo);
                 u32 totalOffset = 0;
-                // TODO: I got a null reference exception here somehow???
+
                 R_BatchList *list = &pass->passUI->batchList;
                 for (R_BatchNode *node = list->first; node != 0; node = node->next)
                 {
-                    // TODO: persistently mapped buffers for scratch data? that way you can just
-                    // memcpy to the buffer instead of calling glBufferSubData repeatedly
-                    // also still have to try out sparse bindless textures : ) but apparently
-                    // they suck on windows so who know
-
                     openGL->glBufferSubData(GL_ARRAY_BUFFER, totalOffset, node->val.byteCount, node->val.data);
                     totalOffset += node->val.byteCount;
                 }
@@ -1034,6 +1027,9 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
                     1,
                 };
 
+                GLuint loc = openGL->glGetUniformLocation(id, "transform");
+                openGL->glUniformMatrix4fv(loc, 1, GL_FALSE, transform);
+
                 openGL->glDrawArraysInstanced(GL_TRIANGLE_STRIP, 0, 4, list->numInstances);
                 R_OpenGL_EndShader(R_ShaderType_UI);
                 glDisable(GL_BLEND);
@@ -1041,27 +1037,27 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
             }
             case R_PassType_Mesh:
             {
-                GLuint currentProgram = (GLuint)gRenderProgramManager.GetProgramApiObject(R_ShaderType_Mesh);
+                GLuint currentProgram = (GLuint)openGL->progManager.GetProgramApiObject(R_ShaderType_Mesh);
                 openGL->glUseProgram(currentProgram);
                 // TEXTURE MAP
 
                 R_MeshParamsList *list = &pass->passMesh->list;
 
-                GLuint jointBuffer = (GLuint)gVertexCache.mFrameData[gVertexCache.mCurrentDrawIndex].mUniformBuffer.mHandle;
+                GLuint jointBuffer = (GLuint)renderState->vertexCache.mFrameData[renderState->vertexCache.mCurrentDrawIndex].mUniformBuffer.mHandle;
                 openGL->glBindBufferBase(GL_UNIFORM_BUFFER, GL_SKINNING_MATRIX_BINDING, jointBuffer);
 
                 // TODO: this just uses the static data. need to handle the dynamic data.
-                openGL->glBindBuffer(GL_ARRAY_BUFFER, (GLuint)gVertexCache.mStaticData.mVertexBuffer.mHandle);
-                openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, (GLuint)gVertexCache.mStaticData.mIndexBuffer.mHandle);
+                openGL->glBindBuffer(GL_ARRAY_BUFFER, (GLuint)renderState->vertexCache.mStaticData.mVertexBuffer.mHandle);
+                openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, (GLuint)renderState->vertexCache.mStaticData.mIndexBuffer.mHandle);
 
                 // Skinning matrices
-                openGL->glBindBufferBase(GL_UNIFORM_BUFFER, GL_SKINNING_MATRIX_BINDING, (GLuint)gVertexCache.mFrameData[gVertexCache.mCurrentDrawIndex].mUniformBuffer.mHandle);
+                openGL->glBindBufferBase(GL_UNIFORM_BUFFER, GL_SKINNING_MATRIX_BINDING, (GLuint)renderState->vertexCache.mFrameData[renderState->vertexCache.mCurrentDrawIndex].mUniformBuffer.mHandle);
 
                 // Indirect buffer
-                openGL->glBindBuffer(GL_DRAW_INDIRECT_BUFFER, (GLuint)gRenderProgramManager.mIndirectBuffer);
+                openGL->glBindBuffer(GL_DRAW_INDIRECT_BUFFER, (GLuint)openGL->progManager.mIndirectBuffer);
 
                 // Per mesh draw parameters
-                openGL->glBindBufferBase(GL_SHADER_STORAGE_BUFFER, GL_PER_DRAW_BUFFER_BINDING, (GLuint)gRenderProgramManager.mPerDrawBuffer);
+                openGL->glBindBufferBase(GL_SHADER_STORAGE_BUFFER, GL_PER_DRAW_BUFFER_BINDING, (GLuint)openGL->progManager.mPerDrawBuffer);
 
                 R_OpenGL_StartShader(renderState, R_ShaderType_Mesh, 0);
 
@@ -1200,12 +1196,12 @@ internal void R_Win32_OpenGL_EndFrame(HDC deviceContext, int clientWidth, int cl
     SwapBuffers(deviceContext);
 
     // TODO: integrate into asset system? but I'll have to queue
-    gRenderProgramManager.HotloadPrograms();
+    openGL->progManager.HotloadPrograms();
 }
 
 internal void R_OpenGL_StartShader(RenderState *state, R_ShaderType type, void *inputGroup)
 {
-    GLuint id = (GLuint)gRenderProgramManager.GetProgramApiObject(type);
+    GLuint id = (GLuint)openGL->progManager.GetProgramApiObject(type);
     switch (type)
     {
         case R_ShaderType_3D:
@@ -1407,7 +1403,7 @@ R_ALLOCATE_TEXTURE_2D(R_AllocateTexture2D)
 
 // Allocate using GL_TEXTURE_2D_ARRAY
 // TODO: mipmaps using glcompressedtexture? or something idk
-R_ALLOCATE_TEXTURE_2D(R_AllocateTextureInArray)
+DLL R_ALLOCATE_TEXTURE_2D(R_AllocateTextureInArray)
 {
     R_Texture2DArrayTopology topology;
     topology.levels         = 1;
@@ -1634,9 +1630,9 @@ internal void R_OpenGL_LoadTextures()
 }
 
 //////////////////////////////
-// Buffer loading
+// Renderer api implementation
 //
-internal void R_InitializeBuffer(GPUBuffer *ioBuffer, const BufferUsageType inUsageType, const i32 inSize)
+DLL R_INITIALIZE_BUFFER(R_InitializeBuffer)
 {
     GLenum target;
     switch (ioBuffer->mType)
@@ -1677,7 +1673,7 @@ internal void R_InitializeBuffer(GPUBuffer *ioBuffer, const BufferUsageType inUs
     openGL->glBindBuffer(target, apiObject);
     // TODO: AZDO, differentiate between opengl 4 and opengl 3?
 
-    if (openGLInfo.persistentMap)
+    if (openGL->openGLInfo.persistentMap)
     {
         GLbitfield flags = GL_MAP_PERSISTENT_BIT | GL_MAP_WRITE_BIT | GL_MAP_COHERENT_BIT;
         openGL->glBufferStorage(target, inSize, 0, flags);
@@ -1694,9 +1690,9 @@ internal void R_InitializeBuffer(GPUBuffer *ioBuffer, const BufferUsageType inUs
     ioBuffer->mSize       = inSize;
 }
 
-internal void R_MapGPUBuffer(GPUBuffer *buffer)
+DLL R_MAP_GPU_BUFFER(R_MapGPUBuffer)
 {
-    if (openGLInfo.persistentMap)
+    if (openGL->openGLInfo.persistentMap)
     {
         Assert(buffer->mMappedBufferBase);
     }
@@ -1724,9 +1720,9 @@ internal void R_MapGPUBuffer(GPUBuffer *buffer)
     }
 }
 
-internal void R_UnmapGPUBuffer(GPUBuffer *buffer)
+DLL R_UNMAP_GPU_BUFFER(R_UnmapGPUBuffer)
 {
-    if (openGLInfo.persistentMap)
+    if (openGL->openGLInfo.persistentMap)
     {
         Assert(buffer->mMappedBufferBase);
     }
@@ -1754,7 +1750,7 @@ internal void R_UnmapGPUBuffer(GPUBuffer *buffer)
     }
 }
 
-internal void R_UpdateBuffer(GPUBuffer *buffer, BufferUsageType type, void *data, i32 offset, i32 size)
+DLL R_UPDATE_BUFFER(R_UpdateBuffer)
 {
     GLint id = R_OpenGL_GetBufferFromHandle(buffer->mHandle);
     GLenum target;
@@ -1780,7 +1776,7 @@ internal void R_UpdateBuffer(GPUBuffer *buffer, BufferUsageType type, void *data
         }
     }
 
-    if (openGLInfo.persistentMap && buffer->mMappedBufferBase)
+    if (openGL->openGLInfo.persistentMap && buffer->mMappedBufferBase)
     {
         void *dest = (u8 *)(buffer->mMappedBufferBase) + offset;
         MemoryCopy(dest, data, size);
@@ -1793,7 +1789,7 @@ internal void R_UpdateBuffer(GPUBuffer *buffer, BufferUsageType type, void *data
     }
 }
 
-R_ALLOCATE_BUFFER(R_AllocateBuffer)
+DLL R_ALLOCATE_BUFFER(R_AllocateBuffer)
 {
     R_OpenGL_Buffer *buffer = openGL->freeBuffers;
     while (buffer && AtomicCompareExchangePtr(&openGL->freeBuffers, buffer->next, buffer) != buffer)

@@ -487,11 +487,12 @@ internal Heightmap CreateHeightmap(string filename)
         indices[indexCount++] = width - 1 + (width)*h;
     }
 
+    RenderState *state = engine->GetRenderState();
     VC_Handle vertexHandle =
-        VC_AllocateBuffer(BufferType_Vertex, BufferUsage_Static, altitudes, sizeof(altitudes[0]), count);
+        state->vertexCache.VC_AllocateBuffer(BufferType_Vertex, BufferUsage_Static, altitudes, sizeof(altitudes[0]), count);
 
     VC_Handle indexHandle =
-        VC_AllocateBuffer(BufferType_Index, BufferUsage_Static, indices, sizeof(indices[0]), indexCount);
+        state->vertexCache.VC_AllocateBuffer(BufferType_Index, BufferUsage_Static, indices, sizeof(indices[0]), indexCount);
 
     Heightmap result;
     result.vertexHandle = vertexHandle;

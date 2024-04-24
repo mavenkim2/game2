@@ -20,20 +20,15 @@ global const u32 r_primitiveSizeTable[] = {sizeof(R_LineInst), sizeof(DebugVerte
 #define DEFAULT_SECTORS 12
 #define DEFAULT_STACKS  12
 
-struct D_State
-{
-    Arena *arena;
-    u64 frameStartPos;
-};
-
-global D_State *d_state;
-
 internal void D_Init()
 {
-    Arena *arena       = ArenaAlloc();
-    d_state            = PushStruct(arena, D_State);
-    d_state->arena     = arena;
-    RenderState *state = renderState;
+    Arena *arena     = ArenaAlloc();
+    D_State *d_state = PushStruct(arena, D_State);
+    engine->SetDrawState(d_state);
+    d_state->arena = arena;
+
+    RenderState *state = PushStruct(arena, RenderState);
+    engine->SetRenderState(state);
 
     // TODO: cvars?
     state->fov         = Radians(45.f);
@@ -216,7 +211,7 @@ internal void D_Init()
         }
     }
 
-    VC_Init();
+    state->vertexCache.VC_Init();
     RenderFrameDataInit();
 
     d_state->frameStartPos = ArenaPos(arena);
@@ -224,7 +219,8 @@ internal void D_Init()
 
 internal void D_BeginFrame()
 {
-    RenderState *state = renderState;
+    D_State *d_state   = engine->GetDrawState();
+    RenderState *state = engine->GetRenderState();
     ArenaPopTo(d_state->arena, d_state->frameStartPos);
     for (R_PassType type = (R_PassType)0; type < R_PassType_Count; type = (R_PassType)(type + 1))
     {
@@ -264,7 +260,10 @@ internal void D_BeginFrame()
 
 internal void D_EndFrame()
 {
-    VC_BeginGPUSubmit();
+    RenderState *renderState = engine->GetRenderState();
+    renderState->drawParams  = D_PrepareMeshes();
+    R_CascadedShadowMap(&renderState->light, renderState->shadowMapMatrices, renderState->cascadeDistances);
+    renderState->vertexCache.VC_BeginGPUSubmit();
     R_SwapFrameData();
 }
 
@@ -337,24 +336,28 @@ internal void D_PushHeightmap(Heightmap heightmap)
 // yadda yadda.
 internal void D_PushModel(VC_Handle vertexBuffer, VC_Handle indexBuffer, Mat4 transform)
 {
+    D_State *d_state       = engine->GetDrawState();
     R_PassMesh *pass       = R_GetPassFromKind(R_PassType_Mesh)->passMesh;
     R_MeshParamsNode *node = PushStruct(d_state->arena, R_MeshParamsNode);
 
     pass->list.mTotalSurfaceCount += 1;
 
     node->val.numSurfaces = 1;
-    D_Surface *surface   = (D_Surface *)R_FrameAlloc(sizeof(*surface));
+    D_Surface *surface    = (D_Surface *)R_FrameAlloc(sizeof(*surface));
     node->val.surfaces    = surface;
 
     surface->vertexBuffer = vertexBuffer;
     surface->indexBuffer  = indexBuffer;
 
     node->val.transform = transform;
+    QueuePush(pass->list.first, pass->list.last, node);
 }
 
 internal void D_PushModel(AS_Handle loadedModel, Mat4 transform, Mat4 &mvp, Mat4 *skinningMatrices = 0,
                           u32 skinningMatricesCount = 0)
 {
+    D_State *d_state         = engine->GetDrawState();
+    RenderState *renderState = engine->GetRenderState();
     if (!IsModelHandleNil(loadedModel))
     {
         LoadedModel *model = GetModel(loadedModel);
@@ -397,42 +400,17 @@ internal void D_PushModel(AS_Handle loadedModel, Mat4 transform, Mat4 &mvp, Mat4
 
         if (skinningMatricesCount)
         {
-            node->val.jointHandle = VC_AllocateBuffer(BufferType_Uniform, BufferUsage_Dynamic, skinningMatrices,
-                                                      sizeof(skinningMatrices[0]), skinningMatricesCount);
+            node->val.jointHandle = renderState->vertexCache.VC_AllocateBuffer(BufferType_Uniform, BufferUsage_Dynamic, skinningMatrices,
+                                                                               sizeof(skinningMatrices[0]), skinningMatricesCount);
         }
         QueuePush(pass->list.first, pass->list.last, node);
     }
 }
 
-struct R_IndirectCmd
-{
-    u32 mCount;
-    u32 mInstanceCount;
-    u32 mFirstIndex;
-    u32 mBaseVertex;
-    u32 mBaseInstance;
-};
-
-// TODO: ?
-struct R_MeshPerDrawParams
-{
-    Mat4 mTransform;
-    u64 mIndex[TextureType_Count];
-    u32 mSlice[TextureType_Count];
-    i32 mJointOffset;
-    i32 mIsPBR;
-    i32 _pad[2];
-};
-
-struct R_MeshPreparedDrawParams
-{
-    R_IndirectCmd *mIndirectBuffers;
-    R_MeshPerDrawParams *mPerMeshDrawParams;
-};
-
 // prepare to submit to gpu
 internal R_MeshPreparedDrawParams *D_PrepareMeshes()
 {
+    RenderState *renderState             = engine->GetRenderState();
     R_PassMesh *pass                     = renderState->passes[R_PassType_Mesh].passMesh;
     R_MeshPreparedDrawParams *drawParams = (R_MeshPreparedDrawParams *)R_FrameAlloc(sizeof(R_MeshPreparedDrawParams));
     drawParams->mIndirectBuffers         = (R_IndirectCmd *)R_FrameAlloc(sizeof(R_IndirectCmd) * pass->list.mTotalSurfaceCount);
@@ -447,11 +425,11 @@ internal R_MeshPreparedDrawParams *D_PrepareMeshes()
         i32 jointOffset = -1;
         if (params->jointHandle != 0)
         {
-            if (!gVertexCache.CheckSubmitted(params->jointHandle))
+            if (!renderState->vertexCache.CheckCurrent(params->jointHandle))
             {
                 continue;
             }
-            jointOffset = (i32)(gVertexCache.GetOffset(params->jointHandle) / sizeof(Mat4));
+            jointOffset = (i32)(renderState->vertexCache.GetOffset(params->jointHandle) / sizeof(Mat4));
         }
 
         // Per material
@@ -463,13 +441,13 @@ internal R_MeshPreparedDrawParams *D_PrepareMeshes()
 
             perMeshParam->mTransform   = params->transform;
             perMeshParam->mJointOffset = jointOffset;
-            perMeshParam->mIsPBR = true;
+            perMeshParam->mIsPBR       = true;
 
-            indirectBuffer->mCount         = (u32)(gVertexCache.GetSize(surface->indexBuffer) / sizeof(u32));
+            indirectBuffer->mCount         = (u32)(renderState->vertexCache.GetSize(surface->indexBuffer) / sizeof(u32));
             indirectBuffer->mInstanceCount = 1;
-            indirectBuffer->mFirstIndex    = (u32)(gVertexCache.GetOffset(surface->indexBuffer) / sizeof(u32));
+            indirectBuffer->mFirstIndex    = (u32)(renderState->vertexCache.GetOffset(surface->indexBuffer) / sizeof(u32));
             // TODO: this could change
-            indirectBuffer->mBaseVertex   = (u32)(gVertexCache.GetOffset(surface->vertexBuffer) / sizeof(MeshVertex));
+            indirectBuffer->mBaseVertex   = (u32)(renderState->vertexCache.GetOffset(surface->vertexBuffer) / sizeof(MeshVertex));
             indirectBuffer->mBaseInstance = 0;
 
             drawCount++;
@@ -479,7 +457,7 @@ internal R_MeshPreparedDrawParams *D_PrepareMeshes()
             }
             for (i32 textureIndex = 0; textureIndex < TextureType_Count; textureIndex++)
             {
-                R_Handle textureHandle             = GetTextureRenderHandle(surface->material->textureHandles[textureIndex]);
+                R_Handle textureHandle = GetTextureRenderHandle(surface->material->textureHandles[textureIndex]);
                 if (textureIndex == TextureType_MR && textureHandle.u64[0] == 0)
                 {
                     perMeshParam->mIsPBR = false;
@@ -495,7 +473,8 @@ internal R_MeshPreparedDrawParams *D_PrepareMeshes()
 
 internal void D_PushLight(Light *light)
 {
-    renderState->light = *light;
+    RenderState *renderState = engine->GetRenderState();
+    renderState->light       = *light;
 }
 
 struct D_FontAlignment
@@ -520,10 +499,11 @@ internal void D_PushRect(Rect2 rect, R_Handle img)
 
 internal void D_PushText(AS_Handle font, V2 startPos, f32 size, string line)
 {
-    TempArena temp     = ScratchStart(0, 0);
-    F_Run *run         = F_GetFontRun(temp.arena, font, size, line);
-    RenderState *state = renderState;
-    R_PassUI *pass     = R_GetPassFromKind(R_PassType_UI)->passUI;
+    RenderState *renderState = engine->GetRenderState();
+    TempArena temp           = ScratchStart(0, 0);
+    F_Run *run               = F_GetFontRun(temp.arena, font, size, line);
+    RenderState *state       = renderState;
+    R_PassUI *pass           = R_GetPassFromKind(R_PassType_UI)->passUI;
 
     f32 advance = 0;
     // TODO: maybe get rid of this by having F_Run be an array w/ a count, which can be 0
@@ -565,13 +545,15 @@ internal void D_PushTextF(AS_Handle font, V2 startPos, f32 size, char *fmt, ...)
 
 inline R_Pass *R_GetPassFromKind(R_PassType type)
 {
-    RenderState *state = renderState;
-    R_Pass *result     = &state->passes[type];
+    RenderState *renderState = engine->GetRenderState();
+    RenderState *state       = renderState;
+    R_Pass *result           = &state->passes[type];
     return result;
 }
 
 internal u8 *R_BatchListPush(R_BatchList *list, u32 instCap)
 {
+    D_State *d_state  = engine->GetDrawState();
     R_BatchNode *node = list->last;
     if (node == 0 || node->val.byteCount + list->bytesPerInstance > node->val.byteCap)
     {
@@ -705,23 +687,23 @@ internal void DebugDrawSkeleton(AS_Handle model, Mat4 transform, Mat4 *skinningM
 // also, have one massive buffer for both indices and vertices, instead of allocating separate buffer
 // objects for them. then, handles can just be 64 bit numbers that contain the offset, size, and frame
 
-global R_FrameState *gRenderFrameState;
+// global R_FrameState *gRenderFrameState;
 
 internal void RenderFrameDataInit()
 {
-    Arena *arena             = ArenaAlloc(megabytes(256));
-    gRenderFrameState        = PushStruct(arena, R_FrameState);
-    gRenderFrameState->arena = arena;
+    RenderState *state            = engine->GetRenderState();
+    Arena *arena                  = ArenaAlloc(megabytes(256));
+    state->renderFrameState.arena = arena;
 
     for (i32 i = 0; i < cFrameDataNumFrames; i++)
     {
-        R_FrameData *frameData = &gRenderFrameState->frameData[i];
+        R_FrameData *frameData = &state->renderFrameState.frameData[i];
         frameData->memory      = PushArray(arena, u8, cFrameBufferSize);
     }
-    gRenderFrameState->currentFrame     = 0;
-    gRenderFrameState->currentFrameData = &gRenderFrameState->frameData[gRenderFrameState->currentFrame];
+    state->renderFrameState.currentFrame     = 0;
+    state->renderFrameState.currentFrameData = &state->renderFrameState.frameData[state->renderFrameState.currentFrame];
 
-    R_FrameData *data = gRenderFrameState->currentFrameData;
+    R_FrameData *data = state->renderFrameState.currentFrameData;
     data->head = data->tail = (R_Command *)R_FrameAlloc(sizeof(R_Command));
     data->head->type        = R_CommandType_Null;
     data->head->next        = 0;
@@ -729,10 +711,11 @@ internal void RenderFrameDataInit()
 
 internal void *R_FrameAlloc(const i32 inSize)
 {
-    i32 alignedSize = AlignPow2(inSize, 16);
-    i32 offset      = AtomicAddI32(&gRenderFrameState->currentFrameData->allocated, alignedSize);
+    RenderState *state = engine->GetRenderState();
+    i32 alignedSize    = AlignPow2(inSize, 16);
+    i32 offset         = AtomicAddI32(&state->renderFrameState.currentFrameData->allocated, alignedSize);
 
-    void *out = gRenderFrameState->currentFrameData->memory + offset;
+    void *out = state->renderFrameState.currentFrameData->memory + offset;
     MemoryZero(out, inSize);
 
     return out;
@@ -746,17 +729,18 @@ internal b32 IsAligned(u8 *ptr, i32 alignment)
 
 internal void R_SwapFrameData()
 {
-    R_Command *currentHead              = gRenderFrameState->currentFrameData->head;
-    renderState->head                   = currentHead;
-    u32 frameIndex                      = ++gRenderFrameState->currentFrame % cFrameDataNumFrames;
-    gRenderFrameState->currentFrameData = &gRenderFrameState->frameData[frameIndex];
+    RenderState *state                       = engine->GetRenderState();
+    R_Command *currentHead                   = state->renderFrameState.currentFrameData->head;
+    state->head                              = currentHead;
+    u32 frameIndex                           = ++state->renderFrameState.currentFrame % cFrameDataNumFrames;
+    state->renderFrameState.currentFrameData = &state->renderFrameState.frameData[frameIndex];
 
-    u64 start = AlignPow2((u64)gRenderFrameState->currentFrameData->memory, 16) -
-                (u64)gRenderFrameState->currentFrameData->memory;
+    u64 start = AlignPow2((u64)state->renderFrameState.currentFrameData->memory, 16) -
+                (u64)state->renderFrameState.currentFrameData->memory;
     // TODO: barrier?
-    gRenderFrameState->currentFrameData->allocated = (i32)start;
+    state->renderFrameState.currentFrameData->allocated = (i32)start;
 
-    R_FrameData *data = gRenderFrameState->currentFrameData;
+    R_FrameData *data = state->renderFrameState.currentFrameData;
     data->head = data->tail = (R_Command *)R_FrameAlloc(sizeof(R_Command));
     data->head->type        = R_CommandType_Null;
     data->head->next        = 0;
@@ -764,10 +748,11 @@ internal void R_SwapFrameData()
 
 internal void *R_CreateCommand(i32 size)
 {
-    R_Command *command                              = (R_Command *)R_FrameAlloc(size);
-    command->next                                   = 0;
-    gRenderFrameState->currentFrameData->tail->next = &command->type;
-    gRenderFrameState->currentFrameData->tail       = command;
+    RenderState *state                                   = engine->GetRenderState();
+    R_Command *command                                   = (R_Command *)R_FrameAlloc(size);
+    command->next                                        = 0;
+    state->renderFrameState.currentFrameData->tail->next = &command->type;
+    state->renderFrameState.currentFrameData->tail       = command;
     return (void *)command;
 }
 
@@ -779,12 +764,13 @@ internal void *R_CreateCommand(i32 size)
 // Returns splits cascade distances, and splits + 1 matrices
 internal void R_ShadowMapFrusta(i32 splits, f32 splitWeight, Mat4 *outMatrices, f32 *outSplits)
 {
-    f32 nearZStart = renderState->nearZ;
-    f32 farZEnd    = renderState->farZ;
-    f32 nearZ      = nearZStart;
-    f32 farZ       = farZEnd;
-    f32 lambda     = splitWeight;
-    f32 ratio      = farZEnd / nearZStart;
+    RenderState *renderState = engine->GetRenderState();
+    f32 nearZStart           = renderState->nearZ;
+    f32 farZEnd              = renderState->farZ;
+    f32 nearZ                = nearZStart;
+    f32 farZ                 = farZEnd;
+    f32 lambda               = splitWeight;
+    f32 ratio                = farZEnd / nearZStart;
 
     for (i32 i = 0; i < splits + 1; i++)
     {
@@ -812,6 +798,7 @@ internal void R_ShadowMapFrusta(i32 splits, f32 splitWeight, Mat4 *outMatrices, 
 internal void R_CascadedShadowMap(const Light *inLight, Mat4 *outLightViewProjectionMatrices,
                                   f32 *outCascadeDistances)
 {
+    RenderState *renderState = engine->GetRenderState();
     Mat4 mvpMatrices[cNumCascades];
     f32 cascadeDistances[cNumCascades];
     R_ShadowMapFrusta(cNumSplits, .9f, mvpMatrices, cascadeDistances);

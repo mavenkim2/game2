@@ -88,7 +88,7 @@ internal void I_PollInput()
 {
     TempArena temp = ScratchStart(0, 0);
 
-    OS_Events events = OS_GetEvents(temp.arena);
+    OS_Events events = platform.OS_GetEvents(temp.arena);
 
     u64 eventsSize = sizeof(events.events[0]) * events.numEvents;
     u64 commitSize = sizeof(u64) + eventsSize;

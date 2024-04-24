@@ -1,4 +1,15 @@
-const i32 cVertCacheNumFrames = 3;
+const i32 cVertCacheNumFrames       = 3;
+const i32 VERTEX_CACHE_STATIC_MASK  = 1;
+const i32 VERTEX_CACHE_OFFSET_SHIFT = 1;
+const i32 VERTEX_CACHE_OFFSET_MASK  = 0x1ffffff;
+const i32 VERTEX_CACHE_SIZE_SHIFT   = 26;
+const i32 VERTEX_CACHE_SIZE_MASK    = 0x1ffffff;
+const i32 VERTEX_CACHE_FRAME_SHIFT  = 51;
+const i32 VERTEX_CACHE_FRAME_MASK   = 0x1fff;
+
+// must be smaller than 2^25 - 1
+const i32 VERTEX_CACHE_BUFFER_SIZE = 31 * 1024 * 1024;
+
 enum BufferType
 {
     BufferType_Vertex,
@@ -32,6 +43,12 @@ struct VertexCache
 struct VertexCacheState
 {
 public:
+    void VC_Init();
+    void VC_BeginGPUSubmit();
+    GPUBuffer *VC_GetBufferFromHandle(VC_Handle handle, BufferType type);
+    VC_Handle VC_AllocateBuffer(BufferType bufferType, BufferUsageType usageType, void *data, i32 elementSize,
+                                i32 count);
+
     b32 CheckStatic(VC_Handle handle);
     b32 CheckSubmitted(VC_Handle handle);
     b32 CheckCurrent(VC_Handle handle);
@@ -44,8 +61,3 @@ public:
     i32 mCurrentIndex;
     i32 mCurrentDrawIndex;
 };
-
-static VertexCacheState gVertexCache;
-
-internal VC_Handle VC_AllocateBuffer(BufferType bufferType, BufferUsageType usageType, void *data, i32 elementSize,
-                                     i32 count);

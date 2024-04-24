@@ -1,3 +1,28 @@
+#include "keepmovingforward_common.h"
+#include "keepmovingforward_math.h"
+#include "keepmovingforward_memory.h"
+#include "keepmovingforward_string.h"
+
+#include "platform_inc.h"
+#include "input.h"
+#include "thread_context.h"
+#include "job.h"
+
+#include "physics.h"
+#include "keepmovingforward_camera.h"
+#include "render/render_core.h"
+#include "asset.h"
+#include "font.h"
+#include "asset_cache.h"
+#include "render/vertex_cache.h"
+#include "render/render.h"
+#include "shared.h"
+#include "render/rendererapi.h"
+
+#include "debug.h"
+#include "entity.h"
+#include "level.h"
+
 //////////////////////////////
 // Input
 //
@@ -151,6 +176,3 @@ struct G_State
 };
 
 internal Manifold NarrowPhaseAABBCollision(const Rect3 a, const Rect3 b);
-
-internal void G_Init();
-internal void G_Update(f32 dt);

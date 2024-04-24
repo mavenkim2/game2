@@ -4,58 +4,47 @@
 #include "vertex_cache.h"
 #endif
 
-const i32 VERTEX_CACHE_STATIC_MASK  = 1;
-const i32 VERTEX_CACHE_OFFSET_SHIFT = 1;
-const i32 VERTEX_CACHE_OFFSET_MASK  = 0x1ffffff;
-const i32 VERTEX_CACHE_SIZE_SHIFT   = 26;
-const i32 VERTEX_CACHE_SIZE_MASK    = 0x1ffffff;
-const i32 VERTEX_CACHE_FRAME_SHIFT  = 51;
-const i32 VERTEX_CACHE_FRAME_MASK   = 0x1fff;
-
-// must be smaller than 2^25 - 1
-const i32 VERTEX_CACHE_BUFFER_SIZE = 31 * 1024 * 1024;
-
-internal void VC_Init()
+void VertexCacheState::VC_Init()
 {
-    VertexCache *staticCache = &gVertexCache.mStaticData;
+    VertexCache *staticCache = &mStaticData;
     staticCache->mType       = BufferUsage_Static;
 
     GPUBuffer *buffer = &staticCache->mVertexBuffer;
     buffer->mType     = BufferType_Vertex;
-    R_InitializeBuffer(buffer, staticCache->mType, VERTEX_CACHE_BUFFER_SIZE);
+    renderer.R_InitializeBuffer(buffer, staticCache->mType, VERTEX_CACHE_BUFFER_SIZE);
 
     buffer        = &staticCache->mIndexBuffer;
     buffer->mType = BufferType_Index;
-    R_InitializeBuffer(buffer, staticCache->mType, VERTEX_CACHE_BUFFER_SIZE);
+    renderer.R_InitializeBuffer(buffer, staticCache->mType, VERTEX_CACHE_BUFFER_SIZE);
 
-    for (i32 i = 0; i < ArrayLength(gVertexCache.mFrameData); i++)
+    for (i32 i = 0; i < ArrayLength(mFrameData); i++)
     {
-        VertexCache *dynamicCache = &gVertexCache.mFrameData[i];
+        VertexCache *dynamicCache = &mFrameData[i];
         dynamicCache->mType       = BufferUsage_Dynamic;
 
         buffer        = &dynamicCache->mVertexBuffer;
         buffer->mType = BufferType_Vertex;
-        R_InitializeBuffer(buffer, staticCache->mType, VERTEX_CACHE_BUFFER_SIZE);
+        renderer.R_InitializeBuffer(buffer, staticCache->mType, VERTEX_CACHE_BUFFER_SIZE);
 
         buffer        = &dynamicCache->mIndexBuffer;
         buffer->mType = BufferType_Index;
-        R_InitializeBuffer(buffer, staticCache->mType, VERTEX_CACHE_BUFFER_SIZE);
+        renderer.R_InitializeBuffer(buffer, staticCache->mType, VERTEX_CACHE_BUFFER_SIZE);
 
         buffer        = &dynamicCache->mUniformBuffer;
         buffer->mType = BufferType_Uniform;
-        R_InitializeBuffer(buffer, staticCache->mType, VERTEX_CACHE_BUFFER_SIZE);
+        renderer.R_InitializeBuffer(buffer, staticCache->mType, VERTEX_CACHE_BUFFER_SIZE);
     }
 
-    R_MapGPUBuffer(&staticCache->mVertexBuffer);
-    R_MapGPUBuffer(&staticCache->mIndexBuffer);
+    renderer.R_MapGPUBuffer(&staticCache->mVertexBuffer);
+    renderer.R_MapGPUBuffer(&staticCache->mIndexBuffer);
 
-    R_MapGPUBuffer(&gVertexCache.mFrameData[gVertexCache.mCurrentIndex].mVertexBuffer);
-    R_MapGPUBuffer(&gVertexCache.mFrameData[gVertexCache.mCurrentIndex].mIndexBuffer);
+    renderer.R_MapGPUBuffer(&mFrameData[mCurrentIndex].mVertexBuffer);
+    renderer.R_MapGPUBuffer(&mFrameData[mCurrentIndex].mIndexBuffer);
 }
 
 // TODO: static data asynchronously loaded needs to be queued. this only works with persistent mapping
-internal VC_Handle VC_AllocateBuffer(BufferType bufferType, BufferUsageType usageType, void *data, i32 elementSize,
-                                     i32 count)
+VC_Handle VertexCacheState::VC_AllocateBuffer(BufferType bufferType, BufferUsageType usageType, void *data, i32 elementSize,
+                                              i32 count)
 {
     VC_Handle handle = 0;
 
@@ -72,12 +61,12 @@ internal VC_Handle VC_AllocateBuffer(BufferType bufferType, BufferUsageType usag
             {
                 case BufferType_Vertex:
                 {
-                    buffer = &gVertexCache.mStaticData.mVertexBuffer;
+                    buffer = &mStaticData.mVertexBuffer;
                     break;
                 }
                 case BufferType_Index:
                 {
-                    buffer = &gVertexCache.mStaticData.mIndexBuffer;
+                    buffer = &mStaticData.mIndexBuffer;
                     break;
                 }
                 default: Assert(!"Invalid default case");
@@ -86,7 +75,7 @@ internal VC_Handle VC_AllocateBuffer(BufferType bufferType, BufferUsageType usag
         }
         case BufferUsage_Dynamic:
         {
-            VertexCache *frameCache = &gVertexCache.mFrameData[gVertexCache.mCurrentIndex];
+            VertexCache *frameCache = &mFrameData[mCurrentIndex];
             switch (bufferType)
             {
                 case BufferType_Vertex:
@@ -126,11 +115,11 @@ internal VC_Handle VC_AllocateBuffer(BufferType bufferType, BufferUsageType usag
         if (AtomicCompareExchange(&buffer->mOffset, initialOffset + totalSize, initialOffset) == initialOffset)
         {
             i32 offset = initialOffset + alignSize;
-            R_UpdateBuffer(buffer, usageType, data, offset, commitSize);
+            renderer.R_UpdateBuffer(buffer, usageType, data, offset, commitSize);
 
             handle = ((u64)(offset & VERTEX_CACHE_OFFSET_MASK) << VERTEX_CACHE_OFFSET_SHIFT) |
                      ((u64)(commitSize & VERTEX_CACHE_SIZE_MASK) << VERTEX_CACHE_SIZE_SHIFT) |
-                     ((u64)(gVertexCache.mCurrentFrame & VERTEX_CACHE_FRAME_MASK) << VERTEX_CACHE_FRAME_SHIFT);
+                     ((u64)(mCurrentFrame & VERTEX_CACHE_FRAME_MASK) << VERTEX_CACHE_FRAME_SHIFT);
 
             if (usageType == BufferUsage_Static)
             {
@@ -156,7 +145,7 @@ b32 VertexCacheState::CheckSubmitted(VC_Handle handle)
         return true;
     }
     i32 currentFrame = (i32)((handle >> VERTEX_CACHE_FRAME_SHIFT) & VERTEX_CACHE_FRAME_MASK);
-    if (currentFrame != ((gVertexCache.mCurrentFrame - 1) & VERTEX_CACHE_FRAME_MASK))
+    if (currentFrame != ((mCurrentFrame - 1) & VERTEX_CACHE_FRAME_MASK))
     {
         Printf("Joints not previously submitted in the uniform buffer");
         return false;
@@ -171,7 +160,7 @@ b32 VertexCacheState::CheckCurrent(VC_Handle handle)
         return true;
     }
     i32 currentFrame = (i32)((handle >> VERTEX_CACHE_FRAME_SHIFT) & VERTEX_CACHE_FRAME_MASK);
-    if (currentFrame != ((gVertexCache.mCurrentFrame) & VERTEX_CACHE_FRAME_MASK))
+    if (currentFrame != ((mCurrentFrame)&VERTEX_CACHE_FRAME_MASK))
     {
         Printf("Joints not previously submitted in the uniform buffer");
         return false;
@@ -179,21 +168,21 @@ b32 VertexCacheState::CheckCurrent(VC_Handle handle)
     return true;
 }
 
-internal GPUBuffer *VC_GetBufferFromHandle(VC_Handle handle, BufferType type)
+GPUBuffer *VertexCacheState::VC_GetBufferFromHandle(VC_Handle handle, BufferType type)
 {
     GPUBuffer *buffer = 0;
-    if (gVertexCache.CheckStatic(handle))
+    if (CheckStatic(handle))
     {
         switch (type)
         {
             case BufferType_Vertex:
             {
-                buffer = &gVertexCache.mStaticData.mVertexBuffer;
+                buffer = &mStaticData.mVertexBuffer;
                 break;
             }
             case BufferType_Index:
             {
-                buffer = &gVertexCache.mStaticData.mIndexBuffer;
+                buffer = &mStaticData.mIndexBuffer;
                 break;
             }
         }
@@ -201,7 +190,7 @@ internal GPUBuffer *VC_GetBufferFromHandle(VC_Handle handle, BufferType type)
     else
     {
         i32 frameNum = (i32)((handle >> VERTEX_CACHE_FRAME_SHIFT) & VERTEX_CACHE_FRAME_MASK);
-        if (frameNum != gVertexCache.mCurrentFrame - 1)
+        if (frameNum != mCurrentFrame - 1)
         {
             Assert(!"Vertex buffer invalid");
         }
@@ -211,12 +200,12 @@ internal GPUBuffer *VC_GetBufferFromHandle(VC_Handle handle, BufferType type)
             {
                 case BufferType_Vertex:
                 {
-                    buffer = &gVertexCache.mFrameData[gVertexCache.mCurrentDrawIndex].mVertexBuffer;
+                    buffer = &mFrameData[mCurrentDrawIndex].mVertexBuffer;
                     break;
                 }
                 case BufferType_Index:
                 {
-                    buffer = &gVertexCache.mFrameData[gVertexCache.mCurrentDrawIndex].mIndexBuffer;
+                    buffer = &mFrameData[mCurrentDrawIndex].mIndexBuffer;
                     break;
                 }
             }
@@ -226,34 +215,34 @@ internal GPUBuffer *VC_GetBufferFromHandle(VC_Handle handle, BufferType type)
 }
 
 // Unmap currently mapped buffers (if not persistently mapped), map the next buffers (if needed)
-internal void VC_BeginGPUSubmit()
+void VertexCacheState::VC_BeginGPUSubmit()
 {
-    // VertexCache *staticCache = &gVertexCache.mStaticData;
+    // VertexCache *staticCache = &mStaticData;
     // GPUBuffer *mVertexBuffer  = &staticCache->mVertexBuffer;
 
-    VertexCache *frameCache  = &gVertexCache.mFrameData[gVertexCache.mCurrentIndex];
-    VertexCache *staticCache = &gVertexCache.mStaticData;
+    VertexCache *frameCache  = &mFrameData[mCurrentIndex];
+    VertexCache *staticCache = &mStaticData;
 
-    R_UnmapGPUBuffer(&frameCache->mIndexBuffer);
-    R_UnmapGPUBuffer(&frameCache->mVertexBuffer);
-    R_UnmapGPUBuffer(&frameCache->mUniformBuffer);
-    R_UnmapGPUBuffer(&staticCache->mVertexBuffer);
-    R_UnmapGPUBuffer(&staticCache->mIndexBuffer);
+    renderer.R_UnmapGPUBuffer(&frameCache->mIndexBuffer);
+    renderer.R_UnmapGPUBuffer(&frameCache->mVertexBuffer);
+    renderer.R_UnmapGPUBuffer(&frameCache->mUniformBuffer);
+    renderer.R_UnmapGPUBuffer(&staticCache->mVertexBuffer);
+    renderer.R_UnmapGPUBuffer(&staticCache->mIndexBuffer);
 
-    gVertexCache.mCurrentFrame++;
-    gVertexCache.mCurrentDrawIndex = gVertexCache.mCurrentIndex;
-    gVertexCache.mCurrentIndex     = gVertexCache.mCurrentFrame % ArrayLength(gVertexCache.mFrameData);
+    mCurrentFrame++;
+    mCurrentDrawIndex = mCurrentIndex;
+    mCurrentIndex     = mCurrentFrame % ArrayLength(mFrameData);
 
-    VertexCache *newFrame            = &gVertexCache.mFrameData[gVertexCache.mCurrentIndex];
+    VertexCache *newFrame            = &mFrameData[mCurrentIndex];
     newFrame->mIndexBuffer.mOffset   = 0;
     newFrame->mVertexBuffer.mOffset  = 0;
     newFrame->mUniformBuffer.mOffset = 0;
 
-    R_MapGPUBuffer(&newFrame->mIndexBuffer);
-    R_MapGPUBuffer(&newFrame->mVertexBuffer);
-    R_MapGPUBuffer(&frameCache->mUniformBuffer);
-    R_MapGPUBuffer(&staticCache->mVertexBuffer);
-    R_MapGPUBuffer(&staticCache->mIndexBuffer);
+    renderer.R_MapGPUBuffer(&newFrame->mIndexBuffer);
+    renderer.R_MapGPUBuffer(&newFrame->mVertexBuffer);
+    renderer.R_MapGPUBuffer(&frameCache->mUniformBuffer);
+    renderer.R_MapGPUBuffer(&staticCache->mVertexBuffer);
+    renderer.R_MapGPUBuffer(&staticCache->mIndexBuffer);
 }
 
 inline u64 VertexCacheState::GetOffset(VC_Handle handle)

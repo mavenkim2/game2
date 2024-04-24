@@ -1,6 +1,6 @@
 layout (location = 0) in V2 translate;
 layout (location = 1) in V2 scale;
-layout (location = 2) in V4 handle;
+layout (location = 2) in uvec4 handle;
 
 flat out unsigned int container;
 flat out f32 slice;
@@ -14,7 +14,7 @@ void main()
     V2 instancePos = translate + scale * pos[gl_VertexID];
     gl_Position = transform * V4(instancePos, 0, 1);
     
-    container = floatBitsToUint(handle.x);
-    slice = handle.y;
+    container = handle.x;
+    slice = float(handle.y);
     uv = pos[gl_VertexID];
 }

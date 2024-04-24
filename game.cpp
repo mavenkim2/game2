@@ -1,19 +1,23 @@
-#include "crack.h"
-#ifdef LSP_INCLUDE
-#include "platform.h"
-#include "keepmovingforward_common.h"
-#include "asset.h"
-#include "asset.cpp"
-#include "asset_cache.h"
-#include "/render/render.h"
-#include "/render/render.cpp"
-#include "debug.cpp"
 #include "game.h"
-#endif
+
+#include "input.cpp"
+#include "thread_context.cpp"
+
+#include "physics.cpp"
+#include "keepmovingforward_memory.cpp"
+#include "keepmovingforward_string.cpp"
+#include "keepmovingforward_camera.cpp"
+#include "entity.cpp"
+#include "level.cpp"
+#include "job.cpp"
+#include "font.cpp"
+#include "asset.cpp"
+#include "asset_cache.cpp"
+#include "render/vertex_cache.cpp"
+#include "render/render.cpp"
+#include "debug.cpp"
 
 const f32 GRAVITY = 49.f;
-
-global G_State *g_state;
 
 internal void InitializePlayer(G_State *gameState)
 {
@@ -35,6 +39,7 @@ internal void InitializePlayer(G_State *gameState)
     AddFlag(player, Entity_Valid | Entity_Collidable | Entity_Airborne | Entity_Swappable);
 }
 
+#if 0
 internal void G_EntryPoint(void *p)
 {
     SetThreadName(Str8Lit("[G] Thread"));
@@ -73,6 +78,7 @@ internal void G_EntryPoint(void *p)
         }
     }
 }
+#endif
 
 internal Manifold NarrowPhaseAABBCollision(const Rect3 a, const Rect3 b)
 {
@@ -143,66 +149,107 @@ internal Manifold NarrowPhaseAABBCollision(const Rect3 a, const Rect3 b)
     return manifold;
 }
 
-internal void G_Init()
+RendererApi renderer;
+PlatformApi platform;
+Engine *engine;
+Shared *shared;
+
+// simply waits for all threads to finish executing
+G_FLUSH(G_Flush)
 {
-    Arena *frameArena       = ArenaAlloc();
-    Arena *permanentArena   = ArenaAlloc();
-    g_state                 = PushStruct(permanentArena, G_State);
-    g_state->permanentArena = permanentArena;
-    g_state->frameArena     = frameArena;
+    JS_Flush();
+    AS_Flush();
+}
 
-    // Load assets
+G_INIT(G_Init)
+{
+    renderer = ioPlatformMemory->mRenderer;
+    if (ioPlatformMemory->mIsHotloaded || !ioPlatformMemory->mIsLoaded)
+    {
+        engine   = ioPlatformMemory->mEngine;
+        platform = ioPlatformMemory->mPlatform;
+        shared   = ioPlatformMemory->mShared;
+        Printf   = platform.Printf;
+        ThreadContextSet(ioPlatformMemory->mTctx);
+    }
+    if (ioPlatformMemory->mIsHotloaded)
+    {
+        // restart terminated threads
+        JS_Restart();
+        AS_Restart();
+        ioPlatformMemory->mIsHotloaded = 0;
+    }
+    if (!ioPlatformMemory->mIsLoaded)
+    {
+        ioPlatformMemory->mIsLoaded = 1;
 
-    g_state->model  = AS_GetAsset(Str8Lit("data/dragon/scene.model"));
-    g_state->model2 = AS_GetAsset(Str8Lit("data/hero/scene.model"));
-    g_state->eva    = AS_GetAsset(Str8Lit("data/eva/Eva01.model"));
+        JS_Init();
+        AS_Init();
+        F_Init();
+        D_Init();
+        DBG_Init();
 
-    KeyframedAnimation *animation = PushStruct(g_state->permanentArena, KeyframedAnimation);
+        Arena *frameArena     = ArenaAlloc();
+        Arena *permanentArena = ArenaAlloc();
 
-    // ReadAnimationFile(g_state->worldArena, animation, Str8Lit("data/dragon_attack_01.anim"));
-    AS_Handle anim = AS_GetAsset(Str8Lit("data/dragon/Qishilong_attack01.anim"));
-    // AS_Handle anim = LoadAssetFile(Str8Lit("data/dragon/Qishilong_attack02.anim"));
-    g_state->font = AS_GetAsset(Str8Lit("data/liberation_mono.ttf"));
+        G_State *g_state = PushStruct(permanentArena, G_State);
+        engine->SetGameState(g_state);
+        g_state->permanentArena = permanentArena;
+        g_state->frameArena     = frameArena;
 
-    g_state->level           = PushStruct(g_state->permanentArena, Level);
-    g_state->camera.position = g_state->player.pos - V3{0, 10, 0};
-    g_state->camera.pitch    = 0; //-PI / 4;
-    g_state->camera.yaw      = PI / 2;
-    g_state->cameraMode      = CameraMode_Debug;
+        // Load assets
 
-    Entity *nilEntity = CreateEntity(g_state, g_state->level);
+        g_state->model  = AS_GetAsset(Str8Lit("data/dragon/scene.model"));
+        g_state->model2 = AS_GetAsset(Str8Lit("data/hero/scene.model"));
+        g_state->eva    = AS_GetAsset(Str8Lit("data/eva/Eva01.model"));
 
-    GenerateLevel(g_state, 40, 24);
+        KeyframedAnimation *animation = PushStruct(g_state->permanentArena, KeyframedAnimation);
 
-    InitializePlayer(g_state);
+        // ReadAnimationFile(g_state->worldArena, animation, Str8Lit("data/dragon_attack_01.anim"));
+        AS_Handle anim = AS_GetAsset(Str8Lit("data/dragon/Qishilong_attack01.anim"));
+        // AS_Handle anim = LoadAssetFile(Str8Lit("data/dragon/Qishilong_attack02.anim"));
+        g_state->font = AS_GetAsset(Str8Lit("data/liberation_mono.ttf"));
 
-    Entity *swap  = CreateEntity(g_state, g_state->level);
-    *swap         = {};
-    swap->pos.x   = 8.f;
-    swap->pos.y   = 8.f;
-    swap->size.x  = TILE_METER_SIZE;
-    swap->size.y  = TILE_METER_SIZE;
-    swap->color.r = 0.f;
-    swap->color.g = 1.f;
-    swap->color.b = 1.f;
-    swap->color.a = 1.f;
-    AddFlag(swap, Entity_Valid | Entity_Collidable | Entity_Swappable);
+        g_state->level           = PushStruct(g_state->permanentArena, Level);
+        g_state->camera.position = g_state->player.pos - V3{0, 10, 0};
+        g_state->camera.pitch    = 0; //-PI / 4;
+        g_state->camera.yaw      = PI / 2;
+        g_state->cameraMode      = CameraMode_Debug;
 
-    AnimationPlayer *aPlayer = &g_state->animPlayer;
-    StartLoopedAnimation(g_state->permanentArena, aPlayer, anim);
+        Entity *nilEntity = CreateEntity(g_state, g_state->level);
 
-    // Initialize input
-    g_state->bindings.bindings[I_Button_Up]         = OS_Key_W;
-    g_state->bindings.bindings[I_Button_Down]       = OS_Key_S;
-    g_state->bindings.bindings[I_Button_Left]       = OS_Key_A;
-    g_state->bindings.bindings[I_Button_Right]      = OS_Key_D;
-    g_state->bindings.bindings[I_Button_Jump]       = OS_Key_Space;
-    g_state->bindings.bindings[I_Button_Shift]      = OS_Key_Shift;
-    g_state->bindings.bindings[I_Button_Swap]       = OS_Key_C;
-    g_state->bindings.bindings[I_Button_LeftClick]  = OS_Mouse_L;
-    g_state->bindings.bindings[I_Button_RightClick] = OS_Mouse_R;
+        GenerateLevel(g_state, 40, 24);
 
-    g_state->heightmap = CreateHeightmap(Str8Lit("data/heightmap.png"));
+        InitializePlayer(g_state);
+
+        Entity *swap  = CreateEntity(g_state, g_state->level);
+        *swap         = {};
+        swap->pos.x   = 8.f;
+        swap->pos.y   = 8.f;
+        swap->size.x  = TILE_METER_SIZE;
+        swap->size.y  = TILE_METER_SIZE;
+        swap->color.r = 0.f;
+        swap->color.g = 1.f;
+        swap->color.b = 1.f;
+        swap->color.a = 1.f;
+        AddFlag(swap, Entity_Valid | Entity_Collidable | Entity_Swappable);
+
+        AnimationPlayer *aPlayer = &g_state->animPlayer;
+        StartLoopedAnimation(g_state->permanentArena, aPlayer, anim);
+
+        // Initialize input
+        g_state->bindings.bindings[I_Button_Up]         = OS_Key_W;
+        g_state->bindings.bindings[I_Button_Down]       = OS_Key_S;
+        g_state->bindings.bindings[I_Button_Left]       = OS_Key_A;
+        g_state->bindings.bindings[I_Button_Right]      = OS_Key_D;
+        g_state->bindings.bindings[I_Button_Jump]       = OS_Key_Space;
+        g_state->bindings.bindings[I_Button_Shift]      = OS_Key_Shift;
+        g_state->bindings.bindings[I_Button_Swap]       = OS_Key_C;
+        g_state->bindings.bindings[I_Button_LeftClick]  = OS_Mouse_L;
+        g_state->bindings.bindings[I_Button_RightClick] = OS_Mouse_R;
+
+        g_state->heightmap = CreateHeightmap(Str8Lit("data/heightmap.png"));
+    }
 }
 
 internal OS_Event *GetKeyEvent(OS_Events *events, OS_Key key)
@@ -235,8 +282,10 @@ internal OS_Event *GetEventType(OS_Events *events, OS_EventType type)
     return result;
 }
 
-internal void G_Update(f32 dt)
+DLL G_UPDATE(G_Update)
 {
+    G_State *g_state         = engine->GetGameState();
+    RenderState *renderState = engine->GetRenderState();
     ArenaClear(g_state->frameArena);
 
     //////////////////////////////
@@ -249,7 +298,7 @@ internal void G_Update(f32 dt)
         I_PollInput();
 
         OS_Events events = I_GetInput(g_state->frameArena);
-        V2 mousePos      = OS_GetMousePos(shared->windowHandle);
+        V2 mousePos      = platform.OS_GetMousePos(shared->windowHandle);
 
         if (GetEventType(&events, OS_EventType_Quit))
         {
@@ -310,12 +359,12 @@ internal void G_Update(f32 dt)
             if (g_state->cameraMode == CameraMode_Player)
             {
                 g_state->cameraMode = CameraMode_Debug;
-                OS_ToggleCursor(1);
+                platform.OS_ToggleCursor(1);
             }
             else
             {
                 g_state->cameraMode = CameraMode_Player;
-                OS_ToggleCursor(0);
+                platform.OS_ToggleCursor(0);
             }
         }
     }
@@ -330,12 +379,12 @@ internal void G_Update(f32 dt)
         case CameraMode_Player:
         {
             // TODO: hide mouse, move camera about player
-            V2 center = OS_GetCenter(shared->windowHandle, 1);
+            V2 center = platform.OS_GetCenter(shared->windowHandle, 1);
             // V2 mousePos = OS_GetMousePos(shared->windowHandle);
             V2 dMouseP = playerController->mousePos - center;
 
-            center = OS_GetCenter(shared->windowHandle, 0);
-            OS_SetMousePos(shared->windowHandle, center);
+            center = platform.OS_GetCenter(shared->windowHandle, 0);
+            platform.OS_SetMousePos(shared->windowHandle, center);
 
             Camera *camera   = &g_state->camera;
             f32 cameraOffset = 10.f;
@@ -453,7 +502,7 @@ internal void G_Update(f32 dt)
                 // screen space -> homogeneous clip space -> view space -> world space
                 Mat4 screenSpaceToWorldMatrix = Inverse(transform);
                 V2 mouseP                     = playerController->mousePos;
-                V2 viewport                   = OS_GetWindowDimension(shared->windowHandle);
+                V2 viewport                   = platform.OS_GetWindowDimension(shared->windowHandle);
                 // Screen space ->NDC
                 mouseP.x = Clamp(2 * mouseP.x / viewport.x - 1, -1, 1);
                 mouseP.y = Clamp(1 - (2 * mouseP.y / viewport.y), -1, 1);
@@ -604,22 +653,28 @@ internal void G_Update(f32 dt)
 
         renderState->camera = g_state->camera;
 
+#if 0
         static b8 test = 0;
         static VC_Handle vertex;
         static VC_Handle index;
         if (!test)
         {
-            test = 1;
-            MeshVertex vertices[4];
-            vertices[0].position = {-1, -1, 0};
-            vertices[1].position = {1, -1, 0};
-            vertices[2].position = {1, 1, 0};
-            vertices[3].position = {-1, 1, 0};
+            test                   = 1;
+            MeshVertex vertices[4] = {};
+            vertices[0].position   = {-1, -1, 0};
+            vertices[1].position   = {1, -1, 0};
+            vertices[2].position   = {1, 1, 0};
+            vertices[3].position   = {-1, 1, 0};
 
             vertices[0].normal = {0, 0, 1.f};
             vertices[1].normal = {0, 0, 1.f};
             vertices[2].normal = {0, 0, 1.f};
             vertices[3].normal = {0, 0, 1.f};
+
+            vertices[0].tangent = {1.f, 0, 0};
+            vertices[1].tangent = {1.f, 0, 0};
+            vertices[2].tangent = {1.f, 0, 0};
+            vertices[3].tangent = {1.f, 0, 0};
 
             u32 indices[6];
             indices[0] = 0;
@@ -629,30 +684,13 @@ internal void G_Update(f32 dt)
             indices[4] = 2;
             indices[5] = 3;
 
-            vertex = VC_AllocateBuffer(BufferType_Vertex, BufferUsage_Static, vertices, sizeof(MeshVertex), 4);
-            index  = VC_AllocateBuffer(BufferType_Index, BufferUsage_Static, indices, sizeof(u32), 6);
+            vertex = renderState->vertexCache.VC_AllocateBuffer(BufferType_Vertex, BufferUsage_Static, vertices, sizeof(MeshVertex), 4);
+            index  = renderState->vertexCache.VC_AllocateBuffer(BufferType_Index, BufferUsage_Static, indices, sizeof(u32), 6);
         }
 
-        Mat4 transform  = Identity();
-        transform[0][0] = 3;
-        transform[1][1] = 3;
-        transform[2][2] = 3;
+        Mat4 transform = Scale({20.f, 20.f, 20.f});
         D_PushModel(vertex, index, renderState->transform * transform);
-        //
-        // R_PassMesh *pass       = R_GetPassFromKind(R_PassType_Mesh)->passMesh;
-        // R_MeshParamsNode *node = PushStruct(d_state->arena, R_MeshParamsNode);
-        //
-        // node->val.numSurfaces = 1;
-        // D_Surface *surfaces   = (D_Surface *)R_FrameAlloc(node->val.numSurfaces * sizeof(*surfaces));
-        // node->val.surfaces    = surfaces;
-        //
-        // D_Surface *surface = &surfaces[0];
-        //
-        // surface->vertexBuffer = vertex;
-        // surface->indexBuffer  = index;
-
-        // TODO: ptr or copy?
-        // QueuePush(pass->list.first, pass->list.last, node);
+#endif
 
         // Model 1
         Mat4 translate  = Translate4(V3{0, 20, 5});
@@ -688,7 +726,7 @@ internal void G_Update(f32 dt)
         translate       = Translate4(V3{-10, 10, 0});
         scale           = Scale(V3{.1f, .1f, .1f});
         rotate          = Rotate4(MakeV3(1, 0, 0), PI / 2);
-        Mat4 transform3 = translate *  scale;
+        Mat4 transform3 = translate * scale;
         Mat4 mvp3       = renderState->transform * transform3;
 
         D_PushModel(g_state->eva, transform3, mvp3);
