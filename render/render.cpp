@@ -277,7 +277,14 @@ internal void D_EndFrame()
             }
         }
 
-        renderState->drawParams = D_PrepareMeshes();
+        renderState->drawParams = D_PrepareMeshes(pass->list.first, pass->list.mTotalSurfaceCount);
+
+        // for each light, prepare the meshes that are ONLY SHADOWS for that light. in the future, will
+        // need to consider models that cast shadows into the view frustum from multiple lights.
+        for (ViewLight *light = pass->viewLight; light != 0; light = light->next)
+        {
+            light->drawParams = D_PrepareMeshes(light->modelNodes, light->mNumShadowSurfaces);
+        }
     }
     renderState->vertexCache.VC_BeginGPUSubmit();
     R_SwapFrameData();
@@ -290,12 +297,12 @@ internal void R_GetFrustumCorners(Mat4 &inInverseMvp, Rect3 &inBounds, V3 *outFr
     V4 p;
     for (i32 x = 0; x < 2; x++)
     {
-        p.x = inBounds[x][0];
         for (i32 y = 0; y < 2; y++)
         {
-            p.y = inBounds[y][1];
             for (i32 z = 0; z < 2; z++)
             {
+                p.x = inBounds[x][0];
+                p.y = inBounds[y][1];
                 p.z = inBounds[z][2];
                 p.w = 1;
                 p   = inInverseMvp * p;
@@ -456,17 +463,17 @@ internal void D_PushModel(AS_Handle loadedModel, Mat4 transform, Mat4 &mvp, Mat4
 }
 
 // prepare to submit to gpu
-internal R_MeshPreparedDrawParams *D_PrepareMeshes()
+internal R_MeshPreparedDrawParams *D_PrepareMeshes(R_MeshParamsNode *head, i32 inCount)
 {
-    RenderState *renderState             = engine->GetRenderState();
-    R_PassMesh *pass                     = renderState->passes[R_PassType_Mesh].passMesh;
-    R_MeshPreparedDrawParams *drawParams = (R_MeshPreparedDrawParams *)R_FrameAlloc(sizeof(R_MeshPreparedDrawParams));
-    drawParams->mIndirectBuffers         = (R_IndirectCmd *)R_FrameAlloc(sizeof(R_IndirectCmd) * pass->list.mTotalSurfaceCount);
-    drawParams->mPerMeshDrawParams       = (R_MeshPerDrawParams *)R_FrameAlloc(sizeof(R_MeshPerDrawParams) * pass->list.mTotalSurfaceCount);
+    RenderState *renderState = engine->GetRenderState();
+    // R_PassMesh *pass         = renderState->passes[R_PassType_Mesh].passMesh;
 
-    i32 drawCount = 0;
     // Per mesh
-    for (R_MeshParamsNode *node = pass->list.first; node != 0; node = node->next)
+    i32 drawCount                        = 0;
+    R_MeshPreparedDrawParams *drawParams = (R_MeshPreparedDrawParams *)R_FrameAlloc(sizeof(R_MeshPreparedDrawParams));
+    drawParams->mIndirectBuffers         = (R_IndirectCmd *)R_FrameAlloc(sizeof(R_IndirectCmd) * inCount);
+    drawParams->mPerMeshDrawParams       = (R_MeshPerDrawParams *)R_FrameAlloc(sizeof(R_MeshPerDrawParams) * inCount);
+    for (R_MeshParamsNode *node = head; node != 0; node = node->next)
     {
         R_MeshParams *params = &node->val;
 
@@ -629,9 +636,18 @@ internal void R_CullModelsToLight(ViewLight *light)
     }
 
     R_PassMesh *pass = R_GetPassFromKind(R_PassType_Mesh)->passMesh;
+    // TODO: this is kind of dumb, because it means that a model can only have one shadow node. however, I will not
+    // think about the future :)
     for (R_MeshParamsNode **node = &pass->list.first; *node != 0;)
     {
         R_MeshParamsNode *currentNode = *node;
+        // If the node is directly visible in the view frusta, skip
+        if (currentNode->val.mIsDirectlyVisible)
+        {
+            node = &currentNode->next;
+            continue;
+        }
+
         // returns the x, y, z extents from the center
         V3 extents = GetExtents(currentNode->val.mBounds);
         V3 center  = GetCenter(currentNode->val.mBounds);
@@ -647,24 +663,24 @@ internal void R_CullModelsToLight(ViewLight *light)
 
         Ray ray;
         ray.mStartP = center;
-        ray.mDir    = light->dir;
+        ray.mDir    = -light->dir;
 
         // TODO: this could be done by minkowski adding with the frustum bounds themselves,
         // but they would have to be sorted or something
         f32 tMin;
         V3 point;
 
-        // If the node is directly visible, or its shadow intersects the view frustum, then keep it
-        if (currentNode->val.mIsDirectlyVisible || IntersectRayAABB(ray, minkowskiFrustumBounds, tMin, point))
+        pass->list.mTotalSurfaceCount -= currentNode->val.numSurfaces;
+        R_MeshParamsNode *next = currentNode->next;
+
+        // Only the node's shadow appears in the frustum
+        if (IntersectRayAABB(ray, minkowskiFrustumBounds, tMin, point))
         {
-            node = &currentNode->next;
+            currentNode->next = light->modelNodes;
+            light->modelNodes = currentNode;
+            light->mNumShadowSurfaces += currentNode->val.numSurfaces;
         }
-        // Otherwise, remove from the list
-        else
-        {
-            pass->list.mTotalSurfaceCount -= currentNode->val.numSurfaces;
-            *node = currentNode->next;
-        }
+        *node = next;
     }
 }
 
@@ -1032,7 +1048,7 @@ internal void R_CascadedShadowMap(const ViewLight *inLight, Mat4 *outLightViewPr
         Rect3 *currentBounds = &bounds[i];
         // The orthographic projection expects 0 < n < f
         // TODO: use the bounds of the light instead
-        f32 zNear = -currentBounds->maxZ;
+        f32 zNear = -currentBounds->maxZ - 50;
         f32 zFar  = -currentBounds->minZ;
 
         f32 extent = zFar - zNear;

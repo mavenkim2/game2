@@ -255,6 +255,7 @@ struct R_MeshParamsList
     u32 mTotalSurfaceCount;
 };
 
+struct R_MeshPreparedDrawParams;
 // used for view testing
 struct ViewLight
 {
@@ -263,12 +264,17 @@ struct ViewLight
     V3 globalOrigin;
     V3 dir;
     ViewLight *next;
+
+    R_MeshParamsNode *modelNodes;
+    R_MeshPreparedDrawParams *drawParams;
+    i32 mNumShadowSurfaces;
 };
 
 struct R_PassMesh
 {
     R_MeshParamsList list;
     ViewLight *viewLight;
+    R_MeshPreparedDrawParams *drawParams;
 };
 
 struct FrustumCorners
@@ -404,7 +410,7 @@ struct R_MeshPreparedDrawParams
 };
 
 // prepare to submit to gpu
-internal R_MeshPreparedDrawParams *D_PrepareMeshes();
+internal R_MeshPreparedDrawParams *D_PrepareMeshes(R_MeshParamsNode *head, i32 inCount);
 internal void R_SetupViewFrustum();
 internal void R_CullModelsToLight(ViewLight *light);
 

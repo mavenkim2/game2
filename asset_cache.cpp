@@ -1546,7 +1546,7 @@ internal AS_BTreeNode *AS_FindMemoryBlock(i32 size)
 internal void AS_InitializeAllocator()
 {
     AS_CacheState *as_state               = engine->GetAssetCacheState();
-    Arena *arena                          = ArenaAlloc();
+    Arena *arena                          = ArenaAlloc(megabytes(128));
     as_state->allocator.arena             = arena;
     as_state->allocator.bTree.root        = PushStruct(arena, AS_BTreeNode);
     as_state->allocator.bTree.maxChildren = 4;

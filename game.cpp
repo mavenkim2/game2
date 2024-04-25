@@ -687,7 +687,7 @@ DLL G_UPDATE(G_Update)
 #endif
 
         // Model 1
-        Mat4 translate  = Translate4(V3{0, 20, 5});
+        Mat4 translate  = Translate4(V3{0, 20, -30});
         Mat4 scale      = Scale(V3{0.5f, 0.5f, 0.5f});
         Mat4 rotate     = Rotate4(MakeV3(1, 0, 0), PI / 2);
         Mat4 transform1 = translate * rotate * scale;
@@ -727,8 +727,8 @@ DLL G_UPDATE(G_Update)
         Light light;
         light.type = LightType_Directional;
         // TODO: no matter what direction is specified the shadow map is always {0, 0, -1}
-        light.dir = MakeV3(0, .75f, 0.5f);
-        // light.dir = MakeV3(0.f, 0.f, 1.f);
+        // light.dir = MakeV3(0, .75f, 0.5f);
+        light.dir = MakeV3(0.f, 0.f, 1.f);
         light.dir = Normalize(light.dir);
         // light.pos = MakeV3(0.f, 0.f, 0.f);
         D_PushLight(&light);

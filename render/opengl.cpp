@@ -847,7 +847,8 @@ internal void R_Win32_OpenGL_EndFrame(RenderState *renderState, HDC deviceContex
         glClear(GL_DEPTH_BUFFER_BIT);
 
         R_PassMesh *pass = renderState->passes[R_PassType_Mesh].passMesh;
-        for (ViewLight*light = pass->viewLight; light != 0; light = light->next)
+        ViewLight *light = pass->viewLight;
+        for (; light != 0; light = light->next)
         {
             if (light->type == LightType_Directional)
             {
@@ -876,10 +877,9 @@ internal void R_Win32_OpenGL_EndFrame(RenderState *renderState, HDC deviceContex
 
         // Indirect buffer
         openGL->glBindBuffer(GL_DRAW_INDIRECT_BUFFER, (GLuint)openGL->progManager.mIndirectBuffer);
-        openGL->glBufferSubData(GL_DRAW_INDIRECT_BUFFER, 0, list->mTotalSurfaceCount * sizeof(R_IndirectCmd), drawParams->mIndirectBuffers);
-        // Per mesh draw parameters
         openGL->glBindBufferBase(GL_SHADER_STORAGE_BUFFER, GL_PER_DRAW_BUFFER_BINDING, (GLuint)openGL->progManager.mPerDrawBuffer);
-        openGL->glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(R_MeshPerDrawParams) * list->mTotalSurfaceCount, drawParams->mPerMeshDrawParams);
+
+        // Per mesh draw parameters
 
         openGL->glEnableVertexAttribArray(0);
         openGL->glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(MeshVertex),
@@ -908,9 +908,18 @@ internal void R_Win32_OpenGL_EndFrame(RenderState *renderState, HDC deviceContex
         // TODO: uniform blocks so we can just push a struct or something instead of having to do
         // these all manually
 
-        // Skinning matrices
-        // Light matrices
-        openGL->glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, 0, pass->list.mTotalSurfaceCount, 0);
+        // Draw shadow only models
+        {
+            openGL->glBufferSubData(GL_DRAW_INDIRECT_BUFFER, 0, light->mNumShadowSurfaces * sizeof(R_IndirectCmd), light->drawParams->mIndirectBuffers);
+            openGL->glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(R_MeshPerDrawParams) * light->mNumShadowSurfaces, light->drawParams->mPerMeshDrawParams);
+            openGL->glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, 0, light->mNumShadowSurfaces, 0);
+        }
+
+        {
+            openGL->glBufferSubData(GL_DRAW_INDIRECT_BUFFER, 0, list->mTotalSurfaceCount * sizeof(R_IndirectCmd), drawParams->mIndirectBuffers);
+            openGL->glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(R_MeshPerDrawParams) * list->mTotalSurfaceCount, drawParams->mPerMeshDrawParams);
+            openGL->glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, 0, list->mTotalSurfaceCount, 0);
+        }
 
         glCullFace(GL_BACK);
         glViewport(0, 0, clientWidth, clientHeight);
