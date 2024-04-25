@@ -175,6 +175,7 @@ void main()
         V3 radiance = V3(1, 1, 1);
 
         outColor += ((kD * albedo / PI) + spec) * nDotL * radiance * (1 - shadow);
+        // outColor = V3(1, 1, 1) * ((4 - shadowIndex) * .25);
 
         // outColor = outColor / (outColor + V3(1.0));
         // outColor += specular;

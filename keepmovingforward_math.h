@@ -349,11 +349,21 @@ union Rect3
     };
     V3 elements[2];
 
+    Rect3();
+    Rect3(V3 min, V3 max);
+
     V3 operator[](const i32 index)
     {
         return elements[index];
     }
 };
+
+Rect3::Rect3() {}
+Rect3::Rect3(V3 min, V3 max)
+{
+    elements[0] = min;
+    elements[1] = max;
+}
 
 union Quat
 {
@@ -1578,10 +1588,16 @@ inline Rect3 Rect3Center(V3 pos, V3 size)
     return result;
 }
 
-inline V3 Center(Rect3 a)
+inline V3 GetCenter(Rect3 a)
 {
     V3 result;
-    result = (a.minP = a.maxP) / 2;
+    result = (a.minP + a.maxP) / 2;
+    return result;
+}
+inline V3 GetExtents(Rect3 r)
+{
+    V3 result;
+    result = (r.maxP - r.minP)/2;
     return result;
 }
 
@@ -1619,6 +1635,50 @@ inline void AddBounds(Rect3 &a, V3 p)
     a.maxX = a[1][0] > p.x ? a[1][0] : p.x;
     a.maxY = a[1][1] > p.y ? a[1][1] : p.y;
     a.maxZ = a[1][2] > p.z ? a[1][2] : p.z;
+}
+
+struct Ray
+{
+    V3 mStartP;
+    V3 mDir;
+};
+
+// from real time collision detection
+internal b32 IntersectRayAABB(Ray &inRay, Rect3 &inAabb, f32 &outTmin, V3 &outPoint)
+{
+    outTmin  = 0;
+    f32 tmax = FLT_MAX;
+
+    // test x, y, and z pair planes
+    for (i32 i = 0; i < 3; i++)
+    {
+        // if the ray is parallel to the tested plane
+        if (Abs(inRay.mDir[i]) < 0.000001)
+        {
+            // if the ray's point is outside either of the planes
+            if (inRay.mStartP[i] < inAabb[0][i] || inRay.mStartP[i] > inAabb[1][i])
+            {
+                return 0;
+            }
+        }
+        else
+        {
+            // plug in ray equation P + td into plane equation X * n = dp, to get
+            // t = (dp - P dot N) / (d dot n)
+            f32 ood = 1 / inRay.mDir[i];
+            // near
+            f32 t1 = (inAabb[0][i] - inRay.mStartP[i]) * ood;
+            // far
+            f32 t2 = (inAabb[1][i] - inRay.mStartP[i]) * ood;
+            if (t1 > t2) Swap(f32, t1, t2);
+            // if the furthest entry is further than the closest exit, then the ray doesn't intersect the aabb
+            if (t1 > outTmin) outTmin = t1;
+            if (t2 < tmax) tmax = t2;
+            if (outTmin > tmax) return 0;
+        }
+    }
+    outPoint = inRay.mStartP + outTmin * inRay.mDir;
+    return 1;
 }
 
 /*

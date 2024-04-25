@@ -83,7 +83,7 @@ internal void G_EntryPoint(void *p)
 internal Manifold NarrowPhaseAABBCollision(const Rect3 a, const Rect3 b)
 {
     Manifold manifold = {};
-    V3 relative       = Center(a) - Center(b);
+    V3 relative       = GetCenter(a) - GetCenter(b);
     f32 aHalfExtent   = (a.maxX - a.minX) / 2;
     f32 bHalfExtent   = (b.maxX - b.minX) / 2;
     f32 xOverlap      = aHalfExtent + bHalfExtent - Abs(relative.x);
@@ -506,12 +506,6 @@ DLL G_UPDATE(G_Update)
                 // Screen space ->NDC
                 mouseP.x = Clamp(2 * mouseP.x / viewport.x - 1, -1, 1);
                 mouseP.y = Clamp(1 - (2 * mouseP.y / viewport.y), -1, 1);
-
-                struct Ray
-                {
-                    V3 mStartP;
-                    V3 mDir;
-                };
 
                 Ray ray;
                 // TODO: do I need to convert from NDC to homogeneous clip space?

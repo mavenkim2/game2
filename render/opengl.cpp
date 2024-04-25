@@ -828,7 +828,6 @@ internal void R_Win32_OpenGL_EndFrame(RenderState *renderState, HDC deviceContex
     openGL->progManager.SetUniform(UniformType_Global, UniformParam_ViewPerspective, &renderState->transform);
     openGL->progManager.SetUniform(UniformType_Global, UniformParam_ViewMatrix, &renderState->viewMatrix);
     openGL->progManager.SetUniform(UniformType_Global, UniformParam_ViewPosition, renderState->camera.position);
-    openGL->progManager.SetUniform(UniformType_Global, UniformParam_LightDir, renderState->light.dir);
 
     openGL->glBindBufferBase(GL_UNIFORM_BUFFER, GL_GLOBALUNIFORMS_BINDING, (GLuint)openGL->progManager.mGlobalUniformsBuffer);
     // Shadow map pass
@@ -848,6 +847,14 @@ internal void R_Win32_OpenGL_EndFrame(RenderState *renderState, HDC deviceContex
         glClear(GL_DEPTH_BUFFER_BIT);
 
         R_PassMesh *pass = renderState->passes[R_PassType_Mesh].passMesh;
+        for (ViewLight*light = pass->viewLight; light != 0; light = light->next)
+        {
+            if (light->type == LightType_Directional)
+            {
+                openGL->progManager.SetUniform(UniformType_Global, UniformParam_LightDir, light->dir);
+                break;
+            }
+        }
 
         GLuint currentProg = (GLuint)openGL->progManager.GetProgramApiObject(R_ShaderType_Depth);
         openGL->glUseProgram(currentProg);

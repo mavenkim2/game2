@@ -9,6 +9,7 @@
 #include "../font.h"
 #include "../font.cpp"
 #include "vertex_cache.h"
+#include "../keepmovingforward_camera.h"
 #endif
 
 global const V4 Color_Red               = {1, 0, 0, 1};
@@ -247,6 +248,7 @@ internal void D_BeginFrame()
             case R_PassType_Mesh:
             {
                 R_PassMesh *pass = state->passes[type].passMesh;
+                pass->viewLight  = 0;
                 pass->list.first = pass->list.last = 0;
                 pass->list.mTotalSurfaceCount      = 0;
             }
@@ -261,10 +263,49 @@ internal void D_BeginFrame()
 internal void D_EndFrame()
 {
     RenderState *renderState = engine->GetRenderState();
-    renderState->drawParams  = D_PrepareMeshes();
-    R_CascadedShadowMap(&renderState->light, renderState->shadowMapMatrices, renderState->cascadeDistances);
+    R_PassMesh *pass         = R_GetPassFromKind(R_PassType_Mesh)->passMesh;
+
+    // TODO: these need to go somewhere else
+    {
+        R_SetupViewFrustum();
+        for (ViewLight *light = pass->viewLight; light != 0; light = light->next)
+        {
+            R_CullModelsToLight(light);
+            if (light->type == LightType_Directional)
+            {
+                R_CascadedShadowMap(light, renderState->shadowMapMatrices, renderState->cascadeDistances);
+            }
+        }
+
+        renderState->drawParams = D_PrepareMeshes();
+    }
     renderState->vertexCache.VC_BeginGPUSubmit();
     R_SwapFrameData();
+}
+
+global Rect3 BoundsUnitCube = {{-1, -1, -1}, {1, 1, 1}};
+
+internal void R_GetFrustumCorners(Mat4 &inInverseMvp, Rect3 &inBounds, V3 *outFrustumCorners)
+{
+    V4 p;
+    for (i32 x = 0; x < 2; x++)
+    {
+        p.x = inBounds[x][0];
+        for (i32 y = 0; y < 2; y++)
+        {
+            p.y = inBounds[y][1];
+            for (i32 z = 0; z < 2; z++)
+            {
+                p.z = inBounds[z][2];
+                p.w = 1;
+                p   = inInverseMvp * p;
+
+                // Why this?
+                f32 oneOverW                                      = 1 / p.w;
+                outFrustumCorners[(z << 2) | (y << 1) | (x << 0)] = p.xyz * oneOverW;
+            }
+        }
+    }
 }
 
 internal b32 D_IsInBounds(Rect3 bounds, Mat4 &mvp)
@@ -362,22 +403,29 @@ internal void D_PushModel(AS_Handle loadedModel, Mat4 transform, Mat4 &mvp, Mat4
     {
         LoadedModel *model = GetModel(loadedModel);
 
-        // Frustum cull;
-        // TODO: the bounds for the model are currently wrong because of gltf
-        // (for some reason the model is massive and then shrunk down by a skinning matrix :)
         Rect3 bounds = model->bounds;
         bounds.minP  = transform * bounds.minP;
         bounds.maxP  = transform * bounds.maxP;
-        DrawBox(bounds, {1, 0, 0, 1});
-        if (!D_IsInBounds(model->bounds, mvp))
-        {
-            return;
-        }
 
-        // Skinned mesh
+        if (bounds.minP.x > bounds.maxP.x)
+        {
+            Swap(f32, bounds.minP.x, bounds.maxP.x);
+        }
+        if (bounds.minP.y > bounds.maxP.y)
+        {
+            Swap(f32, bounds.minP.y, bounds.maxP.y);
+        }
+        if (bounds.minP.z > bounds.maxP.z)
+        {
+            Swap(f32, bounds.minP.z, bounds.maxP.z);
+        }
+        DrawBox(bounds, {1, 0, 0, 1});
+
         R_PassMesh *pass       = R_GetPassFromKind(R_PassType_Mesh)->passMesh;
         R_MeshParamsNode *node = PushStruct(d_state->arena, R_MeshParamsNode);
 
+        node->val.mIsDirectlyVisible = D_IsInBounds(model->bounds, mvp);
+        node->val.mBounds            = bounds;
         pass->list.mTotalSurfaceCount += model->numMeshes;
 
         node->val.numSurfaces = model->numMeshes;
@@ -473,8 +521,151 @@ internal R_MeshPreparedDrawParams *D_PrepareMeshes()
 
 internal void D_PushLight(Light *light)
 {
+    R_PassMesh *pass = R_GetPassFromKind(R_PassType_Mesh)->passMesh;
+
+    ViewLight *viewLight = (ViewLight *)R_FrameAlloc(sizeof(ViewLight));
+    viewLight->type      = light->type;
+    viewLight->dir       = light->dir;
+
+    viewLight->next = pass->viewLight;
+    pass->viewLight = viewLight;
+}
+
+internal void R_SetupViewFrustum()
+{
+    RenderState *renderState           = engine->GetRenderState();
+    renderState->inverseViewProjection = Inverse(renderState->transform);
+    R_GetFrustumCorners(renderState->inverseViewProjection, BoundsUnitCube, renderState->mFrustumCorners.corners);
+
+    FrustumCorners *corners = &renderState->mFrustumCorners;
+
+    // basically this sorts the list so that the minimum z values are in the first half, the maximum z values
+    // are in the second half, the min x values are at even indices, and the miny values are at 0, 1, 4, 5
+    // this makes computing the minkowski sum w/ aabb easier, because you can compute the half extent and add it
+    // to the max values for the dimension  ou want, and subtract from the min values, so that the frustum grows
+    // for x
+    for (i32 i = 0; i < 8; i += 2)
+    {
+        if (corners->corners[i].x > corners->corners[i + 1].x)
+        {
+            Swap(V3, corners->corners[i], corners->corners[i + 1]);
+        }
+    }
+    // for y
+    if (corners->corners[0].y > corners->corners[2].y)
+    {
+        Swap(V3, corners->corners[0], corners->corners[2]);
+    }
+    if (corners->corners[1].y > corners->corners[3].y)
+    {
+        Swap(V3, corners->corners[1], corners->corners[3]);
+    }
+    if (corners->corners[4].y > corners->corners[6].y)
+    {
+        Swap(V3, corners->corners[4], corners->corners[6]);
+    }
+    if (corners->corners[5].y > corners->corners[7].y)
+    {
+        Swap(V3, corners->corners[5], corners->corners[7]);
+    }
+
+    // for z
+    for (i32 i = 0; i < 4; i++)
+    {
+        if (corners->corners[i].z > corners->corners[i + 4].z)
+        {
+            Swap(V3, corners->corners[i], corners->corners[i + 4]);
+        }
+    }
+}
+
+internal void R_CullModelsToLight(ViewLight *light)
+{
     RenderState *renderState = engine->GetRenderState();
-    renderState->light       = *light;
+    // for now
+    Assert(light->type == LightType_Directional);
+
+    // V3 globalLightPos    = renderState->camera.position + light->dir * 100000.f;
+    // Mat4 lightViewMatrix = LookAt4(globalLightPos, renderState->camera.position, renderState->camera.forward);
+
+    // TODO: the inverse view projection and the frustum corners in world space should be precomputed
+
+    // world space frustum corners
+    // R_GetFrustumCorners(inverseViewProjectionMatrix, BoundsUnitCube, renderState->mFrustumCorners.corners);
+
+    // for (i32 i = 0; i < ArrayLength(frustumCorners); i++)
+    // {
+    //     // convert to view space of the light
+    //     frustumCorners[i] = lightViewMatrix * frustumCorners[i];
+    // }
+
+    // 3 ways of doing this
+    // 1. put ray into clip space, put model aabb into clip space, minkowski add aabb to unit cube (????)
+    // then cast ray from center of the aabb towards the unit cube + aabb bounding box. im not sure about this one.
+    // 2. alternatively find bounds of view frustum in world space (aabb), add the model bounds to these
+    // frustum bounds. cast a ray from the center of the model and compare with the aabb to see if it intersects.
+    // this test is lossy.
+    // 3. project frustum corners to the view space of the light (faked by having a global position far int he distance).
+    // find the orthographic from this. then, for each prospective model, multtply by the m v p matrix of the light,
+    // and cull (same as view frustum culling func i already have).
+
+    // i am going to try 2
+
+    // another thing:
+
+    V3 *frustumCorners = renderState->mFrustumCorners.corners;
+    Rect3 frustumBounds;
+    Init(&frustumBounds);
+    for (i32 i = 0; i < ArrayLength(renderState->mFrustumCorners.corners); i++)
+    {
+        V3 *point          = &frustumCorners[i];
+        frustumBounds.minX = Min(frustumBounds.minX, point->x);
+        frustumBounds.minY = Min(frustumBounds.minX, point->y);
+        frustumBounds.minZ = Min(frustumBounds.minX, point->z);
+
+        frustumBounds.maxX = Max(frustumBounds.maxX, point->x);
+        frustumBounds.maxY = Max(frustumBounds.maxY, point->y);
+        frustumBounds.maxZ = Max(frustumBounds.maxZ, point->z);
+    }
+
+    R_PassMesh *pass = R_GetPassFromKind(R_PassType_Mesh)->passMesh;
+    for (R_MeshParamsNode **node = &pass->list.first; *node != 0;)
+    {
+        R_MeshParamsNode *currentNode = *node;
+        // returns the x, y, z extents from the center
+        V3 extents = GetExtents(currentNode->val.mBounds);
+        V3 center  = GetCenter(currentNode->val.mBounds);
+
+        Rect3 minkowskiFrustumBounds;
+        minkowskiFrustumBounds.minX = frustumBounds.minX - extents.x;
+        minkowskiFrustumBounds.minY = frustumBounds.minY - extents.y;
+        minkowskiFrustumBounds.minZ = frustumBounds.minZ - extents.z;
+
+        minkowskiFrustumBounds.maxX = frustumBounds.maxX + extents.x;
+        minkowskiFrustumBounds.maxY = frustumBounds.maxY + extents.y;
+        minkowskiFrustumBounds.maxZ = frustumBounds.maxZ + extents.z;
+
+        Ray ray;
+        ray.mStartP = center;
+        ray.mDir    = light->dir;
+
+        // TODO: this could be done by minkowski adding with the frustum bounds themselves,
+        // but they would have to be sorted or something
+        f32 tMin;
+        V3 point;
+
+        // If the node is directly visible, or its shadow intersects the view frustum, then keep it
+        if (currentNode->val.mIsDirectlyVisible || IntersectRayAABB(ray, minkowskiFrustumBounds, tMin, point))
+        {
+            node = &currentNode->next;
+        }
+        // Otherwise, remove from the list
+        else
+        {
+            pass->list.mTotalSurfaceCount -= currentNode->val.numSurfaces;
+            *node = currentNode->next;
+        }
+    }
 }
 
 struct D_FontAlignment
@@ -681,14 +872,6 @@ internal void DebugDrawSkeleton(AS_Handle model, Mat4 transform, Mat4 *skinningM
     }
 }
 
-// interesting trick: having "nodes" all start with the same header, and just casting between them based on
-// what the id is. kinda like inheritance except more powerful
-//
-// also, have one massive buffer for both indices and vertices, instead of allocating separate buffer
-// objects for them. then, handles can just be 64 bit numbers that contain the offset, size, and frame
-
-// global R_FrameState *gRenderFrameState;
-
 internal void RenderFrameDataInit()
 {
     RenderState *state            = engine->GetRenderState();
@@ -795,7 +978,7 @@ internal void R_ShadowMapFrusta(i32 splits, f32 splitWeight, Mat4 *outMatrices, 
 
 // TODO: frustum culling cuts out fragments that cast shadows. use the light's frustum to cull
 // also restrict the bounds to more tightly enclose the bounds of the objects (for better quality shadows)
-internal void R_CascadedShadowMap(const Light *inLight, Mat4 *outLightViewProjectionMatrices,
+internal void R_CascadedShadowMap(const ViewLight *inLight, Mat4 *outLightViewProjectionMatrices,
                                   f32 *outCascadeDistances)
 {
     RenderState *renderState = engine->GetRenderState();
@@ -810,25 +993,7 @@ internal void R_CascadedShadowMap(const Light *inLight, Mat4 *outLightViewProjec
     V3 frustumVertices[cNumCascades][8];
     for (i32 cascadeIndex = 0; cascadeIndex < cNumCascades; cascadeIndex++)
     {
-        for (i32 x = 0; x < 2; x++)
-        {
-            for (i32 y = 0; y < 2; y++)
-            {
-                for (i32 z = 0; z < 2; z++)
-                {
-                    V4 p = {2.f * x - 1, 2.f * y - 1, 2.f * z - 1.f, 1.f};
-                    p    = mvpMatrices[cascadeIndex] * p;
-
-                    // Why this?
-                    f32 oneOverW                                                  = 1 / p.w;
-                    frustumVertices[cascadeIndex][(z << 2) | (y << 1) | (x << 0)] = p.xyz * oneOverW;
-
-                    // test
-                    V4 result = Inverse(mvpMatrices[cascadeIndex]) * MakeV4(p.xyz * oneOverW, 1);
-                    int asdf  = 0;
-                }
-            }
-        }
+        R_GetFrustumCorners(mvpMatrices[cascadeIndex], BoundsUnitCube, frustumVertices[cascadeIndex]);
     }
 
     // Step 2. Find light world to view matrix (first get center point of frusta)

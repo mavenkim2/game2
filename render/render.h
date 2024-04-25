@@ -72,9 +72,9 @@ enum LightType
 struct Light
 {
     LightType type;
-    V3 origin;
-    V3 globalOrigin;
     V3 dir;
+    // V3 origin;
+    // V3 globalOrigin;
 };
 
 //////////////////////////////
@@ -236,10 +236,10 @@ struct R_MeshParams
 {
     Mat4 transform;
     D_Surface *surfaces;
-    // Mat4 *skinningMatrices;
     VC_Handle jointHandle;
+    Rect3 mBounds; // world space bounds
     u32 numSurfaces;
-    // u32 skinningMatricesCount;
+    b32 mIsDirectlyVisible;
 };
 
 struct R_MeshParamsNode
@@ -255,9 +255,30 @@ struct R_MeshParamsList
     u32 mTotalSurfaceCount;
 };
 
+// used for view testing
+struct ViewLight
+{
+    LightType type;
+    V3 origin;
+    V3 globalOrigin;
+    V3 dir;
+    ViewLight *next;
+};
+
 struct R_PassMesh
 {
     R_MeshParamsList list;
+    ViewLight *viewLight;
+};
+
+struct FrustumCorners
+{
+    V3 corners[8];
+};
+
+// generated per frame
+struct RenderView
+{
 };
 
 struct R_Pass
@@ -350,7 +371,7 @@ internal u8 *R_BatchListPush(R_BatchList *list, u32 instCap);
 const i32 cNumSplits     = 3;
 const i32 cNumCascades   = cNumSplits + 1;
 const i32 cShadowMapSize = 1024;
-internal void R_CascadedShadowMap(const Light *inLight, Mat4 *outLightViewProjectionMatrices,
+internal void R_CascadedShadowMap(const ViewLight *inLight, Mat4 *outLightViewProjectionMatrices,
                                   f32 *outCascadeDistances);
 
 //////////////////////////////
@@ -384,6 +405,8 @@ struct R_MeshPreparedDrawParams
 
 // prepare to submit to gpu
 internal R_MeshPreparedDrawParams *D_PrepareMeshes();
+internal void R_SetupViewFrustum();
+internal void R_CullModelsToLight(ViewLight *light);
 
 //////////////////////////////
 // Handles
@@ -417,7 +440,9 @@ struct RenderState
     R_Pass passes[R_PassType_Count];
     R_Command *head;
 
-    Light light;
+    // frustum corners
+    FrustumCorners mFrustumCorners;
+    Mat4 inverseViewProjection; // convert from clip space to world space
 
     // Vertex cache
     VertexCacheState vertexCache;
