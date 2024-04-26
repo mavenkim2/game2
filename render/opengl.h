@@ -89,6 +89,7 @@
 #define GL_TEXTURE_2D_ARRAY 0x8C1A
 
 #define GL_FRAMEBUFFER          0x8D40
+#define GL_RENDERBUFFER         0x8D41
 #define GL_READ_FRAMEBUFFER     0x8CA8
 #define GL_DRAW_FRAMEBUFFER     0x8CA9
 #define GL_COLOR_ATTACHMENT0    0x8CE0
@@ -176,6 +177,14 @@
 #define GL_MAX_COLOR_TEXTURE_SAMPLES 0x910E
 #define GL_MAX_DEPTH_TEXTURE_SAMPLES 0x910F
 #define GL_SHADER_STORAGE_BUFFER     0x90D2
+
+#define GL_TEXTURE_CUBE_MAP            0x8513
+#define GL_TEXTURE_CUBE_MAP_POSITIVE_X 0x8515
+#define GL_TEXTURE_CUBE_MAP_NEGATIVE_X 0x8516
+#define GL_TEXTURE_CUBE_MAP_POSITIVE_Y 0x8517
+#define GL_TEXTURE_CUBE_MAP_NEGATIVE_Y 0x8518
+#define GL_TEXTURE_CUBE_MAP_POSITIVE_Z 0x8519
+#define GL_TEXTURE_CUBE_MAP_NEGATIVE_Z 0x851A
 
 #define GL_MAP_PERSISTENT_BIT     0x0040
 #define GL_MAP_COHERENT_BIT       0x0080
@@ -296,6 +305,13 @@ typedef void WINAPI type_glFramebufferTexture(GLenum target, GLenum attachment, 
 typedef GLenum WINAPI type_glCheckFramebufferStatus(GLenum target);
 typedef void WINAPI type_glUniform1fv(GLint location, GLsizei count, const GLfloat *value);
 typedef void WINAPI type_glMultiDrawElementsIndirect(GLenum mode, GLenum type, const void *indirect, GLsizei drawcount, GLsizei stride);
+typedef void WINAPI type_glBindRenderbuffer(GLenum target, GLuint renderbuffer);
+typedef void WINAPI type_glGenRenderbuffers(GLsizei n, GLuint *renderbuffers);
+typedef void WINAPI type_glRenderbufferStorage(GLenum target, GLenum internalformat, GLsizei width, GLsizei height);
+typedef void WINAPI type_glFramebufferRenderbuffer(GLenum target, GLenum attachment, GLenum renderbuffertarget, GLuint renderbuffer);
+typedef void WINAPI type_glFramebufferTexture2D(GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level);
+typedef void WINAPI type_glDeleteFramebuffers(GLsizei n, const GLuint *framebuffers);
+typedef void WINAPI type_glDeleteRenderbuffers(GLsizei n, const GLuint *renderbuffers);
 
 #define GL_DEBUG_CALLBACK(name)                                                              \
     void WINAPI name(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, \
@@ -325,6 +341,7 @@ enum R_ShaderType
     R_ShaderType_Mesh,
     R_ShaderType_Terrain,
     R_ShaderType_Depth,
+    R_ShaderType_Skybox,
     R_ShaderType_Count,
 };
 
@@ -588,6 +605,10 @@ struct OpenGL
     // info
     OpenGLInfo openGLInfo;
 
+    // cubemap
+    GLuint cubeMap;
+    GLuint irradianceMap;
+
     OpenGLFunction(glGenBuffers);
     OpenGLFunction(glBindBuffer);
     OpenGLFunction(glBufferData);
@@ -645,6 +666,13 @@ struct OpenGL
     OpenGLFunction(glCheckFramebufferStatus);
     OpenGLFunction(glUniform1fv);
     OpenGLFunction(glMultiDrawElementsIndirect);
+    OpenGLFunction(glBindRenderbuffer);
+    OpenGLFunction(glGenRenderbuffers);
+    OpenGLFunction(glRenderbufferStorage);
+    OpenGLFunction(glFramebufferRenderbuffer);
+    OpenGLFunction(glFramebufferTexture2D);
+    OpenGLFunction(glDeleteFramebuffers);
+    OpenGLFunction(glDeleteRenderbuffers);
 };
 
 global OpenGL *openGL;
@@ -724,8 +752,28 @@ inline GLint R_OpenGL_GetBufferFromHandle(R_BufferHandle handle)
     GLint result = (GLint)(handle);
     return result;
 }
+internal void LoadHDREquirectangularToCubemap(GLuint *outCubeMap, GLuint *outIrradianceMap);
 
 // NOTE: this is completely unused in this translation unit.
 RendererApi renderer;
+
+global const f32 cubeVertices[] = {
+    -1.f, -1.f, -1.f,
+    1.f, -1.f, -1.f,
+    1.f, 1.f, -1.f,
+    -1.f, 1.f, -1.f,
+    -1.f, -1.f, 1.f,
+    1.f, -1.f, 1.f,
+    1.f, 1.f, 1.f,
+    -1.f, 1.f, 1.f};
+global const u16 cubeIndices[] =
+    {
+        3, 0, 4, 3, 4, 7, // -X
+        1, 2, 6, 1, 6, 5, // +X
+        0, 1, 5, 0, 5, 4, // -Y
+        2, 3, 7, 2, 7, 6, // +Y
+        3, 2, 1, 3, 1, 0, // -Z
+        4, 5, 6, 4, 6, 7, // +Z
+};
 
 #endif

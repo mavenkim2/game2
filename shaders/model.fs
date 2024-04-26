@@ -38,6 +38,7 @@ layout (std140, binding = 0) uniform lightMatrices
 };
 
 uniform sampler2DArray shadowMaps;
+uniform samplerCube irradianceMap;
 
 #define TEXTURES_PER_MATERIAL 3
 #define DIFFUSE_INDEX 0
@@ -169,15 +170,28 @@ void main()
 
         V3 spec = distribution * geometryAndCTDenom * fresnel;
 
-        // lambert
-        V3 kD = (V3(1.0) - fresnel) * (1 - metalness);
-
         V3 radiance = V3(1, 1, 1);
 
-        outColor += ((kD * albedo / PI) + spec) * nDotL * radiance * (1 - shadow);
+        V3 kD = (V3(1.0) - fresnel) * (1 - metalness);
+
+        V3 Lo = (kD * albedo / PI + spec) * nDotL * radiance;
+
+        //////////////////////////////////////////////////////
+        // fresnel schlick roughness
+        V3 fresnelSchlickRoughness = f0 + (max(V3(1.0 - roughness), f0) - f0) * pow(clamp(1.0 - nDotV, 0.0, 1.0), 5.0);
+        kD = (V3(1.0) - fresnelSchlickRoughness) * (1 - metalness);
+
+        V3 irradiance = texture(irradianceMap, n).rgb;
+        V3 ao = vec3(1.0);
+        vec3 diffuse = irradiance * albedo;
+        V3 ambient = (kD * diffuse) * ao;
+        
+        // outColor = ambient;
+        outColor = (ambient) + Lo * (1 - shadow);
+        // outColor = outColor / (outColor + V3(1.0));
+
         // outColor = V3(1, 1, 1) * ((4 - shadowIndex) * .25);
 
-        // outColor = outColor / (outColor + V3(1.0));
         // outColor += specular;
         // outColor = V3(metalness);
         // outColor = V3(roughness);

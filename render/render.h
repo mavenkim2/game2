@@ -433,8 +433,11 @@ inline R_Handle R_HandleZero()
 struct RenderState
 {
     Camera camera;
+
     Mat4 viewMatrix;
     Mat4 transform;
+    Mat4 projection;
+
     i32 width;
     i32 height;
 

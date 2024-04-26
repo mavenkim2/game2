@@ -19,7 +19,11 @@ string::string(const char *text)
     }
 }
 
-string::string() {}
+string::string()
+{
+    str  = 0;
+    size = 0;
+}
 
 // TODO: allocations
 void string::operator=(const char *text)

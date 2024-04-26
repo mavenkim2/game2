@@ -744,7 +744,7 @@ internal AS_Asset *AS_GetAssetFromHandle(AS_Handle handle)
     return result;
 }
 
-// NOTE: I refuse to synchronize this.
+// TODO: important this needs to be synchronized
 internal AS_Asset *AS_AllocAsset(const string inPath)
 {
     AS_CacheState *as_state = engine->GetAssetCacheState();

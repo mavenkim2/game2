@@ -526,18 +526,6 @@ internal R_MeshPreparedDrawParams *D_PrepareMeshes(R_MeshParamsNode *head, i32 i
     return drawParams;
 }
 
-internal void D_PushLight(Light *light)
-{
-    R_PassMesh *pass = R_GetPassFromKind(R_PassType_Mesh)->passMesh;
-
-    ViewLight *viewLight = (ViewLight *)R_FrameAlloc(sizeof(ViewLight));
-    viewLight->type      = light->type;
-    viewLight->dir       = light->dir;
-
-    viewLight->next = pass->viewLight;
-    pass->viewLight = viewLight;
-}
-
 internal void R_SetupViewFrustum()
 {
     RenderState *renderState           = engine->GetRenderState();
@@ -583,104 +571,6 @@ internal void R_SetupViewFrustum()
         {
             Swap(V3, corners->corners[i], corners->corners[i + 4]);
         }
-    }
-}
-
-internal void R_CullModelsToLight(ViewLight *light)
-{
-    RenderState *renderState = engine->GetRenderState();
-    // for now
-    Assert(light->type == LightType_Directional);
-
-    // V3 globalLightPos    = renderState->camera.position + light->dir * 100000.f;
-    // Mat4 lightViewMatrix = LookAt4(globalLightPos, renderState->camera.position, renderState->camera.forward);
-
-    // TODO: the inverse view projection and the frustum corners in world space should be precomputed
-
-    // world space frustum corners
-    // R_GetFrustumCorners(inverseViewProjectionMatrix, BoundsUnitCube, renderState->mFrustumCorners.corners);
-
-    // for (i32 i = 0; i < ArrayLength(frustumCorners); i++)
-    // {
-    //     // convert to view space of the light
-    //     frustumCorners[i] = lightViewMatrix * frustumCorners[i];
-    // }
-
-    // 3 ways of doing this
-    // 1. put ray into clip space, put model aabb into clip space, minkowski add aabb to unit cube (????)
-    // then cast ray from center of the aabb towards the unit cube + aabb bounding box. im not sure about this one.
-    // 2. alternatively find bounds of view frustum in world space (aabb), add the model bounds to these
-    // frustum bounds. cast a ray from the center of the model and compare with the aabb to see if it intersects.
-    // this test is lossy.
-    // 3. project frustum corners to the view space of the light (faked by having a global position far int he distance).
-    // find the orthographic from this. then, for each prospective model, multtply by the m v p matrix of the light,
-    // and cull (same as view frustum culling func i already have).
-
-    // i am going to try 2
-
-    // another thing:
-
-    V3 *frustumCorners = renderState->mFrustumCorners.corners;
-    Rect3 frustumBounds;
-    Init(&frustumBounds);
-    for (i32 i = 0; i < ArrayLength(renderState->mFrustumCorners.corners); i++)
-    {
-        V3 *point          = &frustumCorners[i];
-        frustumBounds.minX = Min(frustumBounds.minX, point->x);
-        frustumBounds.minY = Min(frustumBounds.minX, point->y);
-        frustumBounds.minZ = Min(frustumBounds.minX, point->z);
-
-        frustumBounds.maxX = Max(frustumBounds.maxX, point->x);
-        frustumBounds.maxY = Max(frustumBounds.maxY, point->y);
-        frustumBounds.maxZ = Max(frustumBounds.maxZ, point->z);
-    }
-
-    R_PassMesh *pass = R_GetPassFromKind(R_PassType_Mesh)->passMesh;
-    // TODO: this is kind of dumb, because it means that a model can only have one shadow node. however, I will not
-    // think about the future :)
-    for (R_MeshParamsNode **node = &pass->list.first; *node != 0;)
-    {
-        R_MeshParamsNode *currentNode = *node;
-        // If the node is directly visible in the view frusta, skip
-        if (currentNode->val.mIsDirectlyVisible)
-        {
-            node = &currentNode->next;
-            continue;
-        }
-
-        // returns the x, y, z extents from the center
-        V3 extents = GetExtents(currentNode->val.mBounds);
-        V3 center  = GetCenter(currentNode->val.mBounds);
-
-        Rect3 minkowskiFrustumBounds;
-        minkowskiFrustumBounds.minX = frustumBounds.minX - extents.x;
-        minkowskiFrustumBounds.minY = frustumBounds.minY - extents.y;
-        minkowskiFrustumBounds.minZ = frustumBounds.minZ - extents.z;
-
-        minkowskiFrustumBounds.maxX = frustumBounds.maxX + extents.x;
-        minkowskiFrustumBounds.maxY = frustumBounds.maxY + extents.y;
-        minkowskiFrustumBounds.maxZ = frustumBounds.maxZ + extents.z;
-
-        Ray ray;
-        ray.mStartP = center;
-        ray.mDir    = -light->dir;
-
-        // TODO: this could be done by minkowski adding with the frustum bounds themselves,
-        // but they would have to be sorted or something
-        f32 tMin;
-        V3 point;
-
-        pass->list.mTotalSurfaceCount -= currentNode->val.numSurfaces;
-        R_MeshParamsNode *next = currentNode->next;
-
-        // Only the node's shadow appears in the frustum
-        if (IntersectRayAABB(ray, minkowskiFrustumBounds, tMin, point))
-        {
-            currentNode->next = light->modelNodes;
-            light->modelNodes = currentNode;
-            light->mNumShadowSurfaces += currentNode->val.numSurfaces;
-        }
-        *node = next;
     }
 }
 
@@ -961,6 +851,118 @@ internal void *R_CreateCommand(i32 size)
 // Render to depth buffer from the perspective of the light, test vertices against this depth buffer
 // to see whether object is in shadow.
 // Returns splits cascade distances, and splits + 1 matrices
+internal void D_PushLight(Light *light)
+{
+    R_PassMesh *pass = R_GetPassFromKind(R_PassType_Mesh)->passMesh;
+
+    ViewLight *viewLight = (ViewLight *)R_FrameAlloc(sizeof(ViewLight));
+    viewLight->type      = light->type;
+    viewLight->dir       = light->dir;
+
+    viewLight->next = pass->viewLight;
+    pass->viewLight = viewLight;
+}
+
+internal void R_CullModelsToLight(ViewLight *light)
+{
+    RenderState *renderState = engine->GetRenderState();
+    // for now
+    Assert(light->type == LightType_Directional);
+
+    // V3 globalLightPos    = renderState->camera.position + light->dir * 100000.f;
+    // Mat4 lightViewMatrix = LookAt4(globalLightPos, renderState->camera.position, renderState->camera.forward);
+
+    // TODO: the inverse view projection and the frustum corners in world space should be precomputed
+
+    // world space frustum corners
+    // R_GetFrustumCorners(inverseViewProjectionMatrix, BoundsUnitCube, renderState->mFrustumCorners.corners);
+
+    // for (i32 i = 0; i < ArrayLength(frustumCorners); i++)
+    // {
+    //     // convert to view space of the light
+    //     frustumCorners[i] = lightViewMatrix * frustumCorners[i];
+    // }
+
+    // 3 ways of doing this
+    // 1. put ray into clip space, put model aabb into clip space, minkowski add aabb to unit cube (????)
+    // then cast ray from center of the aabb towards the unit cube + aabb bounding box. im not sure about this one.
+    // 2. alternatively find bounds of view frustum in world space (aabb), add the model bounds to these
+    // frustum bounds. cast a ray from the center of the model and compare with the aabb to see if it intersects.
+    // this test is lossy.
+    // 3. project frustum corners to the view space of the light (faked by having a global position far int he distance).
+    // find the orthographic from this. then, for each prospective model, multtply by the m v p matrix of the light,
+    // and cull (same as view frustum culling func i already have).
+
+    // i am going to try 2
+
+    // another thing:
+
+    V3 *frustumCorners = renderState->mFrustumCorners.corners;
+    Rect3 frustumBounds;
+    Init(&frustumBounds);
+    for (i32 i = 0; i < ArrayLength(renderState->mFrustumCorners.corners); i++)
+    {
+        V3 *point          = &frustumCorners[i];
+        frustumBounds.minX = Min(frustumBounds.minX, point->x);
+        frustumBounds.minY = Min(frustumBounds.minX, point->y);
+        frustumBounds.minZ = Min(frustumBounds.minX, point->z);
+
+        frustumBounds.maxX = Max(frustumBounds.maxX, point->x);
+        frustumBounds.maxY = Max(frustumBounds.maxY, point->y);
+        frustumBounds.maxZ = Max(frustumBounds.maxZ, point->z);
+    }
+
+    R_PassMesh *pass = R_GetPassFromKind(R_PassType_Mesh)->passMesh;
+    // TODO: this is kind of dumb, because it means that a model can only have one shadow node. however, I will not
+    // think about the future :)
+    for (R_MeshParamsNode **node = &pass->list.first; *node != 0;)
+    {
+        R_MeshParamsNode *currentNode = *node;
+        // If the node is directly visible in the view frusta, skip
+        if (currentNode->val.mIsDirectlyVisible)
+        {
+            node = &currentNode->next;
+            continue;
+        }
+
+        // returns the x, y, z extents from the center
+        // TODO: use these to find the bounds of the sunlight for this frame
+        V3 extents = GetExtents(currentNode->val.mBounds);
+        V3 center  = GetCenter(currentNode->val.mBounds);
+
+        Rect3 minkowskiFrustumBounds;
+        minkowskiFrustumBounds.minX = frustumBounds.minX - extents.x;
+        minkowskiFrustumBounds.minY = frustumBounds.minY - extents.y;
+        minkowskiFrustumBounds.minZ = frustumBounds.minZ - extents.z;
+
+        minkowskiFrustumBounds.maxX = frustumBounds.maxX + extents.x;
+        minkowskiFrustumBounds.maxY = frustumBounds.maxY + extents.y;
+        minkowskiFrustumBounds.maxZ = frustumBounds.maxZ + extents.z;
+
+        Ray ray;
+        ray.mStartP = center;
+        ray.mDir    = -light->dir;
+
+        // TODO: this could be done by minkowski adding with the frustum bounds themselves,
+        // but they would have to be sorted or something
+        f32 tMin;
+        V3 point;
+
+        pass->list.mTotalSurfaceCount -= currentNode->val.numSurfaces;
+        R_MeshParamsNode *next = currentNode->next;
+
+        // Only the node's shadow appears in the frustum, link with light
+        if (IntersectRayAABB(ray, minkowskiFrustumBounds, tMin, point))
+        {
+            currentNode->next = light->modelNodes;
+            light->modelNodes = currentNode;
+            light->mNumShadowSurfaces += currentNode->val.numSurfaces;
+        }
+        // Remove from the main draw list
+        *node = next;
+    }
+}
+
 internal void R_ShadowMapFrusta(i32 splits, f32 splitWeight, Mat4 *outMatrices, f32 *outSplits)
 {
     RenderState *renderState = engine->GetRenderState();
@@ -1047,6 +1049,7 @@ internal void R_CascadedShadowMap(const ViewLight *inLight, Mat4 *outLightViewPr
         // When viewing down the -z axis, the max is the near plane and the min is the far plane.
         Rect3 *currentBounds = &bounds[i];
         // The orthographic projection expects 0 < n < f
+
         // TODO: use the bounds of the light instead
         f32 zNear = -currentBounds->maxZ - 50;
         f32 zFar  = -currentBounds->minZ;
@@ -1062,340 +1065,11 @@ internal void R_CascadedShadowMap(const ViewLight *inLight, Mat4 *outLightViewPr
 }
 
 // Constants
-// #if 0
-//
-// struct R_TempMemoryNode
-// {
-//     u8 *buffer;
-//     u32 size;
-// };
-//
-// internal R_Handle R_GetTempMemHandle(R_TempMemoryNode *node)
-// {
-//     R_Handle result;
-//     result.u64[0] = (u64)node;
-//     return result;
-// }
-// internal R_TempMemoryNode *R_GetTempMemFromHandle(R_Handle handle)
-// {
-//     R_TempMemoryNode *node = (R_TempMemoryNode *)handle.u64[0];
-//     return node;
-// }
-//
-// internal R_Handle R_AllocateTemp(u64 size, void **out)
-// {
-//     // TODO: maybe something better than this
-//     R_TempMemoryNode *node = r_state->nodes;
-//     if (node != 0)
-//     {
-//         StackPop(r_state->nodes);
-//     }
-//     else
-//     {
-//         node         = PushStruct(r_state->arena, R_TempMemoryNode);
-//         node->size   = megabytes(4);
-//         node->buffer = PushArray(r_state->arena, u8, node->size);
-//         StackPush(r_state->tempMemNodes, node);
-//     }
-//
-//     *out = node->buffer;
-//
-//     R_Handle result = R_GetTempMemHandle(node);
-//     return result;
-// }
-//
-// internal void R_FreeTemp(R_Handle temp)
-// {
-//     R_TempMemoryNode *node = R_GetTempMemFromHandle(temp);
-//     StackPush(r_state->nodes, node);
-// }
-//
-// //////////////////////////////
-// //  not sure yet below
-// //
-//
-// // takes data from skinning matrices/game state/dynamic shit or something and then
-// //
-// // map individual data to a render feature or something, where the render feature defines entry points for
-// // A. what data is taken from the game state
-// // B. what data is put in the atomic ring buffer
-// // C. how data is shoved into the renderer and how it is rendererd :)
-//
-// internal void R_SubmitRenderPass(RenderState *state)
-// {
-//     // TODO: maybe also sort here some how
-//     AtomicRing *ring = &shared->g2rRing;
-//
-//     R_Pass3D *pass3D = state->passes[R_PassType_3D];
-//     for (u32 i = 0; i < pass3D->groups.numGroups; i++)
-//     {
-//         R_Batch3DParams *params = &pass3D->groups[i].params;
-//
-//         params->
-//     }
-//
-//     for (R_PassType type = (R_PassType)0; type < R_PassType_Count; type = (R_PassType)(type + 1))
-//     {
-//         state->passes[type];
-//     }
-//     pass->
-// }
-//
-// internal u8 *R_Interpolate(Arena *arena, RenderState *oldState, RenderState *newState, f32 dt)
-// {
-//     u8 *pushBuffer = PushArray(arena, u8, newState->size);
-//     u64 cursor     = 0;
-//
-//     f32 oldTimestamp = oldState->timestamp;
-//     f32 newTimestamp = newState->timestamp;
-//
-//     for (u32 i = 0; i < ArrayLength(state->objects); i++)
-//     {
-//         RenderData *oldData = &oldState->objects[i].data;
-//         RenderData *newData = &newState->objects[i].data;
-//
-//         // but this might not be true and for good reason. what if a thing gains attributes or something?
-//         // who even knows
-//         Assert(oldData->numPieces == newData->numPieces);
-//         for (u32 datumIndex = 0; datumIndex < oldData->numPieces; datumIndex++)
-//         {
-//             RenderDatum *oldDatum = &oldData->piece[datumIndex];
-//             RenderDatum *newDatum = &newData->piece[datumIndex];
-//
-//             u64 datumSize = 0;
-//             switch (newDatum->type)
-//             {
-//                 case DatumType_AnimationTransform:
-//                 {
-//                     AnimationTransform *oldTform = (AnimationTransform *)oldDatum;
-//                     AnimationTransform *newTform = (AnimationTransform *)newDatum;
-//
-//                     AnimationTransform result = Lerp(oldTform, newTform, dt);
-//
-//                     MemoryCopy(pushBuffer + cursor, &result, sizeof(result));
-//                     cursor += AlignPow2(sizeof(result), 8);
-//
-//                     break;
-//                 }
-//                 case DatumType_Position:
-//                 {
-//                     V3 *oldPosition = (V3 *)oldDatum;
-//                     V3 *newPosition = (V3 *)newDatum;
-//
-//                     V3 result = Lerp(oldPosition, newPosition, dt);
-//                     datumSize = sizeof(AnimationTransform);
-//
-//                     MemoryCopy(pushBuffer + cursor, &result, sizeof(result));
-//                     cursor += AlignPow2(sizeof(result), 8);
-//                     break;
-//                 }
-//                 default: Assert(!"Not valid data");
-//             }
-//         }
-//     }
-//     return pushBuffer;
-// }
-//
-// internal void R_SubmitFrame(RenderState *state, f32 accumulator, f32 dt)
-// {
-//     f32 alpha = accumulator / dt;
-//
-//     R_Interpolate(lastState, newState, alpha);
-//     // TODO: Ideally this is just a memcopy.
-// }
-//
-// internal void R_EntryPoint(void *p)
-// {
-//     for (; shared->running;)
-//     {
-//         // StartAtomicRead(&shared->g2rRing, sizeof(u64));
-//         // u64 readPos = shared->readPos;
-//         // u64 size;
-//         // RingReadStruct(
-//         // R_EndFrame(state);
-//     }
-// }
-//
-// // STEPS:
-// // 1. extract
-// // 2. prepare
-// // 3. submit
-//
-// // this contains static data used in the game. this doesn't change from frame to frame
-// enum R_RenderFeatureType
-// {
-//     R_RenderFeatureType_SkinnedMesh,
-//     R_RenderFeatureType_Count,
-// };
-//
-// // contains data for skinned models
-// struct R_RenderData
-// {
-// };
-//
-// struct R_FrameNode
-// {
-//     R_FrameNodeUniforms uniforms;
-//     R_BatchList batchList;
-//     R_FrameNode *next;
-//
-//     // void *data;
-//     // u32 numInstances;
-//     // u32 sizeOfInstance;
-// };
-//
-// // cap is 16
-// struct R_FrameNodeChunk
-// {
-//     R_FrameNode *first;
-//     R_FrameNode *last;
-//     u32 count;
-//     u32 cap;
-// };
-//
-// struct R_FrameNodeChunkList
-// {
-//     R_FrameNodeChunk *first;
-//     R_FrameNodeChunk *last;
-// };
-//
-// typedef void *R_Params;
-//
-// struct R_SubmitNode
-// {
-//     // uniforms
-//     R_Params *params;
-//
-//     // render buffer handles
-//     R_Handle renderObject;
-//
-//     // instance data
-//     void *data;
-//     u32 numInstances;
-//     u32 sizeOfInstance;
-// };
-//
-// // :)
-// struct R_FramePacket
-// {
-//     Arena *arena;
-//
-//     R_FrameNodeChunkList frameNodeLists[R_RenderFeatureType_Count];
-//     // i would like each of these to just be a big dumb block of memory
-//     R_SubmitNode submitNodeArrays[R_RenderFeatureType_Count];
-// };
-//
-// // typedef R_FrameNode* R_ExtractData();
-//
-// #define R_SUBMIT(name) void name(R_SubmitNodeList *list)
-// typedef R_SUBMIT(r_submit);
-//
-// struct R_RenderFeature
-// {
-//     r_submit *R_Submit;
-// };
-//
-// // and these tables can use different prepare/submit functions based on the version of OPENGL or vulkan.
-// // i think the extract should be the same regardless of the renderer backend use
-//
-// global R_RenderFeature R_RenderFeatureTable[R_RenderFeatureType_Count];
-//
-// internal void R_InitializeRenderFeatureTable()
-// {
-//     R_RenderFeatureTable[R_RenderFeatureType_SkinnedMesh] = R_SubmitSkinnedMesh;
-// }
-//
-// internal void R_Submit(R_FramePacket *packet)
-// {
-//     for (R_RenderFeatureType type = (R_RenderFeatureType)0; type < R_RenderFeatureType_Count;
-//          type                     = (R_RenderFeatureType)(type + 1))
-//     {
-//         R_SubmitNodeList *list = &packet->submitNodeList[type];
-//         (R_SubmitTable[type])(list);
-//     }
-// }
-//
-// // each submit list uses the same shader.
-// R_SUBMIT(R_SubmitSkinnedMesh)
-// {
-//     GLuint modelProgramId = openGL->shaders[R_ShaderType_SkinnedMesh].id;
-//     openGL->glUseProgram(modelProgramId);
-//
-//     for (R_SubmitNode *node = list->first; node != 0; node = node->next)
-//     {
-//         R_SkinnedMeshParams *params = (R_SkinnedMeshParams *)node->params;
-//         node->bufferData            = ;
-//         R_SubmitNodeList *node      = 0;
-//     }
-// }
-//
-// struct R_FramePacketRing
-// {
-//     R_FramePacket framePackets[4];
-//
-//     // position of the last frame state, so framePacket[readPos] is the last frame, framePacket[readPos + 1]
-//     is the
-//     // new frame
-//     u32 readPos;
-//     // position the game can write to
-//     u32 writePos;
-// };
-//
-// internal R_FramePacket *R_StartFrame()
-// {
-//     R_FramePacket *result = 0;
-//
-//     R_FramePacketRing *ring = &r_state->framePacketRing;
-//     u32 readPos             = ring->readPos;
-//     u32 writePos            = ring->readPos;
-//
-//     u32 length = ArrayLength(ring->framePackets);
-//     // check if power of 2
-//     Assert(length & (length - 1) == 0);
-//     u32 modulo = length - 1;
-//
-//     u32 spotsBetween = (writePos + length - readPos) & (modulo);
-//     // u32 availableSpots = length - (writePos - readPos);
-//     if (spotsBetween < length)
-//     {
-//         result = ring->framePackets[writePos];
-//     }
-//     return result;
-// }
-//
-// internal void R_SubmitFrame()
-// {
-//     WriteBarrier();
-//     r_state->framePacketRing.writePos =
-//         (r_state->framePacketRing.writePos + 1) & (ArrayLength(r_state->framePackets) - 1);
-// }
-//
-// const u32 cNumFrames = 2;
-//
-// internal R_FramePacket *R_ReceiveFrame()
-// {
-//     R_FramePacket *result   = 0;
-//     R_FramePacketRing *ring = &r_state->framePacketRing;
-//
-//     u32 readPos  = ring->readPos;
-//     u32 writePos = ring->readPos;
-//
-//     u32 length = ArrayLength(ring->framePackets);
-//     u32 modulo = length - 1;
-//
-//     // the read position should be cNumFrames behind the write position
-//     u32 spotsBetween = ((writePos + length - readPos) & (modulo)); // - cNumFrames;
-//     if (spotsBetween > 2)
-//     {
-//         u32 spotsToMove = spotsBetween - cNumFrames;
-//         WriteBarrier();
-//         ring->readPos = (readPos + spotsToMove) & (modulo);
-//     }
-//     R_FramePacket *packet = &ring->framePackets[ring->readPos];
-//
-//     return packet;
-// }
-// #endif
+
+// STEPS:
+// 1. extract
+// 2. prepare
+// 3. submit
 
 //////////////////////////////
 // UI
@@ -1405,18 +1079,6 @@ internal void R_CascadedShadowMap(const ViewLight *inLight, Mat4 *outLightViewPr
 //     renderState->
 //         DrawRectangle(&renderState, V2(0, 0), V2(renderState.width / 10, renderState.height / 10));
 // }
-
-/* internal RenderGroup BeginRenderGroup(OpenGL* openGL) {
-    RenderGroup* group = &openGL->group;
-    // TODO: if the number is any higher, then u16 index cannot represent
-    u32 maxQuadCountPerFrame = 1 << 14;
-    group.maxVertexCount = maxQuadCountPerFrame * 4;
-    group.maxIndexCount = maxQuadCountPerFrame * 6;
-    group.indexCount = 0;
-    group.vertexCount = 0;
-
-    return group;
-} */
 
 // internal void PushCube(RenderCommand* commands, V3 pos, V3 radius, V4 color)
 // {

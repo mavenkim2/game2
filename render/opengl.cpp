@@ -5,6 +5,9 @@
 #include "../thread_context.cpp"
 #include "vertex_cache.cpp"
 
+#define STB_IMAGE_IMPLEMENTATION
+#include "../third_party/stb_image.h"
+
 global const i32 GL_ATTRIB_INDEX_POSITION = 0;
 global const i32 GL_ATTRIB_INDEX_NORMAL   = 1;
 
@@ -139,10 +142,23 @@ internal GLuint R_OpenGL_CreateShader(Arena *arena, string globalsPath, string v
 
     Printf("Vertex shader: %S\n", vsPath);
     Printf("Fragment shader: %S\n", fsPath);
-    string gTemp = platform.OS_ReadEntireFile(temp.arena, globalsPath);
-    string vs    = platform.OS_ReadEntireFile(temp.arena, vsPath);
-    string fs    = platform.OS_ReadEntireFile(temp.arena, fsPath);
-    string gs    = {};
+
+    string gTemp = {};
+    if (globalsPath.size != 0)
+    {
+        gTemp = platform.OS_ReadEntireFile(temp.arena, globalsPath);
+    }
+    string vs = {};
+    if (vsPath.size != 0)
+    {
+        vs = platform.OS_ReadEntireFile(temp.arena, vsPath);
+    }
+    string fs = {};
+    if (fsPath.size != 0)
+    {
+        fs = platform.OS_ReadEntireFile(temp.arena, fsPath);
+    }
+    string gs = {};
     if (gsPath.size != 0)
     {
         gs = platform.OS_ReadEntireFile(temp.arena, gsPath);
@@ -258,6 +274,11 @@ internal void R_OpenGL_Init()
         u32 *data                  = PushStruct(openGL->arena, u32);
         data[0]                    = 0xffffffff;
         openGL->whiteTextureHandle = R_AllocateTexture2D((u8 *)data, 1, 1, R_TexFormat_RGBA8);
+    }
+
+    // Environment cubemap
+    {
+        LoadHDREquirectangularToCubemap(&openGL->cubeMap, &openGL->irradianceMap);
     }
     VSyncToggle(1);
 }
@@ -414,6 +435,13 @@ internal OpenGL *R_Win32_OpenGL_Init(OS_Handle handle)
         Win32GetOpenGLFunction(glCheckFramebufferStatus);
         Win32GetOpenGLFunction(glUniform1fv);
         Win32GetOpenGLFunction(glMultiDrawElementsIndirect);
+        Win32GetOpenGLFunction(glBindRenderbuffer);
+        Win32GetOpenGLFunction(glGenRenderbuffers);
+        Win32GetOpenGLFunction(glFramebufferRenderbuffer);
+        Win32GetOpenGLFunction(glRenderbufferStorage);
+        Win32GetOpenGLFunction(glFramebufferTexture2D);
+        Win32GetOpenGLFunction(glDeleteFramebuffers);
+        Win32GetOpenGLFunction(glDeleteRenderbuffers);
 
         OpenGLGetInfo();
 
@@ -457,133 +485,6 @@ struct RenderData
     u32 datumCount;
 };
 
-// basically what this will do is take the render state as it is and flatten it so that it can be memcopied or
-// something
-
-// THIS IS DONE IN THE SIMULATION TO SUBMIT A RENDER STATE
-
-// #if 0
-// // this contains static data used in the game. this doesn't change from frame to frame
-// enum R_RenderObjectType
-// {
-//     R_RenderType_SkinnedModel,
-// };
-//
-// // contains data for skinned models
-// struct R_RenderData
-// {
-//
-// };
-//
-// typedef void R_ExtractData(
-// struct R_RenderFeature
-// {
-//
-// };
-//
-// // takes data from skinning matrices/game state/dynamic shit or something and then
-// //
-// // map individual data to a render feature or something, where the render feature defines entry points for
-// // A. what data is taken from the game state
-// // B. what data is put in the atomic ring buffer
-// // C. how data is shoved into the renderer and how it is rendererd :)
-//
-// internal void R_SubmitRenderPass(RenderState *state)
-// {
-//     // TODO: maybe also sort here some how
-//     AtomicRing *ring = &shared->g2rRing;
-//
-//     R_Pass3D *pass3D = state->passes[R_PassType_3D];
-//     for (u32 i = 0; i < pass3D->groups.numGroups; i++)
-//     {
-//         R_Batch3DParams *params = &pass3D->groups[i].params;
-//
-//         params->
-//     }
-//
-//     for (R_PassType type = (R_PassType)0; type < R_PassType_Count; type = (R_PassType)(type + 1))
-//     {
-//         state->passes[type];
-//     }
-//     pass->
-// }
-//
-// internal u8 *R_Interpolate(Arena *arena, RenderState *oldState, RenderState *newState, f32 dt)
-// {
-//     u8 *pushBuffer = PushArray(arena, u8, newState->size);
-//     u64 cursor     = 0;
-//
-//     f32 oldTimestamp = oldState->timestamp;
-//     f32 newTimestamp = newState->timestamp;
-//
-//     for (u32 i = 0; i < ArrayLength(state->objects); i++)
-//     {
-//         RenderData *oldData = &oldState->objects[i].data;
-//         RenderData *newData = &newState->objects[i].data;
-//
-//         // but this might not be true and for good reason. what if a thing gains attributes or something?
-//         // who even knows
-//         Assert(oldData->numPieces == newData->numPieces);
-//         for (u32 datumIndex = 0; datumIndex < oldData->numPieces; datumIndex++)
-//         {
-//             RenderDatum *oldDatum = &oldData->piece[datumIndex];
-//             RenderDatum *newDatum = &newData->piece[datumIndex];
-//
-//             u64 datumSize = 0;
-//             switch (newDatum->type)
-//             {
-//                 case DatumType_AnimationTransform:
-//                 {
-//                     AnimationTransform *oldTform = (AnimationTransform *)oldDatum;
-//                     AnimationTransform *newTform = (AnimationTransform *)newDatum;
-//
-//                     AnimationTransform result = Lerp(oldTform, newTform, dt);
-//
-//                     MemoryCopy(pushBuffer + cursor, &result, sizeof(result));
-//                     cursor += AlignPow2(sizeof(result), 8);
-//
-//                     break;
-//                 }
-//                 case DatumType_Position:
-//                 {
-//                     V3 *oldPosition = (V3 *)oldDatum;
-//                     V3 *newPosition = (V3 *)newDatum;
-//
-//                     V3 result = Lerp(oldPosition, newPosition, dt);
-//                     datumSize = sizeof(AnimationTransform);
-//
-//                     MemoryCopy(pushBuffer + cursor, &result, sizeof(result));
-//                     cursor += AlignPow2(sizeof(result), 8);
-//                     break;
-//                 }
-//                 default: Assert(!"Not valid data");
-//             }
-//         }
-//     }
-//     return pushBuffer;
-// }
-//
-// internal void R_SubmitFrame(RenderState *state, f32 accumulator, f32 dt)
-// {
-//     f32 alpha = accumulator / dt;
-//
-//     R_Interpolate(lastState, newState, alpha);
-//     // TODO: Ideally this is just a memcopy.
-// }
-//
-// internal void R_EntryPoint(void *p)
-// {
-//     for (; shared->running;)
-//     {
-//         // StartAtomicRead(&shared->g2rRing, sizeof(u64));
-//         // u64 readPos = shared->readPos;
-//         // u64 size;
-//         // RingReadStruct(
-//         // R_EndFrame(state);
-//     }
-// }
-// #endif
-
 internal void R_BeginFrame(i32 width, i32 height)
 {
     // openGL->width      = width;
@@ -607,20 +508,6 @@ DLL R_ENDFRAME(R_EndFrame)
 #endif
 }
 
-// usage code:
-#if 0
-internal void usage()
-{
-    // globals/constants
-    if (openGL->progManager.uniformsChanged)
-    {
-        openGL->glBindBuffer(GL_UNIFORM_BUFFER, whatever);
-        openGL->glBufferSubData(GL_UNIFORM_BUFFER, 0, ArrayLength(openGL->progManager.globalUniforms),
-                                openGL->progManager.globalUniforms);
-    }
-}
-#endif
-
 void R_ProgramManager::Init()
 {
     R_ShaderLoadInfo shaderLoadInfo[R_ShaderType_Count] =
@@ -631,6 +518,7 @@ void R_ProgramManager::Init()
             {R_ShaderType_3D, "src/shaders/basic_3d", {}, ShaderStage_Default},
             {R_ShaderType_Instanced3D, "src/shaders/basic_3d", {{"INSTANCED", "1"}}, ShaderStage_Default},
             {R_ShaderType_Terrain, "src/shaders/terrain", {}, ShaderStage_Default},
+            {R_ShaderType_Skybox, "src/shaders/skybox", {}, ShaderStage_Default},
         };
     MemoryCopy(mShaderLoadInfo, shaderLoadInfo, sizeof(R_ShaderLoadInfo) * R_ShaderType_Count);
     cGlobalsPath = PushStr8Copy(openGL->arena, Str8Lit("src/shaders/global.glsl"));
@@ -811,8 +699,9 @@ internal void R_Win32_OpenGL_EndFrame(RenderState *renderState, HDC deviceContex
     // INITIALIZE
     {
         glEnable(GL_DEPTH_TEST);
-        glEnable(GL_TEXTURE_2D);
+        glDepthFunc(GL_LESS);
         glEnable(GL_CULL_FACE);
+        glEnable(GL_TEXTURE_2D);
         // TODO: NOT SAFE!
         if (openGL->openGLInfo.framebufferArb)
         {
@@ -1023,25 +912,10 @@ internal void R_Win32_OpenGL_EndFrame(RenderState *renderState, HDC deviceContex
                 openGL->glVertexAttribDivisor(2, 1);
 
                 f32 transform[] = {
-                    // 2.f / (f32)clientWidth, 0, 0, -1, 2.f / (f32)clientHeight, 0, 0, -1, 0, 0, 1, 0, 0, 0,
-                    // 0, 1,
-                    2.f / (f32)clientWidth,
-                    0,
-                    0,
-                    0,
-                    0,
-                    2.f / (f32)clientHeight,
-                    0,
-                    0,
-                    0,
-                    0,
-                    1,
-                    0,
-                    -1,
-                    -1,
-                    0,
-                    1,
-                };
+                    2.f / (f32)clientWidth, 0, 0, 0,
+                    0, 2.f / (f32)clientHeight, 0, 0,
+                    0, 0, 1, 0,
+                    -1, -1, 0, 1};
 
                 GLuint loc = openGL->glGetUniformLocation(id, "transform");
                 openGL->glUniformMatrix4fv(loc, 1, GL_FALSE, transform);
@@ -1087,6 +961,11 @@ internal void R_Win32_OpenGL_EndFrame(RenderState *renderState, HDC deviceContex
                 openGL->glUniform1i(shadowMapLoc, 32);
                 openGL->glActiveTexture(GL_TEXTURE0 + 32);
                 glBindTexture(GL_TEXTURE_2D_ARRAY, openGL->depthMapTextureArray);
+
+                GLint irradiancemapLoc = openGL->glGetUniformLocation(currentProgram, "irradianceMap");
+                openGL->glUniform1i(irradiancemapLoc, 33);
+                openGL->glActiveTexture(GL_TEXTURE0 + 33);
+                glBindTexture(GL_TEXTURE_CUBE_MAP, openGL->irradianceMap);
 
                 openGL->glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, 0, list->mTotalSurfaceCount, 0);
                 R_OpenGL_EndShader(R_ShaderType_Mesh);
@@ -1206,12 +1085,36 @@ internal void R_Win32_OpenGL_EndFrame(RenderState *renderState, HDC deviceContex
         }
     }
 
+    // render skybox last
+    GLuint shader = (GLuint)openGL->progManager.GetProgramApiObject(R_ShaderType_Skybox);
+    openGL->glUseProgram(shader);
+    glDepthFunc(GL_LEQUAL);
+    glDisable(GL_CULL_FACE);
+    openGL->glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, openGL->cubeMap);
+
+    openGL->glBindBuffer(GL_ARRAY_BUFFER, openGL->scratchVbo);
+    openGL->glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(cubeVertices), cubeVertices);
+    openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, openGL->scratchEbo);
+    openGL->glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, sizeof(cubeIndices), cubeIndices);
+    openGL->glEnableVertexAttribArray(0);
+    openGL->glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(V3), 0);
+
+    GLint matrix = openGL->glGetUniformLocation(shader, "projection");
+    openGL->glUniformMatrix4fv(matrix, 1, GL_FALSE, renderState->projection.elements[0]);
+    matrix = openGL->glGetUniformLocation(shader, "view");
+    openGL->glUniformMatrix4fv(matrix, 1, GL_FALSE, renderState->viewMatrix.elements[0]);
+
+    GLint textureLoc = openGL->glGetUniformLocation(shader, "environmentMap");
+    openGL->glUniform1i(textureLoc, 0);
+
+    glDrawElements(GL_TRIANGLES, ArrayLength(cubeIndices), GL_UNSIGNED_SHORT, 0);
+
     ScratchEnd(temp);
 
     // DOUBLE BUFFER SWAP
     SwapBuffers(deviceContext);
 
-    // TODO: integrate into asset system? but I'll have to queue
     openGL->progManager.HotloadPrograms();
 }
 
@@ -1921,26 +1824,169 @@ internal R_OpenGL_Texture *R_OpenGL_TextureFromHandle(R_Handle handle)
 }
 
 //////////////////////////////
+// Image based lighting
+//
+internal void LoadHDREquirectangularToCubemap(GLuint *outCubeMap, GLuint *outIrradianceMap)
+{
+    GLuint hdrTex;
+    GLuint envCubemap;
+    GLuint shader = 0;
+
+    // Load the hdr file
+    stbi_set_flip_vertically_on_load(true);
+    i32 width, height, nComponents;
+    f32 *data = stbi_loadf("data/industrial_sunset_puresky_8k.hdr", &width, &height, &nComponents, 0);
+
+    if (data)
+    {
+        glGenTextures(1, &hdrTex);
+        glBindTexture(GL_TEXTURE_2D, hdrTex);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, width, height, 0, GL_RGB, GL_FLOAT, data);
+
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+        stbi_image_free(data);
+    }
+    else
+    {
+        Assert(!"??");
+    }
+
+    TempArena temp = ScratchStart(0, 0);
+    shader         = R_OpenGL_CreateShader(temp.arena, "", "src/shaders/equirectangular.vs", "src/shaders/equirectangular.fs", "", "");
+
+    GLuint captureFbo, captureRbo;
+    openGL->glGenFramebuffers(1, &captureFbo);
+    openGL->glGenRenderbuffers(1, &captureRbo);
+
+    openGL->glBindFramebuffer(GL_FRAMEBUFFER, captureFbo);
+    openGL->glBindRenderbuffer(GL_RENDERBUFFER, captureRbo);
+    openGL->glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, 2048, 2048);
+    openGL->glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, captureRbo);
+
+    // Create output cubemap
+    glGenTextures(1, &envCubemap);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, envCubemap);
+    for (u32 i = 0; i < 6; i++)
+    {
+        glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGB16F, 2048, 2048, 0, GL_RGB, GL_FLOAT, 0);
+    }
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    openGL->glUseProgram(shader);
+
+    // Bind hdr texture
+    GLint textureLoc = openGL->glGetUniformLocation(shader, "equirectangular");
+    openGL->glUniform1i(textureLoc, 0);
+
+    openGL->glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, hdrTex);
+
+    // Upload cube vertices/indices
+    openGL->glBindBuffer(GL_ARRAY_BUFFER, openGL->scratchVbo);
+    openGL->glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(cubeVertices), cubeVertices);
+    openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, openGL->scratchEbo);
+    openGL->glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, sizeof(cubeIndices), cubeIndices);
+    openGL->glEnableVertexAttribArray(0);
+    openGL->glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(V3), 0);
+
+    // VP for 6 cube faces
+
+    // i would be lying if I said i perfectly understood why these matrices have to be oriented like this
+    Mat4 projection = Perspective4(Radians(90.f), 1.f, .1f, 10.f);
+    Mat4 views[]    = {
+        LookAt4({0, 0, 0}, {1, 0, 0}, {0, -1, 0}),  // +x
+        LookAt4({0, 0, 0}, {-1, 0, 0}, {0, -1, 0}), // -x
+        LookAt4({0, 0, 0}, {0, 1, 0}, {0, 0, 1}),   // +y
+        LookAt4({0, 0, 0}, {0, -1, 0}, {0, 0, -1}), // -y
+        LookAt4({0, 0, 0}, {0, 0, 1}, {0, -1, 0}),  // +z
+        LookAt4({0, 0, 0}, {0, 0, -1}, {0, -1, 0}), // +z
+    };
+
+    glViewport(0, 0, 2048, 2048);
+    glEnable(GL_DEPTH_TEST);
+    glDepthFunc(GL_LEQUAL);
+    openGL->glBindFramebuffer(GL_FRAMEBUFFER, captureFbo);
+    GLint matrix = openGL->glGetUniformLocation(shader, "projection");
+    openGL->glUniformMatrix4fv(matrix, 1, GL_FALSE, projection.elements[0]);
+
+    // Render hdr texture to each cube map face
+    for (u32 i = 0; i < 6; i++)
+    {
+        openGL->glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, envCubemap, 0);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        matrix = openGL->glGetUniformLocation(shader, "view");
+        openGL->glUniformMatrix4fv(matrix, 1, GL_FALSE, views[i].elements[0]);
+        glDrawElements(GL_TRIANGLES, ArrayLength(cubeIndices), GL_UNSIGNED_SHORT, 0);
+    }
+    // openGL->glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glDeleteTextures(1, &hdrTex);
+
+    //////////////////////////////////////////////////////////////////
+    // Create irradiance map
+    shader = R_OpenGL_CreateShader(temp.arena, "", "src/shaders/equirectangular.vs", "src/shaders/convolution.fs", "", "");
+    openGL->glUseProgram(shader);
+
+    ScratchEnd(temp);
+
+    textureLoc = openGL->glGetUniformLocation(shader, "environmentMap");
+    openGL->glUniform1i(textureLoc, 0);
+    GLuint irradianceMap;
+    glGenTextures(1, &irradianceMap);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, irradianceMap);
+    for (u32 i = 0; i < 6; i++)
+    {
+        glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGB16F, 32, 32, 0, GL_RGB, GL_FLOAT, 0);
+    }
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+    openGL->glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, 32, 32);
+    openGL->glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, captureRbo);
+
+    glBindTexture(GL_TEXTURE_CUBE_MAP, envCubemap);
+
+    glViewport(0, 0, 32, 32);
+    openGL->glBindFramebuffer(GL_FRAMEBUFFER, captureFbo);
+    matrix = openGL->glGetUniformLocation(shader, "projection");
+    openGL->glUniformMatrix4fv(matrix, 1, GL_FALSE, projection.elements[0]);
+
+    // Render hdr texture to each cube map face
+    for (u32 i = 0; i < 6; i++)
+    {
+        openGL->glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, irradianceMap, 0);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        matrix = openGL->glGetUniformLocation(shader, "view");
+        openGL->glUniformMatrix4fv(matrix, 1, GL_FALSE, views[i].elements[0]);
+        glDrawElements(GL_TRIANGLES, ArrayLength(cubeIndices), GL_UNSIGNED_SHORT, 0);
+    }
+    openGL->glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    openGL->glDeleteFramebuffers(1, &captureFbo);
+    openGL->glDeleteRenderbuffers(1, &captureRbo);
+
+    *outCubeMap       = envCubemap;
+    *outIrradianceMap = irradianceMap;
+}
+
+//////////////////////////////
 // Tex parameters
 //
 
-enum TexParams
-{
-    TexParams_Nearest,
-    TexParams_Linear,
-    TexParams_Repeat,
-    TexParams_Clamp,
-    TexParams_ClampToBorder
-};
-
-#if 0
-internal void R_OpenGL_SetTexParams(TexParams minFilter, TexParams maxFilter, TexParams wrapS, TexParams wrapT)
-{
-
-    switch (minFilter)
-    {
-        case TexParams_Nearest:
-    }
-    glTexParameteri
-}
-#endif
+// enum TexParams
+// {
+//     TexParams_Nearest,
+//     TexParams_Linear,
+//     TexParams_Repeat,
+//     TexParams_Clamp,
+//     TexParams_ClampToBorder
+// };

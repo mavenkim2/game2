@@ -434,7 +434,9 @@ DLL G_UPDATE(G_Update)
 
             Mat4 transform = projection * cameraMatrix;
 
-            renderState->transform = transform;
+            renderState->viewMatrix = cameraMatrix;
+            renderState->transform  = transform;
+            renderState->projection = projection;
             break;
         }
         // TODO: get back to parity
@@ -496,6 +498,7 @@ DLL G_UPDATE(G_Update)
 
             renderState->viewMatrix = cameraMatrix;
             renderState->transform  = transform;
+            renderState->projection = projection;
 
             // TODO: mouse project into world
             {
