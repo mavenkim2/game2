@@ -17,17 +17,15 @@ uniform sampler2DArray textureMaps[32];
 in VS_OUT
 {
     in V2 uv;
-    in V3 tangentLightDir;
-    in V3 tangentViewPos;
-    in V3 tangentFragPos;
+    // in V3 tangentLightDir;
+    // in V3 tangentViewPos;
+    // in V3 tangentFragPos;
 
     in V4 viewFragPos;
     in V3 worldFragPos;
 
-    // in V3 worldLightDir;
-    // in V3 worldViewPos;
-
     flat in int drawId;
+    in mat3 tbn;
 } fragment;
 
 out V4 FragColor;
@@ -85,6 +83,7 @@ void main()
     // f32 ao = mr.r;
 #endif
 
+    normal = normalize(fragment.tbn * normal);
     // Shadow mapping
     f32 viewZ = -fragment.viewFragPos.z;
 
@@ -106,7 +105,7 @@ void main()
     lightSpacePos = lightSpacePos * 0.5f + 0.5f;
 
     // Shadow bias
-    f32 bias = max(0.1 * (1.0 - dot(normal, fragment.tangentLightDir)), 0.005);
+    f32 bias = max(0.1 * (1.0 - dot(normal, lightDir.xyz)), 0.005);
     f32 biasModifier = 2;
 
     // TODO: doesn't work for shadows in the furthest frustum, since cascadeDistances is only 4 big
@@ -131,8 +130,8 @@ void main()
     // V3 v = normalize(fragment.worldViewPos - fragment.worldFragPos);
     // V3 l = normalize(fragment.worldLightDir);
 
-    V3 l = normalize(fragment.tangentLightDir);
-    V3 v = normalize(fragment.tangentViewPos - fragment.tangentFragPos);
+    V3 l = normalize(lightDir.xyz);
+    V3 v = normalize(viewPosition.xyz - fragment.worldFragPos);
     V3 n = normal;
 
     V3 h = normalize(l + v);

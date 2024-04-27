@@ -9,16 +9,15 @@ layout (location = 5) in vec4 boneWeights;
 out VS_OUT
 {
     out V2 uv;
-    out V3 tangentLightDir;
-    out V3 tangentViewPos;
-    out V3 tangentFragPos;
+    // out V3 tangentLightDir;
+    // out V3 tangentViewPos;
+    // out V3 tangentFragPos;
 
     out V4 viewFragPos;
     out V3 worldFragPos;
 
-    //out V3 worldLightDir;
     flat out int drawId;
-    flat out mat3 tbn;
+    out mat3 tbn;
 } result;
 
 void main()
@@ -43,7 +42,7 @@ void main()
         gl_Position = viewPerspectiveMatrix * worldSpacePos;
 
         mat3 modelToWorld = mat3(worldSpaceMatrixTransform);
-        modelToWorld = transpose(inverse(modelToWorld));
+        // modelToWorld = transpose(inverse(modelToWorld));
         tN = normalize(modelToWorld * n);
         tT = normalize(modelToWorld * tangent);
         // NOTE: only have to do this if there is non uniform scale
@@ -54,7 +53,8 @@ void main()
     {
         gl_Position = viewPerspectiveMatrix * modelToWorldMatrix * V4(pos, 1.0);
         worldSpacePos = modelToWorldMatrix * V4(pos, 1.0);
-        mat3 normalMatrix = mat3(modelToWorldMatrix);//transpose(inverse(mat3(modelToWorldMatrix)));
+        mat3 normalMatrix = mat3(modelToWorldMatrix);
+        //transpose(inverse(mat3(modelToWorldMatrix)));
         tN = normalize(normalMatrix * n);
         tT = normalize(normalMatrix * tangent);
         tT = normalize(tT - dot(tT, tN) * tN);
@@ -62,17 +62,17 @@ void main()
 
     V3 tB = cross(tN, tT);
     // Inverse of orthonormal basis is just the transpose
-    mat3 tbn = transpose(mat3(tT, tB, tN));
+    // mat3 tbn = transpose(mat3(tT, tB, tN));
+    mat3 tbn = mat3(tT, tB, tN);
 
+    result.tbn = tbn;
     result.uv = uv;
-    result.tangentLightDir = tbn * lightDir.xyz;
-    result.tangentViewPos = tbn * viewPosition.xyz;
-    result.tangentFragPos = tbn * worldSpacePos.xyz;
+    // result.tangentLightDir = tbn * lightDir.xyz;
+    // result.tangentViewPos = tbn * viewPosition.xyz;
+    // result.tangentFragPos = tbn * worldSpacePos.xyz;
 
     result.viewFragPos = viewMatrix * worldSpacePos;
     result.worldFragPos = worldSpacePos.xyz;
 
-    //result.worldViewPos = viewPosition.xyz;
-    //result.worldLightDir = lightDir.xyz;
     result.drawId = gl_DrawID;
 }

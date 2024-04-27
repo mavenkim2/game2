@@ -613,11 +613,11 @@ JOB_CALLBACK(AS_LoadAsset)
                 switch (asset->texture.type)
                 {
                     case TextureType_Diffuse:
-                    case TextureType_MR:
                     {
                         format = R_TexFormat_SRGB8;
                         break;
                     }
+                    case TextureType_MR:
                     case TextureType_Normal:
                     {
                         format = R_TexFormat_RGB8;
@@ -632,11 +632,11 @@ JOB_CALLBACK(AS_LoadAsset)
                 switch (asset->texture.type)
                 {
                     case TextureType_Diffuse:
-                    case TextureType_MR:
                     {
                         format = R_TexFormat_SRGBA8;
                         break;
                     }
+                    case TextureType_MR:
                     case TextureType_Normal:
                     {
                         format = R_TexFormat_RGBA8;

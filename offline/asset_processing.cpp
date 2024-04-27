@@ -1313,6 +1313,8 @@ int main(int argc, char *argv[])
             {
                 // TODO: support other file formats (fbx, obj, etc.) and make async
                 if (MatchString(GetFileExtension(props.name), Str8Lit("gltf"),
+                                MatchFlag_CaseInsensitive | MatchFlag_RightSideSloppy) ||
+                    MatchString(GetFileExtension(props.name), Str8Lit("fbx"),
                                 MatchFlag_CaseInsensitive | MatchFlag_RightSideSloppy))
                 {
                     string path = StrConcat(scratch.arena, directoryPath, props.name);

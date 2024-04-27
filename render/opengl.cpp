@@ -1853,7 +1853,7 @@ internal void GenerateIBLFromHDR(GLuint *outCubeMap, GLuint *outIrradianceMap, G
     // Load the hdr file
     stbi_set_flip_vertically_on_load(true);
     i32 width, height, nComponents;
-    f32 *data = stbi_loadf("data/industrial_sunset_puresky_8k.hdr", &width, &height, &nComponents, 0);
+    f32 *data = stbi_loadf("data/environment.hdr", &width, &height, &nComponents, 0);
 
     if (data)
     {
@@ -2025,8 +2025,6 @@ internal void GenerateIBLFromHDR(GLuint *outCubeMap, GLuint *outIrradianceMap, G
     openGL->glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, brdfLut, 0);
     glViewport(0, 0, 512, 512);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    openGL->glBindBuffer(GL_ARRAY_BUFFER, 0);
-    openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
     glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 
     *outCubeMap          = envCubemap;
