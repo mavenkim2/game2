@@ -169,6 +169,7 @@ struct G_State
     AS_Handle model;
     AS_Handle model2;
     AS_Handle eva;
+    AS_Handle modelBall;
 
     AS_Handle font;
 

@@ -278,7 +278,7 @@ internal void R_OpenGL_Init()
 
     // Environment cubemap
     {
-        LoadHDREquirectangularToCubemap(&openGL->cubeMap, &openGL->irradianceMap);
+        GenerateIBLFromHDR(&openGL->cubeMap, &openGL->irradianceMap, &openGL->prefilterMap, &openGL->brdfLut);
     }
     VSyncToggle(1);
 }
@@ -442,6 +442,7 @@ internal OpenGL *R_Win32_OpenGL_Init(OS_Handle handle)
         Win32GetOpenGLFunction(glFramebufferTexture2D);
         Win32GetOpenGLFunction(glDeleteFramebuffers);
         Win32GetOpenGLFunction(glDeleteRenderbuffers);
+        Win32GetOpenGLFunction(glGenerateMipmap);
 
         OpenGLGetInfo();
 
@@ -461,28 +462,6 @@ internal OpenGL *R_Win32_OpenGL_Init(OS_Handle handle)
     R_OpenGL_Init();
     ReleaseDC(window, dc);
     return openGL_;
-};
-
-enum DatumType
-{
-    DatumType_AnimationTransform,
-    DatumType_Position,
-};
-
-struct RenderDatum
-{
-    union
-    {
-        AnimationTransform transform;
-        V3 position;
-    };
-    DatumType type;
-};
-
-struct RenderData
-{
-    RenderDatum *datum;
-    u32 datumCount;
 };
 
 internal void R_BeginFrame(i32 width, i32 height)
@@ -967,6 +946,16 @@ internal void R_Win32_OpenGL_EndFrame(RenderState *renderState, HDC deviceContex
                 openGL->glActiveTexture(GL_TEXTURE0 + 33);
                 glBindTexture(GL_TEXTURE_CUBE_MAP, openGL->irradianceMap);
 
+                GLint brdfLoc = openGL->glGetUniformLocation(currentProgram, "brdfMap");
+                openGL->glUniform1i(brdfLoc, 34);
+                openGL->glActiveTexture(GL_TEXTURE0 + 34);
+                glBindTexture(GL_TEXTURE_2D, openGL->brdfLut);
+
+                GLint prefilterLoc = openGL->glGetUniformLocation(currentProgram, "prefilterMap");
+                openGL->glUniform1i(prefilterLoc, 35);
+                openGL->glActiveTexture(GL_TEXTURE0 + 35);
+                glBindTexture(GL_TEXTURE_CUBE_MAP, openGL->prefilterMap);
+
                 openGL->glMultiDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, 0, list->mTotalSurfaceCount, 0);
                 R_OpenGL_EndShader(R_ShaderType_Mesh);
                 break;
@@ -1269,31 +1258,9 @@ inline GLuint GetPbo(u32 index)
     return pbo;
 }
 
-// Allocate individual texture
-R_ALLOCATE_TEXTURE_2D(R_AllocateTexture2D)
+internal void R_OpenGL_PushTextureOp(void *inData, R_OpenGL_Texture *inTexture,
+                                     const u32 inHashIndex = 0, const u32 inHashSlice = 0, const b8 inUsesArray = 0)
 {
-    R_OpenGL_Texture *texture = openGL->freeTextures;
-    while (texture && AtomicCompareExchangePtr(&openGL->freeTextures, texture->next, texture) != texture)
-    {
-        texture = openGL->freeTextures;
-    }
-    if (texture)
-    {
-        u64 gen = texture->generation;
-        MemoryZeroStruct(texture);
-        texture->generation = gen;
-    }
-    else
-    {
-        BeginTicketMutex(&openGL->mutex);
-        texture = PushStruct(openGL->arena, R_OpenGL_Texture);
-        EndTicketMutex(&openGL->mutex);
-    }
-    texture->width  = width;
-    texture->height = height;
-    texture->generation += 1;
-    texture->format = format;
-
     R_OpenGL_TextureQueue *queue = &openGL->textureQueue;
     u32 writePos                 = AtomicIncrementU32(&queue->writePos) - 1;
     for (;;)
@@ -1303,10 +1270,12 @@ R_ALLOCATE_TEXTURE_2D(R_AllocateTexture2D)
         {
             u32 ringIndex          = (writePos & (queue->numOps - 1));
             R_OpenGL_TextureOp *op = queue->ops + ringIndex;
-            op->data               = data;
-            op->texture            = texture;
+            op->data               = inData;
+            op->texture            = inTexture;
+            op->texSlice.hashIndex = inHashIndex;
+            op->texSlice.slice     = inHashSlice;
             op->status             = R_TextureLoadStatus_Untransferred;
-            op->usesArray          = 0;
+            op->usesArray          = inUsesArray;
             while (AtomicCompareExchangeU32(&queue->endPos, writePos + 1, writePos) != writePos)
             {
                 _mm_pause();
@@ -1315,6 +1284,13 @@ R_ALLOCATE_TEXTURE_2D(R_AllocateTexture2D)
         }
         _mm_pause();
     }
+}
+
+// Allocate individual texture
+R_ALLOCATE_TEXTURE_2D(R_AllocateTexture2D)
+{
+    R_OpenGL_Texture *texture = R_OpenGL_CreateTexture(width, height, format);
+    R_OpenGL_PushTextureOp(data, texture);
 
     R_Handle handle = R_OpenGL_HandleFromTexture(texture);
     return handle;
@@ -1324,6 +1300,9 @@ R_ALLOCATE_TEXTURE_2D(R_AllocateTexture2D)
 // TODO: mipmaps using glcompressedtexture? or something idk
 DLL R_ALLOCATE_TEXTURE_2D(R_AllocateTextureInArray)
 {
+    // TODO IMPORTANT: integrate this with R_OpenGL_Texture, create array of texture pointers instead of linked list,
+    // use hash array (similar to asset system) to get index of matching texture array, if it doesn't exist
+    // atomic increment and create new texture
     R_Texture2DArrayTopology topology;
     topology.levels         = 1;
     topology.width          = width;
@@ -1362,56 +1341,12 @@ DLL R_ALLOCATE_TEXTURE_2D(R_AllocateTextureInArray)
     result.u32[0] = hashIndex;
     result.u32[1] = (u32)freeIndex;
 
-    // f32 slice     = (f32)freeIndex;
-    // MemoryCopy(&result.u32[1], &slice, sizeof(slice));
     result.u64[1] = GL_TEXTURE_ARRAY_HANDLE_FLAG;
 
-    R_OpenGL_Texture *texture = openGL->freeTextures;
-    while (texture && AtomicCompareExchangePtr(&openGL->freeTextures, texture->next, texture) != texture)
-    {
-        texture = texture->next;
-    }
-    if (texture)
-    {
-        u64 gen = texture->generation;
-        MemoryZeroStruct(texture);
-        texture->generation = gen;
-    }
-    else
-    {
-        BeginTicketMutex(&openGL->mutex);
-        texture = PushStruct(openGL->arena, R_OpenGL_Texture);
-        EndTicketMutex(&openGL->mutex);
-    }
-    texture->width  = width;
-    texture->height = height;
-    texture->generation += 1;
-    texture->format = format;
+    R_OpenGL_Texture *texture = R_OpenGL_CreateTexture(width, height, format);
 
     // Add to queue
-    R_OpenGL_TextureQueue *queue = &openGL->textureQueue;
-    u32 writePos                 = AtomicIncrementU32(&queue->writePos) - 1;
-    for (;;)
-    {
-        u32 availableSpots = queue->numOps - (writePos - queue->finalizePos);
-        if (availableSpots >= 1)
-        {
-            u32 ringIndex          = (writePos & (queue->numOps - 1));
-            R_OpenGL_TextureOp *op = queue->ops + ringIndex;
-            op->data               = data;
-            op->texture            = texture;
-            op->texSlice.hashIndex = result.u32[0];
-            op->texSlice.slice     = (u32)freeIndex;
-            op->status             = R_TextureLoadStatus_Untransferred;
-            op->usesArray          = 1;
-            while (AtomicCompareExchangeU32(&queue->endPos, writePos + 1, writePos) != writePos)
-            {
-                _mm_pause();
-            }
-            break;
-        }
-        _mm_pause();
-    }
+    R_OpenGL_PushTextureOp(data, texture, result.u32[0], (u32)freeIndex, true);
 
     return result;
 }
@@ -1826,7 +1761,90 @@ internal R_OpenGL_Texture *R_OpenGL_TextureFromHandle(R_Handle handle)
 //////////////////////////////
 // Image based lighting
 //
-internal void LoadHDREquirectangularToCubemap(GLuint *outCubeMap, GLuint *outIrradianceMap)
+
+internal R_OpenGL_Texture *R_OpenGL_CreateTexture(const i32 inWidth, const i32 inHeight, R_TexFormat format)
+{
+    R_OpenGL_Texture *texture = openGL->freeTextures;
+    while (texture && AtomicCompareExchangePtr(&openGL->freeTextures, texture->next, texture) != texture)
+    {
+        texture = texture->next;
+    }
+    if (texture)
+    {
+        u64 gen = texture->generation;
+        MemoryZeroStruct(texture);
+        texture->generation = gen;
+    }
+    else
+    {
+        BeginTicketMutex(&openGL->mutex);
+        texture = PushStruct(openGL->arena, R_OpenGL_Texture);
+        EndTicketMutex(&openGL->mutex);
+    }
+    texture->width  = inWidth;
+    texture->height = inHeight;
+    texture->generation += 1;
+    texture->format = format;
+
+    return texture;
+}
+
+enum ImageType
+{
+    ImageType_2D,
+    ImageType_Cubemap,
+};
+
+// NOTE: if 0 is passed, allocate but don't upload any data
+internal GLuint R_OpenGL_AllocTexture(const ImageType inTexType, const i32 inWidth, const i32 inHeight,
+                                      const GLenum inInternalFormat, GLenum inType, const b8 inGenMips = 0,
+                                      const void *inData = 0)
+{
+    GLuint id;
+    switch (inTexType)
+    {
+        case ImageType_2D:
+        {
+            glGenTextures(1, &id);
+            glBindTexture(GL_TEXTURE_2D, id);
+            glTexImage2D(GL_TEXTURE_2D, 0, inInternalFormat, inWidth, inHeight, 0, inType, GL_FLOAT, inData);
+
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            break;
+        }
+        case ImageType_Cubemap:
+        {
+            glGenTextures(1, &id);
+            glBindTexture(GL_TEXTURE_CUBE_MAP, id);
+            for (u32 i = 0; i < 6; i++)
+            {
+                glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, inInternalFormat, inWidth, inHeight, 0, inType,
+                             GL_FLOAT, inData);
+            }
+            glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            if (inGenMips)
+            {
+                glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+                // openGL->glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
+            }
+            else
+            {
+                glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            }
+            break;
+        }
+    }
+    return id;
+}
+
+internal void GenerateIBLFromHDR(GLuint *outCubeMap, GLuint *outIrradianceMap, GLuint *outPrefilterCubemap,
+                                 GLuint *outBrdfLut)
 {
     GLuint hdrTex;
     GLuint envCubemap;
@@ -1839,15 +1857,7 @@ internal void LoadHDREquirectangularToCubemap(GLuint *outCubeMap, GLuint *outIrr
 
     if (data)
     {
-        glGenTextures(1, &hdrTex);
-        glBindTexture(GL_TEXTURE_2D, hdrTex);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB16F, width, height, 0, GL_RGB, GL_FLOAT, data);
-
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
+        hdrTex = R_OpenGL_AllocTexture(ImageType_2D, width, height, GL_RGB16F, GL_RGB, 0, data);
         stbi_image_free(data);
     }
     else
@@ -1856,7 +1866,7 @@ internal void LoadHDREquirectangularToCubemap(GLuint *outCubeMap, GLuint *outIrr
     }
 
     TempArena temp = ScratchStart(0, 0);
-    shader         = R_OpenGL_CreateShader(temp.arena, "", "src/shaders/equirectangular.vs", "src/shaders/equirectangular.fs", "", "");
+    shader         = R_OpenGL_CreateShader(temp.arena, "", "src/shaders/cubemap.vs", "src/shaders/equirectangular.fs", "", "");
 
     GLuint captureFbo, captureRbo;
     openGL->glGenFramebuffers(1, &captureFbo);
@@ -1868,17 +1878,7 @@ internal void LoadHDREquirectangularToCubemap(GLuint *outCubeMap, GLuint *outIrr
     openGL->glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, captureRbo);
 
     // Create output cubemap
-    glGenTextures(1, &envCubemap);
-    glBindTexture(GL_TEXTURE_CUBE_MAP, envCubemap);
-    for (u32 i = 0; i < 6; i++)
-    {
-        glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGB16F, 2048, 2048, 0, GL_RGB, GL_FLOAT, 0);
-    }
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    envCubemap = R_OpenGL_AllocTexture(ImageType_Cubemap, 2048, 2048, GL_RGB16F, GL_RGB, true);
 
     openGL->glUseProgram(shader);
 
@@ -1899,9 +1899,15 @@ internal void LoadHDREquirectangularToCubemap(GLuint *outCubeMap, GLuint *outIrr
 
     // VP for 6 cube faces
 
-    // i would be lying if I said i perfectly understood why these matrices have to be oriented like this
+    // NOTE: gl cubemaps are left handed
     Mat4 projection = Perspective4(Radians(90.f), 1.f, .1f, 10.f);
     Mat4 views[]    = {
+        // LookAt4({0, 0, 0}, {1, 0, 0}, {0, -1, 0}),  // +x
+        // LookAt4({0, 0, 0}, {-1, 0, 0}, {0, -1, 0}), // -x
+        // LookAt4({0, 0, 0}, {0, 1, 0}, {0, 0, 1}),   // +y
+        // LookAt4({0, 0, 0}, {0, -1, 0}, {0, 0, -1}), // -y
+        // LookAt4({0, 0, 0}, {0, 0, 1}, {0, -1, 0}),  // +z
+        // LookAt4({0, 0, 0}, {0, 0, -1}, {0, -1, 0}), // +z
         LookAt4({0, 0, 0}, {1, 0, 0}, {0, -1, 0}),  // +x
         LookAt4({0, 0, 0}, {-1, 0, 0}, {0, -1, 0}), // -x
         LookAt4({0, 0, 0}, {0, 1, 0}, {0, 0, 1}),   // +y
@@ -1926,30 +1932,21 @@ internal void LoadHDREquirectangularToCubemap(GLuint *outCubeMap, GLuint *outIrr
         openGL->glUniformMatrix4fv(matrix, 1, GL_FALSE, views[i].elements[0]);
         glDrawElements(GL_TRIANGLES, ArrayLength(cubeIndices), GL_UNSIGNED_SHORT, 0);
     }
-    // openGL->glBindFramebuffer(GL_FRAMEBUFFER, 0);
+
+    // Generates mips for the cubemap
+    glBindTexture(GL_TEXTURE_CUBE_MAP, envCubemap);
+    openGL->glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
+
     glDeleteTextures(1, &hdrTex);
 
     //////////////////////////////////////////////////////////////////
     // Create irradiance map
-    shader = R_OpenGL_CreateShader(temp.arena, "", "src/shaders/equirectangular.vs", "src/shaders/convolution.fs", "", "");
+    shader = R_OpenGL_CreateShader(temp.arena, "", "src/shaders/cubemap.vs", "src/shaders/convolution.fs", "", "");
     openGL->glUseProgram(shader);
-
-    ScratchEnd(temp);
 
     textureLoc = openGL->glGetUniformLocation(shader, "environmentMap");
     openGL->glUniform1i(textureLoc, 0);
-    GLuint irradianceMap;
-    glGenTextures(1, &irradianceMap);
-    glBindTexture(GL_TEXTURE_CUBE_MAP, irradianceMap);
-    for (u32 i = 0; i < 6; i++)
-    {
-        glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, 0, GL_RGB16F, 32, 32, 0, GL_RGB, GL_FLOAT, 0);
-    }
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    GLuint irradianceMap = R_OpenGL_AllocTexture(ImageType_Cubemap, 32, 32, GL_RGB16F, GL_RGB);
 
     openGL->glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, 32, 32);
     openGL->glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, captureRbo);
@@ -1961,7 +1958,7 @@ internal void LoadHDREquirectangularToCubemap(GLuint *outCubeMap, GLuint *outIrr
     matrix = openGL->glGetUniformLocation(shader, "projection");
     openGL->glUniformMatrix4fv(matrix, 1, GL_FALSE, projection.elements[0]);
 
-    // Render hdr texture to each cube map face
+    // Convolute the cubemap (all directions equally for diffuse)
     for (u32 i = 0; i < 6; i++)
     {
         openGL->glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, irradianceMap, 0);
@@ -1970,12 +1967,77 @@ internal void LoadHDREquirectangularToCubemap(GLuint *outCubeMap, GLuint *outIrr
         openGL->glUniformMatrix4fv(matrix, 1, GL_FALSE, views[i].elements[0]);
         glDrawElements(GL_TRIANGLES, ArrayLength(cubeIndices), GL_UNSIGNED_SHORT, 0);
     }
+
+    //////////////////////////////////////////////////////////////////
+    // Specular BRDF Split Sum Approximation
+    //
+
+    // Prefilter the environment map
+    shader = R_OpenGL_CreateShader(temp.arena, "", "src/shaders/cubemap.vs", "src/shaders/prefilter.fs", "", "");
+    openGL->glUseProgram(shader);
+
+    textureLoc = openGL->glGetUniformLocation(shader, "envMap");
+    openGL->glUniform1i(textureLoc, 0);
+    matrix = openGL->glGetUniformLocation(shader, "projection");
+    openGL->glUniformMatrix4fv(matrix, 1, GL_FALSE, projection.elements[0]);
+
+    i32 baseWidth           = 128;
+    i32 baseHeight          = 128;
+    GLuint prefilterCubemap = R_OpenGL_AllocTexture(ImageType_Cubemap, baseWidth, baseHeight, GL_RGB16F, GL_RGB, true);
+    openGL->glGenerateMipmap(GL_TEXTURE_CUBE_MAP);
+    glBindTexture(GL_TEXTURE_CUBE_MAP, envCubemap);
+    glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
+
+    const i32 cMipLevels = 5;
+    for (u32 mips = 0; mips < cMipLevels; mips++)
+    {
+        u32 mipWidth  = (u32)(baseWidth * Powf(.5f, (f32)mips));
+        u32 mipHeight = (u32)(baseHeight * Powf(.5f, (f32)mips));
+        openGL->glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, mipWidth, mipHeight);
+        openGL->glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, captureRbo);
+        glViewport(0, 0, mipWidth, mipHeight);
+        f32 roughness = (f32)(mips) / (cMipLevels - 1);
+
+        GLint rLoc = openGL->glGetUniformLocation(shader, "roughness");
+        openGL->glUniform1f(rLoc, roughness);
+        for (u32 i = 0; i < 6; i++)
+        {
+            openGL->glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_CUBE_MAP_POSITIVE_X + i, prefilterCubemap, mips);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+            matrix = openGL->glGetUniformLocation(shader, "view");
+            openGL->glUniformMatrix4fv(matrix, 1, GL_FALSE, views[i].elements[0]);
+
+            glDrawElements(GL_TRIANGLES, ArrayLength(cubeIndices), GL_UNSIGNED_SHORT, 0);
+        }
+    }
+
+    //////////////////////////////////////////////////////////////////
+    // Generate LUT for specular BRDF
+
+    GLuint brdfLut = R_OpenGL_AllocTexture(ImageType_2D, 512, 512, GL_RG16F, GL_RG);
+
+    shader = R_OpenGL_CreateShader(temp.arena, "", "src/shaders/quad.vs", "src/shaders/integrate_brdf.fs", "", "");
+    openGL->glUseProgram(shader);
+
+    openGL->glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, 512, 512);
+    openGL->glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, captureRbo);
+    openGL->glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, brdfLut, 0);
+    glViewport(0, 0, 512, 512);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    openGL->glBindBuffer(GL_ARRAY_BUFFER, 0);
+    openGL->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+
+    *outCubeMap          = envCubemap;
+    *outIrradianceMap    = irradianceMap;
+    *outPrefilterCubemap = prefilterCubemap;
+    *outBrdfLut          = brdfLut;
+    ScratchEnd(temp);
+
     openGL->glBindFramebuffer(GL_FRAMEBUFFER, 0);
     openGL->glDeleteFramebuffers(1, &captureFbo);
     openGL->glDeleteRenderbuffers(1, &captureRbo);
-
-    *outCubeMap       = envCubemap;
-    *outIrradianceMap = irradianceMap;
 }
 
 //////////////////////////////

@@ -38,7 +38,11 @@ layout (std140, binding = 0) uniform lightMatrices
 };
 
 uniform sampler2DArray shadowMaps;
+
+// PBR
 uniform samplerCube irradianceMap;
+uniform samplerCube prefilterMap;
+uniform sampler2D brdfMap;
 
 #define TEXTURES_PER_MATERIAL 3
 #define DIFFUSE_INDEX 0
@@ -46,6 +50,7 @@ uniform samplerCube irradianceMap;
 #define MR_INDEX 2
 
 // F0 approximates to 0.04 for dielectrics, for metals it's lerped b/t 0.04 and the albedo based on the metalness
+// TODO: something is wrong. metals are not the right color
 void main()
 {
     // Normal texture units
@@ -77,6 +82,7 @@ void main()
     V4 mr = texture(textureMaps[metallicContainer], vec3(fragment.uv, metallicSlice)).rgba;
     f32 metalness = mr.b;
     f32 roughness = mr.g;
+    // f32 ao = mr.r;
 #endif
 
     // Shadow mapping
@@ -122,10 +128,11 @@ void main()
     shadow /= 16.f;
 
     // L and V
-    V3 l = normalize(fragment.tangentLightDir);
-    V3 v = normalize(fragment.tangentViewPos - fragment.tangentFragPos);
     // V3 v = normalize(fragment.worldViewPos - fragment.worldFragPos);
     // V3 l = normalize(fragment.worldLightDir);
+
+    V3 l = normalize(fragment.tangentLightDir);
+    V3 v = normalize(fragment.tangentViewPos - fragment.tangentFragPos);
     V3 n = normal;
 
     V3 h = normalize(l + v);
@@ -164,6 +171,7 @@ void main()
         // For dielectrics, approximate the base reflectivity at 4%. Otherwise, mix based on metalness.
         // This works because metals absorb (almost?) all light, meaning there's no refraction/diffuse, leaving the 
         // specular
+        // ior of dielectrics estimated to be 1.5, ((1 - ior) / (1 + ior))^2 = 0.04
         V3 f0 = V3(0.04);
         f0 = mix(f0, albedo.rgb, metalness);
         V3 fresnel = f0 + (1 - f0) * pow(1 - hDotV, 5.f);
@@ -183,18 +191,31 @@ void main()
 
         V3 irradiance = texture(irradianceMap, n).rgb;
         V3 ao = vec3(1.0);
-        vec3 diffuse = irradiance * albedo;
-        V3 ambient = (kD * diffuse) * ao;
+        V3 diffuse = kD * irradiance * albedo;
+
+        int specularTextureLevels = textureQueryLevels(prefilterMap);
+        // TODO: this is in tangent space
+        V3 reflectVec = 2 * nDotV * n - v;
+        vec3 prefilterColor = textureLod(prefilterMap, reflectVec, roughness * specularTextureLevels).rgb;
+        vec2 brdf = texture(brdfMap, vec2(nDotV, roughness)).rg;
+        vec3 specular = prefilterColor * (f0 * brdf.x + brdf.y);
+
+        vec3 ambient = (diffuse + specular) * ao;
         
-        // outColor = ambient;
         outColor = (ambient) + Lo * (1 - shadow);
-        // outColor = outColor / (outColor + V3(1.0));
+        // outColor = ambient + Lo;
 
+        // outColor = fresnel;
+        // outColor = V3(geometryAndCTDenom * nDotV * nDotL * 4);
+        // outColor = albedo.rgb;
+        // outColor = fragment.tangentFragPos.xyz;
+        // outColor = ambient;
         // outColor = V3(1, 1, 1) * ((4 - shadowIndex) * .25);
-
         // outColor += specular;
         // outColor = V3(metalness);
         // outColor = V3(roughness);
+        // outColor = V3(normal);
+
     }
     else 
     {
@@ -220,6 +241,7 @@ void main()
         outColor = (ambient + diffuse + specular) * (1 - .8 * shadow);
     }
 
+    outColor = outColor / (outColor + V3(1.0));
     // Debug
     // FragColor = V4(normal, 1.0);
     // FragColor = V4(color, 1.0);

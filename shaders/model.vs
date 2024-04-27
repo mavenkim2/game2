@@ -18,6 +18,7 @@ out VS_OUT
 
     //out V3 worldLightDir;
     flat out int drawId;
+    flat out mat3 tbn;
 } result;
 
 void main()
@@ -36,11 +37,12 @@ void main()
         boneTransform     += rBoneTransforms[skinningOffset + boneIds[2]] * boneWeights[2];
         boneTransform     += rBoneTransforms[skinningOffset + boneIds[3]] * boneWeights[3];
 
-        V4 modelSpacePos = boneTransform * V4(pos, 1.0);
-        worldSpacePos = modelToWorldMatrix * modelSpacePos;
+        // V4 modelSpacePos = boneTransform * V4(pos, 1.0);
+        Mat4 worldSpaceMatrixTransform = modelToWorldMatrix * boneTransform;
+        worldSpacePos = worldSpaceMatrixTransform * V4(pos, 1.0);
         gl_Position = viewPerspectiveMatrix * worldSpacePos;
 
-        mat3 modelToWorld = mat3(modelToWorldMatrix * boneTransform);
+        mat3 modelToWorld = mat3(worldSpaceMatrixTransform);
         modelToWorld = transpose(inverse(modelToWorld));
         tN = normalize(modelToWorld * n);
         tT = normalize(modelToWorld * tangent);
@@ -52,7 +54,7 @@ void main()
     {
         gl_Position = viewPerspectiveMatrix * modelToWorldMatrix * V4(pos, 1.0);
         worldSpacePos = modelToWorldMatrix * V4(pos, 1.0);
-        mat3 normalMatrix = transpose(inverse(mat3(modelToWorldMatrix)));
+        mat3 normalMatrix = mat3(modelToWorldMatrix);//transpose(inverse(mat3(modelToWorldMatrix)));
         tN = normalize(normalMatrix * n);
         tT = normalize(normalMatrix * tangent);
         tT = normalize(tT - dot(tT, tN) * tN);

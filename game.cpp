@@ -203,6 +203,8 @@ G_INIT(G_Init)
         g_state->model2 = AS_GetAsset(Str8Lit("data/hero/scene.model"));
         g_state->eva    = AS_GetAsset(Str8Lit("data/eva/Eva01.model"));
 
+        g_state->modelBall = AS_GetAsset(Str8Lit("data/ball/scene.model"));
+
         KeyframedAnimation *animation = PushStruct(g_state->permanentArena, KeyframedAnimation);
 
         // ReadAnimationFile(g_state->worldArena, animation, Str8Lit("data/dragon_attack_01.anim"));
@@ -727,6 +729,17 @@ DLL G_UPDATE(G_Update)
         Mat4 mvp3       = renderState->transform * transform3;
 
         D_PushModel(g_state->eva, transform3, mvp3);
+
+        // Ball
+
+        translate       = Translate4(V3{20, 10, 0});
+        scale           = Scale(V3{.1f, .1f, .1f});
+        rotate          = Rotate4(MakeV3(1, 0, 0), PI / 2);
+        Mat4 transform4 = translate;
+        Mat4 mvp4       = renderState->transform * transform4;
+
+        D_PushModel(g_state->modelBall, transform4, mvp4);
+
         Light light;
         light.type = LightType_Directional;
         // TODO: no matter what direction is specified the shadow map is always {0, 0, -1}

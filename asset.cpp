@@ -436,7 +436,6 @@ internal void SkinModelToBindPose(AS_Handle model, Mat4 *finalTransforms)
     ScratchEnd(temp);
 }
 
-// TODO IMPORTANT: move out the gl calls pls
 internal Heightmap CreateHeightmap(string filename)
 {
     TempArena temp  = ScratchStart(0, 0);

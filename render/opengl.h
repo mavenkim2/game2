@@ -185,6 +185,7 @@
 #define GL_TEXTURE_CUBE_MAP_NEGATIVE_Y 0x8518
 #define GL_TEXTURE_CUBE_MAP_POSITIVE_Z 0x8519
 #define GL_TEXTURE_CUBE_MAP_NEGATIVE_Z 0x851A
+#define GL_TEXTURE_CUBE_MAP_SEAMLESS   0x884F
 
 #define GL_MAP_PERSISTENT_BIT     0x0040
 #define GL_MAP_COHERENT_BIT       0x0080
@@ -312,6 +313,7 @@ typedef void WINAPI type_glFramebufferRenderbuffer(GLenum target, GLenum attachm
 typedef void WINAPI type_glFramebufferTexture2D(GLenum target, GLenum attachment, GLenum textarget, GLuint texture, GLint level);
 typedef void WINAPI type_glDeleteFramebuffers(GLsizei n, const GLuint *framebuffers);
 typedef void WINAPI type_glDeleteRenderbuffers(GLsizei n, const GLuint *renderbuffers);
+typedef void WINAPI type_glGenerateMipmap(GLenum target);
 
 #define GL_DEBUG_CALLBACK(name)                                                              \
     void WINAPI name(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, \
@@ -480,6 +482,12 @@ struct R_OpenGL_Texture
     R_TexFormat format;
 };
 
+struct R_OpenGL_Cubemap
+{
+    R_OpenGL_Texture tex;
+    i32 levels;
+};
+
 enum R_TextureLoadStatus
 {
     R_TextureLoadStatus_Untransferred,
@@ -534,7 +542,6 @@ struct R_OpenGL_BufferQueue
     u32 endPos;
 };
 
-// NOTE: this cannot be padded
 struct R_Texture2DArrayTopology
 {
     GLsizei levels;
@@ -551,6 +558,7 @@ struct R_Texture2DArray
     GLsizei *freeList;
     u32 freeListCount;
 
+    GLsizei levels;
     GLsizei depth;
     GLuint id;
     u32 hash;
@@ -608,6 +616,8 @@ struct OpenGL
     // cubemap
     GLuint cubeMap;
     GLuint irradianceMap;
+    GLuint prefilterMap;
+    GLuint brdfLut;
 
     OpenGLFunction(glGenBuffers);
     OpenGLFunction(glBindBuffer);
@@ -673,6 +683,7 @@ struct OpenGL
     OpenGLFunction(glFramebufferTexture2D);
     OpenGLFunction(glDeleteFramebuffers);
     OpenGLFunction(glDeleteRenderbuffers);
+    OpenGLFunction(glGenerateMipmap);
 };
 
 global OpenGL *openGL;
@@ -691,16 +702,21 @@ internal GLuint R_OpenGL_CompileShader(char *globals, char *vs, char *fs);
 internal void R_OpenGL_StartShader(RenderState *state, R_ShaderType type, void *group);
 internal void R_OpenGL_EndShader(R_ShaderType type);
 
+// Public
 DLL R_ALLOCATE_TEXTURE_2D(R_AllocateTexture2D);
 DLL R_ALLOCATE_TEXTURE_2D(R_AllocateTextureInArray);
 DLL R_ALLOCATE_BUFFER(R_AllocateBuffer);
-internal void R_OpenGL_LoadBuffers();
-internal void R_OpenGL_LoadTextures();
-
 DLL void R_InitializeBuffer(GPUBuffer *ioBuffer, const BufferUsageType inUsageType, const i32 inSize);
 DLL void R_MapGPUBuffer(GPUBuffer *buffer);
 DLL void R_UnmapGPUBuffer(GPUBuffer *buffer);
 DLL void R_UpdateBuffer(GPUBuffer *buffer, BufferUsageType type, void *data, i32 offset, i32 size);
+
+// Private
+internal void R_OpenGL_LoadBuffers();
+internal void R_OpenGL_LoadTextures();
+internal R_OpenGL_Texture *R_OpenGL_CreateTexture(const i32 inWidth, const i32 inHeight, R_TexFormat format);
+internal void R_OpenGL_PushTextureOp(void *inData, R_OpenGL_Texture *inTexture,
+                                     const u32 inHashIndex, const u32 inHashSlice, const b8 inUsesArray);
 
 //////////////////////////////
 // Handle
@@ -752,7 +768,9 @@ inline GLint R_OpenGL_GetBufferFromHandle(R_BufferHandle handle)
     GLint result = (GLint)(handle);
     return result;
 }
-internal void LoadHDREquirectangularToCubemap(GLuint *outCubeMap, GLuint *outIrradianceMap);
+
+internal void GenerateIBLFromHDR(GLuint *outCubeMap, GLuint *outIrradianceMap, GLuint *outPrefilterCubemap,
+                                 GLuint *outBrdfLut);
 
 // NOTE: this is completely unused in this translation unit.
 RendererApi renderer;
