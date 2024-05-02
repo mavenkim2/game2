@@ -83,13 +83,14 @@ MAIN()
     desc.height = (u32)platform.OS_GetWindowDimension(shared->windowHandle).y;
     desc.format = graphics::Format::B8G8R8A8_UNORM;
 
-    graphics.CreateSwapchain((Window)shared->windowHandle.handle, &desc, &swapchain);
+    graphics.CreateSwapchain((Window)shared->windowHandle.handle, hInstance, &desc, &swapchain);
     graphics.CreateShader();
 
     for (; shared->running == 1;)
     {
         CommandList cmdList = graphics.BeginCommandList(QueueType_Graphics);
         graphics.BeginRenderPass(&swapchain, &cmdList);
+        graphics.WaitForGPU();
     }
 #if 0
 

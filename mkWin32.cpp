@@ -497,8 +497,6 @@ LRESULT Win32_Callback(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
         }
         case WM_KEYUP:
         case WM_SYSKEYUP:
-        {
-        }
         case WM_KEYDOWN:
         case WM_SYSKEYDOWN:
         {
@@ -578,6 +576,7 @@ LRESULT Win32_Callback(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
         }
         case WM_KILLFOCUS:
         {
+            shared->running = false;
             OS_Event event;
             event.type = OS_EventType_LoseFocus;
             Win32_AddEvent(event);

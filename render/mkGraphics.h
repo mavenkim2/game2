@@ -3,6 +3,7 @@ namespace graphics
 
 #if WINDOWS
 typedef HWND Window;
+typedef HINSTANCE Instance;
 #else
 #error not supported
 #endif
@@ -68,9 +69,10 @@ struct mkGraphics
     static const i32 cNumBuffers = 2;
     u64 mFrameCount              = 0;
 
-    virtual b32 CreateSwapchain(Window window, SwapchainDesc *desc, Swapchain *swapchain) = 0;
-    virtual void CreateShader()                                                           = 0;
-    virtual CommandList BeginCommandList(QueueType queue)                                 = 0;
-    virtual void BeginRenderPass(Swapchain *inSwapchain, CommandList *inCommandList)      = 0;
+    virtual b32 CreateSwapchain(Window window, Instance instance, SwapchainDesc *desc, Swapchain *swapchain) = 0;
+    virtual void CreateShader()                                                                              = 0;
+    virtual CommandList BeginCommandList(QueueType queue)                                                    = 0;
+    virtual void BeginRenderPass(Swapchain *inSwapchain, CommandList *inCommandList)                         = 0;
+    virtual void WaitForGPU()                                                                                = 0;
 };
 } // namespace graphics

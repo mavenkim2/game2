@@ -71,7 +71,7 @@ struct mkGraphicsVulkan : mkGraphics
     };
     list<CommandListVulkan> mCommandLists;
     TicketMutex mCommandMutex = {};
-    u32 mCmdCount;
+    u32 mCmdCount             = 0;
 
     CommandListVulkan &GetCommandList(CommandList cmd)
     {
@@ -91,7 +91,7 @@ struct mkGraphicsVulkan : mkGraphics
     struct SwapchainVulkan
     {
         SwapchainDesc mDesc;
-        VkSwapchainKHR mSwapchain;
+        VkSwapchainKHR mSwapchain = VK_NULL_HANDLE;
         VkSurfaceKHR mSurface;
         VkExtent2D mExtent;
 
@@ -99,7 +99,7 @@ struct mkGraphicsVulkan : mkGraphics
         list<VkImageView> mImageViews;
 
         list<VkSemaphore> mAcquireSemaphores;
-        VkSemaphore mReleaseSemaphore = 0;
+        VkSemaphore mReleaseSemaphore = VK_NULL_HANDLE;
 
         u32 mAcquireSemaphoreIndex;
         u32 mImageIndex;
@@ -111,6 +111,16 @@ struct mkGraphicsVulkan : mkGraphics
     list<VkDynamicState> mDynamicStates;
     VkPipelineDynamicStateCreateInfo mDynamicStateInfo;
     VkPipeline mPipeline;
+
+    //////////////////////////////
+    // Deferred cleanup
+    //
+    Mutex mCleanupMutex = {};
+    list<VkSemaphore> mCleanupSemaphores;
+    list<VkSwapchainKHR> mCleanupSwapchains;
+    list<VkImageView> mCleanupImageViews;
+
+    void Cleanup();
 
     // Functions
     SwapchainVulkan *ToInternal(Swapchain *swapchain)
@@ -124,9 +134,13 @@ struct mkGraphicsVulkan : mkGraphics
     }
 
     mkGraphicsVulkan(OS_Handle window, ValidationMode validationMode, GPUDevicePreference preference);
-    b32 CreateSwapchain(Window window, SwapchainDesc *desc, Swapchain *swapchain) override;
+    b32 CreateSwapchain(Window window, Instance instance, SwapchainDesc *desc, Swapchain *swapchain) override;
     void CreateShader() override;
     virtual CommandList BeginCommandList(QueueType queue) override;
     void BeginRenderPass(Swapchain *inSwapchain, CommandList *inCommandList) override;
+    void WaitForGPU() override;
+
+private:
+    b32 CreateSwapchain(SwapchainVulkan *inSwapchain);
 };
 } // namespace graphics

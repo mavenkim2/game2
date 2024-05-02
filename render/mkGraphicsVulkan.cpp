@@ -42,11 +42,34 @@ VkBool32 DebugUtilsMessengerCallback(VkDebugUtilsMessageSeverityFlagBitsEXT mess
 
     return VK_FALSE;
 }
+
 } // namespace vulkan
 
 namespace graphics
 {
 using namespace vulkan;
+
+void mkGraphicsVulkan::Cleanup()
+{
+    MutexScope(&mCleanupMutex)
+    {
+        for (auto &semaphore : mCleanupSemaphores)
+        {
+            vkDestroySemaphore(mDevice, semaphore, 0);
+        }
+        mCleanupSemaphores.clear();
+        for (auto &swapchain : mCleanupSwapchains)
+        {
+            vkDestroySwapchainKHR(mDevice, swapchain, 0);
+        }
+        mCleanupSwapchains.clear();
+        for (auto &imageview : mCleanupImageViews)
+        {
+            vkDestroyImageView(mDevice, imageview, 0);
+        }
+        mCleanupImageViews.clear();
+    }
+}
 
 mkGraphicsVulkan::mkGraphicsVulkan(OS_Handle window, ValidationMode validationMode, GPUDevicePreference preference)
 {
@@ -127,7 +150,7 @@ mkGraphicsVulkan::mkGraphicsVulkan(OS_Handle window, ValidationMode validationMo
         for (auto &validationLayers : validationPriorityList)
         {
             bool validated = true;
-            for (auto layer : validationLayers)
+            for (auto& layer : validationLayers)
             {
                 bool found = false;
                 for (auto &availableLayer : availableLayers)
@@ -267,6 +290,7 @@ mkGraphicsVulkan::mkGraphicsVulkan(OS_Handle window, ValidationMode validationMo
         mFeatures11.pNext     = &mFeatures12;
         mFeatures12.pNext     = &mFeatures13;
         void **featuresChain  = &mFeatures13.pNext;
+        *featuresChain        = 0;
 
         vkGetPhysicalDeviceFeatures2(mPhysicalDevice, &mDeviceFeatures);
 
@@ -302,13 +326,15 @@ mkGraphicsVulkan::mkGraphicsVulkan(OS_Handle window, ValidationMode validationMo
                     mGraphicsFamily = i;
                 }
                 if ((queueFamily.queueFamilyProperties.queueFlags & VK_QUEUE_TRANSFER_BIT) &&
-                    (mCopyFamily == VK_QUEUE_FAMILY_IGNORED || (!(queueFamily.queueFamilyProperties.queueFlags & VK_QUEUE_GRAPHICS_BIT) && !(queueFamily.queueFamilyProperties.queueFlags & VK_QUEUE_TRANSFER_BIT))))
+                    (mCopyFamily == VK_QUEUE_FAMILY_IGNORED ||
+                     (!(queueFamily.queueFamilyProperties.queueFlags & VK_QUEUE_GRAPHICS_BIT) && !(queueFamily.queueFamilyProperties.queueFlags & VK_QUEUE_COMPUTE_BIT))))
 
                 {
                     mCopyFamily = i;
                 }
-                if ((queueFamily.queueFamilyProperties.queueFlags & VK_QUEUE_TRANSFER_BIT) &&
-                    (mComputeFamily == VK_QUEUE_FAMILY_IGNORED || (!(queueFamily.queueFamilyProperties.queueFlags & VK_QUEUE_GRAPHICS_BIT) && !(queueFamily.queueFamilyProperties.queueFlags & VK_QUEUE_COMPUTE_BIT))))
+                if ((queueFamily.queueFamilyProperties.queueFlags & VK_QUEUE_COMPUTE_BIT) &&
+                    (mComputeFamily == VK_QUEUE_FAMILY_IGNORED ||
+                     !(queueFamily.queueFamilyProperties.queueFlags & VK_QUEUE_GRAPHICS_BIT)))
 
                 {
                     mComputeFamily = i;
@@ -397,7 +423,7 @@ mkGraphicsVulkan::mkGraphicsVulkan(OS_Handle window, ValidationMode validationMo
     mDynamicStateInfo.pDynamicStates    = mDynamicStates.data();
 }
 
-b32 mkGraphicsVulkan::CreateSwapchain(Window window, SwapchainDesc *desc, Swapchain *inSwapchain)
+b32 mkGraphicsVulkan::CreateSwapchain(Window window, Instance instance, SwapchainDesc *desc, Swapchain *inSwapchain)
 {
     SwapchainVulkan *swapchain = ToInternal(inSwapchain);
 
@@ -413,7 +439,7 @@ b32 mkGraphicsVulkan::CreateSwapchain(Window window, SwapchainDesc *desc, Swapch
     VkWin32SurfaceCreateInfoKHR win32SurfaceCreateInfo = {};
     win32SurfaceCreateInfo.sType                       = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
     win32SurfaceCreateInfo.hwnd                        = window;
-    win32SurfaceCreateInfo.hinstance                   = GetModuleHandleW(0);
+    win32SurfaceCreateInfo.hinstance                   = instance;
 
     res = vkCreateWin32SurfaceKHR(mInstance, &win32SurfaceCreateInfo, 0, &swapchain->mSurface);
     Assert(res == VK_SUCCESS);
@@ -440,6 +466,18 @@ b32 mkGraphicsVulkan::CreateSwapchain(Window window, SwapchainDesc *desc, Swapch
         return false;
     }
 
+    CreateSwapchain(swapchain);
+
+    return true;
+}
+
+// Recreates the swap chain if it becomes invalid
+b32 mkGraphicsVulkan::CreateSwapchain(SwapchainVulkan *swapchain)
+{
+    Assert(swapchain);
+
+    VkResult res;
+
     u32 formatCount = 0;
     res             = vkGetPhysicalDeviceSurfaceFormatsKHR(mPhysicalDevice, swapchain->mSurface, &formatCount, 0);
     Assert(res == VK_SUCCESS);
@@ -461,7 +499,7 @@ b32 mkGraphicsVulkan::CreateSwapchain(Window window, SwapchainDesc *desc, Swapch
     // Pick one of the supported formats
     VkSurfaceFormatKHR surfaceFormat = {};
     {
-        surfaceFormat.format     = VK_FORMAT_B8G8R8A8_UNORM;
+        surfaceFormat.format     = ConvertFormat(swapchain->mDesc.format);
         surfaceFormat.colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
 
         VkFormat requestedFormat = ConvertFormat(swapchain->mDesc.format);
@@ -488,7 +526,6 @@ b32 mkGraphicsVulkan::CreateSwapchain(Window window, SwapchainDesc *desc, Swapch
         {
             swapchain->mExtent = surfaceCapabilities.currentExtent;
         }
-        // TODO: actually set the size
         else
         {
             swapchain->mExtent        = {swapchain->mDesc.width, swapchain->mDesc.height};
@@ -496,14 +533,12 @@ b32 mkGraphicsVulkan::CreateSwapchain(Window window, SwapchainDesc *desc, Swapch
             swapchain->mExtent.height = Clamp(swapchain->mDesc.height, surfaceCapabilities.minImageExtent.height, surfaceCapabilities.maxImageExtent.height);
         }
     }
-
     u32 imageCount = max(2, surfaceCapabilities.minImageCount);
     if (surfaceCapabilities.maxImageCount > 0 && imageCount > surfaceCapabilities.maxImageCount)
     {
         imageCount = surfaceCapabilities.maxImageCount;
     }
 
-    // Create the swap chain, swap chain images, swap chain image views
     VkSwapchainCreateInfoKHR swapchainCreateInfo = {};
     {
         swapchainCreateInfo.sType            = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
@@ -528,12 +563,29 @@ b32 mkGraphicsVulkan::CreateSwapchain(Window window, SwapchainDesc *desc, Swapch
                 break;
             }
         }
-        swapchainCreateInfo.clipped = VK_TRUE;
-        // TODO: handle resizing
-        swapchainCreateInfo.oldSwapchain = 0;
+        swapchainCreateInfo.clipped      = VK_TRUE;
+        swapchainCreateInfo.oldSwapchain = swapchain->mSwapchain;
 
         res = vkCreateSwapchainKHR(mDevice, &swapchainCreateInfo, 0, &swapchain->mSwapchain);
         Assert(res == VK_SUCCESS);
+
+        // Clean up the old swap chain, if it exists
+        if (swapchainCreateInfo.oldSwapchain != VK_NULL_HANDLE)
+        {
+            MutexScope(&mCleanupMutex)
+            {
+                mCleanupSwapchains.push_back(swapchainCreateInfo.oldSwapchain);
+                for (u32 i = 0; i < (u32)swapchain->mImageViews.size(); i++)
+                {
+                    mCleanupImageViews.push_back(swapchain->mImageViews[i]);
+                }
+                for (u32 i = 0; i < (u32)swapchain->mAcquireSemaphores.size(); i++)
+                {
+                    mCleanupSemaphores.push_back(swapchain->mAcquireSemaphores[i]);
+                }
+                swapchain->mAcquireSemaphores.clear();
+            }
+        }
 
         // Get swapchain images
         res = vkGetSwapchainImagesKHR(mDevice, swapchain->mSwapchain, &imageCount, 0);
@@ -581,14 +633,13 @@ b32 mkGraphicsVulkan::CreateSwapchain(Window window, SwapchainDesc *desc, Swapch
                     Assert(res == VK_SUCCESS);
                 }
             }
-            if (swapchain->mReleaseSemaphore == 0)
+            if (swapchain->mReleaseSemaphore == VK_NULL_HANDLE)
             {
                 res = vkCreateSemaphore(mDevice, &semaphoreInfo, 0, &swapchain->mReleaseSemaphore);
                 Assert(res == VK_SUCCESS);
             }
         }
     }
-
     return true;
 }
 
@@ -723,15 +774,6 @@ void mkGraphicsVulkan::CreateShader()
     res = vkCreatePipelineLayout(mDevice, &pipelineLayoutInfo, 0, &pipelineLayout);
     Assert(res == VK_SUCCESS);
 
-    // Create the render pass
-    // {
-    //     VkAttachmentDescription colorAttachment = {};
-    //     colorAttachment.format                  = ConvertFormat(mSwapchain.mDesc.format);
-    //     colorAttachment.samples                 = VK_SAMPLE_COUNT_1_BIT;
-    //     colorAttachment.loadOp                  = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    //     colorAttachment.storeOp                 = VK_ATTACHMENT_STORE_OP_STORE;
-    // }
-
     // Create the pipeline
     VkGraphicsPipelineCreateInfo pipelineInfo = {};
 
@@ -854,6 +896,18 @@ void mkGraphicsVulkan::BeginRenderPass(Swapchain *inSwapchain, CommandList *inCo
     VkResult res = vkAcquireNextImageKHR(mDevice, swapchain->mSwapchain, UINT64_MAX,
                                          swapchain->mAcquireSemaphores[swapchain->mAcquireSemaphoreIndex],
                                          VK_NULL_HANDLE, &swapchain->mImageIndex);
+    if (res != VK_SUCCESS)
+    {
+        if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR)
+        {
+            if (CreateSwapchain(swapchain))
+            {
+                BeginRenderPass(inSwapchain, inCommandList);
+                return;
+            }
+        }
+        Assert(0);
+    }
 
     // TODO: handle swap chain becoming suboptimal
     Assert(res == VK_SUCCESS);
@@ -941,6 +995,7 @@ void mkGraphicsVulkan::BeginRenderPass(Swapchain *inSwapchain, CommandList *inCo
     dependencyInfo.pImageMemoryBarriers    = &barrier;
     vkCmdPipelineBarrier2(commandList->GetCommandBuffer(), &dependencyInfo);
 
+    mCmdCount = 0;
     vkEndCommandBuffer(commandList->GetCommandBuffer());
 
     VkSemaphoreSubmitInfo waitSemaphore = {};
@@ -983,8 +1038,14 @@ void mkGraphicsVulkan::BeginRenderPass(Swapchain *inSwapchain, CommandList *inCo
     presentInfo.pImageIndices      = &swapchain->mImageIndex;
     res                            = vkQueuePresentKHR(mQueues[QueueType_Graphics].mQueue, &presentInfo);
 
-    // TODO: address swap chain invalidation
-    Assert(res == VK_SUCCESS);
+    if (res != VK_SUCCESS)
+    {
+        if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR)
+        {
+            b32 result = CreateSwapchain(swapchain);
+            Assert(result);
+        }
+    }
 
     // Changes GetCurrentBuffer()
     mFrameCount++;
@@ -1004,8 +1065,13 @@ void mkGraphicsVulkan::BeginRenderPass(Swapchain *inSwapchain, CommandList *inCo
         }
     }
 
-    // VkRenderPassCreateInfo info = {};
-    // info.
+    Cleanup();
+}
+
+void mkGraphicsVulkan::WaitForGPU()
+{
+    VkResult res = vkDeviceWaitIdle(mDevice);
+    Assert(res == VK_SUCCESS);
 }
 
 } // namespace graphics
