@@ -11,7 +11,7 @@ void main()
     vec3 normal = normalize(localPos);
     
     // ????????
-    vec3 up = abs(normal.z) < 0.95 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
+    vec3 up = abs(normal.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
     vec3 right = normalize(cross(up, normal));
     up = normalize(cross(normal, right));
 

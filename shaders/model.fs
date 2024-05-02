@@ -200,20 +200,12 @@ void main()
         vec3 specular = prefilterColor * (f0 * brdf.x + brdf.y);
 
         vec3 ambient = (diffuse + specular) * ao;
+        // vec3 ambient = (diffuse) * ao;
         
-        outColor = (ambient) + Lo * (1 - shadow);
-        // outColor = ambient + Lo;
-
-        // outColor = fresnel;
-        // outColor = V3(geometryAndCTDenom * nDotV * nDotL * 4);
-        // outColor = albedo.rgb;
-        // outColor = fragment.tangentFragPos.xyz;
-        // outColor = ambient;
-        // outColor = V3(1, 1, 1) * ((4 - shadowIndex) * .25);
-        // outColor += specular;
+        // outColor = (ambient) + Lo * (1 - shadow);
+        outColor = ambient + Lo;
+        // outColor = Lo;
         // outColor = V3(metalness);
-        // outColor = V3(roughness);
-        // outColor = V3(normal);
 
     }
     else 

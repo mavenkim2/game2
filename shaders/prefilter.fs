@@ -20,12 +20,12 @@ float RadicalInverse_VdC(uint bits)
 }
 
 // Low discrepancy sampling (random, but spread out) of sample i, sample size N
-vec2 Hammersley(uint i, uint N)
+vec2 Hammersley(uint i, uint n)
 {
-    return vec2(float(i)/float(N), RadicalInverse_VdC(i));
+    return vec2(float(i)/float(n), RadicalInverse_VdC(i));
 }
 
-vec3 ImportanceSampleGGX(vec2 xi, float roughness, vec3 normal)
+vec3 ImportanceSampleGGX(vec2 xi, float roughness)
 {
     float a = roughness * roughness;
 
@@ -36,18 +36,13 @@ vec3 ImportanceSampleGGX(vec2 xi, float roughness, vec3 normal)
     float sinTheta = sqrt(1 - cosTheta * cosTheta);
 
     // Spherical to cartesian. theta is zenith, phi is azimuth
-    vec3 h;
-    h.x = sinTheta * cos(phi);
-    h.y = sinTheta * sin(phi);
-    h.z = cosTheta;
+    vec3 h = vec3(sinTheta * cos(phi), sinTheta * sin(phi), cosTheta);
 
-    // TODO: branchless?
-    vec3 up = abs(normal.z) < 0.999 ? vec3(0, 0, 1) : vec3(1, 0, 0);
-    // orthonormal basis
-    vec3 tangentX = normalize(cross(up, normal));
-    vec3 tangentY = normalize(cross(normal, tangentX));
+    return h;
+}
 
-    // tangent to world space
+vec3 TangentToWorld(vec3 tangentX, vec3 tangentY, vec3 normal, vec3 h)
+{
     return tangentX * h.x + tangentY * h.y + normal * h.z;
 }
 
@@ -71,6 +66,13 @@ void main()
     vec3 prefilteredColor = vec3(0.0);
     float totalWeight = 0.0;
 
+    // TODO: which way is up? this is in tangent space
+    vec3 up = abs(n.z) < 0.999 ? vec3(0, 0, 1) : vec3(1, 0, 0);
+
+    // orthonormal basis
+    vec3 tangentX = normalize(cross(up, n));
+    vec3 tangentY = normalize(cross(n, tangentX));
+
     vec2 inputSize = vec2(textureSize(envMap, 0));
     // Solid angle associated with a single texel (4pi steradians for the whole cubemap, 6 faces)
     float wt = 4.f * PI / (6 * inputSize.x * inputSize.y);
@@ -80,7 +82,7 @@ void main()
         // get the next value in the random sequence
         vec2 xi = Hammersley(i, SAMPLE_COUNT);
         // importance sample, meaning biasing the sample vector towards the specular lobe, defined by an input roughness
-        vec3 h = ImportanceSampleGGX(xi, roughness, n);
+        vec3 h = TangentToWorld(tangentX, tangentY, n, ImportanceSampleGGX(xi, roughness));
         // reflect the view vector about the microfacet normal
         vec3 l = normalize(2 * dot(h, v) * h - v);
         float nDotL = max(dot(n, l), 0.0); 

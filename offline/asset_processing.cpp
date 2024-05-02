@@ -1,10 +1,10 @@
 #include "./asset_processing.h"
 
-#include "../platform_inc.cpp"
-#include "../thread_context.cpp"
-#include "../keepmovingforward_memory.cpp"
-#include "../keepmovingforward_string.cpp"
-#include "../job.cpp"
+#include "../mkPlatformInc.cpp"
+#include "../mkThreadContext.cpp"
+#include "../mkMemory.cpp"
+#include "../mkString.cpp"
+#include "../mkJob.cpp"
 
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "../third_party/stb_truetype.h"
