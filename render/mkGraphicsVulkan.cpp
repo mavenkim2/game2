@@ -378,6 +378,8 @@ mkGraphicsVulkan::mkGraphicsVulkan(OS_Handle window, ValidationMode validationMo
             queueCreateInfo.queueCount              = 1;
             queueCreateInfo.pQueuePriorities        = &queuePriority;
             queueCreateInfos.push_back(queueCreateInfo);
+
+            mFamilies.push_back(queueFamily);
         }
         VkDeviceCreateInfo createInfo      = {};
         createInfo.sType                   = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -398,6 +400,30 @@ mkGraphicsVulkan::mkGraphicsVulkan(OS_Handle window, ValidationMode validationMo
     vkGetDeviceQueue(mDevice, mGraphicsFamily, 0, &mQueues[QueueType_Graphics].mQueue);
     vkGetDeviceQueue(mDevice, mComputeFamily, 0, &mQueues[QueueType_Compute].mQueue);
     vkGetDeviceQueue(mDevice, mCopyFamily, 0, &mQueues[QueueType_Copy].mQueue);
+
+    // TODO: unified memory access architectures
+    mMemProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2;
+    vkGetPhysicalDeviceMemoryProperties2(mPhysicalDevice, &mMemProperties);
+
+    VmaAllocatorCreateInfo allocCreateInfo = {};
+    allocCreateInfo.physicalDevice         = mPhysicalDevice;
+    allocCreateInfo.device                 = mDevice;
+    allocCreateInfo.instance               = mInstance;
+    allocCreateInfo.vulkanApiVersion       = VK_API_VERSION_1_3;
+    // these are promoted to core, so this doesn't do anything
+    allocCreateInfo.flags = VMA_ALLOCATOR_CREATE_KHR_BIND_MEMORY2_BIT | VMA_DYNAMIC_VULKAN_FUNCTIONS;
+
+#if VMA_DYNAMIC_VULKAN_FUNCTIONS
+    VmaVulkanFunctions vulkanFunctions    = {};
+    vulkanFunctions.vkGetDeviceProcAddr   = vkGetDeviceProcAddr;
+    vulkanFunctions.vkGetInstanceProcAddr = vkGetInstanceProcAddr;
+    allocCreateInfo.pVulkanFunctions      = &vulkanFunctions;
+#else
+#error
+#endif
+
+    res = vmaCreateAllocator(&allocCreateInfo, &mAllocator);
+    Assert(res == VK_SUCCESS);
 
     // Set up dynamic pso
     mDynamicStates = {
@@ -854,6 +880,216 @@ void mkGraphicsVulkan::CreateShader(PipelineStateDesc *inDesc, PipelineState *ou
 
     // VkPipelineRenderingCreateInfo
     res = vkCreateGraphicsPipelines(mDevice, VK_NULL_HANDLE, 1, &pipelineInfo, 0, &ps->mPipeline);
+    Assert(res == VK_SUCCESS);
+}
+
+void mkGraphicsVulkan::CreateBuffer(GPUBuffer *inBuffer, GPUBufferDesc inDesc, void *inData)
+{
+    VkResult res;
+    GPUBufferVulkan *buffer = ToInternal(inBuffer);
+    Assert(buffer);
+
+    VkBufferCreateInfo createInfo = {};
+    createInfo.sType              = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    createInfo.size               = inBuffer->mDesc.mSize;
+
+    if (HasFlags(inDesc.mFlags, BindFlag_Vertex))
+    {
+        createInfo.usage |= VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+    }
+    if (HasFlags(inDesc.mFlags, BindFlag_Index))
+    {
+        createInfo.usage |= VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+    }
+    if (HasFlags(inDesc.mFlags, BindFlag_Uniform))
+    {
+        createInfo.usage |= VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+    }
+
+    // Sharing
+    if (mFamilies.size() > 1)
+    {
+        createInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    }
+    else
+    {
+        createInfo.sharingMode           = VK_SHARING_MODE_CONCURRENT;
+        createInfo.queueFamilyIndexCount = (u32)mFamilies.size();
+        createInfo.pQueueFamilyIndices   = mFamilies.data();
+    }
+
+    VmaAllocationCreateInfo allocCreateInfo = {};
+    allocCreateInfo.usage                   = VMA_MEMORY_USAGE_AUTO;
+
+    // Staging buffers
+    if (inDesc.mUsage == MemoryUsage::CPU_TO_GPU)
+    {
+        allocCreateInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+        createInfo.usage |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    }
+
+    // Buffers only on GPU must be copied to using a staging buffer
+    else if (inDesc.mUsage == MemoryUsage::GPU_ONLY)
+    {
+        createInfo.usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    }
+
+    res = vmaCreateBuffer(mAllocator, &createInfo, &allocCreateInfo, &buffer->mBuffer, &buffer->mAllocation, 0);
+    Assert(res == VK_SUCCESS);
+
+    // Map the buffer if it's a staging buffer
+    if (inDesc.mUsage == MemoryUsage::CPU_TO_GPU)
+    {
+        inBuffer->mMappedData = buffer->mAllocation->GetMappedData();
+        inBuffer->mDesc.mSize = buffer->mAllocation->GetSize();
+    }
+
+    // If data is provided, do the transfer
+    if (inData != 0)
+    {
+        TransferCommand cmd;
+        cmd = Stage(inBuffer->mDesc.mSize);
+
+        if (cmd.IsValid())
+        {
+            // Memory copy data to the staging buffer
+            MemoryCopy(cmd.mUploadBuffer.mMappedData, inData, inBuffer->mDesc.mSize);
+
+            VkBufferCopy bufferCopy = {};
+            bufferCopy.srcOffset    = 0;
+            bufferCopy.dstOffset    = 0;
+            bufferCopy.size         = inBuffer->mDesc.mSize;
+
+            // Copy from the staging buffer to the allocated buffer
+            vkCmdCopyBuffer(cmd.mCmdBuffer, ToInternal(&cmd.mUploadBuffer)->mBuffer, buffer->mBuffer, 1, &bufferCopy);
+
+            // TODO
+            VkBufferMemoryBarrier2 bufferBarrier = {};
+            bufferBarrier.sType                  = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+            bufferBarrier.srcQueueFamilyIndex    = VK_QUEUE_FAMILY_IGNORED;
+            bufferBarrier.dstQueueFamilyIndex    = VK_QUEUE_FAMILY_IGNORED;
+
+            Submit(cmd);
+        }
+    }
+
+    // Allocate:
+#if 0
+    vkCreateBuffer(mDevice, &createInfo, 0, &buffer->mBuffer);
+    VkMemoryRequirements memoryRequirement;
+    vkGetBufferMemoryRequirements(mDevice, buffer->mBuffer, &memoryRequirement);
+
+    VkMemoryAllocateInfo allocateInfo = {};
+    allocateInfo.sType                = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocateInfo.allocationSize       = memoryRequirement.size;
+
+    u32 memoryPropertyFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+
+    for (u32 i = 0; i < mMemProperties.memoryProperties.memoryTypeCount; i++)
+    {
+        if (memoryRequirement.memoryTypeBits & (1 << i) &&
+            HasFlags(mMemProperties.memoryProperties.memoryTypes[i].propertyFlags, memoryPropertyFlags))
+        {
+            allocateInfo.memoryTypeIndex = i;
+            break;
+        }
+    }
+
+    VkDeviceMemory memory;
+    res = vkAllocateMemory(mDevice, &allocateInfo, 0, &memory);
+
+    res = vkBindBufferMemory(mDevice, buffer->mBuffer, memory, 0); // memoryRequirement.alignment);
+    Assert(res == VK_SUCCESS);
+#endif
+}
+
+// Uses transfer queue for allocations.
+mkGraphicsVulkan::TransferCommand mkGraphicsVulkan::Stage(u64 size)
+{
+    VkResult res;
+    BeginMutex(&mTransferMutex);
+
+    TransferCommand cmd;
+    for (u32 i = 0; i < (u32)mTransferFreeList.size(); i++)
+    {
+        if (mTransferFreeList[i].mUploadBuffer.mDesc.mSize > size)
+        {
+            // Submission is done, can reuse cmd pool
+            if (vkGetFenceStatus(mDevice, mTransferFreeList[i].mFence) == VK_SUCCESS)
+            {
+                cmd = mTransferFreeList[i];
+                Swap(TransferCommand, mTransferFreeList[mTransferFreeList.size() - 1], mTransferFreeList[i]);
+                mTransferFreeList.pop_back();
+            }
+            break;
+        }
+    }
+
+    EndMutex(&mTransferMutex);
+
+    if (!cmd.IsValid())
+    {
+        VkCommandPoolCreateInfo poolInfo = {};
+        poolInfo.sType                   = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+        poolInfo.flags                   = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+        poolInfo.queueFamilyIndex        = mCopyFamily;
+        res                              = vkCreateCommandPool(mDevice, &poolInfo, 0, &cmd.mCmdPool);
+        Assert(res == VK_SUCCESS);
+
+        VkCommandBufferAllocateInfo bufferInfo = {};
+        bufferInfo.sType                       = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        bufferInfo.commandPool                 = cmd.mCmdPool;
+        bufferInfo.commandBufferCount          = 1;
+        bufferInfo.level                       = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+
+        res = vkAllocateCommandBuffers(mDevice, &bufferInfo, &cmd.mCmdBuffer);
+        Assert(res == VK_SUCCESS);
+
+        VkFenceCreateInfo fenceInfo = {};
+        fenceInfo.sType             = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+        res                         = vkCreateFence(mDevice, &fenceInfo, 0, &cmd.mFence);
+        Assert(res == VK_SUCCESS);
+
+        // GPUBufferDesc desc;
+        // desc.mSize  = size;
+        // desc.mFlags = ;
+    }
+
+    res = vkResetCommandPool(mDevice, cmd.mCmdPool, 0);
+    Assert(res == VK_SUCCESS);
+
+    VkCommandBufferBeginInfo beginInfo = {};
+    beginInfo.sType                    = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    beginInfo.flags                    = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    beginInfo.pInheritanceInfo         = 0;
+    res                                = vkBeginCommandBuffer(cmd.mCmdBuffer, &beginInfo);
+    Assert(res == VK_SUCCESS);
+
+    res = vkResetFences(mDevice, 1, &cmd.mFence);
+    Assert(res == VK_SUCCESS);
+
+    return cmd;
+}
+
+void mkGraphicsVulkan::Submit(TransferCommand cmd)
+{
+    VkResult res = vkEndCommandBuffer(cmd.mCmdBuffer);
+    Assert(res == VK_SUCCESS);
+
+    VkCommandBufferSubmitInfo bufSubmitInfo = {};
+    bufSubmitInfo.sType                     = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+    bufSubmitInfo.commandBuffer             = cmd.mCmdBuffer;
+
+    VkSubmitInfo2 submitInfo          = {};
+    submitInfo.sType                  = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+    submitInfo.commandBufferInfoCount = 1;
+    submitInfo.pCommandBufferInfos    = &bufSubmitInfo;
+    // submitInfo.
+
+    MutexScope(&mQueues[QueueType_Copy].mLock)
+    {
+        res = vkQueueSubmit2(mQueues[QueueType_Copy].mQueue, 1, &submitInfo, VK_NULL_HANDLE);
+    }
     Assert(res == VK_SUCCESS);
 }
 

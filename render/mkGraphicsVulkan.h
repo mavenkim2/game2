@@ -12,6 +12,11 @@
 #include "../third_party/vulkan/volk.h"
 #include "mkGraphics.h"
 
+#define VMA_IMPLEMENTATION
+#define VMA_STATIC_VULKAN_FUNCTIONS  0
+#define VMA_DYNAMIC_VULKAN_FUNCTIONS 1
+#include "../third_party/vulkan/vk_mem_alloc.h"
+
 namespace graphics
 {
 
@@ -27,6 +32,7 @@ struct mkGraphicsVulkan : mkGraphics
     VkDevice mDevice;
     VkDebugUtilsMessengerEXT mDebugMessenger;
     list<VkQueueFamilyProperties2> mQueueFamilyProperties;
+    list<u32> mFamilies;
     u32 mGraphicsFamily = VK_QUEUE_FAMILY_IGNORED;
     u32 mComputeFamily  = VK_QUEUE_FAMILY_IGNORED;
     u32 mCopyFamily     = VK_QUEUE_FAMILY_IGNORED;
@@ -41,12 +47,15 @@ struct mkGraphicsVulkan : mkGraphics
     VkPhysicalDeviceVulkan12Features mFeatures12;
     VkPhysicalDeviceVulkan13Features mFeatures13;
 
+    VkPhysicalDeviceMemoryProperties2 mMemProperties;
+
     //////////////////////////////
     // Queues, command pools & buffers, fences
     //
     struct CommandQueue
     {
         VkQueue mQueue;
+        Mutex mLock = {};
     } mQueues[QueueType_Count];
 
     VkFence mFrameFences[cNumBuffers][QueueType_Count] = {};
@@ -119,8 +128,18 @@ struct mkGraphicsVulkan : mkGraphics
     };
 
     //////////////////////////////
-    // Deferred cleanup
+    // Buffers
     //
+    struct GPUBufferVulkan
+    {
+        VkBuffer mBuffer;
+        VmaAllocation mAllocation;
+    };
+
+    //////////////////////////////
+    // Allocation/Deferred cleanup
+    //
+    VmaAllocator mAllocator;
     Mutex mCleanupMutex = {};
     list<VkSemaphore> mCleanupSemaphores;
     list<VkSwapchainKHR> mCleanupSwapchains;
@@ -144,9 +163,15 @@ struct mkGraphicsVulkan : mkGraphics
         return (PipelineStateVulkan *)(ps->internalState);
     }
 
+    GPUBufferVulkan *ToInternal(GPUBuffer *gb)
+    {
+        return (GPUBufferVulkan *)(gb->internalState);
+    }
+
     mkGraphicsVulkan(OS_Handle window, ValidationMode validationMode, GPUDevicePreference preference);
     b32 CreateSwapchain(Window window, Instance instance, SwapchainDesc *desc, Swapchain *swapchain) override;
     void CreateShader(PipelineStateDesc *inDesc, PipelineState *outPS) override;
+    void CreateBuffer(GPUBuffer *inBuffer, GPUBufferDesc inDesc, void *inData) override;
     virtual CommandList BeginCommandList(QueueType queue) override;
     void BeginRenderPass(Swapchain *inSwapchain, CommandList *inCommandList) override;
     void Draw(CommandList *cmd, u32 vertexCount, u32 firstVertex) override;
@@ -158,6 +183,27 @@ struct mkGraphicsVulkan : mkGraphics
 
 private:
     b32 CreateSwapchain(Swapchain *inSwapchain);
+
+    //////////////////////////////
+    // Dedicated transfer queue
+    //
+    Mutex mTransferMutex = {};
+    struct TransferCommand
+    {
+        VkCommandPool mCmdPool     = VK_NULL_HANDLE; // command pool to issue transfer request
+        VkCommandBuffer mCmdBuffer = VK_NULL_HANDLE;
+        VkFence mFence             = VK_NULL_HANDLE; // signals cpu that transfer is complete
+        GPUBuffer mUploadBuffer;
+
+        const b32 IsValid()
+        {
+            return mCmdPool != VK_NULL_HANDLE;
+        }
+    };
+    list<TransferCommand> mTransferFreeList;
+
+    TransferCommand Stage(u64 size);
+    void Submit(TransferCommand cmd);
 };
 
 } // namespace graphics

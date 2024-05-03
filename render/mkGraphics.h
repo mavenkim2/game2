@@ -45,6 +45,34 @@ enum class Format
     R32G32B32A32_UINT,
 };
 
+template <typename E>
+inline b32 HasFlags(E lhs, E rhs)
+{
+    return (lhs & rhs) == rhs;
+}
+
+typedef u32 BindFlag;
+enum
+{
+    BingFlag_None    = 0,
+    BindFlag_Vertex  = 1 << 0,
+    BindFlag_Index   = 1 << 1,
+    BindFlag_Uniform = 1 << 2,
+};
+
+enum class MemoryUsage
+{
+    GPU_ONLY,
+    CPU_ONLY,
+    CPU_TO_GPU,
+    GPU_TO_CPU,
+};
+
+inline b32 HasFlags(BindFlag lhs, BindFlag rhs)
+{
+    return (lhs & rhs) == rhs;
+}
+
 enum class InputRate
 {
     Vertex,
@@ -113,6 +141,19 @@ struct PipelineState : GraphicsObject
     PipelineStateDesc mDesc;
 };
 
+struct GPUBufferDesc
+{
+    u64 mSize;
+    BindFlag mFlags    = 0;
+    MemoryUsage mUsage = MemoryUsage::GPU_ONLY;
+};
+
+struct GPUBuffer : GraphicsObject
+{
+    GPUBufferDesc mDesc;
+    void *mMappedData;
+};
+
 u32 GetFormatSize(Format format)
 {
     switch (format)
@@ -137,11 +178,12 @@ struct mkGraphics
 
     virtual b32 CreateSwapchain(Window window, Instance instance, SwapchainDesc *desc, Swapchain *swapchain) = 0;
     virtual void CreateShader(PipelineStateDesc *inDesc, PipelineState *outPS)                               = 0;
+    virtual void CreateBuffer(GPUBuffer *inBuffer, GPUBufferDesc inDesc, void *inData)                       = 0;
     virtual CommandList BeginCommandList(QueueType queue)                                                    = 0;
     virtual void BeginRenderPass(Swapchain *inSwapchain, CommandList *inCommandList)                         = 0;
     virtual void Draw(CommandList *cmd, u32 vertexCount, u32 firstVertex)                                    = 0;
     virtual void SetViewport(CommandList *cmd, Viewport *viewport)                                           = 0;
-    virtual void SetScissor(CommandList *cmd, Rect2 scissor)                                                = 0;
+    virtual void SetScissor(CommandList *cmd, Rect2 scissor)                                                 = 0;
     virtual void EndRenderPass(CommandList *cmd)                                                             = 0;
     virtual void BindPipeline(const PipelineState *ps, CommandList *cmd)                                     = 0;
     virtual void WaitForGPU()                                                                                = 0;

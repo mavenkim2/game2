@@ -16,14 +16,6 @@
 
 using namespace graphics;
 
-enum InputLayoutTypes
-{
-    IL_Type_MeshVertex,
-    IL_Type_Count,
-};
-
-InputLayout inputLayouts[IL_Type_Count];
-
 global const V4 Color_Red               = {1, 0, 0, 1};
 global const V4 Color_Green             = {0, 1, 0, 1};
 global const V4 Color_Blue              = {0, 0, 1, 1};
@@ -1079,8 +1071,22 @@ internal void R_CascadedShadowMap(const ViewLight *inLight, Mat4 *outLightViewPr
 namespace render
 {
 
+enum InputLayoutTypes
+{
+    IL_Type_MeshVertex,
+    IL_Type_Count,
+};
+
+enum Shader
+{
+
+};
+
+InputLayout inputLayouts[IL_Type_Count];
+
 internal void InitializeShaders()
 {
+    // Initialize
     InputLayout &inputLayout = inputLayouts[IL_Type_MeshVertex];
     inputLayout.mElements    = {
         Format::R32G32B32_SFLOAT, Format::R32G32B32_SFLOAT, Format::R32G32_SFLOAT, Format::R32G32B32_SFLOAT,
