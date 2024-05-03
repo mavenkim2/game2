@@ -1271,7 +1271,7 @@ inline Mat4 Translate4(V3 value)
     return result;
 }
 
-inline Mat4 Perspective4(f32 fov, f32 aspectRatio, f32 nearZ, f32 farZ)
+inline Mat4 Perspective4(f32 fov, f32 aspectRatio, f32 nearZ, f32 farZ, b32 lh = 0)
 {
     Mat4 result           = {};
     f32 cotangent         = 1.f / Tan(fov / 2);
@@ -1282,6 +1282,13 @@ inline Mat4 Perspective4(f32 fov, f32 aspectRatio, f32 nearZ, f32 farZ)
 
     result.elements[2][2] = -(nearZ + farZ) / depth;
     result.elements[3][2] = -(2.f * nearZ * farZ) / depth;
+
+    // Converts to right handed clip space (vulkan)
+    if (lh == 0)
+    {
+        result.elements[2][3] = 1.f;
+        result                = result * Rotate4({1, 0, 0}, PI);
+    }
     return result;
 }
 
@@ -1306,9 +1313,15 @@ inline Mat4 Orthographic4(f32 left, f32 right, f32 bottom, f32 top, f32 nearZ, f
 inline Mat4 LookAt4(V3 eye, V3 center, V3 up)
 {
     Mat4 result;
-    V3 f                  = Normalize(center - eye);
-    V3 s                  = Normalize(Cross(f, up));
-    V3 u                  = Cross(s, f);
+
+    // V3 f                  = Normalize(eye - center);
+    // V3 s                  = Normalize(Cross(up, f));
+    // V3 u                  = Cross(f, s);
+
+    V3 f = Normalize(center - eye);
+    V3 s = Normalize(Cross(f, up));
+    V3 u = Cross(s, f);
+
     result.elements[0][0] = s.x;
     result.elements[0][1] = u.x;
     result.elements[0][2] = -f.x;
@@ -1597,7 +1610,7 @@ inline V3 GetCenter(Rect3 a)
 inline V3 GetExtents(Rect3 r)
 {
     V3 result;
-    result = (r.maxP - r.minP)/2;
+    result = (r.maxP - r.minP) / 2;
     return result;
 }
 

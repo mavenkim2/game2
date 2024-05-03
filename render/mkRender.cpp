@@ -11,7 +11,18 @@
 #include "../font.cpp"
 #include "vertex_cache.h"
 #include "../keepmovingforward_camera.h"
+#include "mkGraphics.h"
 #endif
+
+using namespace graphics;
+
+enum InputLayoutTypes
+{
+    IL_Type_MeshVertex,
+    IL_Type_Count,
+};
+
+InputLayout inputLayouts[IL_Type_Count];
 
 global const V4 Color_Red               = {1, 0, 0, 1};
 global const V4 Color_Green             = {0, 1, 0, 1};
@@ -1064,6 +1075,23 @@ internal void R_CascadedShadowMap(const ViewLight *inLight, Mat4 *outLightViewPr
         outCascadeDistances[i]            = cascadeDistances[i];
     }
 }
+
+namespace render
+{
+
+internal void InitializeShaders()
+{
+    InputLayout &inputLayout = inputLayouts[IL_Type_MeshVertex];
+    inputLayout.mElements    = {
+        Format::R32G32B32_SFLOAT, Format::R32G32B32_SFLOAT, Format::R32G32_SFLOAT, Format::R32G32B32_SFLOAT,
+        Format::R32G32B32A32_UINT, Format::R32G32B32A32_SFLOAT};
+
+    inputLayout.mBinding = 0;
+    inputLayout.mStride  = sizeof(MeshVertex);
+    inputLayout.mRate    = InputRate::Vertex;
+}
+
+} // namespace render
 
 // Constants
 

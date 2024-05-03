@@ -58,6 +58,10 @@ struct mkGraphicsVulkan : mkGraphics
         VkCommandBuffer mCommandBuffers[cNumBuffers][QueueType_Count] = {};
         u32 mCurrentQueue                                             = 0;
         u32 mCurrentBuffer                                            = 0;
+        const PipelineState *mCurrentPipeline                         = 0;
+
+        list<VkImageMemoryBarrier2> mEndPassImageMemoryBarriers;
+        list<Swapchain> mUpdateSwapchains;
 
         const VkCommandBuffer GetCommandBuffer() const
         {
@@ -90,7 +94,6 @@ struct mkGraphicsVulkan : mkGraphics
     // VkPipelineShaderStage
     struct SwapchainVulkan
     {
-        SwapchainDesc mDesc;
         VkSwapchainKHR mSwapchain = VK_NULL_HANDLE;
         VkSurfaceKHR mSurface;
         VkExtent2D mExtent;
@@ -110,7 +113,10 @@ struct mkGraphicsVulkan : mkGraphics
     //
     list<VkDynamicState> mDynamicStates;
     VkPipelineDynamicStateCreateInfo mDynamicStateInfo;
-    VkPipeline mPipeline;
+    struct PipelineStateVulkan
+    {
+        VkPipeline mPipeline;
+    };
 
     //////////////////////////////
     // Deferred cleanup
@@ -133,14 +139,25 @@ struct mkGraphicsVulkan : mkGraphics
         return (CommandListVulkan *)(commandlist->internalState);
     }
 
+    PipelineStateVulkan *ToInternal(const PipelineState *ps)
+    {
+        return (PipelineStateVulkan *)(ps->internalState);
+    }
+
     mkGraphicsVulkan(OS_Handle window, ValidationMode validationMode, GPUDevicePreference preference);
     b32 CreateSwapchain(Window window, Instance instance, SwapchainDesc *desc, Swapchain *swapchain) override;
-    void CreateShader() override;
+    void CreateShader(PipelineStateDesc *inDesc, PipelineState *outPS) override;
     virtual CommandList BeginCommandList(QueueType queue) override;
     void BeginRenderPass(Swapchain *inSwapchain, CommandList *inCommandList) override;
+    void Draw(CommandList *cmd, u32 vertexCount, u32 firstVertex) override;
+    void SetViewport(CommandList *cmd, Viewport *viewport) override;
+    void SetScissor(CommandList *cmd, Rect2 scissor) override;
+    void EndRenderPass(CommandList *cmd) override;
+    void BindPipeline(const PipelineState *ps, CommandList *cmd) override;
     void WaitForGPU() override;
 
 private:
-    b32 CreateSwapchain(SwapchainVulkan *inSwapchain);
+    b32 CreateSwapchain(Swapchain *inSwapchain);
 };
+
 } // namespace graphics

@@ -84,16 +84,33 @@ MAIN()
     desc.format = graphics::Format::B8G8R8A8_UNORM;
 
     graphics.CreateSwapchain((Window)shared->windowHandle.handle, hInstance, &desc, &swapchain);
-    graphics.CreateShader();
+
+    PipelineStateDesc psDesc;
+    PipelineState ps;
+
+    graphics.CreateShader(&psDesc, &ps);
 
     for (; shared->running == 1;)
     {
         CommandList cmdList = graphics.BeginCommandList(QueueType_Graphics);
         graphics.BeginRenderPass(&swapchain, &cmdList);
+
+        Viewport viewport;
+        viewport.width  = (f32)swapchain.GetDesc().width;
+        viewport.height = (f32)swapchain.GetDesc().height;
+
+        graphics.BindPipeline(&ps, &cmdList);
+        graphics.SetViewport(&cmdList, &viewport);
+        Rect2 scissor;
+        scissor.minP = {0, 0};
+        scissor.maxP = {65536, 65536};
+        graphics.SetScissor(&cmdList, scissor);
+        graphics.Draw(&cmdList, 3, 0);
+        graphics.EndRenderPass(&cmdList);
         graphics.WaitForGPU();
     }
-#if 0
 
+#if 0
     // Ring buffer initialization
     {
         shared->i2gRing.size   = kilobytes(64);

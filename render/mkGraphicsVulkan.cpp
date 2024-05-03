@@ -9,9 +9,10 @@
 #include "../third_party/vulkan/volk.c"
 
 // Namespace only used in this file
+namespace graphics
+{
 namespace vulkan
 {
-using namespace graphics;
 
 VkFormat ConvertFormat(Format value)
 {
@@ -21,6 +22,11 @@ VkFormat ConvertFormat(Format value)
         case Format::B8G8R8_UNORM: return VK_FORMAT_B8G8R8_UNORM;
         case Format::B8G8R8A8_UNORM: return VK_FORMAT_B8G8R8A8_UNORM;
         case Format::B8G8R8A8_SRGB: return VK_FORMAT_B8G8R8A8_SRGB;
+
+        case Format::R32G32_SFLOAT: return VK_FORMAT_R32G32_SFLOAT;
+        case Format::R32G32B32_SFLOAT: return VK_FORMAT_R32G32B32_SFLOAT;
+        case Format::R32G32B32A32_SFLOAT: return VK_FORMAT_R32G32B32A32_SFLOAT;
+        case Format::R32G32B32A32_UINT: return VK_FORMAT_R32G32B32A32_UINT;
         default: return VK_FORMAT_UNDEFINED;
     }
 }
@@ -45,8 +51,6 @@ VkBool32 DebugUtilsMessengerCallback(VkDebugUtilsMessageSeverityFlagBitsEXT mess
 
 } // namespace vulkan
 
-namespace graphics
-{
 using namespace vulkan;
 
 void mkGraphicsVulkan::Cleanup()
@@ -150,7 +154,7 @@ mkGraphicsVulkan::mkGraphicsVulkan(OS_Handle window, ValidationMode validationMo
         for (auto &validationLayers : validationPriorityList)
         {
             bool validated = true;
-            for (auto& layer : validationLayers)
+            for (auto &layer : validationLayers)
             {
                 bool found = false;
                 for (auto &availableLayer : availableLayers)
@@ -431,7 +435,7 @@ b32 mkGraphicsVulkan::CreateSwapchain(Window window, Instance instance, Swapchai
     {
         swapchain = new SwapchainVulkan();
     }
-    swapchain->mDesc           = *desc;
+    inSwapchain->mDesc         = *desc;
     inSwapchain->internalState = swapchain;
     VkResult res;
     // Create surface
@@ -466,14 +470,15 @@ b32 mkGraphicsVulkan::CreateSwapchain(Window window, Instance instance, Swapchai
         return false;
     }
 
-    CreateSwapchain(swapchain);
+    CreateSwapchain(inSwapchain);
 
     return true;
 }
 
 // Recreates the swap chain if it becomes invalid
-b32 mkGraphicsVulkan::CreateSwapchain(SwapchainVulkan *swapchain)
+b32 mkGraphicsVulkan::CreateSwapchain(Swapchain *inSwapchain)
 {
+    SwapchainVulkan *swapchain = ToInternal(inSwapchain);
     Assert(swapchain);
 
     VkResult res;
@@ -499,10 +504,10 @@ b32 mkGraphicsVulkan::CreateSwapchain(SwapchainVulkan *swapchain)
     // Pick one of the supported formats
     VkSurfaceFormatKHR surfaceFormat = {};
     {
-        surfaceFormat.format     = ConvertFormat(swapchain->mDesc.format);
+        surfaceFormat.format     = ConvertFormat(inSwapchain->mDesc.format);
         surfaceFormat.colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
 
-        VkFormat requestedFormat = ConvertFormat(swapchain->mDesc.format);
+        VkFormat requestedFormat = ConvertFormat(inSwapchain->mDesc.format);
 
         b32 valid = false;
         for (auto &checkedFormat : surfaceFormats)
@@ -516,7 +521,7 @@ b32 mkGraphicsVulkan::CreateSwapchain(SwapchainVulkan *swapchain)
         }
         if (!valid)
         {
-            swapchain->mDesc.format = Format::B8G8R8_SRGB;
+            inSwapchain->mDesc.format = Format::B8G8R8_SRGB;
         }
     }
 
@@ -528,9 +533,9 @@ b32 mkGraphicsVulkan::CreateSwapchain(SwapchainVulkan *swapchain)
         }
         else
         {
-            swapchain->mExtent        = {swapchain->mDesc.width, swapchain->mDesc.height};
-            swapchain->mExtent.width  = Clamp(swapchain->mDesc.width, surfaceCapabilities.minImageExtent.width, surfaceCapabilities.maxImageExtent.width);
-            swapchain->mExtent.height = Clamp(swapchain->mDesc.height, surfaceCapabilities.minImageExtent.height, surfaceCapabilities.maxImageExtent.height);
+            swapchain->mExtent        = {inSwapchain->mDesc.width, inSwapchain->mDesc.height};
+            swapchain->mExtent.width  = Clamp(inSwapchain->mDesc.width, surfaceCapabilities.minImageExtent.width, surfaceCapabilities.maxImageExtent.width);
+            swapchain->mExtent.height = Clamp(inSwapchain->mDesc.height, surfaceCapabilities.minImageExtent.height, surfaceCapabilities.maxImageExtent.height);
         }
     }
     u32 imageCount = max(2, surfaceCapabilities.minImageCount);
@@ -643,8 +648,12 @@ b32 mkGraphicsVulkan::CreateSwapchain(SwapchainVulkan *swapchain)
     return true;
 }
 
-void mkGraphicsVulkan::CreateShader()
+void mkGraphicsVulkan::CreateShader(PipelineStateDesc *inDesc, PipelineState *outPS)
 {
+    PipelineStateVulkan *ps = new PipelineStateVulkan();
+    outPS->internalState    = ps;
+    outPS->mDesc            = *inDesc;
+
     VkShaderModule vertShaderModule = {};
     VkShaderModule fragShaderModule = {};
 
@@ -678,12 +687,49 @@ void mkGraphicsVulkan::CreateShader()
     pipelineShaderStageInfo[1].pName  = "main";
 
     // Vertex inputs
+
+    list<VkVertexInputBindingDescription> bindings;
+    list<VkVertexInputAttributeDescription> attributes;
+
+    // Create vertex binding
+
+    for (auto &il : outPS->mDesc.mInputLayouts)
+    {
+        VkVertexInputBindingDescription bind;
+
+        bind.stride    = il.mStride;
+        bind.inputRate = il.mRate == InputRate::Vertex ? VK_VERTEX_INPUT_RATE_VERTEX : VK_VERTEX_INPUT_RATE_INSTANCE;
+        bind.binding   = il.mBinding;
+
+        bindings.push_back(bind);
+    }
+    // Create vertx attribs
+    u32 currentOffset = 0;
+    u32 loc           = 0;
+    for (auto &il : outPS->mDesc.mInputLayouts)
+    {
+        u32 currentBinding = il.mBinding;
+        for (auto &format : il.mElements)
+        {
+            VkVertexInputAttributeDescription attrib;
+            attrib.binding  = currentBinding;
+            attrib.location = loc++;
+            attrib.format   = ConvertFormat(format);
+            attrib.offset   = currentOffset;
+
+            attributes.push_back(attrib);
+
+            currentOffset += GetFormatSize(format);
+        }
+        currentOffset = 0;
+    }
+
     VkPipelineVertexInputStateCreateInfo vertexInputInfo = {};
     vertexInputInfo.sType                                = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    vertexInputInfo.vertexBindingDescriptionCount        = 0;
-    vertexInputInfo.pVertexBindingDescriptions           = 0;
-    vertexInputInfo.vertexAttributeDescriptionCount      = 0;
-    vertexInputInfo.pVertexAttributeDescriptions         = 0;
+    vertexInputInfo.vertexBindingDescriptionCount        = (u32)bindings.size();
+    vertexInputInfo.pVertexBindingDescriptions           = bindings.data();
+    vertexInputInfo.vertexAttributeDescriptionCount      = (u32)attributes.size();
+    vertexInputInfo.pVertexAttributeDescriptions         = attributes.data();
 
     // Input assembly
     VkPipelineInputAssemblyStateCreateInfo inputAssembly = {};
@@ -807,7 +853,7 @@ void mkGraphicsVulkan::CreateShader()
     pipelineInfo.pNext = &renderingInfo;
 
     // VkPipelineRenderingCreateInfo
-    res = vkCreateGraphicsPipelines(mDevice, VK_NULL_HANDLE, 1, &pipelineInfo, 0, &mPipeline);
+    res = vkCreateGraphicsPipelines(mDevice, VK_NULL_HANDLE, 1, &pipelineInfo, 0, &ps->mPipeline);
     Assert(res == VK_SUCCESS);
 }
 
@@ -900,7 +946,7 @@ void mkGraphicsVulkan::BeginRenderPass(Swapchain *inSwapchain, CommandList *inCo
     {
         if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR)
         {
-            if (CreateSwapchain(swapchain))
+            if (CreateSwapchain(inSwapchain))
             {
                 BeginRenderPass(inSwapchain, inCommandList);
                 return;
@@ -918,8 +964,8 @@ void mkGraphicsVulkan::BeginRenderPass(Swapchain *inSwapchain, CommandList *inCo
     info.sType                    = VK_STRUCTURE_TYPE_RENDERING_INFO;
     info.renderArea.offset.x      = 0;
     info.renderArea.offset.y      = 0;
-    info.renderArea.extent.width  = Min(swapchain->mDesc.width, swapchain->mExtent.width);
-    info.renderArea.extent.height = Min(swapchain->mDesc.height, swapchain->mExtent.height);
+    info.renderArea.extent.width  = Min(inSwapchain->mDesc.width, swapchain->mExtent.width);
+    info.renderArea.extent.height = Min(inSwapchain->mDesc.height, swapchain->mExtent.height);
     info.layerCount               = 1;
 
     VkRenderingAttachmentInfo colorAttachment   = {};
@@ -968,47 +1014,100 @@ void mkGraphicsVulkan::BeginRenderPass(Swapchain *inSwapchain, CommandList *inCo
     barrier.dstAccessMask = VK_ACCESS_2_NONE;
 
     vkCmdBeginRendering(commandList->GetCommandBuffer(), &info);
-    vkCmdBindPipeline(commandList->GetCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS, mPipeline);
 
-    VkViewport viewport = {};
-    viewport.x          = 0.f;
-    viewport.y          = 0.f;
-    viewport.width      = (f32)swapchain->mExtent.width;
-    viewport.height     = (f32)swapchain->mExtent.height;
-    viewport.minDepth   = 0.f;
-    viewport.maxDepth   = 1.f;
+    commandList->mEndPassImageMemoryBarriers.push_back(barrier);
+    commandList->mUpdateSwapchains.push_back(*inSwapchain);
+}
 
-    VkRect2D scissor      = {};
-    scissor.extent.width  = 65536;
-    scissor.extent.height = 65536;
+void mkGraphicsVulkan::Draw(CommandList *cmd, u32 vertexCount, u32 firstVertex)
+{
+    CommandListVulkan *commandList = ToInternal(cmd);
+    Assert(commandList);
 
-    vkCmdSetViewport(commandList->GetCommandBuffer(), 0, 1, &viewport);
-    vkCmdSetScissor(commandList->GetCommandBuffer(), 0, 1, &scissor);
+    vkCmdDraw(commandList->GetCommandBuffer(), vertexCount, 1, firstVertex, 0);
+}
 
-    // vertex count, instance count, first vertex, first instance
-    vkCmdDraw(commandList->GetCommandBuffer(), 3, 1, 0, 0);
+void mkGraphicsVulkan::SetViewport(CommandList *cmd, Viewport *viewport)
+{
+    CommandListVulkan *commandList = ToInternal(cmd);
+    Assert(commandList);
+
+    VkViewport view;
+    view.x        = viewport->x;
+    view.y        = viewport->y;
+    view.width    = viewport->width;
+    view.height   = viewport->height;
+    view.minDepth = viewport->minDepth;
+    view.maxDepth = viewport->maxDepth;
+
+    vkCmdSetViewport(commandList->GetCommandBuffer(), 0, 1, &view);
+}
+
+void mkGraphicsVulkan::SetScissor(CommandList *cmd, Rect2 scissor)
+{
+    CommandListVulkan *commandList = ToInternal(cmd);
+    Assert(commandList);
+
+    VkRect2D s      = {};
+    s.offset.x      = (i32)scissor.minP.x;
+    s.offset.y      = (i32)scissor.minP.y;
+    s.extent.width  = (u32)(scissor.maxP.x - scissor.minP.x);
+    s.extent.height = (u32)(scissor.maxP.y - scissor.minP.y);
+
+    vkCmdSetScissor(commandList->GetCommandBuffer(), 0, 1, &s);
+}
+
+void mkGraphicsVulkan::EndRenderPass(CommandList *cmd)
+{
+    VkResult res;
+    CommandListVulkan *commandList = ToInternal(cmd);
+    Assert(commandList);
 
     vkCmdEndRendering(commandList->GetCommandBuffer());
 
-    // Barrier between end of rendering and submit. TODO: understand these image memory barriers better
-    dependencyInfo.imageMemoryBarrierCount = 1;
-    dependencyInfo.pImageMemoryBarriers    = &barrier;
+    // Barrier between end of rendering and submit.
+    VkDependencyInfo dependencyInfo        = {};
+    dependencyInfo.sType                   = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+    dependencyInfo.imageMemoryBarrierCount = (u32)commandList->mEndPassImageMemoryBarriers.size();
+    dependencyInfo.pImageMemoryBarriers    = commandList->mEndPassImageMemoryBarriers.data();
     vkCmdPipelineBarrier2(commandList->GetCommandBuffer(), &dependencyInfo);
 
     mCmdCount = 0;
     vkEndCommandBuffer(commandList->GetCommandBuffer());
 
-    VkSemaphoreSubmitInfo waitSemaphore = {};
-    waitSemaphore.sType                 = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-    waitSemaphore.semaphore             = swapchain->mAcquireSemaphores[swapchain->mAcquireSemaphoreIndex];
-    waitSemaphore.value                 = 0;
-    waitSemaphore.stageMask             = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+    list<VkSemaphoreSubmitInfo> waitSemaphores;
+    list<VkSemaphoreSubmitInfo> signalSemaphores;
 
-    VkSemaphoreSubmitInfo signalSemaphore = {};
-    signalSemaphore.sType                 = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-    signalSemaphore.semaphore             = swapchain->mReleaseSemaphore;
-    signalSemaphore.value                 = 0;
-    signalSemaphore.stageMask             = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+    // Passed to vkQueuePresent
+    list<VkSemaphore> submitSemaphores; // signaled when cmd list is submitted to queue
+
+    // TODO: I'm not sure if this is ever more than one. also, when this code is extended to multiple queues,
+    // compute/transfer don't have these
+    list<VkSwapchainKHR> presentSwapchains; // swapchains to present
+    list<u32> swapchainImageIndices;        // swapchain image to present
+    for (auto &sc : commandList->mUpdateSwapchains)
+    {
+        SwapchainVulkan *swapchain = ToInternal(&sc);
+
+        VkSemaphoreSubmitInfo waitSemaphore = {};
+        waitSemaphore.sType                 = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+        waitSemaphore.semaphore             = swapchain->mAcquireSemaphores[swapchain->mAcquireSemaphoreIndex];
+        waitSemaphore.value                 = 0;
+        waitSemaphore.stageMask             = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+        waitSemaphores.push_back(waitSemaphore);
+
+        VkSemaphoreSubmitInfo signalSemaphore = {};
+        signalSemaphore.sType                 = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+        signalSemaphore.semaphore             = swapchain->mReleaseSemaphore;
+        signalSemaphore.value                 = 0;
+        signalSemaphore.stageMask             = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+        signalSemaphores.push_back(signalSemaphore);
+
+        submitSemaphores.push_back(swapchain->mReleaseSemaphore);
+
+        presentSwapchains.push_back(swapchain->mSwapchain);
+        swapchainImageIndices.push_back(swapchain->mImageIndex);
+    }
 
     VkCommandBufferSubmitInfo bufferInfo = {};
     bufferInfo.sType                     = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
@@ -1017,55 +1116,80 @@ void mkGraphicsVulkan::BeginRenderPass(Swapchain *inSwapchain, CommandList *inCo
     // The queue submission call waits on the image to be available.
     VkSubmitInfo2 submitInfo            = {};
     submitInfo.sType                    = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
-    submitInfo.waitSemaphoreInfoCount   = 1;
-    submitInfo.pWaitSemaphoreInfos      = &waitSemaphore;
-    submitInfo.signalSemaphoreInfoCount = 1;
-    submitInfo.pSignalSemaphoreInfos    = &signalSemaphore;
+    submitInfo.waitSemaphoreInfoCount   = (u32)waitSemaphores.size();
+    submitInfo.pWaitSemaphoreInfos      = waitSemaphores.data();
+    submitInfo.signalSemaphoreInfoCount = (u32)signalSemaphores.size();
+    submitInfo.pSignalSemaphoreInfos    = signalSemaphores.data();
     submitInfo.commandBufferInfoCount   = 1;
     submitInfo.pCommandBufferInfos      = &bufferInfo;
 
     // Submit the command buffers to the graphics queue
     vkQueueSubmit2(mQueues[QueueType_Graphics].mQueue, 1, &submitInfo, mFrameFences[GetCurrentBuffer()][QueueType_Graphics]);
 
-    // Present the swap chain image
-    // This waits for the queue submission to finish.
-    VkPresentInfoKHR presentInfo   = {};
-    presentInfo.sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-    presentInfo.waitSemaphoreCount = 1;
-    presentInfo.pWaitSemaphores    = &swapchain->mReleaseSemaphore;
-    presentInfo.swapchainCount     = 1;
-    presentInfo.pSwapchains        = &swapchain->mSwapchain;
-    presentInfo.pImageIndices      = &swapchain->mImageIndex;
-    res                            = vkQueuePresentKHR(mQueues[QueueType_Graphics].mQueue, &presentInfo);
-
-    if (res != VK_SUCCESS)
+    // Present the swap chain image. This waits for the queue submission to finish.
     {
-        if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR)
+        VkPresentInfoKHR presentInfo   = {};
+        presentInfo.sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+        presentInfo.waitSemaphoreCount = (u32)submitSemaphores.size();
+        presentInfo.pWaitSemaphores    = submitSemaphores.data();
+        presentInfo.swapchainCount     = (u32)presentSwapchains.size();
+        presentInfo.pSwapchains        = presentSwapchains.data();
+        presentInfo.pImageIndices      = swapchainImageIndices.data();
+        res                            = vkQueuePresentKHR(mQueues[QueueType_Graphics].mQueue, &presentInfo);
+    }
+
+    // Handles swap chain invalidation.
+    {
+        if (res != VK_SUCCESS)
         {
-            b32 result = CreateSwapchain(swapchain);
-            Assert(result);
+            if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR)
+            {
+                for (auto &swapchain : commandList->mUpdateSwapchains)
+                {
+                    b32 result = CreateSwapchain(&swapchain);
+                    Assert(result);
+                }
+            }
+            else
+            {
+                Assert(0)
+            }
         }
     }
 
-    // Changes GetCurrentBuffer()
-    mFrameCount++;
-    // Waits for previous previous frame
-    if (mFrameCount >= cNumBuffers)
+    // Wait for the queue submission of the previous frame to resolve before continuing.
     {
-        u32 currentBuffer = GetCurrentBuffer();
-        if (mFrameFences[currentBuffer][QueueType_Graphics] == VK_NULL_HANDLE)
+        // Changes GetCurrentBuffer()
+        mFrameCount++;
+        // Waits for previous previous frame
+        if (mFrameCount >= cNumBuffers)
         {
-        }
-        else
-        {
-            res = vkWaitForFences(mDevice, 1, &mFrameFences[currentBuffer][QueueType_Graphics], VK_TRUE, UINT64_MAX);
-            Assert(res == VK_SUCCESS);
-            res = vkResetFences(mDevice, 1, &mFrameFences[currentBuffer][QueueType_Graphics]);
-            Assert(res == VK_SUCCESS);
+            u32 currentBuffer = GetCurrentBuffer();
+            if (mFrameFences[currentBuffer][QueueType_Graphics] == VK_NULL_HANDLE)
+            {
+            }
+            else
+            {
+                res = vkWaitForFences(mDevice, 1, &mFrameFences[currentBuffer][QueueType_Graphics], VK_TRUE, UINT64_MAX);
+                Assert(res == VK_SUCCESS);
+                res = vkResetFences(mDevice, 1, &mFrameFences[currentBuffer][QueueType_Graphics]);
+                Assert(res == VK_SUCCESS);
+            }
         }
     }
 
+    commandList->mEndPassImageMemoryBarriers.clear();
+    commandList->mUpdateSwapchains.clear();
     Cleanup();
+}
+
+void mkGraphicsVulkan::BindPipeline(const PipelineState *ps, CommandList *cmd)
+{
+    CommandListVulkan *command = ToInternal(cmd);
+    command->mCurrentPipeline  = ps;
+
+    PipelineStateVulkan *psVulkan = ToInternal(ps);
+    vkCmdBindPipeline(command->GetCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS, psVulkan->mPipeline);
 }
 
 void mkGraphicsVulkan::WaitForGPU()
