@@ -11,12 +11,26 @@
 //////////////////////////////
 // Constructors
 //
+
 string::string(const char *text)
 {
     if (text)
     {
-        *this = Str8C(text);
+        size = CalculateCStringLength(text);
+        str  = (u8 *)malloc(size + 1);
+        MemoryCopy(str, text, size);
+        str[size] = 0;
+
+        // *this = Str8C(text);
     }
+}
+
+string::~string()
+{
+    // if (str)
+    // {
+    // free(str);
+    // }
 }
 
 string::string()
@@ -30,7 +44,8 @@ void string::operator=(const char *text)
 {
     if (text)
     {
-        *this = Str8C(text);
+        // *this = Str8C(text);
+        *this = string(text);
     }
 }
 

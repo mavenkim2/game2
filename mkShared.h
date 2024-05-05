@@ -193,6 +193,7 @@ typedef R_DELETE_TEXTURE_2D(r_delete_texture_2D);
 typedef R_ALLOCATE_BUFFER(r_allocate_buffer);
 // end unused
 
+#if 0
 struct RendererApi
 {
     r_allocate_texture_2D *R_AllocateTexture;
@@ -202,6 +203,7 @@ struct RendererApi
     r_update_buffer *R_UpdateBuffer;
 };
 extern RendererApi renderer;
+#endif
 
 struct ThreadContext;
 
@@ -292,7 +294,8 @@ struct GamePlatformMemory
 {
     Shared *mShared;
     Engine *mEngine;
-    RendererApi mRenderer;
+    // RendererApi mRenderer;
+    graphics::mkGraphics *mGraphics;
     PlatformApi mPlatform;
     ThreadContext *mTctx;
 

@@ -4,6 +4,7 @@
 #define STBI_ONLY_PNG
 #define STBI_ONLY_JPEG
 #include "third_party/stb_image.h"
+#include <atomic>
 
 #include "mkCrack.h"
 #ifdef LSP_INCLUDE
@@ -252,7 +253,7 @@ enum AS_Status
 {
     AS_Status_Unloaded,
     AS_Status_Queued,
-    AS_Status_Loaded = -1,
+    AS_Status_Loaded,
 };
 
 struct Font
@@ -273,7 +274,7 @@ struct AS_Asset
 
     u64 lastModified;
     string path;
-    AS_Status status;
+    std::atomic<u32> status;
 
     // TODO: intrusive. may be bad? idk
     i32 id;

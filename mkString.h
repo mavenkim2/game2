@@ -16,6 +16,7 @@ struct string
 
     string();
     string(const char *text);
+    ~string();
     void operator=(const char *text);
 };
 

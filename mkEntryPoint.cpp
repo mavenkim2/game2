@@ -6,7 +6,9 @@
 #include "mkMemory.cpp"
 #include "mkString.cpp"
 
+#if VULKAN
 #include "render/mkGraphicsVulkan.cpp"
+#endif
 
 Shared *shared;
 PlatformApi platform;
@@ -75,42 +77,12 @@ MAIN()
     // R_Init(arena, shared->windowHandle);
 
     string binaryDirectory = OS_GetBinaryDirectory();
+#if VULKAN
     mkGraphicsVulkan graphics(shared->windowHandle, ValidationMode::Verbose, GPUDevicePreference::Discrete);
+#else
+#error
+#endif
 
-    Swapchain swapchain;
-    SwapchainDesc desc;
-    desc.width  = (u32)platform.OS_GetWindowDimension(shared->windowHandle).x;
-    desc.height = (u32)platform.OS_GetWindowDimension(shared->windowHandle).y;
-    desc.format = graphics::Format::B8G8R8A8_UNORM;
-
-    graphics.CreateSwapchain((Window)shared->windowHandle.handle, hInstance, &desc, &swapchain);
-
-    PipelineStateDesc psDesc;
-    PipelineState ps;
-
-    graphics.CreateShader(&psDesc, &ps);
-
-    for (; shared->running == 1;)
-    {
-        CommandList cmdList = graphics.BeginCommandList(QueueType_Graphics);
-        graphics.BeginRenderPass(&swapchain, &cmdList);
-
-        Viewport viewport;
-        viewport.width  = (f32)swapchain.GetDesc().width;
-        viewport.height = (f32)swapchain.GetDesc().height;
-
-        graphics.BindPipeline(&ps, &cmdList);
-        graphics.SetViewport(&cmdList, &viewport);
-        Rect2 scissor;
-        scissor.minP = {0, 0};
-        scissor.maxP = {65536, 65536};
-        graphics.SetScissor(&cmdList, scissor);
-        graphics.Draw(&cmdList, 3, 0);
-        graphics.EndRenderPass(&cmdList);
-        graphics.WaitForGPU();
-    }
-
-#if 0
     // Ring buffer initialization
     {
         shared->i2gRing.size   = kilobytes(64);
@@ -139,6 +111,7 @@ MAIN()
     }
     OS_LoadDLL(&gameDLL);
 
+#if 0
     struct RendererFunctionTable
     {
         RendererApi api;
@@ -174,6 +147,7 @@ MAIN()
     {
         rendererFunctions.R_Initialize(&renderMem, shared->windowHandle);
     }
+#endif
 
     Engine engineLocal;
     engine = &engineLocal;
@@ -182,8 +156,9 @@ MAIN()
     gameMem.mIsHotloaded = 0;
     gameMem.mEngine      = engine;
     gameMem.mPlatform    = platform;
-    gameMem.mRenderer    = rendererFunctions.api;
-    gameMem.mShared      = shared;
+    gameMem.mGraphics    = &graphics;
+    // gameMem.mRenderer         = rendererFunctions.api;
+    gameMem.mShared = shared;
     // TODO: ?
     gameMem.mTctx = tctx;
     if (gameDLL.mValid)
@@ -198,6 +173,7 @@ MAIN()
 
     for (; shared->running == 1;)
     {
+#if 0
         u64 renderDLLWriteTime = OS_GetLastWriteTime(renderDLL.mSource);
         if (renderDLL.mLastWriteTime != renderDLLWriteTime)
         {
@@ -216,6 +192,7 @@ MAIN()
                 rendererFunctions.R_Initialize(&renderMem, shared->windowHandle);
             }
         }
+#endif
         // TODO: even when a file hasn't changed at all it recompiles
         u64 gameDLLWriteTime = OS_GetLastWriteTime(gameDLL.mSource);
         if (gameDLL.mLastWriteTime != gameDLLWriteTime)
@@ -236,10 +213,12 @@ MAIN()
         }
 
         // TODO: on another thread
+#if 0
         if (renderDLL.mValid)
         {
             rendererFunctions.R_EndFrame(gameMem.mEngine->GetRenderState());
         }
+#endif
 
         // Wait until new update
         f32 endWorkFrameTime = OS_NowSeconds();
@@ -262,8 +241,7 @@ MAIN()
 
     gameFunctions.G_Flush();
     OS_UnloadDLL(&gameDLL);
-    OS_UnloadDLL(&renderDLL);
-#endif
+    // OS_UnloadDLL(&renderDLL);
 
     ThreadContextRelease();
 

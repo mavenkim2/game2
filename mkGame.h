@@ -17,6 +17,7 @@
 #include "mkAssetCache.h"
 #include "render/mkVertexCache.h"
 #include "render/mkRender.h"
+#include "render/mkGraphics.h"
 #include "mkShared.h"
 #include "render/mkRendererapi.h"
 
@@ -24,7 +25,6 @@
 #include "mkEntity.h"
 #include "mkLevel.h"
 
-#include "render/mkGraphicsVulkan.h"
 
 //////////////////////////////
 // Input
@@ -177,6 +177,12 @@ struct G_State
     AS_Handle font;
 
     Heightmap heightmap;
+
 };
+
+PlatformApi platform;
+Engine *engine;
+Shared *shared;
+graphics::mkGraphics *device;
 
 internal Manifold NarrowPhaseAABBCollision(const Rect3 a, const Rect3 b);

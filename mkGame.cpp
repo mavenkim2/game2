@@ -17,8 +17,6 @@
 #include "render/mkRender.cpp"
 #include "mkDebug.cpp"
 
-#include "render/mkGraphicsVulkan.cpp"
-
 const f32 GRAVITY = 49.f;
 
 internal void InitializePlayer(G_State *gameState)
@@ -151,10 +149,7 @@ internal Manifold NarrowPhaseAABBCollision(const Rect3 a, const Rect3 b)
     return manifold;
 }
 
-RendererApi renderer;
-PlatformApi platform;
-Engine *engine;
-Shared *shared;
+// RendererApi renderer;
 
 // simply waits for all threads to finish executing
 G_FLUSH(G_Flush)
@@ -165,12 +160,13 @@ G_FLUSH(G_Flush)
 
 G_INIT(G_Init)
 {
-    renderer = ioPlatformMemory->mRenderer;
+    // renderer = ioPlatformMemory->mRenderer;
     if (ioPlatformMemory->mIsHotloaded || !ioPlatformMemory->mIsLoaded)
     {
         engine   = ioPlatformMemory->mEngine;
         platform = ioPlatformMemory->mPlatform;
         shared   = ioPlatformMemory->mShared;
+        device   = ioPlatformMemory->mGraphics;
         Printf   = platform.Printf;
         ThreadContextSet(ioPlatformMemory->mTctx);
     }
@@ -187,7 +183,7 @@ G_INIT(G_Init)
 
         JS_Init();
         AS_Init();
-        F_Init();
+        // F_Init();
         D_Init();
         DBG_Init();
 
@@ -212,7 +208,7 @@ G_INIT(G_Init)
         // ReadAnimationFile(g_state->worldArena, animation, Str8Lit("data/dragon_attack_01.anim"));
         AS_Handle anim = AS_GetAsset(Str8Lit("data/dragon/Qishilong_attack01.anim"));
         // AS_Handle anim = LoadAssetFile(Str8Lit("data/dragon/Qishilong_attack02.anim"));
-        g_state->font = AS_GetAsset(Str8Lit("data/liberation_mono.ttf"));
+        // g_state->font = AS_GetAsset(Str8Lit("data/liberation_mono.ttf"));
 
         g_state->level           = PushStruct(g_state->permanentArena, Level);
         g_state->camera.position = g_state->player.pos - V3{0, 10, 0};
@@ -252,7 +248,10 @@ G_INIT(G_Init)
         g_state->bindings.bindings[I_Button_LeftClick]  = OS_Mouse_L;
         g_state->bindings.bindings[I_Button_RightClick] = OS_Mouse_R;
 
-        g_state->heightmap = CreateHeightmap(Str8Lit("data/heightmap.png"));
+        // g_state->heightmap = CreateHeightmap(Str8Lit("data/heightmap.png"));
+
+        // Stuff
+        render::Initialize();
     }
 }
 
@@ -541,6 +540,10 @@ DLL G_UPDATE(G_Update)
         }
     }
 
+    render::Render();
+}
+
+#if 0
     V3 *velocity = &player->velocity;
 
     Normalize(acceleration->xy);
@@ -642,19 +645,20 @@ DLL G_UPDATE(G_Update)
         DrawArrow({0, 0, 0}, {0, 5, 0}, {0, 1, 0, 1}, 1.f);
         DrawArrow({0, 0, 0}, {0, 0, 5}, {0, 0, 1, 1}, 1.f);
     }
+#endif
 
-    // Render
-    {
-        // for (Entity *entity = 0; IncrementEntity(level, &entity);)
-        // {
-        //     PushCube(&openGL->group, entity->pos, entity->size, entity->color);
-        // }
-        // PushCube(&openGL->group, player->pos, player->size, player->color);
-        // DrawRectangle(&renderState, V2(0, 0), V2(renderState.width / 10, renderState.height / 10));
-
-        renderState->camera = g_state->camera;
-
+// Render
 #if 0
+{
+    // for (Entity *entity = 0; IncrementEntity(level, &entity);)
+    // {
+    //     PushCube(&openGL->group, entity->pos, entity->size, entity->color);
+    // }
+    // PushCube(&openGL->group, player->pos, player->size, player->color);
+    // DrawRectangle(&renderState, V2(0, 0), V2(renderState.width / 10, renderState.height / 10));
+
+    renderState->camera = g_state->camera;
+
         static b8 test = 0;
         static VC_Handle vertex;
         static VC_Handle index;
@@ -693,6 +697,7 @@ DLL G_UPDATE(G_Update)
         D_PushModel(vertex, index, renderState->transform * transform);
 #endif
 
+#if 0
         // Model 1
         Mat4 translate  = Translate4(V3{0, 20, -30});
         Mat4 scale      = Scale(V3{0.5f, 0.5f, 0.5f});
@@ -758,3 +763,4 @@ DLL G_UPDATE(G_Update)
     }
     D_EndFrame();
 }
+#endif

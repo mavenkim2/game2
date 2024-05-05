@@ -49,6 +49,72 @@ VkBool32 DebugUtilsMessengerCallback(VkDebugUtilsMessageSeverityFlagBitsEXT mess
     return VK_FALSE;
 }
 
+VkDescriptorType ConvertDescriptorType(DescriptorType type)
+{
+    switch (type)
+    {
+        case DescriptorType::Uniform: return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        default: Assert(0); return VK_DESCRIPTOR_TYPE_MAX_ENUM;
+    }
+}
+
+VkShaderStageFlags ConvertShaderStage(ShaderStage stage)
+{
+    switch (stage)
+    {
+        case ShaderStage::Vertex: return VK_SHADER_STAGE_VERTEX_BIT;
+        case ShaderStage::Geometry: return VK_SHADER_STAGE_GEOMETRY_BIT;
+        case ShaderStage::Fragment: return VK_SHADER_STAGE_FRAGMENT_BIT;
+        case ShaderStage::Compute: return VK_SHADER_STAGE_COMPUTE_BIT;
+        default: Assert(0); return VK_SHADER_STAGE_ALL;
+    }
+}
+
+VkAccessFlags2 ConvertResourceStateToAccessFlag(ResourceState state)
+{
+    VkAccessFlags2 flags = VK_ACCESS_2_NONE;
+    if (HasFlags(state, ResourceState_VertexBuffer))
+    {
+        flags |= VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT;
+    }
+    if (HasFlags(state, ResourceState_IndexBuffer))
+    {
+        flags |= VK_ACCESS_2_INDEX_READ_BIT;
+    }
+    if (HasFlags(state, ResourceState_UniformBuffer))
+    {
+        flags |= VK_ACCESS_2_UNIFORM_READ_BIT;
+    }
+    if (HasFlags(state, ResourceState_TransferSrc))
+    {
+        flags |= VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    }
+    return flags;
+}
+
+VkPipelineStageFlags2 ConvertResourceToPipelineStage(ResourceState state)
+{
+    VkPipelineStageFlags2 flags = VK_PIPELINE_STAGE_2_NONE;
+    if (HasFlags(state, ResourceState_VertexBuffer))
+    {
+        flags |= VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT;
+    }
+    if (HasFlags(state, ResourceState_IndexBuffer))
+    {
+        flags |= VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT;
+    }
+    // TODO: this is likely going to need to change
+    if (HasFlags(state, ResourceState_UniformBuffer))
+    {
+        flags |= VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    }
+    if (HasFlags(state, ResourceState_TransferSrc))
+    {
+        flags |= VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    }
+    return flags;
+}
+
 } // namespace vulkan
 
 using namespace vulkan;
@@ -402,6 +468,7 @@ mkGraphicsVulkan::mkGraphicsVulkan(OS_Handle window, ValidationMode validationMo
     vkGetDeviceQueue(mDevice, mCopyFamily, 0, &mQueues[QueueType_Copy].mQueue);
 
     // TODO: unified memory access architectures
+    mMemProperties       = {};
     mMemProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2;
     vkGetPhysicalDeviceMemoryProperties2(mPhysicalDevice, &mMemProperties);
 
@@ -411,7 +478,7 @@ mkGraphicsVulkan::mkGraphicsVulkan(OS_Handle window, ValidationMode validationMo
     allocCreateInfo.instance               = mInstance;
     allocCreateInfo.vulkanApiVersion       = VK_API_VERSION_1_3;
     // these are promoted to core, so this doesn't do anything
-    allocCreateInfo.flags = VMA_ALLOCATOR_CREATE_KHR_BIND_MEMORY2_BIT | VMA_DYNAMIC_VULKAN_FUNCTIONS;
+    allocCreateInfo.flags = VMA_ALLOCATOR_CREATE_KHR_BIND_MEMORY2_BIT;
 
 #if VMA_DYNAMIC_VULKAN_FUNCTIONS
     VmaVulkanFunctions vulkanFunctions    = {};
@@ -451,9 +518,35 @@ mkGraphicsVulkan::mkGraphicsVulkan(OS_Handle window, ValidationMode validationMo
     mDynamicStateInfo.sType             = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
     mDynamicStateInfo.dynamicStateCount = (u32)mDynamicStates.size();
     mDynamicStateInfo.pDynamicStates    = mDynamicStates.data();
+
+    // Init frame allocators
+    GPUBufferDesc desc;
+    desc.mUsage = MemoryUsage::CPU_TO_GPU;
+    desc.mSize  = megabytes(32);
+    desc.mFlags = BindFlag_Vertex | BindFlag_Index | BindFlag_Uniform;
+    CreateBuffer(&mFrameAllocator[0].mBuffer, desc, 0);
+    CreateBuffer(&mFrameAllocator[1].mBuffer, desc, 0);
+    mFrameAllocator[0].mAlignment = 8;
+    mFrameAllocator[1].mAlignment = 8;
+
+    // Init descriptor pool
+    {
+        VkDescriptorPoolSize poolSize = {};
+        poolSize.type                 = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        poolSize.descriptorCount      = cNumBuffers;
+
+        VkDescriptorPoolCreateInfo createInfo = {};
+        createInfo.sType                      = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        createInfo.poolSizeCount              = 1;
+        createInfo.pPoolSizes                 = &poolSize;
+        createInfo.maxSets                    = cNumBuffers;
+
+        res = vkCreateDescriptorPool(mDevice, &createInfo, 0, &mPool);
+        Assert(res == VK_SUCCESS);
+    }
 }
 
-b32 mkGraphicsVulkan::CreateSwapchain(Window window, Instance instance, SwapchainDesc *desc, Swapchain *inSwapchain)
+b32 mkGraphicsVulkan::CreateSwapchain(Window window, SwapchainDesc *desc, Swapchain *inSwapchain)
 {
     SwapchainVulkan *swapchain = ToInternal(inSwapchain);
 
@@ -469,7 +562,7 @@ b32 mkGraphicsVulkan::CreateSwapchain(Window window, Instance instance, Swapchai
     VkWin32SurfaceCreateInfoKHR win32SurfaceCreateInfo = {};
     win32SurfaceCreateInfo.sType                       = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
     win32SurfaceCreateInfo.hwnd                        = window;
-    win32SurfaceCreateInfo.hinstance                   = instance;
+    win32SurfaceCreateInfo.hinstance                   = GetModuleHandleW(0);
 
     res = vkCreateWin32SurfaceKHR(mInstance, &win32SurfaceCreateInfo, 0, &swapchain->mSurface);
     Assert(res == VK_SUCCESS);
@@ -683,8 +776,17 @@ void mkGraphicsVulkan::CreateShader(PipelineStateDesc *inDesc, PipelineState *ou
     VkShaderModule vertShaderModule = {};
     VkShaderModule fragShaderModule = {};
 
-    string vert = platform.OS_ReadEntireFile(mArena, "src/shaders/triangle_test_vert.spv");
-    string frag = platform.OS_ReadEntireFile(mArena, "src/shaders/triangle_test_frag.spv");
+    string vert = {};
+    string frag = {};
+
+    if (inDesc->mVS)
+    {
+        vert = platform.OS_ReadEntireFile(mArena, inDesc->mVS->mName);
+    }
+    if (inDesc->mFS)
+    {
+        frag = platform.OS_ReadEntireFile(mArena, inDesc->mFS->mName);
+    }
 
     // Create shader modules
     VkShaderModuleCreateInfo createInfo = {};
@@ -833,24 +935,54 @@ void mkGraphicsVulkan::CreateShader(PipelineStateDesc *inDesc, PipelineState *ou
     colorBlending.blendConstants[2]                   = 0.f;
     colorBlending.blendConstants[3]                   = 0.f;
 
-    VkPipelineLayout pipelineLayout;
+    // Descriptor sets
+    VkDescriptorSetLayout descriptorLayout;
+    {
+        VkDescriptorSetLayoutBinding uboLayoutBinding = {};
+        uboLayoutBinding.binding                      = 0;
+        uboLayoutBinding.descriptorType               = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        uboLayoutBinding.descriptorCount              = 1;
+        uboLayoutBinding.stageFlags                   = VK_SHADER_STAGE_VERTEX_BIT;
+        uboLayoutBinding.pImmutableSamplers           = 0;
+
+        VkDescriptorSetLayoutCreateInfo descriptorCreateInfo = {};
+
+        descriptorCreateInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        descriptorCreateInfo.bindingCount = 1;
+        descriptorCreateInfo.pBindings    = &uboLayoutBinding;
+
+        res = vkCreateDescriptorSetLayout(mDevice, &descriptorCreateInfo, 0, &descriptorLayout);
+        Assert(res == VK_SUCCESS);
+        ps->mDescriptorSetLayouts.push_back(descriptorLayout);
+
+        VkDescriptorSetAllocateInfo allocInfo = {};
+        allocInfo.sType                       = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        allocInfo.descriptorPool              = mPool;
+        allocInfo.descriptorSetCount          = (u32)ps->mDescriptorSetLayouts.size();
+        allocInfo.pSetLayouts                 = ps->mDescriptorSetLayouts.data();
+
+        ps->mDescriptorSets.resize(ps->mDescriptorSetLayouts.size());
+        res = vkAllocateDescriptorSets(mDevice, &allocInfo, ps->mDescriptorSets.data());
+        Assert(res == VK_SUCCESS);
+    }
+
     VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
     pipelineLayoutInfo.sType                      = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipelineLayoutInfo.setLayoutCount             = 0;
-    pipelineLayoutInfo.pSetLayouts                = 0;
+    pipelineLayoutInfo.setLayoutCount             = 1;
+    pipelineLayoutInfo.pSetLayouts                = &descriptorLayout;
     // Push constants are kind of like compile time constants for shaders? except they don't have to be
     // specified at shader creation, instead pipeline creation
     pipelineLayoutInfo.pushConstantRangeCount = 0;
     pipelineLayoutInfo.pPushConstantRanges    = 0;
 
-    res = vkCreatePipelineLayout(mDevice, &pipelineLayoutInfo, 0, &pipelineLayout);
+    res = vkCreatePipelineLayout(mDevice, &pipelineLayoutInfo, 0, &ps->mPipelineLayout);
     Assert(res == VK_SUCCESS);
 
     // Create the pipeline
     VkGraphicsPipelineCreateInfo pipelineInfo = {};
 
     pipelineInfo.sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    pipelineInfo.layout              = pipelineLayout;
+    pipelineInfo.layout              = ps->mPipelineLayout;
     pipelineInfo.stageCount          = ArrayLength(pipelineShaderStageInfo);
     pipelineInfo.pStages             = pipelineShaderStageInfo;
     pipelineInfo.pVertexInputState   = &vertexInputInfo;
@@ -883,11 +1015,58 @@ void mkGraphicsVulkan::CreateShader(PipelineStateDesc *inDesc, PipelineState *ou
     Assert(res == VK_SUCCESS);
 }
 
+void mkGraphicsVulkan::Barrier(CommandList cmd, GPUBarrier *barriers, u32 count)
+{
+    CommandListVulkan *command = ToInternal(cmd);
+
+    for (u32 i = 0; i < count; i++)
+    {
+        GPUBarrier *barrier = &barriers[i];
+        switch (barrier->mType)
+        {
+            case GPUBarrier::Type::Buffer:
+            {
+                GPUBuffer *buffer             = (GPUBuffer *)barrier->mResource;
+                GPUBufferVulkan *bufferVulkan = ToInternal(buffer);
+
+                VkBufferMemoryBarrier2 bufferBarrier = {};
+                bufferBarrier.sType                  = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+                bufferBarrier.buffer                 = bufferVulkan->mBuffer;
+                bufferBarrier.offset                 = 0;
+                bufferBarrier.size                   = buffer->mDesc.mSize;
+                bufferBarrier.srcStageMask           = ConvertResourceToPipelineStage(barrier->mBefore);
+                bufferBarrier.srcAccessMask          = ConvertResourceStateToAccessFlag(barrier->mBefore);
+                bufferBarrier.dstStageMask           = ConvertResourceToPipelineStage(barrier->mAfter);
+                bufferBarrier.dstAccessMask          = ConvertResourceStateToAccessFlag(barrier->mAfter);
+                bufferBarrier.srcQueueFamilyIndex    = VK_QUEUE_FAMILY_IGNORED;
+                bufferBarrier.dstQueueFamilyIndex    = VK_QUEUE_FAMILY_IGNORED;
+
+                VkDependencyInfo dependencyInfo         = {};
+                dependencyInfo.sType                    = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+                dependencyInfo.bufferMemoryBarrierCount = 1;
+                dependencyInfo.pBufferMemoryBarriers    = &bufferBarrier;
+
+                vkCmdPipelineBarrier2(command->GetCommandBuffer(), &dependencyInfo);
+            };
+            break;
+        }
+    }
+}
+
 void mkGraphicsVulkan::CreateBuffer(GPUBuffer *inBuffer, GPUBufferDesc inDesc, void *inData)
 {
     VkResult res;
     GPUBufferVulkan *buffer = ToInternal(inBuffer);
-    Assert(buffer);
+    Assert(!buffer);
+
+    MutexScope(&mArenaMutex)
+    {
+        buffer = PushStruct(mArena, GPUBufferVulkan);
+    }
+
+    inBuffer->internalState = buffer;
+    inBuffer->mDesc         = inDesc;
+    inBuffer->mMappedData   = 0;
 
     VkBufferCreateInfo createInfo = {};
     createInfo.sType              = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -909,22 +1088,21 @@ void mkGraphicsVulkan::CreateBuffer(GPUBuffer *inBuffer, GPUBufferDesc inDesc, v
     // Sharing
     if (mFamilies.size() > 1)
     {
-        createInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    }
-    else
-    {
         createInfo.sharingMode           = VK_SHARING_MODE_CONCURRENT;
         createInfo.queueFamilyIndexCount = (u32)mFamilies.size();
         createInfo.pQueueFamilyIndices   = mFamilies.data();
+    }
+    else
+    {
+        createInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     }
 
     VmaAllocationCreateInfo allocCreateInfo = {};
     allocCreateInfo.usage                   = VMA_MEMORY_USAGE_AUTO;
 
-    // Staging buffers
     if (inDesc.mUsage == MemoryUsage::CPU_TO_GPU)
     {
-        allocCreateInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+        allocCreateInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
         createInfo.usage |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
     }
 
@@ -944,34 +1122,12 @@ void mkGraphicsVulkan::CreateBuffer(GPUBuffer *inBuffer, GPUBufferDesc inDesc, v
         inBuffer->mDesc.mSize = buffer->mAllocation->GetSize();
     }
 
-    // If data is provided, do the transfer
-    if (inData != 0)
+    if (inData)
     {
-        TransferCommand cmd;
-        cmd = Stage(inBuffer->mDesc.mSize);
-
-        if (cmd.IsValid())
-        {
-            // Memory copy data to the staging buffer
-            MemoryCopy(cmd.mUploadBuffer.mMappedData, inData, inBuffer->mDesc.mSize);
-
-            VkBufferCopy bufferCopy = {};
-            bufferCopy.srcOffset    = 0;
-            bufferCopy.dstOffset    = 0;
-            bufferCopy.size         = inBuffer->mDesc.mSize;
-
-            // Copy from the staging buffer to the allocated buffer
-            vkCmdCopyBuffer(cmd.mCmdBuffer, ToInternal(&cmd.mUploadBuffer)->mBuffer, buffer->mBuffer, 1, &bufferCopy);
-
-            // TODO
-            VkBufferMemoryBarrier2 bufferBarrier = {};
-            bufferBarrier.sType                  = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
-            bufferBarrier.srcQueueFamilyIndex    = VK_QUEUE_FAMILY_IGNORED;
-            bufferBarrier.dstQueueFamilyIndex    = VK_QUEUE_FAMILY_IGNORED;
-
-            Submit(cmd);
-        }
+        UpdateBuffer(inBuffer, inData);
     }
+
+    // If data is provided, do the transfer
 
     // Allocate:
 #if 0
@@ -1001,6 +1157,139 @@ void mkGraphicsVulkan::CreateBuffer(GPUBuffer *inBuffer, GPUBufferDesc inDesc, v
     res = vkBindBufferMemory(mDevice, buffer->mBuffer, memory, 0); // memoryRequirement.alignment);
     Assert(res == VK_SUCCESS);
 #endif
+}
+
+void mkGraphicsVulkan::UpdateDescriptorSet(CommandList cmd, GPUBuffer *buffer)
+{
+    CommandListVulkan *command = ToInternal(cmd);
+    Assert(command);
+
+    GPUBufferVulkan *bufferVulkan = ToInternal(buffer);
+
+    const PipelineState *pipeline = command->mCurrentPipeline;
+    Assert(pipeline);
+    PipelineStateVulkan *pipelineVulkan = ToInternal(pipeline);
+    Assert(pipelineVulkan);
+
+    VkDescriptorBufferInfo bufferInfo    = {};
+    VkWriteDescriptorSet descriptorWrite = {};
+    descriptorWrite.sType                = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+
+    for (auto &descriptorSet : pipelineVulkan->mDescriptorSets)
+    {
+        bufferInfo.buffer = bufferVulkan->mBuffer;
+        bufferInfo.offset = 0;            //? ? ? ? ;
+        bufferInfo.range  = sizeof(Mat4); // VK_WHOLE_SIZE; //? ? ? ? ; // VK_WHOLE_SIZE
+
+        descriptorWrite.dstSet     = descriptorSet;
+        descriptorWrite.dstBinding = 0;
+
+        // These next two are for descriptor arrays?
+        descriptorWrite.dstArrayElement = 0;
+        descriptorWrite.descriptorCount = 1;
+
+        descriptorWrite.descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        descriptorWrite.pBufferInfo      = &bufferInfo;
+        descriptorWrite.pImageInfo       = 0;
+        descriptorWrite.pTexelBufferView = 0;
+
+        vkUpdateDescriptorSets(mDevice, 1, &descriptorWrite, 0, 0);
+    }
+
+    vkCmdBindDescriptorSets(command->GetCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            pipelineVulkan->mPipelineLayout, 0, 1, pipelineVulkan->mDescriptorSets.data(), 0, 0);
+}
+
+void mkGraphicsVulkan::FrameAllocate(GPUBuffer *inBuf, void *inData, CommandList cmd, u64 inSize, u64 inOffset)
+{
+    CommandListVulkan *command  = ToInternal(cmd);
+    FrameData *currentFrameData = &mFrameAllocator[GetCurrentBuffer()];
+
+    GPUBufferVulkan *bufVulk = ToInternal(inBuf);
+    // Is power of 2
+    Assert((currentFrameData->mAlignment & (currentFrameData->mAlignment - 1)) == 0);
+
+    u64 size        = Min(inSize, inBuf->mDesc.mSize);
+    u64 alignedSize = AlignPow2(size, (u64)currentFrameData->mAlignment);
+    u64 offset      = currentFrameData->mOffset.fetch_add(alignedSize);
+
+    MemoryCopy((void *)((size_t)currentFrameData->mBuffer.mMappedData + offset), inData, size);
+
+    VkBufferCopy copy = {};
+    copy.srcOffset    = offset;
+    copy.dstOffset    = 0;
+    copy.size         = size;
+
+    vkCmdCopyBuffer(command->GetCommandBuffer(), ToInternal(&currentFrameData->mBuffer)->mBuffer, bufVulk->mBuffer, 1, &copy);
+}
+
+// Updates the buffer
+void mkGraphicsVulkan::UpdateBuffer(GPUBuffer *inBuffer, void *inData)
+{
+    GPUBufferVulkan *buffer = ToInternal(inBuffer);
+    Assert(buffer);
+
+    TransferCommand cmd;
+    void *mappedData = 0;
+    if (inBuffer->mDesc.mUsage == MemoryUsage::CPU_TO_GPU)
+    {
+        mappedData = inBuffer->mMappedData;
+    }
+    else
+    {
+        cmd        = Stage(inBuffer->mDesc.mSize);
+        mappedData = cmd.mUploadBuffer.mMappedData;
+    }
+
+    MemoryCopy(mappedData, inData, inBuffer->mDesc.mSize);
+
+    if (cmd.IsValid())
+    {
+        // Memory copy data to the staging buffer
+        VkBufferCopy bufferCopy = {};
+        bufferCopy.srcOffset    = 0;
+        bufferCopy.dstOffset    = 0;
+        bufferCopy.size         = inBuffer->mDesc.mSize;
+
+        // Copy from the staging buffer to the allocated buffer
+        vkCmdCopyBuffer(cmd.mCmdBuffer, ToInternal(&cmd.mUploadBuffer)->mBuffer, buffer->mBuffer, 1, &bufferCopy);
+
+        // Create a barrier on the graphics queue. Not needed on the transfer queue, since it doesn't
+        // ever use the data after copying.
+        VkBufferMemoryBarrier2 bufferBarrier = {};
+        bufferBarrier.sType                  = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+        bufferBarrier.buffer                 = buffer->mBuffer;
+        bufferBarrier.offset                 = 0;
+        bufferBarrier.size                   = VK_WHOLE_SIZE;
+        bufferBarrier.srcStageMask           = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        bufferBarrier.srcAccessMask          = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        bufferBarrier.dstStageMask           = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        bufferBarrier.dstAccessMask          = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+        bufferBarrier.srcQueueFamilyIndex    = VK_QUEUE_FAMILY_IGNORED;
+        bufferBarrier.dstQueueFamilyIndex    = VK_QUEUE_FAMILY_IGNORED;
+
+        if (HasFlags(inBuffer->mDesc.mFlags, BindFlag_Vertex))
+        {
+            bufferBarrier.dstStageMask |= VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT;
+            bufferBarrier.dstAccessMask |= VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT;
+            // bufferBarrier.dstAccessMask
+        }
+        if (HasFlags(inBuffer->mDesc.mFlags, BindFlag_Index))
+        {
+            bufferBarrier.dstStageMask |= VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT;
+            bufferBarrier.dstAccessMask |= VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT;
+        }
+
+        VkDependencyInfo dependencyInfo         = {};
+        dependencyInfo.sType                    = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dependencyInfo.bufferMemoryBarrierCount = 1;
+        dependencyInfo.pBufferMemoryBarriers    = &bufferBarrier;
+
+        // this command buffer has to be on the graphics queue :(
+        vkCmdPipelineBarrier2(cmd.mTransitionBuffer, &dependencyInfo);
+
+        Submit(cmd);
+    }
 }
 
 // Uses transfer queue for allocations.
@@ -1035,14 +1324,19 @@ mkGraphicsVulkan::TransferCommand mkGraphicsVulkan::Stage(u64 size)
         poolInfo.queueFamilyIndex        = mCopyFamily;
         res                              = vkCreateCommandPool(mDevice, &poolInfo, 0, &cmd.mCmdPool);
         Assert(res == VK_SUCCESS);
+        poolInfo.queueFamilyIndex = mGraphicsFamily;
+        res                       = vkCreateCommandPool(mDevice, &poolInfo, 0, &cmd.mTransitionPool);
+        Assert(res == VK_SUCCESS);
 
         VkCommandBufferAllocateInfo bufferInfo = {};
         bufferInfo.sType                       = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         bufferInfo.commandPool                 = cmd.mCmdPool;
         bufferInfo.commandBufferCount          = 1;
         bufferInfo.level                       = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-
-        res = vkAllocateCommandBuffers(mDevice, &bufferInfo, &cmd.mCmdBuffer);
+        res                                    = vkAllocateCommandBuffers(mDevice, &bufferInfo, &cmd.mCmdBuffer);
+        Assert(res == VK_SUCCESS);
+        bufferInfo.commandPool = cmd.mTransitionPool;
+        res                    = vkAllocateCommandBuffers(mDevice, &bufferInfo, &cmd.mTransitionBuffer);
         Assert(res == VK_SUCCESS);
 
         VkFenceCreateInfo fenceInfo = {};
@@ -1050,12 +1344,24 @@ mkGraphicsVulkan::TransferCommand mkGraphicsVulkan::Stage(u64 size)
         res                         = vkCreateFence(mDevice, &fenceInfo, 0, &cmd.mFence);
         Assert(res == VK_SUCCESS);
 
-        // GPUBufferDesc desc;
-        // desc.mSize  = size;
-        // desc.mFlags = ;
+        VkSemaphoreCreateInfo semaphoreInfo = {};
+        semaphoreInfo.sType                 = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+        for (u32 i = 0; i < ArrayLength(cmd.mSemaphores); i++)
+        {
+            res = vkCreateSemaphore(mDevice, &semaphoreInfo, 0, &cmd.mSemaphores[i]);
+            Assert(res == VK_SUCCESS);
+        }
+
+        GPUBufferDesc desc = {};
+        desc.mSize         = size;
+        desc.mUsage        = MemoryUsage::CPU_TO_GPU;
+        CreateBuffer(&cmd.mUploadBuffer, desc, 0);
     }
 
     res = vkResetCommandPool(mDevice, cmd.mCmdPool, 0);
+    Assert(res == VK_SUCCESS);
+    res = vkResetCommandPool(mDevice, cmd.mTransitionPool, 0);
     Assert(res == VK_SUCCESS);
 
     VkCommandBufferBeginInfo beginInfo = {};
@@ -1063,6 +1369,8 @@ mkGraphicsVulkan::TransferCommand mkGraphicsVulkan::Stage(u64 size)
     beginInfo.flags                    = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     beginInfo.pInheritanceInfo         = 0;
     res                                = vkBeginCommandBuffer(cmd.mCmdBuffer, &beginInfo);
+    Assert(res == VK_SUCCESS);
+    res = vkBeginCommandBuffer(cmd.mTransitionBuffer, &beginInfo);
     Assert(res == VK_SUCCESS);
 
     res = vkResetFences(mDevice, 1, &cmd.mFence);
@@ -1075,22 +1383,64 @@ void mkGraphicsVulkan::Submit(TransferCommand cmd)
 {
     VkResult res = vkEndCommandBuffer(cmd.mCmdBuffer);
     Assert(res == VK_SUCCESS);
+    res = vkEndCommandBuffer(cmd.mTransitionBuffer);
+    Assert(res == VK_SUCCESS);
 
     VkCommandBufferSubmitInfo bufSubmitInfo = {};
     bufSubmitInfo.sType                     = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
-    bufSubmitInfo.commandBuffer             = cmd.mCmdBuffer;
 
-    VkSubmitInfo2 submitInfo          = {};
-    submitInfo.sType                  = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
-    submitInfo.commandBufferInfoCount = 1;
-    submitInfo.pCommandBufferInfos    = &bufSubmitInfo;
-    // submitInfo.
+    VkSemaphoreSubmitInfo waitSemInfo = {};
+    waitSemInfo.sType                 = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
 
-    MutexScope(&mQueues[QueueType_Copy].mLock)
+    VkSemaphoreSubmitInfo submitSemInfo[2] = {};
+    submitSemInfo[0].sType                 = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+    submitSemInfo[1].sType                 = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+
+    VkSubmitInfo2 submitInfo = {};
+    submitInfo.sType         = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+
+    // Submit the copy command to the transfer queue.
     {
-        res = vkQueueSubmit2(mQueues[QueueType_Copy].mQueue, 1, &submitInfo, VK_NULL_HANDLE);
+        bufSubmitInfo.commandBuffer = cmd.mCmdBuffer;
+
+        submitSemInfo[0].semaphore = cmd.mSemaphores[0];
+        submitSemInfo[0].value     = 0;
+        submitSemInfo[0].stageMask = VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
+
+        submitInfo.commandBufferInfoCount = 1;
+        submitInfo.pCommandBufferInfos    = &bufSubmitInfo;
+
+        submitInfo.signalSemaphoreInfoCount = 1;
+        submitInfo.pSignalSemaphoreInfos    = submitSemInfo;
+
+        MutexScope(&mQueues[QueueType_Copy].mLock)
+        {
+            res = vkQueueSubmit2(mQueues[QueueType_Copy].mQueue, 1, &submitInfo, VK_NULL_HANDLE);
+            Assert(res == VK_SUCCESS);
+        }
     }
-    Assert(res == VK_SUCCESS);
+    // Insert the execution dependency (semaphores) and memory dependency (barrier) on the graphics queue
+    {
+        bufSubmitInfo.commandBuffer = cmd.mTransitionBuffer;
+
+        waitSemInfo.semaphore = cmd.mSemaphores[0];
+        waitSemInfo.value     = 0;
+        waitSemInfo.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+
+        submitInfo.commandBufferInfoCount   = 1;
+        submitInfo.pCommandBufferInfos      = &bufSubmitInfo;
+        submitInfo.waitSemaphoreInfoCount   = 1;
+        submitInfo.pWaitSemaphoreInfos      = &waitSemInfo;
+        submitInfo.signalSemaphoreInfoCount = 0;
+        submitInfo.pSignalSemaphoreInfos    = 0;
+
+        MutexScope(&mQueues[QueueType_Graphics].mLock)
+        {
+            res = vkQueueSubmit2(mQueues[QueueType_Graphics].mQueue, 1, &submitInfo, cmd.mFence);
+            Assert(res == VK_SUCCESS);
+        }
+    }
+    // TODO: compute
 }
 
 // So from my understanding, the command list contains buffer * queue_type command pools, each with 1
@@ -1149,7 +1499,7 @@ CommandList mkGraphicsVulkan::BeginCommandList(QueueType queue)
             res = vkAllocateCommandBuffers(mDevice, &bufferInfo, &command.mCommandBuffers[buffer][queue]);
             Assert(res == VK_SUCCESS);
         }
-    }
+    } // namespace graphics
 
     // Reset command pool
     res = vkResetCommandPool(mDevice, command.GetCommandPool(), 0);
@@ -1166,7 +1516,7 @@ CommandList mkGraphicsVulkan::BeginCommandList(QueueType queue)
     return cmd;
 }
 
-void mkGraphicsVulkan::BeginRenderPass(Swapchain *inSwapchain, CommandList *inCommandList)
+void mkGraphicsVulkan::BeginRenderPass(Swapchain *inSwapchain, CommandList inCommandList)
 {
     // Assume the vulkan swapchain struct is valid
     SwapchainVulkan *swapchain     = ToInternal(inSwapchain);
@@ -1210,9 +1560,9 @@ void mkGraphicsVulkan::BeginRenderPass(Swapchain *inSwapchain, CommandList *inCo
     colorAttachment.imageLayout                 = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     colorAttachment.loadOp                      = VK_ATTACHMENT_LOAD_OP_CLEAR;
     colorAttachment.storeOp                     = VK_ATTACHMENT_STORE_OP_STORE;
-    colorAttachment.clearValue.color.float32[0] = 0.f;
-    colorAttachment.clearValue.color.float32[1] = 0.f;
-    colorAttachment.clearValue.color.float32[2] = 0.f;
+    colorAttachment.clearValue.color.float32[0] = 0.5f;
+    colorAttachment.clearValue.color.float32[1] = 0.5f;
+    colorAttachment.clearValue.color.float32[2] = 0.5f;
     colorAttachment.clearValue.color.float32[3] = 1.f;
 
     info.colorAttachmentCount = 1;
@@ -1225,7 +1575,6 @@ void mkGraphicsVulkan::BeginRenderPass(Swapchain *inSwapchain, CommandList *inCo
     barrier.oldLayout                       = VK_IMAGE_LAYOUT_UNDEFINED;
     barrier.newLayout                       = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     barrier.srcStageMask                    = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
-    barrier.srcAccessMask                   = VK_ACCESS_2_NONE;
     barrier.dstStageMask                    = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
     barrier.dstAccessMask                   = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
     barrier.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -1244,8 +1593,9 @@ void mkGraphicsVulkan::BeginRenderPass(Swapchain *inSwapchain, CommandList *inCo
     dependencyInfo.pImageMemoryBarriers    = &barrier;
     vkCmdPipelineBarrier2(commandList->GetCommandBuffer(), &dependencyInfo);
 
-    barrier.oldLayout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    barrier.newLayout     = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    // barrier.dstStageMask  = VK_PIPELINE_STAGE_2_NONE;
     barrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
     barrier.dstAccessMask = VK_ACCESS_2_NONE;
 
@@ -1255,7 +1605,34 @@ void mkGraphicsVulkan::BeginRenderPass(Swapchain *inSwapchain, CommandList *inCo
     commandList->mUpdateSwapchains.push_back(*inSwapchain);
 }
 
-void mkGraphicsVulkan::Draw(CommandList *cmd, u32 vertexCount, u32 firstVertex)
+void mkGraphicsVulkan::BindVertexBuffer(CommandList cmd, GPUBuffer *buffer)
+{
+    CommandListVulkan *commandList = ToInternal(cmd);
+    Assert(commandList);
+
+    Assert(HasFlags(buffer->mDesc.mFlags, BindFlag_Vertex));
+    GPUBufferVulkan *bufferVulk = ToInternal(buffer);
+    Assert(bufferVulk);
+
+    VkDeviceSize offsets[16];
+    offsets[0] = 0;
+
+    vkCmdBindVertexBuffers(commandList->GetCommandBuffer(), 0, 1, &bufferVulk->mBuffer, offsets);
+}
+
+void mkGraphicsVulkan::BindIndexBuffer(CommandList cmd, GPUBuffer *buffer)
+{
+    CommandListVulkan *commandList = ToInternal(cmd);
+    Assert(commandList);
+
+    Assert(HasFlags(buffer->mDesc.mFlags, BindFlag_Index));
+    GPUBufferVulkan *bufferVulk = ToInternal(buffer);
+    Assert(bufferVulk);
+
+    vkCmdBindIndexBuffer(commandList->GetCommandBuffer(), bufferVulk->mBuffer, 0, VK_INDEX_TYPE_UINT32);
+}
+
+void mkGraphicsVulkan::Draw(CommandList cmd, u32 vertexCount, u32 firstVertex)
 {
     CommandListVulkan *commandList = ToInternal(cmd);
     Assert(commandList);
@@ -1263,7 +1640,15 @@ void mkGraphicsVulkan::Draw(CommandList *cmd, u32 vertexCount, u32 firstVertex)
     vkCmdDraw(commandList->GetCommandBuffer(), vertexCount, 1, firstVertex, 0);
 }
 
-void mkGraphicsVulkan::SetViewport(CommandList *cmd, Viewport *viewport)
+void mkGraphicsVulkan::DrawIndexed(CommandList cmd, u32 indexCount, u32 firstVertex, u32 baseVertex)
+{
+    CommandListVulkan *commandList = ToInternal(cmd);
+    Assert(commandList);
+
+    vkCmdDrawIndexed(commandList->GetCommandBuffer(), indexCount, 1, firstVertex, baseVertex, 0);
+}
+
+void mkGraphicsVulkan::SetViewport(CommandList cmd, Viewport *viewport)
 {
     CommandListVulkan *commandList = ToInternal(cmd);
     Assert(commandList);
@@ -1279,7 +1664,7 @@ void mkGraphicsVulkan::SetViewport(CommandList *cmd, Viewport *viewport)
     vkCmdSetViewport(commandList->GetCommandBuffer(), 0, 1, &view);
 }
 
-void mkGraphicsVulkan::SetScissor(CommandList *cmd, Rect2 scissor)
+void mkGraphicsVulkan::SetScissor(CommandList cmd, Rect2 scissor)
 {
     CommandListVulkan *commandList = ToInternal(cmd);
     Assert(commandList);
@@ -1293,7 +1678,7 @@ void mkGraphicsVulkan::SetScissor(CommandList *cmd, Rect2 scissor)
     vkCmdSetScissor(commandList->GetCommandBuffer(), 0, 1, &s);
 }
 
-void mkGraphicsVulkan::EndRenderPass(CommandList *cmd)
+void mkGraphicsVulkan::EndRenderPass(CommandList cmd)
 {
     VkResult res;
     CommandListVulkan *commandList = ToInternal(cmd);
@@ -1336,7 +1721,7 @@ void mkGraphicsVulkan::EndRenderPass(CommandList *cmd)
         signalSemaphore.sType                 = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
         signalSemaphore.semaphore             = swapchain->mReleaseSemaphore;
         signalSemaphore.value                 = 0;
-        signalSemaphore.stageMask             = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+        // signalSemaphore.stageMask             = VK_PIPELINE_STAGE_2_NONE;
         signalSemaphores.push_back(signalSemaphore);
 
         submitSemaphores.push_back(swapchain->mReleaseSemaphore);
@@ -1414,12 +1799,14 @@ void mkGraphicsVulkan::EndRenderPass(CommandList *cmd)
         }
     }
 
+    // Reset the next frame
+    mFrameAllocator->mOffset.store(0);
     commandList->mEndPassImageMemoryBarriers.clear();
     commandList->mUpdateSwapchains.clear();
     Cleanup();
 }
 
-void mkGraphicsVulkan::BindPipeline(const PipelineState *ps, CommandList *cmd)
+void mkGraphicsVulkan::BindPipeline(const PipelineState *ps, CommandList cmd)
 {
     CommandListVulkan *command = ToInternal(cmd);
     command->mCurrentPipeline  = ps;

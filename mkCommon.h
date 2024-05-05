@@ -9,6 +9,7 @@
 #define COMPILER_MSVC 1
 #if defined(_WIN32)
 #define WINDOWS 1
+#define VULKAN 1
 #endif
 #endif
 

@@ -1547,10 +1547,10 @@ DLL R_INITIALIZE_BUFFER(R_InitializeBuffer)
             target = GL_UNIFORM_BUFFER;
             break;
         }
-        // case BufferType_Query:
-        // {
-        //     target = GL_QUERY_BUFFER;
-        // }
+            // case BufferType_Query:
+            // {
+            //     target = GL_QUERY_BUFFER;
+            // }
     }
     GLenum usage;
     switch (inUsageType)

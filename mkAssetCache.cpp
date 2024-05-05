@@ -290,7 +290,10 @@ internal void AS_EntryPoint(void *p)
             {
                 // If the model is reloaded while it's still in the process of loading, cancel the request. (the
                 // hotload)
-                if (AtomicCompareExchangeU32(&asset->status, AS_Status_Unloaded, AS_Status_Loaded) != AS_Status_Loaded)
+                // AtomicCompareExchangeU32(&asset->status, AS_Status_Unloaded, AS_Status_Loaded) != AS_Status_Loaded)
+
+                u32 loaded = AS_Status_Loaded;
+                if (asset->status.compare_exchange_strong(loaded, AS_Status_Unloaded))
                 {
                     continue;
                 }
@@ -415,7 +418,8 @@ JOB_CALLBACK(AS_LoadAsset)
 {
     AS_CacheState *as_state = engine->GetAssetCacheState();
     AS_Asset *asset         = (AS_Asset *)data;
-    if (AtomicCompareExchangeU32(&asset->status, AS_Status_Queued, AS_Status_Unloaded) != AS_Status_Unloaded)
+    u32 unloaded            = AS_Status_Unloaded;
+    if (!asset->status.compare_exchange_strong(unloaded, AS_Status_Queued))
     {
         return 0;
     }
@@ -492,18 +496,17 @@ JOB_CALLBACK(AS_LoadAsset)
         for (u32 i = 0; i < model->numMeshes; i++)
         {
             Mesh *mesh = &model->meshes[i];
-            mesh->surface.vertexBuffer =
-                state->vertexCache.VC_AllocateBuffer(BufferType_Vertex, BufferUsage_Static, mesh->surface.vertices,
-                                                     sizeof(mesh->surface.vertices[0]), mesh->surface.vertexCount);
-
-            mesh->surface.indexBuffer =
-                state->vertexCache.VC_AllocateBuffer(BufferType_Index, BufferUsage_Static, mesh->surface.indices,
-                                                     sizeof(mesh->surface.indices[0]), mesh->surface.indexCount);
+            // mesh->surface.vertexBuffer =
+            //     state->vertexCache.VC_AllocateBuffer(BufferType_Vertex, BufferUsage_Static, mesh->surface.vertices,
+            //                                          sizeof(mesh->surface.vertices[0]), mesh->surface.vertexCount);
+            //
+            // mesh->surface.indexBuffer =
+            //     state->vertexCache.VC_AllocateBuffer(BufferType_Index, BufferUsage_Static, mesh->surface.indices,
+            //                                          sizeof(mesh->surface.indices[0]), mesh->surface.indexCount);
             AddBounds(model->bounds, mesh->surface.bounds);
         }
 
         WriteBarrier();
-        asset->status = AS_Status_Loaded;
     }
     else if (extension == Str8Lit("anim"))
     {
@@ -528,7 +531,6 @@ JOB_CALLBACK(AS_LoadAsset)
             ConvertOffsetToPointer(buffer, &boneChannel->rotations, AnimationRotation);
         }
         WriteBarrier();
-        asset->status = AS_Status_Loaded;
     }
     else if (extension == Str8Lit("skel"))
     {
@@ -573,7 +575,6 @@ JOB_CALLBACK(AS_LoadAsset)
         asset->type     = AS_Skeleton;
         asset->skeleton = skeleton;
         WriteBarrier();
-        asset->status = AS_Status_Loaded;
     }
     else if (extension == Str8Lit("png") || extension == Str8Lit("jpeg"))
     {
@@ -656,15 +657,13 @@ JOB_CALLBACK(AS_LoadAsset)
         // {
         // }
 
-        asset->texture.handle = renderer.R_AllocateTexture(texData, width, height, format);
-        asset->status         = AS_Status_Loaded;
+        // asset->texture.handle = renderer.R_AllocateTexture(texData, width, height, format);
     }
     else if (extension == Str8Lit("ttf"))
     {
         asset->type          = AS_Font;
         u8 *buffer           = AS_GetMemory(asset);
         asset->font.fontData = F_InitializeFont(buffer);
-        asset->status        = AS_Status_Loaded;
         // FreeBlocks(node);
     }
     else if (extension == Str8Lit("vs"))
@@ -677,6 +676,7 @@ JOB_CALLBACK(AS_LoadAsset)
     {
         Assert(!"Asset type not supported");
     }
+    asset->status.store(AS_Status_Loaded);
     return 0;
 }
 
@@ -737,7 +737,7 @@ internal AS_Asset *AS_GetAssetFromHandle(AS_Handle handle)
     i32 index        = handle.i32[0];
 
     result = as_state->assets[index];
-    if (result->generation != handle.i32[1] || result->status != AS_Status_Loaded)
+    if (result->generation != handle.i32[1] || result->status.load() != AS_Status_Loaded)
     {
         result = 0;
     }

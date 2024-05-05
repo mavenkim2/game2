@@ -1,4 +1,4 @@
-#include "mkCrack.h"
+#include "../mkCrack.h"
 
 #ifdef LSP_INCLUDE
 #include "../keepmovingforward_math.h"
@@ -216,7 +216,7 @@ internal void D_Init()
         }
     }
 
-    state->vertexCache.VC_Init();
+    // state->vertexCache.VC_Init();
     RenderFrameDataInit();
 
     d_state->frameStartPos = ArenaPos(arena);
@@ -1068,6 +1068,7 @@ internal void R_CascadedShadowMap(const ViewLight *inLight, Mat4 *outLightViewPr
     }
 }
 
+using namespace graphics;
 namespace render
 {
 
@@ -1077,16 +1078,59 @@ enum InputLayoutTypes
     IL_Type_Count,
 };
 
-enum Shader
-{
+Swapchain swapchain;
+PipelineState pipelineState;
 
-};
+graphics::GPUBuffer ubo;
+graphics::GPUBuffer vbo;
+graphics::GPUBuffer ibo;
 
 InputLayout inputLayouts[IL_Type_Count];
+Shader shaders[ShaderType_Count];
 
-internal void InitializeShaders()
+internal void Initialize()
 {
-    // Initialize
+    // Initialize swap chain
+    {
+        SwapchainDesc desc;
+        desc.width  = (u32)platform.OS_GetWindowDimension(shared->windowHandle).x;
+        desc.height = (u32)platform.OS_GetWindowDimension(shared->windowHandle).y;
+        desc.format = graphics::Format::B8G8R8A8_UNORM;
+
+        device->CreateSwapchain((Window)shared->windowHandle.handle, &desc, &swapchain);
+    }
+
+    // Initialize buffers
+    {
+        GPUBufferDesc desc;
+        desc.mSize  = kilobytes(4);
+        desc.mFlags = BindFlag_Uniform;
+        device->CreateBuffer(&ubo, desc, 0);
+
+        G_State *g_state = engine->GetGameState();
+        AS_Asset *asset  = AS_GetAssetFromHandle(g_state->model);
+
+        while (asset == 0)
+        {
+            _mm_pause(); // yield
+            asset = AS_GetAssetFromHandle(g_state->model);
+        }
+
+        Mesh *mesh  = &asset->model.meshes[0];
+        desc.mSize  = sizeof(*mesh->surface.vertices) * mesh->surface.vertexCount;
+        desc.mFlags = BindFlag_Vertex;
+        device->CreateBuffer(&vbo, desc, mesh->surface.vertices);
+
+        desc.mSize  = sizeof(*mesh->surface.indices) * mesh->surface.indexCount;
+        desc.mFlags = BindFlag_Index;
+        device->CreateBuffer(&ibo, desc, mesh->surface.indices);
+    }
+
+    // Initialize shaders
+    shaders[VS_TEST].mName = "src/shaders/triangle_test_vert.spv";
+    shaders[FS_TEST].mName = "src/shaders/triangle_test_frag.spv";
+
+    // Initialize input layouts
     InputLayout &inputLayout = inputLayouts[IL_Type_MeshVertex];
     inputLayout.mElements    = {
         Format::R32G32B32_SFLOAT, Format::R32G32B32_SFLOAT, Format::R32G32_SFLOAT, Format::R32G32B32_SFLOAT,
@@ -1095,6 +1139,60 @@ internal void InitializeShaders()
     inputLayout.mBinding = 0;
     inputLayout.mStride  = sizeof(MeshVertex);
     inputLayout.mRate    = InputRate::Vertex;
+
+    PipelineStateDesc desc;
+    desc.mVS = &shaders[VS_TEST];
+    desc.mFS = &shaders[FS_TEST];
+    desc.mInputLayouts.push_back(inputLayouts[IL_Type_MeshVertex]);
+
+    device->CreateShader(&desc, &pipelineState);
+}
+
+internal void Render()
+{
+    G_State *g_state         = engine->GetGameState();
+    RenderState *renderState = engine->GetRenderState();
+
+    Mesh *mesh = &GetModel(g_state->model)->meshes[0];
+
+    CommandList cmdList = device->BeginCommandList(QueueType_Graphics);
+
+    Mat4 translate = Translate4(V3{0, 20, -30});
+    Mat4 scale     = Scale(V3{0.5f, 0.5f, 0.5f});
+    Mat4 rotate    = Rotate4(MakeV3(1, 0, 0), PI / 2);
+    Mat4 transform = translate * rotate * scale;
+    transform      = renderState->transform * transform;
+
+    device->FrameAllocate(&ubo, transform.elements[0], cmdList);
+    GPUBarrier barrier;
+    barrier.mType     = GPUBarrier::Type::Buffer;
+    barrier.mResource = &ubo;
+    barrier.mBefore   = ResourceState_TransferSrc;
+    barrier.mAfter    = ResourceState_UniformBuffer;
+    device->Barrier(cmdList, &barrier, 1);
+
+    device->BeginRenderPass(&swapchain, cmdList);
+
+    Viewport viewport;
+    viewport.width  = (f32)swapchain.GetDesc().width;
+    viewport.height = (f32)swapchain.GetDesc().height;
+
+    device->BindPipeline(&pipelineState, cmdList);
+
+    device->UpdateDescriptorSet(cmdList, &ubo);
+    device->BindVertexBuffer(cmdList, &vbo);
+    device->BindIndexBuffer(cmdList, &ibo);
+
+    device->SetViewport(cmdList, &viewport);
+    Rect2 scissor;
+    scissor.minP = {0, 0};
+    scissor.maxP = {65536, 65536};
+
+    device->SetScissor(cmdList, scissor);
+
+    device->DrawIndexed(cmdList, mesh->surface.indexCount, 0, 0);
+    device->EndRenderPass(cmdList);
+    device->WaitForGPU();
 }
 
 } // namespace render

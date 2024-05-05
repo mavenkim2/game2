@@ -8,7 +8,11 @@
 #include "mkPlatformInc.h"
 #include "mkThreadContext.h"
 #include "render/mkRenderCore.h"
+#include "mkList.h"
+#include "render/mkGraphics.h"
+
 #include "mkShared.h"
 
-#include "mkList.h"
+#if VULKAN
 #include "render/mkGraphicsVulkan.h"
+#endif

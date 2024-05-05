@@ -124,7 +124,7 @@ internal F_RasterInfo *F_Raster(Font *font, F_StyleNode *node, string str)
         info->advance = (i32)(advance * node->scale);
         if (width != 0 && height != 0)
         {
-            info->handle = renderer.R_AllocateTexture(outBitmap, width, height, R_TexFormat_RGBA8); // R_TexFormat_R8);
+            // info->handle = renderer.R_AllocateTexture(outBitmap, width, height, R_TexFormat_RGBA8); // R_TexFormat_R8);
         }
     }
     return info;

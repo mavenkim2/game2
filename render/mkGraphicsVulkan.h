@@ -1,3 +1,6 @@
+#ifndef MK_GRAPHICS_VULKAN_H
+#define MK_GRAPHICS_VULKAN_H
+
 #include "../mkCrack.h"
 #ifdef LSP_INCLUDE
 #include "../mkCommon.h"
@@ -23,6 +26,7 @@ namespace graphics
 struct mkGraphicsVulkan : mkGraphics
 {
     Arena *mArena;
+    Mutex mArenaMutex = {};
 
     //////////////////////////////
     // API State
@@ -113,9 +117,14 @@ struct mkGraphicsVulkan : mkGraphics
         list<VkSemaphore> mAcquireSemaphores;
         VkSemaphore mReleaseSemaphore = VK_NULL_HANDLE;
 
-        u32 mAcquireSemaphoreIndex;
+        u32 mAcquireSemaphoreIndex = 0;
         u32 mImageIndex;
     };
+
+    //////////////////////////////
+    // Descriptors
+    //
+    VkDescriptorPool mPool;
 
     //////////////////////////////
     // Pipelines
@@ -125,6 +134,9 @@ struct mkGraphicsVulkan : mkGraphics
     struct PipelineStateVulkan
     {
         VkPipeline mPipeline;
+        list<VkDescriptorSetLayout> mDescriptorSetLayouts;
+        list<VkDescriptorSet> mDescriptorSets;
+        VkPipelineLayout mPipelineLayout;
     };
 
     //////////////////////////////
@@ -136,9 +148,22 @@ struct mkGraphicsVulkan : mkGraphics
         VmaAllocation mAllocation;
     };
 
+    // Frame allocators
+    struct FrameData
+    {
+        GPUBuffer mBuffer;
+        std::atomic<u64> mOffset = 0;
+        u64 mTotalSize           = 0;
+        u32 mAlignment           = 0;
+    } mFrameAllocator[cNumBuffers];
+
+    // The gpu buffer should already be created
+    void FrameAllocate(GPUBuffer *inBuf, void *inData, CommandList cmd, u64 inSize = ~0, u64 inOffset = 0);
+
     //////////////////////////////
     // Allocation/Deferred cleanup
     //
+
     VmaAllocator mAllocator;
     Mutex mCleanupMutex = {};
     list<VkSemaphore> mCleanupSemaphores;
@@ -153,9 +178,9 @@ struct mkGraphicsVulkan : mkGraphics
         return (SwapchainVulkan *)(swapchain->internalState);
     }
 
-    CommandListVulkan *ToInternal(CommandList *commandlist)
+    CommandListVulkan *ToInternal(CommandList commandlist)
     {
-        return (CommandListVulkan *)(commandlist->internalState);
+        return (CommandListVulkan *)(commandlist.internalState);
     }
 
     PipelineStateVulkan *ToInternal(const PipelineState *ps)
@@ -169,17 +194,26 @@ struct mkGraphicsVulkan : mkGraphics
     }
 
     mkGraphicsVulkan(OS_Handle window, ValidationMode validationMode, GPUDevicePreference preference);
-    b32 CreateSwapchain(Window window, Instance instance, SwapchainDesc *desc, Swapchain *swapchain) override;
+    b32 CreateSwapchain(Window window, SwapchainDesc *desc, Swapchain *swapchain) override;
     void CreateShader(PipelineStateDesc *inDesc, PipelineState *outPS) override;
     void CreateBuffer(GPUBuffer *inBuffer, GPUBufferDesc inDesc, void *inData) override;
-    virtual CommandList BeginCommandList(QueueType queue) override;
-    void BeginRenderPass(Swapchain *inSwapchain, CommandList *inCommandList) override;
-    void Draw(CommandList *cmd, u32 vertexCount, u32 firstVertex) override;
-    void SetViewport(CommandList *cmd, Viewport *viewport) override;
-    void SetScissor(CommandList *cmd, Rect2 scissor) override;
-    void EndRenderPass(CommandList *cmd) override;
-    void BindPipeline(const PipelineState *ps, CommandList *cmd) override;
+    void UpdateBuffer(GPUBuffer *inBuffer, void *inData);
+    void UpdateDescriptorSet(CommandList cmd, GPUBuffer *buffer);
+    CommandList BeginCommandList(QueueType queue) override;
+    void BeginRenderPass(Swapchain *inSwapchain, CommandList inCommandList) override;
+    void Draw(CommandList cmd, u32 vertexCount, u32 firstVertex) override;
+    void DrawIndexed(CommandList cmd, u32 indexCount, u32 firstVertex, u32 baseVertex);
+
+    // TODO: specify these in the command list or something
+    void BindVertexBuffer(CommandList cmd, GPUBuffer *buffer) override;
+    void BindIndexBuffer(CommandList cmd, GPUBuffer *buffer) override;
+    void SetViewport(CommandList cmd, Viewport *viewport) override;
+    void SetScissor(CommandList cmd, Rect2 scissor) override;
+    void EndRenderPass(CommandList cmd) override;
+    void BindPipeline(const PipelineState *ps, CommandList cmd) override;
     void WaitForGPU() override;
+
+    void Barrier(CommandList cmd, GPUBarrier *barriers, u32 count) override;
 
 private:
     b32 CreateSwapchain(Swapchain *inSwapchain);
@@ -190,9 +224,12 @@ private:
     Mutex mTransferMutex = {};
     struct TransferCommand
     {
-        VkCommandPool mCmdPool     = VK_NULL_HANDLE; // command pool to issue transfer request
-        VkCommandBuffer mCmdBuffer = VK_NULL_HANDLE;
-        VkFence mFence             = VK_NULL_HANDLE; // signals cpu that transfer is complete
+        VkCommandPool mCmdPool                       = VK_NULL_HANDLE; // command pool to issue transfer request
+        VkCommandBuffer mCmdBuffer                   = VK_NULL_HANDLE;
+        VkCommandPool mTransitionPool                = VK_NULL_HANDLE; // command pool to issue transfer request
+        VkCommandBuffer mTransitionBuffer            = VK_NULL_HANDLE;
+        VkFence mFence                               = VK_NULL_HANDLE; // signals cpu that transfer is complete
+        VkSemaphore mSemaphores[QueueType_Count - 1] = {};             // graphics, compute
         GPUBuffer mUploadBuffer;
 
         const b32 IsValid()
@@ -207,3 +244,5 @@ private:
 };
 
 } // namespace graphics
+
+#endif

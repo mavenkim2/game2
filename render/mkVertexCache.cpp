@@ -4,6 +4,7 @@
 #include "vertex_cache.h"
 #endif
 
+#if 0
 void VertexCacheState::VC_Init()
 {
     VertexCache *staticCache = &mStaticData;
@@ -256,3 +257,4 @@ inline u64 VertexCacheState::GetSize(VC_Handle handle)
     u64 size = (u64)((handle >> VERTEX_CACHE_SIZE_SHIFT) & VERTEX_CACHE_SIZE_MASK);
     return size;
 }
+#endif
