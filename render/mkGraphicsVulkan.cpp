@@ -1576,6 +1576,7 @@ void mkGraphicsVulkan::BeginRenderPass(Swapchain *inSwapchain, CommandList inCom
     barrier.newLayout                       = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     barrier.srcStageMask                    = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
     barrier.dstStageMask                    = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
+    barrier.srcAccessMask                   = VK_ACCESS_2_NONE;
     barrier.dstAccessMask                   = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
     barrier.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
     barrier.subresourceRange.baseMipLevel   = 0;
@@ -1721,7 +1722,7 @@ void mkGraphicsVulkan::EndRenderPass(CommandList cmd)
         signalSemaphore.sType                 = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
         signalSemaphore.semaphore             = swapchain->mReleaseSemaphore;
         signalSemaphore.value                 = 0;
-        // signalSemaphore.stageMask             = VK_PIPELINE_STAGE_2_NONE;
+        signalSemaphore.stageMask             = VK_PIPELINE_STAGE_2_NONE;
         signalSemaphores.push_back(signalSemaphore);
 
         submitSemaphores.push_back(swapchain->mReleaseSemaphore);
@@ -1745,7 +1746,10 @@ void mkGraphicsVulkan::EndRenderPass(CommandList cmd)
     submitInfo.pCommandBufferInfos      = &bufferInfo;
 
     // Submit the command buffers to the graphics queue
-    vkQueueSubmit2(mQueues[QueueType_Graphics].mQueue, 1, &submitInfo, mFrameFences[GetCurrentBuffer()][QueueType_Graphics]);
+    MutexScope(&mQueues[QueueType_Graphics].mLock)
+    {
+        vkQueueSubmit2(mQueues[QueueType_Graphics].mQueue, 1, &submitInfo, mFrameFences[GetCurrentBuffer()][QueueType_Graphics]);
+    }
 
     // Present the swap chain image. This waits for the queue submission to finish.
     {

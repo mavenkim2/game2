@@ -1280,8 +1280,11 @@ inline Mat4 Perspective4(f32 fov, f32 aspectRatio, f32 nearZ, f32 farZ, b32 lh =
     result.elements[1][1] = cotangent;
     result.elements[2][3] = -1.f;
 
-    result.elements[2][2] = -(nearZ + farZ) / depth;
-    result.elements[3][2] = -(2.f * nearZ * farZ) / depth;
+    // result.elements[2][2] = -(nearZ + farZ) / depth;
+    // result.elements[3][2] = -(2.f * nearZ * farZ) / depth;
+    // result.elements[2][2] = -farZ / depth;
+    result.elements[2][2] = farZ / depth;
+    result.elements[3][2] = -(nearZ * farZ) / depth;
 
     // Converts to right handed clip space (vulkan)
     if (lh == 0)
