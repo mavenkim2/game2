@@ -3,8 +3,9 @@
 #include "mkMemory.h"
 #include "mkString.h"
 #include "mkList.h"
-
 #include "mkPlatformInc.h"
+
+#include "render/mkGraphics.h"
 #include "mkInput.h"
 #include "mkThreadContext.h"
 #include "mkJob.h"
@@ -15,16 +16,14 @@
 #include "mkAsset.h"
 #include "mkFont.h"
 #include "mkAssetCache.h"
-#include "render/mkVertexCache.h"
+// #include "render/mkVertexCache.h"
 #include "render/mkRender.h"
-#include "render/mkGraphics.h"
 #include "mkShared.h"
 #include "render/mkRendererapi.h"
 
 #include "mkDebug.h"
 #include "mkEntity.h"
 #include "mkLevel.h"
-
 
 //////////////////////////////
 // Input
@@ -177,7 +176,6 @@ struct G_State
     AS_Handle font;
 
     Heightmap heightmap;
-
 };
 
 PlatformApi platform;

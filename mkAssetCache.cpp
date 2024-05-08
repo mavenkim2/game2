@@ -16,6 +16,7 @@
 #include "asset_cache.h"
 #include "./offline/asset_processing.h"
 #include "font.h"
+#include "render/mkGraphics.h"
 #endif
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -496,13 +497,16 @@ JOB_CALLBACK(AS_LoadAsset)
         for (u32 i = 0; i < model->numMeshes; i++)
         {
             Mesh *mesh = &model->meshes[i];
-            // mesh->surface.vertexBuffer =
-            //     state->vertexCache.VC_AllocateBuffer(BufferType_Vertex, BufferUsage_Static, mesh->surface.vertices,
-            //                                          sizeof(mesh->surface.vertices[0]), mesh->surface.vertexCount);
-            //
-            // mesh->surface.indexBuffer =
-            //     state->vertexCache.VC_AllocateBuffer(BufferType_Index, BufferUsage_Static, mesh->surface.indices,
-            //                                          sizeof(mesh->surface.indices[0]), mesh->surface.indexCount);
+
+            graphics::GPUBufferDesc desc;
+            desc.mSize          = sizeof(mesh->surface.vertices[0]) * mesh->surface.vertexCount;
+            desc.mResourceUsage = graphics::ResourceUsage_VertexBuffer;
+            device->CreateBuffer(&mesh->surface.mVertexBuffer, desc, mesh->surface.vertices);
+
+            desc.mSize          = sizeof(mesh->surface.indices[0]) * mesh->surface.indexCount;
+            desc.mResourceUsage = graphics::ResourceUsage_IndexBuffer;
+            device->CreateBuffer(&mesh->surface.mIndexBuffer, desc, mesh->surface.indices);
+
             AddBounds(model->bounds, mesh->surface.bounds);
         }
 
@@ -579,28 +583,33 @@ JOB_CALLBACK(AS_LoadAsset)
     else if (extension == Str8Lit("png") || extension == Str8Lit("jpeg"))
     {
         asset->type = AS_Texture;
+
+        graphics::Format format = graphics::Format::R8G8B8A8_UNORM;
+
         if (FindSubstring(asset->path, Str8Lit("diffuse"), 0, MatchFlag_CaseInsensitive) != asset->path.size)
         {
-            asset->texture.type = TextureType_Diffuse;
+            format = graphics::Format::R8G8B8A8_SRGB;
+            // asset->texture.type = TextureType_Diffuse;
         }
-        else if (FindSubstring(asset->path, Str8Lit("normal"), 0, MatchFlag_CaseInsensitive) != asset->path.size)
-        {
-            asset->texture.type = TextureType_Normal;
-        }
-        else if (FindSubstring(asset->path, Str8Lit("metallic"), 0, MatchFlag_CaseInsensitive) != asset->path.size)
-        {
-            asset->texture.type = TextureType_MR;
-        }
-        // else if (FindSubstring(asset->path, Str8Lit("height"), 0, MatchFlag_CaseInsensitive) != aset->path.size)
+        // else if (FindSubstring(asset->path, Str8Lit("normal"), 0, MatchFlag_CaseInsensitive) != asset->path.size)
+        // {
+        //     asset->texture.type = TextureType_Normal;
+        // }
+        // else if (FindSubstring(asset->path, Str8Lit("metallic"), 0, MatchFlag_CaseInsensitive) != asset->path.size)
+        // {
+        //     asset->texture.type = TextureType_MR;
+        // }
+        // else if (FindSubstring(asset->path, Str8Lit("height"), 0, MatchFlag_CaseInsensitive) != asset->path.size)
         // {
         // }
 
         i32 width, height, nComponents;
         void *texData =
-            stbi_load_from_memory(AS_GetMemory(asset), (i32)asset->size, &width, &height, &nComponents, 0);
+            stbi_load_from_memory(AS_GetMemory(asset), (i32)asset->size, &width, &height, &nComponents, 4);
 
         Assert(nComponents >= 1);
 
+#if 0
         R_TexFormat format;
         switch (nComponents)
         {
@@ -649,9 +658,18 @@ JOB_CALLBACK(AS_LoadAsset)
             }
             default: Assert(!"Invalid default");
         }
+#endif
 
-        asset->texture.width  = width;
-        asset->texture.height = height;
+        graphics::TextureDesc desc;
+        desc.mWidth         = width;
+        desc.mHeight        = height;
+        desc.mFormat        = format;
+        desc.mResourceUsage = graphics::ResourceUsage_SampledTexture;
+        desc.mTextureType   = graphics::TextureDesc::TextureType::Texture2D;
+
+        device->CreateTexture(&asset->texture, desc, texData);
+
+        stbi_image_free(texData);
 
         // switch (nComponents):
         // {
@@ -858,10 +876,10 @@ internal LoadedSkeleton *GetSkeleton(AS_Handle handle)
     return result;
 }
 
-internal Texture *GetTexture(AS_Handle handle)
+internal graphics::Texture *GetTexture(AS_Handle handle)
 {
-    AS_Asset *asset = AS_GetAssetFromHandle(handle);
-    Texture *result = &textureNil;
+    AS_Asset *asset           = AS_GetAssetFromHandle(handle);
+    graphics::Texture *result = 0;
     if (asset)
     {
         Assert(asset->type == AS_Texture);
@@ -900,12 +918,12 @@ internal KeyframedAnimation *GetAnim(AS_Handle handle)
     return result;
 }
 
-internal R_Handle GetTextureRenderHandle(AS_Handle input)
-{
-    Texture *texture = GetTexture(input);
-    R_Handle handle  = texture->handle;
-    return handle;
-}
+// internal R_Handle GetTextureRenderHandle(AS_Handle input)
+// {
+//     graphics::Texture *texture = GetTexture(input);
+//     R_Handle handle            = texture->handle;
+//     return handle;
+// }
 
 // TODO: similar function that tries to get it from the hash first before loading it smiley face :)
 inline b32 IsModelHandleNil(AS_Handle handle)

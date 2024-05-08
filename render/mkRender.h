@@ -454,7 +454,7 @@ struct RenderState
     Mat4 inverseViewProjection; // convert from clip space to world space
 
     // Vertex cache
-    VertexCacheState vertexCache;
+    // VertexCacheState vertexCache;
 
     // Frame cache
     R_FrameState renderFrameState;

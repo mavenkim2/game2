@@ -286,7 +286,7 @@ struct AS_Asset
     union
     {
         LoadedSkeleton skeleton;
-        Texture texture;
+        graphics::Texture texture;
         LoadedModel model;
         KeyframedAnimation *anim;
         Font font;
@@ -326,7 +326,7 @@ internal void AS_UnloadAsset(AS_Asset *asset);
 //
 global readonly LoadedSkeleton skeletonNil;
 global readonly LoadedModel modelNil;
-global readonly Texture textureNil;
+global readonly graphics::Texture textureNil;
 global readonly KeyframedAnimation animNil;
 global readonly Font fontNil;
 
@@ -342,8 +342,8 @@ internal LoadedSkeleton *GetSkeleton(AS_Handle handle);
 internal LoadedSkeleton *GetSkeletonFromModel(AS_Handle handle);
 internal KeyframedAnimation *GetAnim(AS_Handle handle);
 internal LoadedModel *GetModel(AS_Handle handle);
-internal Texture *GetTexture(AS_Handle handle);
-internal R_Handle GetTextureRenderHandle(AS_Handle input);
+internal graphics::Texture *GetTexture(AS_Handle handle);
+// internal R_Handle GetTextureRenderHandle(AS_Handle input);
 inline AS_Handle AS_LoadAssetFile(string filename);
 inline b8 IsAnimNil(KeyframedAnimation *anim);
 inline b8 IsFontNil(Font *font)

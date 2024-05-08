@@ -1271,7 +1271,7 @@ inline Mat4 Translate4(V3 value)
     return result;
 }
 
-inline Mat4 Perspective4(f32 fov, f32 aspectRatio, f32 nearZ, f32 farZ, b32 lh = 0)
+inline Mat4 Perspective4(f32 fov, f32 aspectRatio, f32 nearZ, f32 farZ, b32 lh = 0, b32 zeroToOne = 1)
 {
     Mat4 result           = {};
     f32 cotangent         = 1.f / Tan(fov / 2);
@@ -1280,17 +1280,25 @@ inline Mat4 Perspective4(f32 fov, f32 aspectRatio, f32 nearZ, f32 farZ, b32 lh =
     result.elements[1][1] = cotangent;
     result.elements[2][3] = -1.f;
 
-    // result.elements[2][2] = -(nearZ + farZ) / depth;
-    // result.elements[3][2] = -(2.f * nearZ * farZ) / depth;
-    // result.elements[2][2] = -farZ / depth;
-    result.elements[2][2] = farZ / depth;
-    result.elements[3][2] = -(nearZ * farZ) / depth;
+    if (zeroToOne)
+    {
+        result.elements[2][2] = -farZ / depth;
+        result.elements[3][2] = -(nearZ * farZ) / depth;
+    }
+    else
+    {
+        result.elements[2][2] = -(nearZ + farZ) / depth;
+        result.elements[3][2] = -(2.f * nearZ * farZ) / depth;
+    }
 
     // Converts to right handed clip space (vulkan)
     if (lh == 0)
     {
+        // no longer flip n and f, rotate view matrix so that it aligns with ndc axis
+        result.elements[2][2] = farZ / depth;
         result.elements[2][3] = 1.f;
-        result                = result * Rotate4({1, 0, 0}, PI);
+        // x right, y down, z into screen
+        result = result * Rotate4({1, 0, 0}, PI);
     }
     return result;
 }

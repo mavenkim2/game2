@@ -436,6 +436,7 @@ internal void SkinModelToBindPose(AS_Handle model, Mat4 *finalTransforms)
     ScratchEnd(temp);
 }
 
+#if 0
 internal Heightmap CreateHeightmap(string filename)
 {
     TempArena temp  = ScratchStart(0, 0);
@@ -503,6 +504,7 @@ internal Heightmap CreateHeightmap(string filename)
     ScratchEnd(temp);
     return result;
 }
+#endif
 
 #if 0
 // NOTE: array of nodes, each with a parent index and a name

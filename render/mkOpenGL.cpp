@@ -2082,16 +2082,3 @@ internal void GenerateIBLFromHDR(GLuint *outCubeMap, GLuint *outIrradianceMap, G
     openGL->glDeleteFramebuffers(1, &captureFbo);
     openGL->glDeleteRenderbuffers(1, &captureRbo);
 }
-
-//////////////////////////////
-// Tex parameters
-//
-
-// enum TexParams
-// {
-//     TexParams_Nearest,
-//     TexParams_Linear,
-//     TexParams_Repeat,
-//     TexParams_Clamp,
-//     TexParams_ClampToBorder
-// };

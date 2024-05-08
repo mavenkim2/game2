@@ -76,7 +76,17 @@ struct mkGraphicsVulkan : mkGraphics
         list<VkImageMemoryBarrier2> mEndPassImageMemoryBarriers;
         list<Swapchain> mUpdateSwapchains;
 
-        const VkCommandBuffer GetCommandBuffer() const
+        // Descriptor bindings
+        GPUResource mResourceTable[cMaxBindings];
+
+        // Descriptor set
+        // VkDescriptorSet mDescriptorSets[cNumBuffers][QueueType_Count];
+        list<VkDescriptorSet> mDescriptorSets[cNumBuffers];
+        u32 mCurrentSet = 0;
+        // b32 mIsDirty[cNumBuffers][QueueType_Count] = {};
+
+        const VkCommandBuffer
+        GetCommandBuffer() const
         {
             return mCommandBuffers[mCurrentBuffer][mCurrentQueue];
         }
@@ -131,11 +141,15 @@ struct mkGraphicsVulkan : mkGraphics
     //
     list<VkDynamicState> mDynamicStates;
     VkPipelineDynamicStateCreateInfo mDynamicStateInfo;
+
+    // TODO: the descriptor sets shouldn't be here.
     struct PipelineStateVulkan
     {
         VkPipeline mPipeline;
-        list<VkDescriptorSetLayout> mDescriptorSetLayouts;
+        list<VkDescriptorSetLayoutBinding> mLayoutBindings;
+        list<VkDescriptorSetLayout> mDescriptorSetLayouts; // TODO: this is just one
         list<VkDescriptorSet> mDescriptorSets;
+        // u32 mCurrentSet = 0;
         VkPipelineLayout mPipelineLayout;
     };
 
@@ -147,6 +161,34 @@ struct mkGraphicsVulkan : mkGraphics
         VkBuffer mBuffer;
         VmaAllocation mAllocation;
     };
+
+    //////////////////////////////
+    // Textures/Samplers
+    //
+
+    struct TextureVulkan
+    {
+        VkImage mImage            = VK_NULL_HANDLE;
+        VkImageView mImageView    = VK_NULL_HANDLE;
+        VmaAllocation mAllocation = VK_NULL_HANDLE;
+    };
+
+    struct SamplerVulkan
+    {
+        VkSampler mSampler;
+    };
+
+    //////////////////////////////
+    // Allocation/Deferred cleanup
+    //
+
+    VmaAllocator mAllocator;
+    Mutex mCleanupMutex = {};
+    list<VkSemaphore> mCleanupSemaphores;
+    list<VkSwapchainKHR> mCleanupSwapchains;
+    list<VkImageView> mCleanupImageViews;
+
+    void Cleanup();
 
     // Frame allocators
     struct FrameData
@@ -161,18 +203,8 @@ struct mkGraphicsVulkan : mkGraphics
     void FrameAllocate(GPUBuffer *inBuf, void *inData, CommandList cmd, u64 inSize = ~0, u64 inOffset = 0);
 
     //////////////////////////////
-    // Allocation/Deferred cleanup
-    //
-
-    VmaAllocator mAllocator;
-    Mutex mCleanupMutex = {};
-    list<VkSemaphore> mCleanupSemaphores;
-    list<VkSwapchainKHR> mCleanupSwapchains;
-    list<VkImageView> mCleanupImageViews;
-
-    void Cleanup();
-
     // Functions
+    //
     SwapchainVulkan *ToInternal(Swapchain *swapchain)
     {
         return (SwapchainVulkan *)(swapchain->internalState);
@@ -193,19 +225,28 @@ struct mkGraphicsVulkan : mkGraphics
         return (GPUBufferVulkan *)(gb->internalState);
     }
 
+    TextureVulkan *ToInternal(Texture *texture)
+    {
+        return (TextureVulkan *)(texture->internalState);
+    }
+
     mkGraphicsVulkan(OS_Handle window, ValidationMode validationMode, GPUDevicePreference preference);
     b32 CreateSwapchain(Window window, SwapchainDesc *desc, Swapchain *swapchain) override;
     void CreateShader(PipelineStateDesc *inDesc, PipelineState *outPS) override;
     void CreateBuffer(GPUBuffer *inBuffer, GPUBufferDesc inDesc, void *inData) override;
+    void CreateTexture(Texture *outTexture, TextureDesc desc, void *inData) override;
+    void CreateSampler(Sampler *sampler, SamplerDesc desc) override;
+    void BindResource(GPUResource *resource, u32 slot, CommandList cmd) override;
+    void CreateSubresource(Texture *texture) override;
     void UpdateBuffer(GPUBuffer *inBuffer, void *inData);
-    void UpdateDescriptorSet(CommandList cmd, GPUBuffer *buffer);
+    void UpdateDescriptorSet(CommandList cmd);
     CommandList BeginCommandList(QueueType queue) override;
     void BeginRenderPass(Swapchain *inSwapchain, CommandList inCommandList) override;
     void Draw(CommandList cmd, u32 vertexCount, u32 firstVertex) override;
     void DrawIndexed(CommandList cmd, u32 indexCount, u32 firstVertex, u32 baseVertex);
 
     // TODO: specify these in the command list or something
-    void BindVertexBuffer(CommandList cmd, GPUBuffer *buffer) override;
+    void BindVertexBuffer(CommandList cmd, GPUBuffer **buffers, u32 count = 1, u32 *offsets = 0) override;
     void BindIndexBuffer(CommandList cmd, GPUBuffer *buffer) override;
     void SetViewport(CommandList cmd, Viewport *viewport) override;
     void SetScissor(CommandList cmd, Rect2 scissor) override;
@@ -215,7 +256,11 @@ struct mkGraphicsVulkan : mkGraphics
 
     void Barrier(CommandList cmd, GPUBarrier *barriers, u32 count) override;
 
+    void SetName(GPUResource *resource, const char *name) override;
+    void SetName(u64 handle, GraphicsObjectType type, const char *name) override;
+
 private:
+    const i32 cPoolSize = 32;
     b32 CreateSwapchain(Swapchain *inSwapchain);
 
     //////////////////////////////
@@ -241,6 +286,19 @@ private:
 
     TransferCommand Stage(u64 size);
     void Submit(TransferCommand cmd);
+
+    //////////////////////////////
+    // Default samplers
+    //
+    VkSampler mNullSampler;
+    VkSampler mLinearSampler;
+
+    VkImage mNullImage2D;
+    VmaAllocation mNullImage2DAllocation;
+    VkImageView mNullImageView2D;
+
+    VkBuffer mNullBuffer;
+    VmaAllocation mNullBufferAllocation;
 };
 
 } // namespace graphics

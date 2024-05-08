@@ -264,6 +264,7 @@ internal void D_BeginFrame()
     }
 }
 
+#if 0
 internal void D_EndFrame()
 {
     RenderState *renderState = engine->GetRenderState();
@@ -293,6 +294,7 @@ internal void D_EndFrame()
     renderState->vertexCache.VC_BeginGPUSubmit();
     R_SwapFrameData();
 }
+#endif
 
 global Rect3 BoundsUnitCube = {{-1, -1, -1}, {1, 1, 1}};
 
@@ -386,6 +388,7 @@ internal void D_PushHeightmap(Heightmap heightmap)
 // threaded, similar to what we have now. right now the way the renderer works is that there's a permanent render
 // state global, and each frame the simulation/game sends data to the render pass to use, etc etc
 // yadda yadda.
+#if 0
 internal void D_PushModel(VC_Handle vertexBuffer, VC_Handle indexBuffer, Mat4 transform)
 {
     D_State *d_state       = engine->GetDrawState();
@@ -448,8 +451,8 @@ internal void D_PushModel(AS_Handle loadedModel, Mat4 transform, Mat4 &mvp, Mat4
             Mesh *mesh         = &model->meshes[i];
             D_Surface *surface = &surfaces[i];
 
-            surface->vertexBuffer = mesh->surface.vertexBuffer;
-            surface->indexBuffer  = mesh->surface.indexBuffer;
+            surface->vertexBuffer = mesh->surface.mVertexBuffer;
+            surface->indexBuffer  = mesh->surface.mIndexBuffer;
 
             // TODO: ptr or copy?
             surface->material = &mesh->material;
@@ -529,6 +532,7 @@ internal R_MeshPreparedDrawParams *D_PrepareMeshes(R_MeshParamsNode *head, i32 i
     }
     return drawParams;
 }
+#endif
 
 internal void R_SetupViewFrustum()
 {
@@ -1103,27 +1107,9 @@ internal void Initialize()
     // Initialize buffers
     {
         GPUBufferDesc desc;
-        desc.mSize  = kilobytes(4);
-        desc.mFlags = BindFlag_Uniform;
+        desc.mSize          = kilobytes(4);
+        desc.mResourceUsage = ResourceUsage_UniformBuffer;
         device->CreateBuffer(&ubo, desc, 0);
-
-        G_State *g_state = engine->GetGameState();
-        AS_Asset *asset  = AS_GetAssetFromHandle(g_state->model);
-
-        while (asset == 0)
-        {
-            _mm_pause(); // yield
-            asset = AS_GetAssetFromHandle(g_state->model);
-        }
-
-        Mesh *mesh  = &asset->model.meshes[0];
-        desc.mSize  = sizeof(*mesh->surface.vertices) * mesh->surface.vertexCount;
-        desc.mFlags = BindFlag_Vertex;
-        device->CreateBuffer(&vbo, desc, mesh->surface.vertices);
-
-        desc.mSize  = sizeof(*mesh->surface.indices) * mesh->surface.indexCount;
-        desc.mFlags = BindFlag_Index;
-        device->CreateBuffer(&ibo, desc, mesh->surface.indices);
     }
 
     // Initialize shaders
@@ -1153,7 +1139,8 @@ internal void Render()
     G_State *g_state         = engine->GetGameState();
     RenderState *renderState = engine->GetRenderState();
 
-    Mesh *mesh = &GetModel(g_state->model)->meshes[0];
+    LoadedModel *model = GetModel(g_state->model);
+    // Mesh *mesh         = &GetModel(g_state->model)->meshes[0];
 
     CommandList cmdList = device->BeginCommandList(QueueType_Graphics);
 
@@ -1167,8 +1154,8 @@ internal void Render()
     GPUBarrier barrier;
     barrier.mType     = GPUBarrier::Type::Buffer;
     barrier.mResource = &ubo;
-    barrier.mBefore   = ResourceState_TransferSrc;
-    barrier.mAfter    = ResourceState_UniformBuffer;
+    barrier.mBefore   = ResourceUsage_TransferSrc;
+    barrier.mAfter    = ResourceUsage_UniformBuffer;
     device->Barrier(cmdList, &barrier, 1);
 
     device->BeginRenderPass(&swapchain, cmdList);
@@ -1179,9 +1166,7 @@ internal void Render()
 
     device->BindPipeline(&pipelineState, cmdList);
 
-    device->UpdateDescriptorSet(cmdList, &ubo);
-    device->BindVertexBuffer(cmdList, &vbo);
-    device->BindIndexBuffer(cmdList, &ibo);
+    device->BindResource(&ubo, 0, cmdList);
 
     device->SetViewport(cmdList, &viewport);
     Rect2 scissor;
@@ -1190,9 +1175,22 @@ internal void Render()
 
     device->SetScissor(cmdList, scissor);
 
-    device->DrawIndexed(cmdList, mesh->surface.indexCount, 0, 0);
+    for (u32 i = 0; i < model->numMeshes; i++)
+    {
+        Mesh *mesh       = &model->meshes[i];
+        Texture *texture = GetTexture(mesh->material.textureHandles[TextureType_Diffuse]);
+        device->BindResource(texture, 1, cmdList);
+
+        graphics::GPUBuffer *buffers[] = {&mesh->surface.mVertexBuffer};
+        device->BindVertexBuffer(cmdList, buffers, ArrayLength(buffers), 0);
+        device->BindIndexBuffer(cmdList, &mesh->surface.mIndexBuffer);
+        device->UpdateDescriptorSet(cmdList);
+
+        device->DrawIndexed(cmdList, mesh->surface.indexCount, 0, 0);
+    }
+
     device->EndRenderPass(cmdList);
-    device->WaitForGPU();
+    // device->WaitForGPU();
 }
 
 } // namespace render

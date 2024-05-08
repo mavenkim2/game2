@@ -25,6 +25,7 @@ enum TextureType
     TextureType_Count,
 };
 
+#if 0
 struct Texture
 {
     R_Handle handle;
@@ -33,6 +34,7 @@ struct Texture
     TextureType type;
     b32 loaded;
 };
+#endif
 
 struct Heightmap
 {
@@ -205,8 +207,10 @@ struct Material
 
 struct TriangleSurface
 {
-    VC_Handle vertexBuffer;
-    VC_Handle indexBuffer;
+    // VC_Handle vertexBuffer;
+    // VC_Handle indexBuffer;
+    graphics::GPUBuffer mVertexBuffer;
+    graphics::GPUBuffer mIndexBuffer;
 
     MeshVertex *vertices;
     u32 *indices;

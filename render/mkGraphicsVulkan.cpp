@@ -1,4 +1,5 @@
 #include "../mkCrack.h"
+#include "mkGraphics.h"
 #ifdef LSP_INCLUDE
 #include "../mkList.h"
 #include "../mkPlatformInc.h"
@@ -22,6 +23,9 @@ VkFormat ConvertFormat(Format value)
         case Format::B8G8R8_UNORM: return VK_FORMAT_B8G8R8_UNORM;
         case Format::B8G8R8A8_UNORM: return VK_FORMAT_B8G8R8A8_UNORM;
         case Format::B8G8R8A8_SRGB: return VK_FORMAT_B8G8R8A8_SRGB;
+
+        case Format::R8G8B8A8_SRGB: return VK_FORMAT_R8G8B8A8_SRGB;
+        case Format::R8G8B8A8_UNORM: return VK_FORMAT_R8G8B8A8_UNORM;
 
         case Format::R32G32_SFLOAT: return VK_FORMAT_R32G32_SFLOAT;
         case Format::R32G32B32_SFLOAT: return VK_FORMAT_R32G32B32_SFLOAT;
@@ -70,49 +74,82 @@ VkShaderStageFlags ConvertShaderStage(ShaderStage stage)
     }
 }
 
-VkAccessFlags2 ConvertResourceStateToAccessFlag(ResourceState state)
+VkAccessFlags2 ConvertResourceUsageToAccessFlag(ResourceUsage state)
 {
     VkAccessFlags2 flags = VK_ACCESS_2_NONE;
-    if (HasFlags(state, ResourceState_VertexBuffer))
+    if (HasFlags(state, ResourceUsage_VertexBuffer))
     {
         flags |= VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT;
     }
-    if (HasFlags(state, ResourceState_IndexBuffer))
+    if (HasFlags(state, ResourceUsage_IndexBuffer))
     {
         flags |= VK_ACCESS_2_INDEX_READ_BIT;
     }
-    if (HasFlags(state, ResourceState_UniformBuffer))
+    if (HasFlags(state, ResourceUsage_UniformBuffer))
     {
         flags |= VK_ACCESS_2_UNIFORM_READ_BIT;
     }
-    if (HasFlags(state, ResourceState_TransferSrc))
+    if (HasFlags(state, ResourceUsage_TransferSrc))
+    {
+        flags |= VK_ACCESS_2_TRANSFER_READ_BIT;
+    }
+    if (HasFlags(state, ResourceUsage_TransferDst))
     {
         flags |= VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    }
+    if (HasFlags(state, ResourceUsage_SampledTexture))
+    {
+        flags |= VK_ACCESS_2_SHADER_READ_BIT;
     }
     return flags;
 }
 
-VkPipelineStageFlags2 ConvertResourceToPipelineStage(ResourceState state)
+VkPipelineStageFlags2 ConvertResourceToPipelineStage(ResourceUsage state)
 {
     VkPipelineStageFlags2 flags = VK_PIPELINE_STAGE_2_NONE;
-    if (HasFlags(state, ResourceState_VertexBuffer))
+    if (HasFlags(state, ResourceUsage_VertexBuffer))
     {
         flags |= VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT;
     }
-    if (HasFlags(state, ResourceState_IndexBuffer))
+    if (HasFlags(state, ResourceUsage_IndexBuffer))
     {
         flags |= VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT;
     }
     // TODO: this is likely going to need to change
-    if (HasFlags(state, ResourceState_UniformBuffer))
+    if (HasFlags(state, ResourceUsage_UniformBuffer))
     {
         flags |= VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
     }
-    if (HasFlags(state, ResourceState_TransferSrc))
+    if (HasFlags(state, ResourceUsage_TransferSrc))
     {
         flags |= VK_PIPELINE_STAGE_2_TRANSFER_BIT;
     }
+    if (HasFlags(state, ResourceUsage_SampledTexture))
+    {
+        flags |= VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT; // TODO: textures could be sampled earlier maybe
+    }
     return flags;
+}
+
+VkFilter ConvertFilter(Filter filter)
+{
+    switch (filter)
+    {
+        case Filter::Nearest: return VK_FILTER_NEAREST;
+        case Filter::Linear: return VK_FILTER_LINEAR;
+        default: Assert(0); return VK_FILTER_NEAREST;
+    }
+}
+
+VkSamplerAddressMode ConvertAddressMode(SamplerMode mode)
+{
+    switch (mode)
+    {
+        case SamplerMode::Wrap: return VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        case SamplerMode::ClampToEdge: return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        case SamplerMode::ClampToBorder: return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+        default: Assert(0); return VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    }
 }
 
 } // namespace vulkan
@@ -467,6 +504,9 @@ mkGraphicsVulkan::mkGraphicsVulkan(OS_Handle window, ValidationMode validationMo
     vkGetDeviceQueue(mDevice, mComputeFamily, 0, &mQueues[QueueType_Compute].mQueue);
     vkGetDeviceQueue(mDevice, mCopyFamily, 0, &mQueues[QueueType_Copy].mQueue);
 
+    SetName((u64)mQueues[QueueType_Graphics].mQueue, GraphicsObjectType::Queue, "Graphics Queue");
+    SetName((u64)mQueues[QueueType_Copy].mQueue, GraphicsObjectType::Queue, "Transfer Queue");
+
     // TODO: unified memory access architectures
     mMemProperties       = {};
     mMemProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2;
@@ -521,9 +561,9 @@ mkGraphicsVulkan::mkGraphicsVulkan(OS_Handle window, ValidationMode validationMo
 
     // Init frame allocators
     GPUBufferDesc desc;
-    desc.mUsage = MemoryUsage::CPU_TO_GPU;
-    desc.mSize  = megabytes(32);
-    desc.mFlags = BindFlag_Vertex | BindFlag_Index | BindFlag_Uniform;
+    desc.mUsage         = MemoryUsage::CPU_TO_GPU;
+    desc.mSize          = megabytes(32);
+    desc.mResourceUsage = ResourceUsage_VertexBuffer | ResourceUsage_IndexBuffer | ResourceUsage_UniformBuffer;
     CreateBuffer(&mFrameAllocator[0].mBuffer, desc, 0);
     CreateBuffer(&mFrameAllocator[1].mBuffer, desc, 0);
     mFrameAllocator[0].mAlignment = 8;
@@ -531,17 +571,137 @@ mkGraphicsVulkan::mkGraphicsVulkan(OS_Handle window, ValidationMode validationMo
 
     // Init descriptor pool
     {
-        VkDescriptorPoolSize poolSize = {};
-        poolSize.type                 = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        poolSize.descriptorCount      = cNumBuffers;
+        VkDescriptorPoolSize poolSizes[2];
+
+        u32 count = 0;
+        // Uniform buffers
+        poolSizes[count].type            = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        poolSizes[count].descriptorCount = cPoolSize;
+        count++;
+
+        // Combined samplers
+        poolSizes[count].type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        poolSizes[count].descriptorCount = cPoolSize;
 
         VkDescriptorPoolCreateInfo createInfo = {};
         createInfo.sType                      = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-        createInfo.poolSizeCount              = 1;
-        createInfo.pPoolSizes                 = &poolSize;
-        createInfo.maxSets                    = cNumBuffers;
+        createInfo.poolSizeCount              = count;
+        createInfo.pPoolSizes                 = poolSizes;
+        createInfo.maxSets                    = cPoolSize;
 
         res = vkCreateDescriptorPool(mDevice, &createInfo, 0, &mPool);
+        Assert(res == VK_SUCCESS);
+    }
+
+    // Default samplers
+    {
+        // Null sampler
+        VkSamplerCreateInfo samplerCreate = {};
+        samplerCreate.sType               = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+
+        res = vkCreateSampler(mDevice, &samplerCreate, 0, &mNullSampler);
+        Assert(res == VK_SUCCESS);
+
+        // Default sampler
+        samplerCreate.anisotropyEnable        = VK_FALSE;
+        samplerCreate.maxAnisotropy           = 0;
+        samplerCreate.minLod                  = 0;
+        samplerCreate.maxLod                  = FLT_MAX;
+        samplerCreate.mipLodBias              = 0;
+        samplerCreate.unnormalizedCoordinates = VK_FALSE;
+        samplerCreate.compareEnable           = VK_FALSE;
+        samplerCreate.compareOp               = VK_COMPARE_OP_NEVER;
+
+        samplerCreate.magFilter    = VK_FILTER_LINEAR;
+        samplerCreate.magFilter    = VK_FILTER_LINEAR;
+        samplerCreate.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+        samplerCreate.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        samplerCreate.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        samplerCreate.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+
+        res = vkCreateSampler(mDevice, &samplerCreate, 0, &mLinearSampler);
+        Assert(res == VK_SUCCESS);
+    }
+
+    // Default views
+    {
+        VkImageCreateInfo imageInfo = {};
+        imageInfo.sType             = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        imageInfo.imageType         = VK_IMAGE_TYPE_2D;
+        imageInfo.extent.width      = 1;
+        imageInfo.extent.height     = 1;
+        imageInfo.extent.depth      = 1;
+        imageInfo.mipLevels         = 1;
+        imageInfo.arrayLayers       = 1;
+        imageInfo.format            = VK_FORMAT_R8G8B8A8_UNORM;
+        imageInfo.tiling            = VK_IMAGE_TILING_OPTIMAL;
+        imageInfo.initialLayout     = VK_IMAGE_LAYOUT_UNDEFINED;
+        imageInfo.samples           = VK_SAMPLE_COUNT_1_BIT;
+        imageInfo.usage             = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
+
+        VmaAllocationCreateInfo allocInfo = {};
+        allocInfo.usage                   = VMA_MEMORY_USAGE_GPU_ONLY;
+        res                               = vmaCreateImage(mAllocator, &imageInfo, &allocInfo, &mNullImage2D, &mNullImage2DAllocation, 0);
+
+        VkImageViewCreateInfo createInfo           = {};
+        createInfo.sType                           = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        createInfo.subresourceRange.baseArrayLayer = 0;
+        createInfo.subresourceRange.layerCount     = 1;
+        createInfo.subresourceRange.baseMipLevel   = 0;
+        createInfo.subresourceRange.levelCount     = 1;
+        createInfo.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+        createInfo.format                          = VK_FORMAT_R8G8B8A8_UNORM;
+
+        createInfo.image    = mNullImage2D;
+        createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+
+        res = vkCreateImageView(mDevice, &createInfo, 0, &mNullImageView2D);
+        Assert(res == VK_SUCCESS);
+
+        // Transitions
+
+        TransferCommand cmd = Stage(2);
+
+        VkImageMemoryBarrier2 imageBarrier           = {};
+        imageBarrier.sType                           = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+        imageBarrier.image                           = mNullImage2D;
+        imageBarrier.oldLayout                       = imageInfo.initialLayout;
+        imageBarrier.newLayout                       = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        imageBarrier.srcAccessMask                   = VK_ACCESS_2_NONE;
+        imageBarrier.dstAccessMask                   = VK_ACCESS_2_SHADER_READ_BIT;
+        imageBarrier.srcStageMask                    = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+        imageBarrier.dstStageMask                    = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        imageBarrier.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+        imageBarrier.subresourceRange.baseArrayLayer = 0;
+        imageBarrier.subresourceRange.baseMipLevel   = 0;
+        imageBarrier.subresourceRange.layerCount     = 1;
+        imageBarrier.subresourceRange.levelCount     = 1;
+        imageBarrier.srcQueueFamilyIndex             = VK_QUEUE_FAMILY_IGNORED;
+        imageBarrier.dstQueueFamilyIndex             = VK_QUEUE_FAMILY_IGNORED;
+
+        VkDependencyInfo dependencyInfo        = {};
+        dependencyInfo.sType                   = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+        dependencyInfo.imageMemoryBarrierCount = 1;
+        dependencyInfo.pImageMemoryBarriers    = &imageBarrier;
+
+        vkCmdPipelineBarrier2(cmd.mTransitionBuffer, &dependencyInfo);
+
+        Submit(cmd);
+    }
+
+    // Null buffer
+    {
+        VkBufferCreateInfo bufferInfo = {};
+        bufferInfo.sType              = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        bufferInfo.size               = 4;
+        bufferInfo.usage              = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT |
+                           VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+        bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+        VmaAllocationCreateInfo allocInfo = {};
+        allocInfo.preferredFlags          = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+
+        res = vmaCreateBuffer(mAllocator, &bufferInfo, &allocInfo, &mNullBuffer, &mNullBufferAllocation, 0);
         Assert(res == VK_SUCCESS);
     }
 }
@@ -909,7 +1069,10 @@ void mkGraphicsVulkan::CreateShader(PipelineStateDesc *inDesc, PipelineState *ou
     multisampling.alphaToCoverageEnable                = VK_FALSE;
     multisampling.alphaToOneEnable                     = VK_FALSE;
 
-    // VkPipelineDepthStencilStateCreateInfo depthStencil = {};
+    VkPipelineDepthStencilStateCreateInfo depthStencil = {};
+    depthStencil.sType                                 = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    // depthStencil.
+
     // Blending
     // Mixes old and new value
     VkPipelineColorBlendAttachmentState colorBlendAttachment = {};
@@ -945,25 +1108,27 @@ void mkGraphicsVulkan::CreateShader(PipelineStateDesc *inDesc, PipelineState *ou
         uboLayoutBinding.stageFlags                   = VK_SHADER_STAGE_VERTEX_BIT;
         uboLayoutBinding.pImmutableSamplers           = 0;
 
+        VkDescriptorSetLayoutBinding samplerLayoutBinding = {};
+        samplerLayoutBinding.binding                      = 1;
+        samplerLayoutBinding.descriptorType               = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        samplerLayoutBinding.descriptorCount              = 1;
+        samplerLayoutBinding.pImmutableSamplers           = 0;
+        samplerLayoutBinding.stageFlags                   = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+        ps->mLayoutBindings.resize(2);
+        ps->mLayoutBindings[0] = uboLayoutBinding;
+        ps->mLayoutBindings[1] = samplerLayoutBinding;
+
         VkDescriptorSetLayoutCreateInfo descriptorCreateInfo = {};
 
         descriptorCreateInfo.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        descriptorCreateInfo.bindingCount = 1;
-        descriptorCreateInfo.pBindings    = &uboLayoutBinding;
+        descriptorCreateInfo.bindingCount = (u32)ps->mLayoutBindings.size();
+        descriptorCreateInfo.pBindings    = ps->mLayoutBindings.data();
 
         res = vkCreateDescriptorSetLayout(mDevice, &descriptorCreateInfo, 0, &descriptorLayout);
+
         Assert(res == VK_SUCCESS);
         ps->mDescriptorSetLayouts.push_back(descriptorLayout);
-
-        VkDescriptorSetAllocateInfo allocInfo = {};
-        allocInfo.sType                       = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-        allocInfo.descriptorPool              = mPool;
-        allocInfo.descriptorSetCount          = (u32)ps->mDescriptorSetLayouts.size();
-        allocInfo.pSetLayouts                 = ps->mDescriptorSetLayouts.data();
-
-        ps->mDescriptorSets.resize(ps->mDescriptorSetLayouts.size());
-        res = vkAllocateDescriptorSets(mDevice, &allocInfo, ps->mDescriptorSets.data());
-        Assert(res == VK_SUCCESS);
     }
 
     VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
@@ -1035,9 +1200,9 @@ void mkGraphicsVulkan::Barrier(CommandList cmd, GPUBarrier *barriers, u32 count)
                 bufferBarrier.offset                 = 0;
                 bufferBarrier.size                   = buffer->mDesc.mSize;
                 bufferBarrier.srcStageMask           = ConvertResourceToPipelineStage(barrier->mBefore);
-                bufferBarrier.srcAccessMask          = ConvertResourceStateToAccessFlag(barrier->mBefore);
+                bufferBarrier.srcAccessMask          = ConvertResourceUsageToAccessFlag(barrier->mBefore);
                 bufferBarrier.dstStageMask           = ConvertResourceToPipelineStage(barrier->mAfter);
-                bufferBarrier.dstAccessMask          = ConvertResourceStateToAccessFlag(barrier->mAfter);
+                bufferBarrier.dstAccessMask          = ConvertResourceUsageToAccessFlag(barrier->mAfter);
                 bufferBarrier.srcQueueFamilyIndex    = VK_QUEUE_FAMILY_IGNORED;
                 bufferBarrier.dstQueueFamilyIndex    = VK_QUEUE_FAMILY_IGNORED;
 
@@ -1067,20 +1232,21 @@ void mkGraphicsVulkan::CreateBuffer(GPUBuffer *inBuffer, GPUBufferDesc inDesc, v
     inBuffer->internalState = buffer;
     inBuffer->mDesc         = inDesc;
     inBuffer->mMappedData   = 0;
+    inBuffer->mResourceType = GPUResource::ResourceType::Buffer;
 
     VkBufferCreateInfo createInfo = {};
     createInfo.sType              = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     createInfo.size               = inBuffer->mDesc.mSize;
 
-    if (HasFlags(inDesc.mFlags, BindFlag_Vertex))
+    if (HasFlags(inDesc.mResourceUsage, ResourceUsage_VertexBuffer))
     {
         createInfo.usage |= VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
     }
-    if (HasFlags(inDesc.mFlags, BindFlag_Index))
+    if (HasFlags(inDesc.mResourceUsage, ResourceUsage_IndexBuffer))
     {
         createInfo.usage |= VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
     }
-    if (HasFlags(inDesc.mFlags, BindFlag_Uniform))
+    if (HasFlags(inDesc.mResourceUsage, ResourceUsage_UniformBuffer))
     {
         createInfo.usage |= VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
     }
@@ -1159,45 +1325,360 @@ void mkGraphicsVulkan::CreateBuffer(GPUBuffer *inBuffer, GPUBufferDesc inDesc, v
 #endif
 }
 
-void mkGraphicsVulkan::UpdateDescriptorSet(CommandList cmd, GPUBuffer *buffer)
+void mkGraphicsVulkan::CreateTexture(Texture *outTexture, TextureDesc desc, void *inData)
+{
+    TextureVulkan *texVulk = 0;
+    MutexScope(&mArenaMutex)
+    {
+        texVulk = PushStruct(mArena, TextureVulkan);
+    }
+
+    outTexture->internalState = texVulk;
+    outTexture->mDesc         = desc;
+    outTexture->mResourceType = GPUResource::ResourceType::Image;
+
+    VkImageCreateInfo imageInfo = {};
+    imageInfo.sType             = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    // Get the image type
+    {
+        switch (desc.mTextureType)
+        {
+            case TextureDesc::TextureType::Texture2D:
+            {
+                imageInfo.imageType = VK_IMAGE_TYPE_2D;
+            }
+            break;
+            case TextureDesc::TextureType::Cubemap:
+            {
+                imageInfo.imageType = VK_IMAGE_TYPE_3D;
+            }
+            break;
+        }
+    }
+
+    imageInfo.extent.width  = desc.mWidth;
+    imageInfo.extent.height = desc.mHeight;
+    imageInfo.extent.depth  = desc.mDepth;
+    imageInfo.mipLevels     = desc.mNumMips;
+    imageInfo.arrayLayers   = desc.mNumLayers;
+    imageInfo.format        = ConvertFormat(desc.mFormat);
+    imageInfo.tiling        = VK_IMAGE_TILING_OPTIMAL;
+    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    if (HasFlags(desc.mResourceUsage, ResourceUsage_SampledTexture))
+    {
+        imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT;
+    }
+
+    if (desc.mUsage == MemoryUsage::GPU_ONLY)
+    {
+        imageInfo.usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    }
+
+    if (mFamilies.size() > 1)
+    {
+        imageInfo.sharingMode           = VK_SHARING_MODE_CONCURRENT;
+        imageInfo.queueFamilyIndexCount = (u32)mFamilies.size();
+        imageInfo.pQueueFamilyIndices   = mFamilies.data();
+    }
+    else
+    {
+        imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    }
+
+    imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+    imageInfo.flags   = 0;
+
+    if (desc.mTextureType == TextureDesc::TextureType::Cubemap)
+    {
+        imageInfo.flags |= VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
+    }
+
+    VmaAllocationCreateInfo allocInfo = {};
+    allocInfo.usage                   = VMA_MEMORY_USAGE_AUTO;
+
+    VmaAllocationInfo info = {};
+    VkResult res           = vmaCreateImage(mAllocator, &imageInfo, &allocInfo, &texVulk->mImage, &texVulk->mAllocation, &info);
+    Assert(res == VK_SUCCESS);
+
+    // TODO: handle 3d texture creation
+    if (inData)
+    {
+        TransferCommand cmd;
+        void *mappedData = 0;
+        cmd              = Stage(texVulk->mAllocation->GetSize());
+        mappedData       = cmd.mUploadBuffer.mMappedData;
+
+        MemoryCopy(mappedData, inData, texVulk->mAllocation->GetSize());
+
+        if (cmd.IsValid())
+        {
+            // Copy the contents of the staging buffer to the image
+            VkBufferImageCopy imageCopy               = {};
+            imageCopy.bufferOffset                    = 0;
+            imageCopy.bufferRowLength                 = 0;
+            imageCopy.bufferImageHeight               = 0;
+            imageCopy.imageSubresource.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+            imageCopy.imageSubresource.mipLevel       = 0;
+            imageCopy.imageSubresource.baseArrayLayer = 0;
+            imageCopy.imageSubresource.layerCount     = 1;
+            imageCopy.imageOffset                     = {0, 0, 0};
+            imageCopy.imageExtent                     = {desc.mWidth, desc.mHeight, 1};
+
+            // Layout transition to transfer destination before copying from the staging buffer
+            VkImageMemoryBarrier2 barrier           = {};
+            barrier.sType                           = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+            barrier.image                           = texVulk->mImage;
+            barrier.oldLayout                       = imageInfo.initialLayout;
+            barrier.newLayout                       = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            barrier.srcStageMask                    = VK_PIPELINE_STAGE_2_NONE; // ?
+            barrier.dstStageMask                    = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            barrier.srcAccessMask                   = VK_ACCESS_2_NONE;
+            barrier.dstAccessMask                   = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+            barrier.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+            barrier.subresourceRange.baseMipLevel   = 0;
+            barrier.subresourceRange.levelCount     = VK_REMAINING_MIP_LEVELS;
+            barrier.subresourceRange.baseArrayLayer = 0;
+            barrier.subresourceRange.layerCount     = VK_REMAINING_ARRAY_LAYERS;
+            barrier.srcQueueFamilyIndex             = VK_QUEUE_FAMILY_IGNORED;
+            barrier.dstQueueFamilyIndex             = VK_QUEUE_FAMILY_IGNORED;
+
+            VkDependencyInfo dependencyInfo        = {};
+            dependencyInfo.sType                   = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+            dependencyInfo.imageMemoryBarrierCount = 1;
+            dependencyInfo.pImageMemoryBarriers    = &barrier;
+            vkCmdPipelineBarrier2(cmd.mCmdBuffer, &dependencyInfo);
+
+            vkCmdCopyBufferToImage(cmd.mCmdBuffer, ToInternal(&cmd.mUploadBuffer)->mBuffer, texVulk->mImage,
+                                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &imageCopy);
+
+            // Transition to layout used in pipeline
+            barrier.oldLayout     = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+            barrier.newLayout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            barrier.srcStageMask  = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+            barrier.dstStageMask  = ConvertResourceToPipelineStage(desc.mResourceUsage);
+            barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+            barrier.dstAccessMask = ConvertResourceUsageToAccessFlag(desc.mResourceUsage);
+
+            dependencyInfo.imageMemoryBarrierCount = 1;
+            dependencyInfo.pImageMemoryBarriers    = &barrier;
+            vkCmdPipelineBarrier2(cmd.mTransitionBuffer, &dependencyInfo);
+
+            Submit(cmd);
+        }
+    }
+
+    CreateSubresource(outTexture);
+}
+
+void mkGraphicsVulkan::CreateSampler(Sampler *sampler, SamplerDesc desc)
+{
+    SamplerVulkan *samplerVulk = 0;
+    MutexScope(&mArenaMutex)
+    {
+        samplerVulk = PushStruct(mArena, SamplerVulkan);
+    }
+
+    sampler->internalState = samplerVulk;
+
+    VkSamplerCreateInfo samplerCreate = {};
+    samplerCreate.sType               = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    samplerCreate.magFilter           = ConvertFilter(desc.mMag);
+    samplerCreate.minFilter           = ConvertFilter(desc.mMin);
+    samplerCreate.mipmapMode          = desc.mMipMode == Filter::Nearest ? VK_SAMPLER_MIPMAP_MODE_NEAREST : VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    samplerCreate.addressModeU        = ConvertAddressMode(desc.mMode); // TODO: these could potentially be different per coord
+    samplerCreate.addressModeV        = ConvertAddressMode(desc.mMode);
+    samplerCreate.addressModeW        = ConvertAddressMode(desc.mMode);
+    samplerCreate.anisotropyEnable    = desc.mMaxAnisotropy == 1 ? VK_FALSE : VK_TRUE;
+    samplerCreate.maxAnisotropy       = Min(mDeviceProperties.properties.limits.maxSamplerAnisotropy, desc.mMaxAnisotropy);
+    switch (desc.mBorderColor)
+    {
+        case BorderColor::TransparentBlack: samplerCreate.borderColor = VK_BORDER_COLOR_INT_TRANSPARENT_BLACK; break;
+        case BorderColor::OpaqueBlack: samplerCreate.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK; break;
+        case BorderColor::OpaqueWhite: samplerCreate.borderColor = VK_BORDER_COLOR_INT_OPAQUE_WHITE; break;
+    }
+    samplerCreate.unnormalizedCoordinates = VK_FALSE;
+    samplerCreate.compareEnable           = VK_FALSE;
+    samplerCreate.compareOp               = desc.mCompareOp == CompareOp::None ? VK_COMPARE_OP_ALWAYS : VK_COMPARE_OP_LESS;
+    samplerCreate.mipLodBias              = 0;
+    samplerCreate.minLod                  = 0;
+    samplerCreate.maxLod                  = 0;
+
+    VkResult res = vkCreateSampler(mDevice, &samplerCreate, 0, &samplerVulk->mSampler);
+    Assert(res == VK_SUCCESS);
+}
+
+void mkGraphicsVulkan::BindResource(GPUResource *resource, u32 slot, CommandList cmd)
 {
     CommandListVulkan *command = ToInternal(cmd);
     Assert(command);
+    Assert(slot < cMaxBindings);
 
-    GPUBufferVulkan *bufferVulkan = ToInternal(buffer);
+    if (resource)
+    {
+        if (command->mResourceTable[slot].internalState != resource->internalState)
+        {
+            command->mResourceTable[slot] = *resource;
+
+            // for (u32 i = 0; i < cNumBuffers; i++)
+            // {
+            //     command->mIsDirty[i][QueueType_Graphics] = true;
+            // }
+        }
+    }
+    // adds to a table in the command list that
+}
+
+// Creates image views
+void mkGraphicsVulkan::CreateSubresource(Texture *texture)
+{
+    TextureVulkan *textureVulk = ToInternal(texture);
+
+    VkImageViewCreateInfo createInfo = {};
+    createInfo.sType                 = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    createInfo.format                = ConvertFormat(texture->mDesc.mFormat);
+    createInfo.image                 = textureVulk->mImage;
+    switch (texture->mDesc.mTextureType)
+    {
+        case TextureDesc::TextureType::Texture2D:
+        {
+            createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        }
+        break;
+        case TextureDesc::TextureType::Cubemap:
+        {
+            createInfo.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
+        }
+        break;
+    }
+    createInfo.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+    createInfo.subresourceRange.baseArrayLayer = 0;
+    createInfo.subresourceRange.baseMipLevel   = 0;
+    createInfo.subresourceRange.levelCount     = VK_REMAINING_MIP_LEVELS;
+    createInfo.subresourceRange.layerCount     = VK_REMAINING_ARRAY_LAYERS;
+
+    // VkImageViewUsageCreateInfo imageViewUsage = {};
+    // imageViewUsage.sType                      = VK_STRUCTURE_TYPE_IMAGE_VIEW_USAGE_CREATE_INFO;
+    // imageViewUsage.usage                      = VK_IMAGE_USAGE_SAMPLED_BIT;
+    // createInfo.pNext                          = &imageViewUsage;
+
+    VkResult res = vkCreateImageView(mDevice, &createInfo, 0, &textureVulk->mImageView);
+    Assert(res == VK_SUCCESS);
+}
+
+void mkGraphicsVulkan::UpdateDescriptorSet(CommandList cmd)
+{
+    CommandListVulkan *command = ToInternal(cmd);
+    Assert(command);
 
     const PipelineState *pipeline = command->mCurrentPipeline;
     Assert(pipeline);
     PipelineStateVulkan *pipelineVulkan = ToInternal(pipeline);
     Assert(pipelineVulkan);
 
-    VkDescriptorBufferInfo bufferInfo    = {};
-    VkWriteDescriptorSet descriptorWrite = {};
-    descriptorWrite.sType                = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    list<VkWriteDescriptorSet> descriptorWrites;
+    list<VkDescriptorBufferInfo> bufferInfos;
+    list<VkDescriptorImageInfo> imageInfos;
 
-    for (auto &descriptorSet : pipelineVulkan->mDescriptorSets)
+    descriptorWrites.reserve(32);
+    bufferInfos.reserve(32);
+    imageInfos.reserve(32);
+
+    // u32 currentSet = pipelineVulkan->mCurrentSet++;
+    u32 currentSet = command->mCurrentSet++;
+    VkDescriptorSet *descriptorSet;
+    if (currentSet >= command->mDescriptorSets[GetCurrentBuffer()].size())
     {
-        bufferInfo.buffer = bufferVulkan->mBuffer;
-        bufferInfo.offset = 0;            //? ? ? ? ;
-        bufferInfo.range  = sizeof(Mat4); // VK_WHOLE_SIZE; //? ? ? ? ; // VK_WHOLE_SIZE
+        command->mDescriptorSets[GetCurrentBuffer()].emplace_back();
+        descriptorSet = &command->mDescriptorSets[GetCurrentBuffer()].back();
 
-        descriptorWrite.dstSet     = descriptorSet;
-        descriptorWrite.dstBinding = 0;
-
-        // These next two are for descriptor arrays?
-        descriptorWrite.dstArrayElement = 0;
-        descriptorWrite.descriptorCount = 1;
-
-        descriptorWrite.descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-        descriptorWrite.pBufferInfo      = &bufferInfo;
-        descriptorWrite.pImageInfo       = 0;
-        descriptorWrite.pTexelBufferView = 0;
-
-        vkUpdateDescriptorSets(mDevice, 1, &descriptorWrite, 0, 0);
+        VkDescriptorSetAllocateInfo allocInfo = {};
+        allocInfo.sType                       = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        allocInfo.descriptorPool              = mPool;
+        allocInfo.descriptorSetCount          = 1;
+        allocInfo.pSetLayouts                 = pipelineVulkan->mDescriptorSetLayouts.data();
+        VkResult res                          = vkAllocateDescriptorSets(mDevice, &allocInfo, descriptorSet);
+        Assert(res == VK_SUCCESS); // TODO: this will run out
+    }
+    else
+    {
+        descriptorSet = &command->mDescriptorSets[GetCurrentBuffer()][currentSet];
     }
 
+    for (auto &layoutBinding : pipelineVulkan->mLayoutBindings)
+    {
+        for (u32 descriptorIndex = 0; descriptorIndex < layoutBinding.descriptorCount; descriptorIndex++)
+        {
+            descriptorWrites.emplace_back();
+            VkWriteDescriptorSet &descriptorWrite = descriptorWrites.back();
+            descriptorWrite                       = {};
+            descriptorWrite.dstSet                = *descriptorSet;
+            descriptorWrite.sType                 = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            descriptorWrite.dstBinding            = layoutBinding.binding;
+            descriptorWrite.descriptorCount       = 1;
+            descriptorWrite.descriptorType        = layoutBinding.descriptorType;
+            // These next two are for descriptor arrays?
+            descriptorWrite.dstArrayElement = 0;
+
+            switch (layoutBinding.descriptorType)
+            {
+                case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
+                {
+                    GPUResource &resource = command->mResourceTable[layoutBinding.binding];
+
+                    VkBuffer buffer;
+                    if (!resource.IsValid() || !resource.IsBuffer())
+                    {
+                        buffer = mNullBuffer;
+                    }
+                    else
+                    {
+                        GPUBufferVulkan *bufferVulkan = ToInternal((GPUBuffer *)&resource);
+                        buffer                        = bufferVulkan->mBuffer;
+                    }
+
+                    bufferInfos.emplace_back();
+
+                    VkDescriptorBufferInfo &bufferInfo = bufferInfos.back();
+                    bufferInfo.buffer                  = buffer;
+                    bufferInfo.offset                  = 0;
+                    bufferInfo.range                   = VK_WHOLE_SIZE; // buffer->mDesc.mSize;
+
+                    descriptorWrite.pBufferInfo = &bufferInfo;
+                }
+                break;
+                case VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:
+                {
+                    GPUResource &resource = command->mResourceTable[layoutBinding.binding];
+
+                    VkImageView view;
+                    if (!resource.IsValid() || !resource.IsTexture())
+                    {
+                        view = mNullImageView2D;
+                    }
+                    else
+                    {
+                        TextureVulkan *texture = ToInternal((Texture *)&resource);
+                        view                   = texture->mImageView;
+                    }
+                    imageInfos.emplace_back();
+                    VkDescriptorImageInfo &imageInfo = imageInfos.back();
+                    imageInfo.sampler                = mLinearSampler;
+                    imageInfo.imageView              = view;
+                    imageInfo.imageLayout            = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+                    descriptorWrite.pImageInfo = &imageInfo;
+                }
+                break;
+                default:
+                    Assert(!"Not implemented");
+            }
+        }
+    }
+
+    vkUpdateDescriptorSets(mDevice, (u32)descriptorWrites.size(), descriptorWrites.data(), 0, 0);
+
     vkCmdBindDescriptorSets(command->GetCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            pipelineVulkan->mPipelineLayout, 0, 1, pipelineVulkan->mDescriptorSets.data(), 0, 0);
+                            pipelineVulkan->mPipelineLayout, 0, 1, descriptorSet, 0, 0);
 }
 
 void mkGraphicsVulkan::FrameAllocate(GPUBuffer *inBuf, void *inData, CommandList cmd, u64 inSize, u64 inOffset)
@@ -1256,6 +1737,9 @@ void mkGraphicsVulkan::UpdateBuffer(GPUBuffer *inBuffer, void *inData)
 
         // Create a barrier on the graphics queue. Not needed on the transfer queue, since it doesn't
         // ever use the data after copying.
+
+        // TODO: I think this barrier is useless, because the semaphore should signal the graphics queue
+        // when the staging buffer transfer is complete.
         VkBufferMemoryBarrier2 bufferBarrier = {};
         bufferBarrier.sType                  = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
         bufferBarrier.buffer                 = buffer->mBuffer;
@@ -1268,13 +1752,13 @@ void mkGraphicsVulkan::UpdateBuffer(GPUBuffer *inBuffer, void *inData)
         bufferBarrier.srcQueueFamilyIndex    = VK_QUEUE_FAMILY_IGNORED;
         bufferBarrier.dstQueueFamilyIndex    = VK_QUEUE_FAMILY_IGNORED;
 
-        if (HasFlags(inBuffer->mDesc.mFlags, BindFlag_Vertex))
+        if (HasFlags(inBuffer->mDesc.mResourceUsage, ResourceUsage_VertexBuffer))
         {
             bufferBarrier.dstStageMask |= VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT;
             bufferBarrier.dstAccessMask |= VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT;
             // bufferBarrier.dstAccessMask
         }
-        if (HasFlags(inBuffer->mDesc.mFlags, BindFlag_Index))
+        if (HasFlags(inBuffer->mDesc.mResourceUsage, ResourceUsage_IndexBuffer))
         {
             bufferBarrier.dstStageMask |= VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT;
             bufferBarrier.dstAccessMask |= VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT;
@@ -1357,6 +1841,7 @@ mkGraphicsVulkan::TransferCommand mkGraphicsVulkan::Stage(u64 size)
         desc.mSize         = size;
         desc.mUsage        = MemoryUsage::CPU_TO_GPU;
         CreateBuffer(&cmd.mUploadBuffer, desc, 0);
+        SetName(&cmd.mUploadBuffer, "Transfer Staging Buffer");
     }
 
     res = vkResetCommandPool(mDevice, cmd.mCmdPool, 0);
@@ -1405,7 +1890,7 @@ void mkGraphicsVulkan::Submit(TransferCommand cmd)
 
         submitSemInfo[0].semaphore = cmd.mSemaphores[0];
         submitSemInfo[0].value     = 0;
-        submitSemInfo[0].stageMask = VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
+        submitSemInfo[0].stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 
         submitInfo.commandBufferInfoCount = 1;
         submitInfo.pCommandBufferInfos    = &bufSubmitInfo;
@@ -1439,6 +1924,10 @@ void mkGraphicsVulkan::Submit(TransferCommand cmd)
             res = vkQueueSubmit2(mQueues[QueueType_Graphics].mQueue, 1, &submitInfo, cmd.mFence);
             Assert(res == VK_SUCCESS);
         }
+    }
+    MutexScope(&mTransferMutex)
+    {
+        mTransferFreeList.push_back(cmd);
     }
     // TODO: compute
 }
@@ -1574,8 +2063,8 @@ void mkGraphicsVulkan::BeginRenderPass(Swapchain *inSwapchain, CommandList inCom
     barrier.image                           = swapchain->mImages[swapchain->mImageIndex];
     barrier.oldLayout                       = VK_IMAGE_LAYOUT_UNDEFINED;
     barrier.newLayout                       = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    barrier.srcStageMask                    = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
-    barrier.dstStageMask                    = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
+    barrier.srcStageMask                    = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+    barrier.dstStageMask                    = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
     barrier.srcAccessMask                   = VK_ACCESS_2_NONE;
     barrier.dstAccessMask                   = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
     barrier.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -1596,8 +2085,9 @@ void mkGraphicsVulkan::BeginRenderPass(Swapchain *inSwapchain, CommandList inCom
 
     barrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-    // barrier.dstStageMask  = VK_PIPELINE_STAGE_2_NONE;
+
     barrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+    barrier.dstStageMask  = VK_PIPELINE_STAGE_2_NONE;
     barrier.dstAccessMask = VK_ACCESS_2_NONE;
 
     vkCmdBeginRendering(commandList->GetCommandBuffer(), &info);
@@ -1606,19 +2096,35 @@ void mkGraphicsVulkan::BeginRenderPass(Swapchain *inSwapchain, CommandList inCom
     commandList->mUpdateSwapchains.push_back(*inSwapchain);
 }
 
-void mkGraphicsVulkan::BindVertexBuffer(CommandList cmd, GPUBuffer *buffer)
+void mkGraphicsVulkan::BindVertexBuffer(CommandList cmd, GPUBuffer **buffers, u32 count, u32 *offsets)
 {
     CommandListVulkan *commandList = ToInternal(cmd);
     Assert(commandList);
 
-    Assert(HasFlags(buffer->mDesc.mFlags, BindFlag_Vertex));
-    GPUBufferVulkan *bufferVulk = ToInternal(buffer);
-    Assert(bufferVulk);
+    VkBuffer vBuffers[8];
+    VkDeviceSize vOffsets[8] = {};
+    Assert(count < 8);
 
-    VkDeviceSize offsets[16];
-    offsets[0] = 0;
+    for (u32 i = 0; i < count; i++)
+    {
+        GPUBuffer *buffer = buffers[i];
+        Assert(HasFlags(buffer->mDesc.mResourceUsage, ResourceUsage_VertexBuffer));
+        if (buffer == 0 || !buffer->IsValid())
+        {
+            vBuffers[i] = mNullBuffer;
+        }
+        else
+        {
+            GPUBufferVulkan *bufferVulk = ToInternal(buffer);
+            vBuffers[i]                 = bufferVulk->mBuffer;
+            if (offsets)
+            {
+                vOffsets[i] = offsets[i];
+            }
+        }
+    }
 
-    vkCmdBindVertexBuffers(commandList->GetCommandBuffer(), 0, 1, &bufferVulk->mBuffer, offsets);
+    vkCmdBindVertexBuffers(commandList->GetCommandBuffer(), 0, count, vBuffers, vOffsets);
 }
 
 void mkGraphicsVulkan::BindIndexBuffer(CommandList cmd, GPUBuffer *buffer)
@@ -1626,7 +2132,7 @@ void mkGraphicsVulkan::BindIndexBuffer(CommandList cmd, GPUBuffer *buffer)
     CommandListVulkan *commandList = ToInternal(cmd);
     Assert(commandList);
 
-    Assert(HasFlags(buffer->mDesc.mFlags, BindFlag_Index));
+    Assert(HasFlags(buffer->mDesc.mResourceUsage, ResourceUsage_IndexBuffer));
     GPUBufferVulkan *bufferVulk = ToInternal(buffer);
     Assert(bufferVulk);
 
@@ -1722,7 +2228,7 @@ void mkGraphicsVulkan::EndRenderPass(CommandList cmd)
         signalSemaphore.sType                 = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
         signalSemaphore.semaphore             = swapchain->mReleaseSemaphore;
         signalSemaphore.value                 = 0;
-        signalSemaphore.stageMask             = VK_PIPELINE_STAGE_2_NONE;
+        signalSemaphore.stageMask             = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
         signalSemaphores.push_back(signalSemaphore);
 
         submitSemaphores.push_back(swapchain->mReleaseSemaphore);
@@ -1749,18 +2255,18 @@ void mkGraphicsVulkan::EndRenderPass(CommandList cmd)
     MutexScope(&mQueues[QueueType_Graphics].mLock)
     {
         vkQueueSubmit2(mQueues[QueueType_Graphics].mQueue, 1, &submitInfo, mFrameFences[GetCurrentBuffer()][QueueType_Graphics]);
-    }
 
-    // Present the swap chain image. This waits for the queue submission to finish.
-    {
-        VkPresentInfoKHR presentInfo   = {};
-        presentInfo.sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-        presentInfo.waitSemaphoreCount = (u32)submitSemaphores.size();
-        presentInfo.pWaitSemaphores    = submitSemaphores.data();
-        presentInfo.swapchainCount     = (u32)presentSwapchains.size();
-        presentInfo.pSwapchains        = presentSwapchains.data();
-        presentInfo.pImageIndices      = swapchainImageIndices.data();
-        res                            = vkQueuePresentKHR(mQueues[QueueType_Graphics].mQueue, &presentInfo);
+        // Present the swap chain image. This waits for the queue submission to finish.
+        {
+            VkPresentInfoKHR presentInfo   = {};
+            presentInfo.sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+            presentInfo.waitSemaphoreCount = (u32)submitSemaphores.size();
+            presentInfo.pWaitSemaphores    = submitSemaphores.data();
+            presentInfo.swapchainCount     = (u32)presentSwapchains.size();
+            presentInfo.pSwapchains        = presentSwapchains.data();
+            presentInfo.pImageIndices      = swapchainImageIndices.data();
+            res                            = vkQueuePresentKHR(mQueues[QueueType_Graphics].mQueue, &presentInfo);
+        }
     }
 
     // Handles swap chain invalidation.
@@ -1807,6 +2313,9 @@ void mkGraphicsVulkan::EndRenderPass(CommandList cmd)
     mFrameAllocator->mOffset.store(0);
     commandList->mEndPassImageMemoryBarriers.clear();
     commandList->mUpdateSwapchains.clear();
+    commandList->mCurrentSet = 0;
+    // PipelineStateVulkan *ps = ToInternal(commandList->mCurrentPipeline);
+
     Cleanup();
 }
 
@@ -1824,5 +2333,56 @@ void mkGraphicsVulkan::WaitForGPU()
     VkResult res = vkDeviceWaitIdle(mDevice);
     Assert(res == VK_SUCCESS);
 }
+
+void mkGraphicsVulkan::SetName(GPUResource *resource, const char *name)
+{
+    if (!mDebugUtils || resource == 0 || !resource->IsValid())
+    {
+        return;
+    }
+    VkDebugUtilsObjectNameInfoEXT info = {};
+    info.sType                         = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT;
+    info.pObjectName                   = name;
+    if (resource->IsTexture())
+    {
+        info.objectType   = VK_OBJECT_TYPE_IMAGE;
+        info.objectHandle = (u64)ToInternal((Texture *)resource)->mImage;
+    }
+    else if (resource->IsBuffer())
+    {
+        info.objectType   = VK_OBJECT_TYPE_BUFFER;
+        info.objectHandle = (u64)ToInternal((GPUBuffer *)resource)->mBuffer;
+    }
+    if (info.objectHandle == 0)
+    {
+        return;
+    }
+    VkResult res = vkSetDebugUtilsObjectNameEXT(mDevice, &info);
+    Assert(res == VK_SUCCESS);
+}
+
+void mkGraphicsVulkan::SetName(u64 handle, GraphicsObjectType type, const char *name)
+{
+    if (!mDebugUtils || handle == 0)
+    {
+        return;
+    }
+    VkDebugUtilsObjectNameInfoEXT info = {};
+    info.sType                         = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT;
+    info.pObjectName                   = name;
+    switch (type)
+    {
+        case GraphicsObjectType::Queue: info.objectType = VK_OBJECT_TYPE_QUEUE; break;
+    }
+    info.objectHandle = handle;
+    VkResult res      = vkSetDebugUtilsObjectNameEXT(mDevice, &info);
+    Assert(res == VK_SUCCESS);
+}
+
+// void mkGraphicsVulkan::BeginEvent()
+// {
+//     VkDebugUtilsLabelEXT debugLabel;
+//     debugLabel.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT;
+// }
 
 } // namespace graphics

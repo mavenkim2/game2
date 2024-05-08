@@ -13,7 +13,7 @@
 #include "mkFont.cpp"
 #include "mkAsset.cpp"
 #include "mkAssetCache.cpp"
-#include "render/mkVertexCache.cpp"
+// #include "render/mkVertexCache.cpp"
 #include "render/mkRender.cpp"
 #include "mkDebug.cpp"
 
