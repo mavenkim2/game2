@@ -106,9 +106,14 @@ struct mkGraphicsVulkan : mkGraphics
         return *(CommandListVulkan *)(cmd.internalState);
     }
 
-    u32 GetCurrentBuffer()
+    u32 GetCurrentBuffer() override
     {
         return mFrameCount % cNumBuffers;
+    }
+
+    u32 GetNextBuffer()
+    {
+        return (mFrameCount + 1) % cNumBuffers;
     }
 
     b32 mDebugUtils = false;
@@ -184,9 +189,17 @@ struct mkGraphicsVulkan : mkGraphics
 
     VmaAllocator mAllocator;
     Mutex mCleanupMutex = {};
-    list<VkSemaphore> mCleanupSemaphores;
-    list<VkSwapchainKHR> mCleanupSwapchains;
-    list<VkImageView> mCleanupImageViews;
+    list<VkSemaphore> mCleanupSemaphores[cNumBuffers];
+    list<VkSwapchainKHR> mCleanupSwapchains[cNumBuffers];
+    list<VkImageView> mCleanupImageViews[cNumBuffers];
+
+    struct CleanupBuffer
+    {
+        VkBuffer mBuffer;
+        VmaAllocation mAllocation;
+    };
+    list<CleanupBuffer> mCleanupBuffers[cNumBuffers];
+    // list<VmaAllocation> mCleanupAllocations[cNumBuffers];
 
     void Cleanup();
 
@@ -234,6 +247,8 @@ struct mkGraphicsVulkan : mkGraphics
     b32 CreateSwapchain(Window window, SwapchainDesc *desc, Swapchain *swapchain) override;
     void CreateShader(PipelineStateDesc *inDesc, PipelineState *outPS) override;
     void CreateBuffer(GPUBuffer *inBuffer, GPUBufferDesc inDesc, void *inData) override;
+    void CopyBuffer(CommandList cmd, GPUBuffer *dest, GPUBuffer *src, u32 size) override; 
+    void DeleteBuffer(GPUBuffer *buffer) override;
     void CreateTexture(Texture *outTexture, TextureDesc desc, void *inData) override;
     void CreateSampler(Sampler *sampler, SamplerDesc desc) override;
     void BindResource(GPUResource *resource, u32 slot, CommandList cmd) override;
@@ -241,11 +256,10 @@ struct mkGraphicsVulkan : mkGraphics
     void UpdateBuffer(GPUBuffer *inBuffer, void *inData);
     void UpdateDescriptorSet(CommandList cmd);
     CommandList BeginCommandList(QueueType queue) override;
-    void BeginRenderPass(Swapchain *inSwapchain, CommandList inCommandList) override;
+    void BeginRenderPass(Swapchain *inSwapchain, RenderPassImage *images, u32 count, CommandList inCommandList) override;
     void Draw(CommandList cmd, u32 vertexCount, u32 firstVertex) override;
     void DrawIndexed(CommandList cmd, u32 indexCount, u32 firstVertex, u32 baseVertex);
 
-    // TODO: specify these in the command list or something
     void BindVertexBuffer(CommandList cmd, GPUBuffer **buffers, u32 count = 1, u32 *offsets = 0) override;
     void BindIndexBuffer(CommandList cmd, GPUBuffer *buffer) override;
     void SetViewport(CommandList cmd, Viewport *viewport) override;

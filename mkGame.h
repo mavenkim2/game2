@@ -162,6 +162,7 @@ struct G_State
     Camera camera;
 
     // DebugBmpResult bmpTest;
+    u32 mSkinningBufferSize;
 
     CameraMode cameraMode;
 

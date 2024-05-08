@@ -5,7 +5,7 @@
 #include <float.h>
 #include "mkCrack.h"
 #ifdef LSP_INCLUDE
-#include "keepmovingforward_common.h"
+#include "mkCommon.h"
 #endif
 
 #define Max(a, b) ((a) > (b) ? (a) : (b))
@@ -1759,6 +1759,32 @@ inline u32 CompressFloat(f32 a, f32 min, f32 max, u32 nBits)
 inline f32 DecompressFloat(u32 a, f32 min, f32 max, u32 nBits)
 {
     f32 result = DecompressUnitFloat(a, nBits) * (max - min) + min;
+    return result;
+}
+
+inline u32 GetHighestBit(u64 num)
+{
+    if (num == 0) return 0;
+
+    u32 result = 0;
+#if WINDOWS
+    _BitScanReverse64((unsigned long *)(&result), num);
+#else
+    for (u32 i = 63; i >= 0; i--)
+    {
+        if ((1 << i) & num)
+        {
+            result = i;
+            break;
+        }
+    }
+#endif
+    return result;
+}
+
+inline u64 GetNextPowerOfTwo(u64 num)
+{
+    u64 result = 1ULL << (GetHighestBit(Max(1, num) - 1) + 1);
     return result;
 }
 

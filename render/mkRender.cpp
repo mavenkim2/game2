@@ -1,17 +1,13 @@
 #include "../mkCrack.h"
 
 #ifdef LSP_INCLUDE
-#include "../keepmovingforward_math.h"
-#include <algorithm>
-#include "../asset.h"
-#include "../asset_cache.h"
-#include "render.h"
-#include "render_core.h"
-#include "../font.h"
-#include "../font.cpp"
-#include "vertex_cache.h"
-#include "../keepmovingforward_camera.h"
+#include "../mkMath.h"
+#include "../mkAsset.h"
+#include "mkRender.h"
+#include "mkRenderCore.h"
+#include "../mkCamera.h"
 #include "mkGraphics.h"
+#include "../mkGame.h"
 #endif
 
 using namespace graphics;
@@ -1089,8 +1085,13 @@ graphics::GPUBuffer ubo;
 graphics::GPUBuffer vbo;
 graphics::GPUBuffer ibo;
 
+graphics::GPUBuffer skinningBuffer[device->cNumBuffers];
+graphics::GPUBuffer skinningBufferUpload[device->cNumBuffers];
+
 InputLayout inputLayouts[IL_Type_Count];
 Shader shaders[ShaderType_Count];
+
+Texture depthBufferMain;
 
 internal void Initialize()
 {
@@ -1110,6 +1111,33 @@ internal void Initialize()
         desc.mSize          = kilobytes(4);
         desc.mResourceUsage = ResourceUsage_UniformBuffer;
         device->CreateBuffer(&ubo, desc, 0);
+
+        // Skinning
+        desc.mSize          = kilobytes(4);
+        desc.mUsage         = MemoryUsage::CPU_TO_GPU;
+        desc.mResourceUsage = ResourceUsage_TransferSrc;
+        for (u32 i = 0; i < ArrayLength(skinningBufferUpload); i++)
+        {
+            device->CreateBuffer(&skinningBufferUpload[i], desc, 0);
+        }
+
+        desc.mUsage         = MemoryUsage::GPU_ONLY;
+        desc.mResourceUsage = ResourceUsage_UniformBuffer;
+        for (u32 i = 0; i < ArrayLength(skinningBuffer); i++)
+        {
+            device->CreateBuffer(&skinningBuffer[i], desc, 0);
+        }
+    }
+
+    // Initialize rendertargets/depth buffers
+    {
+        TextureDesc desc;
+        desc.mWidth         = swapchain.mDesc.width;
+        desc.mHeight        = swapchain.mDesc.height;
+        desc.mResourceUsage = ResourceUsage_DepthStencil;
+        desc.mFormat        = Format::D32_SFLOAT_S8_UINT;
+
+        device->CreateTexture(&depthBufferMain, desc, 0);
     }
 
     // Initialize shaders
@@ -1136,14 +1164,21 @@ internal void Initialize()
 
 internal void Render()
 {
+    // TODO: eventually, this should not be accessed from here
     G_State *g_state         = engine->GetGameState();
     RenderState *renderState = engine->GetRenderState();
 
-    LoadedModel *model = GetModel(g_state->model);
-    // Mesh *mesh         = &GetModel(g_state->model)->meshes[0];
-
+    LoadedModel *model  = GetModel(g_state->model);
     CommandList cmdList = device->BeginCommandList(QueueType_Graphics);
 
+    GPUBuffer *currentSkinBufUpload = &skinningBufferUpload[device->GetCurrentBuffer()];
+    GPUBuffer *currentSkinBuf       = &skinningBuffer[device->GetCurrentBuffer()];
+
+    GPUBarrier barrier = CreateBarrier(currentSkinBufUpload, ResourceUsage_TransferSrc, ResourceUsage_None);
+    device->Barrier(cmdList, &barrier, 1);
+    device->CopyBuffer(cmdList, currentSkinBuf, currentSkinBufUpload, g_state->mSkinningBufferSize);
+
+    // TODO: get this from somewhere else :)
     Mat4 translate = Translate4(V3{0, 20, -30});
     Mat4 scale     = Scale(V3{0.5f, 0.5f, 0.5f});
     Mat4 rotate    = Rotate4(MakeV3(1, 0, 0), PI / 2);
@@ -1151,14 +1186,22 @@ internal void Render()
     transform      = renderState->transform * transform;
 
     device->FrameAllocate(&ubo, transform.elements[0], cmdList);
-    GPUBarrier barrier;
-    barrier.mType     = GPUBarrier::Type::Buffer;
-    barrier.mResource = &ubo;
-    barrier.mBefore   = ResourceUsage_TransferSrc;
-    barrier.mAfter    = ResourceUsage_UniformBuffer;
-    device->Barrier(cmdList, &barrier, 1);
 
-    device->BeginRenderPass(&swapchain, cmdList);
+    GPUBarrier barriers[] =
+        {
+            CreateBarrier(&ubo, ResourceUsage_TransferSrc, ResourceUsage_UniformBuffer),
+            CreateBarrier(currentSkinBuf, ResourceUsage_TransferDst, ResourceUsage_UniformBuffer),
+        };
+    device->Barrier(cmdList, barriers, ArrayLength(barriers));
+
+    RenderPassImage images[] = {
+        {
+            RenderPassImage::RenderImageType::Depth,
+            &depthBufferMain,
+        },
+    };
+
+    device->BeginRenderPass(&swapchain, images, ArrayLength(images), cmdList);
 
     Viewport viewport;
     viewport.width  = (f32)swapchain.GetDesc().width;
@@ -1167,6 +1210,7 @@ internal void Render()
     device->BindPipeline(&pipelineState, cmdList);
 
     device->BindResource(&ubo, 0, cmdList);
+    device->BindResource(currentSkinBuf, 2, cmdList);
 
     device->SetViewport(cmdList, &viewport);
     Rect2 scissor;

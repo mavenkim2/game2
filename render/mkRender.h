@@ -365,8 +365,8 @@ internal void R_EndFrame();
 
 internal void DrawBox(V3 offset, V3 scale, V4 color);
 internal void DrawBox(Rect3 rect, V4 color);
-internal void D_PushModel(AS_Handle loadedModel, Mat4 transform, Mat4 &mvp, Mat4 *skinningMatrices,
-                          u32 skinningMatricesCount);
+// internal void D_PushModel(AS_Handle loadedModel, Mat4 transform, Mat4 &mvp, Mat4 *skinningMatrices,
+//                           u32 skinningMatricesCount);
 internal void D_PushTextF(AS_Handle font, V2 startPos, f32 size, char *fmt, ...);
 inline R_Pass *R_GetPassFromKind(R_PassType type);
 internal u8 *R_BatchListPush(R_BatchList *list, u32 instCap);

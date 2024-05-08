@@ -17,8 +17,19 @@ layout(binding = 0) uniform ModelBufferObject
     mat4 transform;
 } ubo;
 
+layout(binding = 2) uniform SkinningBuffer
+{
+    mat4 transforms[1024];
+} skinning;
+
 void main()
 {
-    gl_Position = ubo.transform * vec4(pos, 1.0); 
+    // TODO: compute shader for skinning buffers
+    mat4 boneTransform = skinning.transforms[boneIds[0]] * boneWeights[0];
+    boneTransform     += skinning.transforms[boneIds[1]] * boneWeights[1];
+    boneTransform     += skinning.transforms[boneIds[2]] * boneWeights[2];
+    boneTransform     += skinning.transforms[boneIds[3]] * boneWeights[3];
+
+    gl_Position = ubo.transform * boneTransform * vec4(pos, 1.0); 
     result.uv = uv;
 }

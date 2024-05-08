@@ -285,6 +285,9 @@ internal OS_Event *GetEventType(OS_Events *events, OS_EventType type)
     return result;
 }
 
+using namespace graphics;
+// using namespace render;
+
 DLL G_UPDATE(G_Update)
 {
     G_State *g_state         = engine->GetGameState();
@@ -540,6 +543,48 @@ DLL G_UPDATE(G_Update)
         }
     }
 
+    // Update
+    // TODO: structure of arrays
+    u32 totalSkinningSize = 0;
+    totalSkinningSize += sizeof(Mat4) * GetSkeletonFromModel(g_state->model)->count;
+
+    GPUBuffer *skinningBufferUpload = &render::skinningBufferUpload[device->GetCurrentBuffer()];
+    GPUBuffer *skinningBuffer       = &render::skinningBuffer[device->GetCurrentBuffer()];
+
+    // Resize
+    if (totalSkinningSize > skinningBufferUpload->mDesc.mSize)
+    {
+        GPUBufferDesc desc = skinningBufferUpload->mDesc;
+        desc.mSize         = totalSkinningSize * 2;
+        device->DeleteBuffer(skinningBufferUpload);
+        device->CreateBuffer(skinningBufferUpload, desc, 0);
+
+        desc       = skinningBuffer->mDesc;
+        desc.mSize = totalSkinningSize * 2;
+        device->DeleteBuffer(skinningBuffer);
+        device->CreateBuffer(skinningBuffer, desc, 0);
+    }
+    g_state->mSkinningBufferSize = totalSkinningSize;
+
+    Mat4 *skinningMappedData = (Mat4 *)skinningBufferUpload->mMappedData;
+
+    // Model 1
+    Mat4 translate  = Translate4(V3{0, 20, -30});
+    Mat4 scale      = Scale(V3{0.5f, 0.5f, 0.5f});
+    Mat4 rotate     = Rotate4(MakeV3(1, 0, 0), PI / 2);
+    Mat4 transform1 = translate * rotate * scale;
+
+    LoadedSkeleton *skeleton    = GetSkeletonFromModel(g_state->model);
+    AnimationTransform *tforms1 = PushArray(g_state->frameArena, AnimationTransform, skeleton->count);
+    PlayCurrentAnimation(g_state->permanentArena, &g_state->animPlayer, dt, tforms1);
+
+    SkinModelToAnimation(&g_state->animPlayer, g_state->model, tforms1, skinningMappedData);
+    DebugDrawSkeleton(g_state->model, transform1, skinningMappedData);
+    // SkinModelToBindPose(g_state->model, skinningMatrices1);
+    Mat4 mvp1 = renderState->transform * transform1;
+    // D_PushModel(g_state->model, transform1, mvp1, skinningMatrices1, skeleton->count);
+
+    // Render
     render::Render();
 }
 

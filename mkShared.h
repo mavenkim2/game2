@@ -166,31 +166,32 @@ class PlatformRenderer
     void *pointer;
 };
 
-struct GPUBuffer;
-enum BufferUsageType;
-enum R_TexFormat;
-enum R_BufferType;
-#define R_UPDATE_BUFFER(name) void name(GPUBuffer *buffer, BufferUsageType type, void *data, i32 offset, i32 size)
-typedef R_UPDATE_BUFFER(r_update_buffer);
-
-#define R_INITIALIZE_BUFFER(name) void name(GPUBuffer *ioBuffer, const BufferUsageType inUsageType, const i32 inSize)
-typedef R_INITIALIZE_BUFFER(r_initialize_buffer);
-
-#define R_MAP_GPU_BUFFER(name) void name(GPUBuffer *buffer)
-typedef R_MAP_GPU_BUFFER(r_map_gpu_buffer);
-
-#define R_UNMAP_GPU_BUFFER(name) void name(GPUBuffer *buffer)
-typedef R_UNMAP_GPU_BUFFER(r_unmap_gpu_buffer);
-
-#define R_ALLOCATE_TEXTURE_2D(name) R_Handle name(void *data, i32 width, i32 height, R_TexFormat format)
-typedef R_ALLOCATE_TEXTURE_2D(r_allocate_texture_2D);
+// struct GPUBuffer;
+// enum BufferUsageType;
+// enum R_TexFormat;
+// enum R_BufferType;
+//
+// #define R_UPDATE_BUFFER(name) void name(GPUBuffer *buffer, BufferUsageType type, void *data, i32 offset, i32 size)
+// typedef R_UPDATE_BUFFER(r_update_buffer);
+//
+// #define R_INITIALIZE_BUFFER(name) void name(GPUBuffer *ioBuffer, const BufferUsageType inUsageType, const i32 inSize)
+// typedef R_INITIALIZE_BUFFER(r_initialize_buffer);
+//
+// #define R_MAP_GPU_BUFFER(name) void name(GPUBuffer *buffer)
+// typedef R_MAP_GPU_BUFFER(r_map_gpu_buffer);
+//
+// #define R_UNMAP_GPU_BUFFER(name) void name(GPUBuffer *buffer)
+// typedef R_UNMAP_GPU_BUFFER(r_unmap_gpu_buffer);
+//
+// #define R_ALLOCATE_TEXTURE_2D(name) R_Handle name(void *data, i32 width, i32 height, R_TexFormat format)
+// typedef R_ALLOCATE_TEXTURE_2D(r_allocate_texture_2D);
 
 // unused
-#define R_DELETE_TEXTURE_2D(name) void name(R_Handle handle)
-typedef R_DELETE_TEXTURE_2D(r_delete_texture_2D);
-
-#define R_ALLOCATE_BUFFER(name) R_Handle name(R_BufferType type, void *data, u64 size)
-typedef R_ALLOCATE_BUFFER(r_allocate_buffer);
+// #define R_DELETE_TEXTURE_2D(name) void name(R_Handle handle)
+// typedef R_DELETE_TEXTURE_2D(r_delete_texture_2D);
+//
+// #define R_ALLOCATE_BUFFER(name) R_Handle name(R_BufferType type, void *data, u64 size)
+// typedef R_ALLOCATE_BUFFER(r_allocate_buffer);
 // end unused
 
 #if 0
