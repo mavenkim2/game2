@@ -64,6 +64,51 @@ enum class Format
     Count,
 };
 
+//	https://www.justsoftwaresolutions.co.uk/cplusplus/using-enum-classes-as-bitfields.html
+template <typename E>
+struct enable_bitmask_operators
+{
+    static constexpr bool enable = false;
+};
+template <typename E>
+constexpr typename std::enable_if<enable_bitmask_operators<E>::enable, E>::type operator|(E lhs, E rhs)
+{
+    typedef typename std::underlying_type<E>::type underlying;
+    return static_cast<E>(
+        static_cast<underlying>(lhs) | static_cast<underlying>(rhs));
+}
+template <typename E>
+constexpr typename std::enable_if<enable_bitmask_operators<E>::enable, E &>::type operator|=(E &lhs, E rhs)
+{
+    typedef typename std::underlying_type<E>::type underlying;
+    lhs = static_cast<E>(
+        static_cast<underlying>(lhs) | static_cast<underlying>(rhs));
+    return lhs;
+}
+template <typename E>
+constexpr typename std::enable_if<enable_bitmask_operators<E>::enable, E>::type operator&(E lhs, E rhs)
+{
+    typedef typename std::underlying_type<E>::type underlying;
+    return static_cast<E>(
+        static_cast<underlying>(lhs) & static_cast<underlying>(rhs));
+}
+template <typename E>
+constexpr typename std::enable_if<enable_bitmask_operators<E>::enable, E &>::type operator&=(E &lhs, E rhs)
+{
+    typedef typename std::underlying_type<E>::type underlying;
+    lhs = static_cast<E>(
+        static_cast<underlying>(lhs) & static_cast<underlying>(rhs));
+    return lhs;
+}
+template <typename E>
+constexpr typename std::enable_if<enable_bitmask_operators<E>::enable, E>::type operator~(E rhs)
+{
+    typedef typename std::underlying_type<E>::type underlying;
+    rhs = static_cast<E>(
+        ~static_cast<underlying>(rhs));
+    return rhs;
+}
+
 template <typename E>
 inline b32 HasFlags(E lhs, E rhs)
 {
@@ -102,28 +147,27 @@ struct Viewport
     f32 maxDepth = 1.f;
 };
 
-typedef u32 ResourceUsage;
-enum
+// typedef u32 ResourceUsage;
+enum class ResourceUsage
 {
-    ResourceUsage_None          = 0,
-    ResourceUsage_UniformBuffer = 1 << 1,
-    // ShaderWrite = 1 << 1,
+    None          = 0,
+    UniformBuffer = 1 << 1,
 
-    ResourceUsage_VertexBuffer = 1 << 2,
-    ResourceUsage_IndexBuffer  = 1 << 3,
+    VertexBuffer = 1 << 2,
+    IndexBuffer  = 1 << 3,
 
-    ResourceUsage_TransferSrc = 1 << 4,
-    ResourceUsage_TransferDst = 1 << 5,
+    TransferSrc = 1 << 4,
+    TransferDst = 1 << 5,
 
-    ResourceUsage_SampledTexture = 1 << 6,
+    SampledTexture = 1 << 6,
 
-    ResourceUsage_DepthStencil = 1 << 7,
+    DepthStencil = 1 << 7,
 };
 
-inline b32 HasFlags(ResourceUsage lhs, ResourceUsage rhs)
-{
-    return (lhs & rhs) == rhs;
-}
+// inline b32 HasFlags(ResourceUsage lhs, ResourceUsage rhs)
+// {
+//     return (lhs & rhs) == rhs;
+// }
 
 enum class Filter
 {
@@ -164,22 +208,11 @@ struct SwapchainDesc
 
 enum class ShaderStage
 {
-    Vertex,   // Vertex shader
-    Geometry, // Geometry shader
-    Fragment, // Fragment shader
-    Compute,  // Compute shader
-    Count,
-};
-
-enum class DescriptorType
-{
-    Uniform,
-};
-
-struct Descriptor
-{
-    DescriptorType mDescType;
-    ShaderStage mShaderStage;
+    Vertex   = 1 << 0, // Vertex shader
+    Geometry = 1 << 1, // Geometry shader
+    Fragment = 1 << 2, // Fragment shader
+    Compute  = 1 << 3, // Compute shader
+    Count    = 1 << 4,
 };
 
 struct Shader
@@ -192,14 +225,10 @@ enum ShaderType
     VS_TEST,
     FS_TEST,
 
-    ShaderType_Count,
-};
+    VS_SHADOWMAP,
+    FS_SHADOWMAP,
 
-struct PipelineStateDesc
-{
-    Shader *mVS;
-    Shader *mFS;
-    list<InputLayout> mInputLayouts;
+    ShaderType_Count,
 };
 
 struct GraphicsObject
@@ -244,6 +273,53 @@ struct CommandList : GraphicsObject
 {
 };
 
+//////////////////////////////
+// Pipelines
+//
+
+struct RasterizationState
+{
+    enum class CullMode
+    {
+        None,
+        Back,
+        Front,
+        FrontAndBack,
+    } mCullMode       = CullMode::None;
+    b32 mFrontFaceCCW = 1;
+    // TODO: depth bias
+};
+
+struct DescriptorBinding
+{
+    u32 mBinding;
+    u32 mArraySize = 1;
+    ResourceUsage mUsage;
+    ShaderStage mStage;
+
+    DescriptorBinding(u32 binding, ResourceUsage usage, ShaderStage stage, u32 arraySize = 1)
+        : mBinding(binding), mUsage(usage), mStage(stage), mArraySize(arraySize) {}
+};
+
+struct PushConstantRange
+{
+    u32 mOffset;
+    u32 mSize = 0;
+    ShaderStage mStageFlags;
+};
+
+struct PipelineStateDesc
+{
+    Format mDepthStencilFormat    = Format::Null;
+    Format mColorAttachmentFormat = Format::Null;
+    Shader *mVS;
+    Shader *mFS;
+    // RasterizationState *mRasterState;
+    list<InputLayout *> mInputLayouts;
+    list<DescriptorBinding> mDescriptorBindings;
+    PushConstantRange mPushConstantRange;
+};
+
 struct PipelineState : GraphicsObject
 {
     PipelineStateDesc mDesc;
@@ -278,11 +354,14 @@ struct GPUBarrier
     ResourceUsage mAfter;
 };
 
+// TODO: remove this when move to hlsl
+
 struct TextureDesc
 {
     enum class TextureType
     {
         Texture2D,
+        Texture2DArray,
         // Texture3D,
         Cubemap,
     } mTextureType     = TextureType::Texture2D;
@@ -293,8 +372,14 @@ struct TextureDesc
     u32 mNumLayers     = 1;
     Format mFormat     = Format::Null;
     MemoryUsage mUsage = MemoryUsage::GPU_ONLY;
-    // BindFlag mBindFlags;
-    ResourceUsage mResourceUsage;
+    ResourceUsage mInitialUsage = ResourceUsage::None;
+    ResourceUsage mFutureUsages = ResourceUsage::None;
+    enum class DefaultSampler
+    {
+        None,
+        Nearest,
+        Linear,
+    } mSampler = DefaultSampler::None;
 };
 
 struct Texture : GPUResource
@@ -325,6 +410,23 @@ struct RenderPassImage
         Depth,
     } mImageType;
     Texture *mTexture;
+
+    ResourceUsage mLayoutBefore = ResourceUsage::None;
+    ResourceUsage mLayout       = ResourceUsage::None;
+    ResourceUsage mLayoutAfter  = ResourceUsage::None;
+    i32 mSubresource            = -1;
+
+    static RenderPassImage DepthStencil(Texture *texture, ResourceUsage layoutBefore, ResourceUsage layoutAfter, i32 subresource = -1)
+    {
+        RenderPassImage image;
+        image.mImageType    = RenderImageType::Depth;
+        image.mTexture      = texture;
+        image.mLayoutBefore = layoutBefore;
+        image.mLayout       = ResourceUsage::DepthStencil;
+        image.mLayoutAfter  = layoutAfter;
+        image.mSubresource  = subresource;
+        return image;
+    }
 };
 
 inline u32
@@ -388,10 +490,11 @@ struct mkGraphics
     virtual void CreateTexture(Texture *outTexture, TextureDesc desc, void *inData)                                     = 0;
     virtual void CreateSampler(Sampler *sampler, SamplerDesc desc)                                                      = 0;
     virtual void BindResource(GPUResource *resource, u32 slot, CommandList cmd)                                         = 0;
-    virtual void CreateSubresource(Texture *texture)                                                                    = 0;
+    virtual i32 CreateSubresource(Texture *texture, u32 baseLayer = 0, u32 numLayers = ~0u)                             = 0;
     virtual void UpdateDescriptorSet(CommandList cmd)                                                                   = 0;
     virtual CommandList BeginCommandList(QueueType queue)                                                               = 0;
     virtual void BeginRenderPass(Swapchain *inSwapchain, RenderPassImage *images, u32 count, CommandList inCommandList) = 0;
+    virtual void BeginRenderPass(RenderPassImage *images, u32 count, CommandList cmd)                                   = 0;
     virtual void Draw(CommandList cmd, u32 vertexCount, u32 firstVertex)                                                = 0;
     virtual void DrawIndexed(CommandList cmd, u32 indexCount, u32 firstVertex, u32 baseVertex)                          = 0;
     virtual void BindVertexBuffer(CommandList cmd, GPUBuffer **buffers, u32 count = 1, u32 *offsets = 0)                = 0;
@@ -399,7 +502,9 @@ struct mkGraphics
     virtual void SetViewport(CommandList cmd, Viewport *viewport)                                                       = 0;
     virtual void SetScissor(CommandList cmd, Rect2 scissor)                                                             = 0;
     virtual void EndRenderPass(CommandList cmd)                                                                         = 0;
+    virtual void SubmitCommandLists()                                                                                   = 0;
     virtual void BindPipeline(const PipelineState *ps, CommandList cmd)                                                 = 0;
+    virtual void PushConstants(CommandList cmd, u32 size, void *data, u32 offset = 0)                                   = 0;
     virtual void WaitForGPU()                                                                                           = 0;
     virtual void Barrier(CommandList cmd, GPUBarrier *barriers, u32 count)                                              = 0;
 
@@ -408,6 +513,18 @@ struct mkGraphics
 
     virtual u32 GetCurrentBuffer() = 0;
 };
+
+template <>
+struct enable_bitmask_operators<graphics::ResourceUsage>
+{
+    static const bool enable = true;
+};
+template <>
+struct enable_bitmask_operators<graphics::ShaderStage>
+{
+    static const bool enable = true;
+};
+
 } // namespace graphics
 
 #endif

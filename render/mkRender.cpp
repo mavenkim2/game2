@@ -1004,82 +1004,184 @@ internal void R_CascadedShadowMap(const ViewLight *inLight, Mat4 *outLightViewPr
                                   f32 *outCascadeDistances)
 {
     RenderState *renderState = engine->GetRenderState();
-    Mat4 mvpMatrices[cNumCascades];
-    f32 cascadeDistances[cNumCascades];
-    R_ShadowMapFrusta(cNumSplits, .9f, mvpMatrices, cascadeDistances);
+    // Mat4 mvpMatrices[cNumCascades];
+    f32 cascadeDistances[cNumCascades] = {20.f, 80.f, 400.f, 1000.f};
+    MemoryCopy(outCascadeDistances, cascadeDistances, sizeof(cascadeDistances));
+    // R_ShadowMapFrusta(cNumSplits, .9f, mvpMatrices, cascadeDistances);
     Assert(inLight->type == LightType_Directional);
 
+    V3 worldUp     = {0, 0, 1};
+    Mat4 lightView = LookAt4({}, -inLight->dir, worldUp);
     // Step 0. Set up the mvp matrix for each frusta.
 
+    Mat4 inverseViewProjection = Inverse(renderState->transform);
+    f32 zNear                  = renderState->nearZ;
+    f32 zFar                   = renderState->farZ;
+
     // Step 1. Get the corners of each of the view frusta in world space.
-    V3 frustumVertices[cNumCascades][8];
-    for (i32 cascadeIndex = 0; cascadeIndex < cNumCascades; cascadeIndex++)
+    V3 corners[8] = {
+        {-1, -1, 0},
+        {-1, -1, 1},
+        {1, -1, 0},
+        {1, -1, 1},
+        {1, 1, 0},
+        {1, 1, 1},
+        {-1, 1, 0},
+        {-1, 1, 1},
+    };
+
+    // Map to world space
+    for (i32 i = 0; i < ArrayLength(corners); i++)
     {
-        R_GetFrustumCorners(mvpMatrices[cascadeIndex], BoundsUnitCube, frustumVertices[cascadeIndex]);
+        V4 result  = inverseViewProjection * MakeV4(corners[i], 1.f);
+        corners[i] = result.xyz / result.w;
     }
 
-    // Step 2. Find light world to view matrix (first get center point of frusta)
-
-    // Light direction is specified from surface -> light origin
-    V3 worldUp               = renderState->camera.right;
-    V3 centers[cNumCascades] = {};
-    Mat4 lightViewMatrices[cNumCascades];
     for (i32 cascadeIndex = 0; cascadeIndex < cNumCascades; cascadeIndex++)
     {
-        for (i32 i = 0; i < 8; i++)
+        V3 frustumVertices[8];
+
+        // Find the corners of each split
+        f32 nearStep = cascadeIndex == 0 ? 0.f : (cascadeDistances[cascadeIndex - 1] - zNear) / (zFar - zNear);
+        f32 farStep  = (cascadeDistances[cascadeIndex] - zNear) / (zFar - zNear);
+
+        for (i32 i = 0; i < ArrayLength(corners) / 2; i += 2)
         {
-            centers[cascadeIndex] += frustumVertices[cascadeIndex][i];
+            frustumVertices[i]     = Lerp(corners[i], corners[i + 1], nearStep);
+            frustumVertices[i + 1] = Lerp(corners[i], corners[i + 1], farStep);
         }
-        centers[cascadeIndex] /= 8;
-        lightViewMatrices[cascadeIndex] = LookAt4(centers[cascadeIndex] + inLight->dir, centers[cascadeIndex], worldUp);
-    }
 
-    Rect3 bounds[cNumCascades];
-    for (i32 cascadeIndex = 0; cascadeIndex < cNumCascades; cascadeIndex++)
-    {
-        Init(&bounds[cascadeIndex]);
-        // Loop over each corner of each frusta
-        for (i32 i = 0; i < 8; i++)
+        // Find the center of each split
+        // Find the radii of each cascade
+        V3 center  = {};
+        f32 radius = -FLT_MAX;
+
+        for (i32 i = 0; i < ArrayLength(frustumVertices); i++)
         {
-            V4 result = Transform(lightViewMatrices[cascadeIndex], frustumVertices[cascadeIndex][i]);
-            AddBounds(bounds[cascadeIndex], result.xyz);
+            center += frustumVertices[i];
         }
-    }
+        center /= 8;
+        for (i32 i = 0; i < ArrayLength(frustumVertices[cascadeIndex]); i++)
+        {
+            radius = Max(Abs(Length(frustumVertices[i] - center)), radius);
+        }
 
-    // TODO: instead of tightly fitting the frusta, the light's box could be tighter
+        // Snap to shadow map texel size (prevents shimmering)
+        f32 texelsPerUnit = 1024.f / (2.f * radius); //(aabb.maxP - aabb.minP); // 2 * radius
+        center            = Floor(center * texelsPerUnit) / texelsPerUnit;
 
-    for (i32 i = 0; i < cNumCascades; i++)
-    {
-        // When viewing down the -z axis, the max is the near plane and the min is the far plane.
-        Rect3 *currentBounds = &bounds[i];
-        // The orthographic projection expects 0 < n < f
+        Rect3 aabb;
+        V3 extents = MakeV3(radius);
+        aabb.minP  = center - extents;
+        aabb.maxP  = center + extents;
 
-        // TODO: use the bounds of the light instead
-        f32 zNear = -currentBounds->maxZ - 50;
-        f32 zFar  = -currentBounds->minZ;
+        outLightViewProjectionMatrices[cascadeIndex] =
+            Orthographic4(aabb.minX, aabb.maxX, aabb.minY, aabb.maxY, aabb.minZ, aabb.maxZ) * lightView;
 
-        f32 extent = zFar - zNear;
+        // V3 frustumVertices[cNumCascades][8];
+        // for (i32 cascadeIndex = 0; cascadeIndex < cNumCascades; cascadeIndex++)
+        // {
+        //     R_GetFrustumCorners(mvpMatrices[cascadeIndex], BoundsUnitCube, frustumVertices[cascadeIndex]);
+        // }
 
-        V3 shadowCameraPos = centers[i] - inLight->dir * zNear;
-        Mat4 fixedLookAt   = LookAt4(shadowCameraPos, centers[i], worldUp);
+        // Step 2. Find light world to view matrix (first get center point of frusta)
 
-        outLightViewProjectionMatrices[i] = Orthographic4(currentBounds->minX, currentBounds->maxX, currentBounds->minY, currentBounds->maxY, 0, extent) * fixedLookAt;
-        outCascadeDistances[i]            = cascadeDistances[i];
+        // Light direction is specified from surface -> light origin
+        // V3 worldUp = renderState->camera.right;
+        // Mat4 lightViewMatrices[cNumCascades];
+        // for (i32 cascadeIndex = 0; cascadeIndex < cNumCascades; cascadeIndex++)
+        // {
+        //     for (i32 i = 0; i < 8; i++)
+        //     {
+        //         centers[cascadeIndex] += frustumVertices[cascadeIndex][i];
+        //     }
+        //     centers[cascadeIndex] /= 8;
+        //     lightViewMatrices[cascadeIndex] = LookAt4(centers[cascadeIndex] + inLight->dir, centers[cascadeIndex], worldUp);
+        // }
+
+        // Rect3 bounds[cNumCascades];
+        // for (i32 cascadeIndex = 0; cascadeIndex < cNumCascades; cascadeIndex++)
+        // {
+        //     Init(&bounds[cascadeIndex]);
+        //     // Loop over each corner of each frusta
+        //     for (i32 i = 0; i < 8; i++)
+        //     {
+        //         V4 result = Transform(lightViewMatrices[cascadeIndex], frustumVertices[cascadeIndex][i]);
+        //         AddBounds(bounds[cascadeIndex], result.xyz);
+        //     }
+        // }
+
+        // TODO: instead of tightly fitting the frusta, the light's box could be tighter
+
+        // for (i32 i = 0; i < cNumCascades; i++)
+        // {
+        //     // When viewing down the -z axis, the max is the near plane and the min is the far plane.
+        //     Rect3 *currentBounds = &bounds[i];
+        //     // The orthographic projection expects 0 < n < f
+        //
+        //     // TODO: use the bounds of the light instead
+        //     f32 zNear = -currentBounds->maxZ - 50;
+        //     f32 zFar  = -currentBounds->minZ;
+        //
+        //     f32 extent = zFar - zNear;
+        //
+        //     V3 shadowCameraPos = centers[i] - inLight->dir * zNear;
+        //     Mat4 fixedLookAt   = LookAt4(shadowCameraPos, centers[i], worldUp);
+        //
+        //     outLightViewProjectionMatrices[i] = Orthographic4(currentBounds->minX, currentBounds->maxX, currentBounds->minY, currentBounds->maxY, 0, extent) * fixedLookAt;
+        //     outCascadeDistances[i]            = cascadeDistances[i];
+        // }
     }
 }
 
 using namespace graphics;
 namespace render
 {
-
 enum InputLayoutTypes
 {
     IL_Type_MeshVertex,
     IL_Type_Count,
 };
 
+struct ModelParams
+{
+    Mat4 transform;
+    Mat4 modelViewMatrix;
+    Mat4 modelMatrix;
+};
+
+struct Ubo
+{
+    ModelParams params[8];
+    Mat4 lightViewProjectionMatrices[8];
+    V4 cascadeDistances;
+    V4 lightDir;
+    V4 viewPos;
+};
+
+struct PushConstant
+{
+    i32 modelIndex;
+    i32 skinningOffset;
+};
+
+struct ShadowPushConstant
+{
+    i32 modelIndex;
+    i32 skinningOffset;
+    i32 cascadeNum;
+};
+
+const i32 MODEL_PARAMS_BIND = 0;
+const i32 SKINNING_BIND     = 1;
+const i32 ALBEDO_BIND       = 2;
+const i32 NORMAL_BIND       = 3;
+const i32 SHADOW_MAP_BIND   = 4;
+
 Swapchain swapchain;
 PipelineState pipelineState;
+
+PipelineState shadowMapPipeline;
 
 graphics::GPUBuffer ubo;
 graphics::GPUBuffer vbo;
@@ -1092,6 +1194,8 @@ InputLayout inputLayouts[IL_Type_Count];
 Shader shaders[ShaderType_Count];
 
 Texture depthBufferMain;
+Texture shadowDepthBuffer;
+list<i32> shadowSlices;
 
 internal void Initialize()
 {
@@ -1100,7 +1204,7 @@ internal void Initialize()
         SwapchainDesc desc;
         desc.width  = (u32)platform.OS_GetWindowDimension(shared->windowHandle).x;
         desc.height = (u32)platform.OS_GetWindowDimension(shared->windowHandle).y;
-        desc.format = graphics::Format::B8G8R8A8_UNORM;
+        desc.format = graphics::Format::R8G8B8A8_SRGB;
 
         device->CreateSwapchain((Window)shared->windowHandle.handle, &desc, &swapchain);
     }
@@ -1109,57 +1213,103 @@ internal void Initialize()
     {
         GPUBufferDesc desc;
         desc.mSize          = kilobytes(4);
-        desc.mResourceUsage = ResourceUsage_UniformBuffer;
+        desc.mResourceUsage = ResourceUsage::UniformBuffer;
         device->CreateBuffer(&ubo, desc, 0);
 
         // Skinning
         desc.mSize          = kilobytes(4);
         desc.mUsage         = MemoryUsage::CPU_TO_GPU;
-        desc.mResourceUsage = ResourceUsage_TransferSrc;
+        desc.mResourceUsage = ResourceUsage::TransferSrc;
         for (u32 i = 0; i < ArrayLength(skinningBufferUpload); i++)
         {
             device->CreateBuffer(&skinningBufferUpload[i], desc, 0);
         }
 
         desc.mUsage         = MemoryUsage::GPU_ONLY;
-        desc.mResourceUsage = ResourceUsage_UniformBuffer;
+        desc.mResourceUsage = ResourceUsage::UniformBuffer;
         for (u32 i = 0; i < ArrayLength(skinningBuffer); i++)
         {
             device->CreateBuffer(&skinningBuffer[i], desc, 0);
         }
     }
 
-    // Initialize rendertargets/depth buffers
+    // Initialize render targets/depth buffers
     {
         TextureDesc desc;
-        desc.mWidth         = swapchain.mDesc.width;
-        desc.mHeight        = swapchain.mDesc.height;
-        desc.mResourceUsage = ResourceUsage_DepthStencil;
-        desc.mFormat        = Format::D32_SFLOAT_S8_UINT;
+        desc.mWidth        = swapchain.mDesc.width;
+        desc.mHeight       = swapchain.mDesc.height;
+        desc.mInitialUsage = ResourceUsage::DepthStencil;
+        desc.mFormat       = Format::D32_SFLOAT_S8_UINT;
 
         device->CreateTexture(&depthBufferMain, desc, 0);
+
+        // Shadows
+        desc.mWidth        = 1024;
+        desc.mHeight       = 1024;
+        desc.mInitialUsage = ResourceUsage::SampledTexture; // TODO: this is weird.
+        desc.mFutureUsages = ResourceUsage::DepthStencil;
+        desc.mFormat       = Format::D32_SFLOAT;
+        desc.mNumLayers    = cNumCascades;
+        desc.mSampler      = TextureDesc::DefaultSampler::Nearest;
+        desc.mTextureType  = TextureDesc::TextureType::Texture2DArray;
+
+        device->CreateTexture(&shadowDepthBuffer, desc, 0);
+
+        for (u32 i = 0; i < shadowDepthBuffer.mDesc.mNumLayers; i++)
+        {
+            shadowSlices.push_back(device->CreateSubresource(&shadowDepthBuffer, i, 1));
+        }
     }
 
     // Initialize shaders
-    shaders[VS_TEST].mName = "src/shaders/triangle_test_vert.spv";
-    shaders[FS_TEST].mName = "src/shaders/triangle_test_frag.spv";
+    shaders[VS_TEST].mName      = "src/shaders/triangle_test_vert.spv";
+    shaders[FS_TEST].mName      = "src/shaders/triangle_test_frag.spv";
+    shaders[VS_SHADOWMAP].mName = "src/shaders/depth.spv";
 
-    // Initialize input layouts
-    InputLayout &inputLayout = inputLayouts[IL_Type_MeshVertex];
-    inputLayout.mElements    = {
-        Format::R32G32B32_SFLOAT, Format::R32G32B32_SFLOAT, Format::R32G32_SFLOAT, Format::R32G32B32_SFLOAT,
-        Format::R32G32B32A32_UINT, Format::R32G32B32A32_SFLOAT};
+    // Initialize pipelines
+    {
+        InputLayout &inputLayout = inputLayouts[IL_Type_MeshVertex];
+        inputLayout.mElements    = {
+            Format::R32G32B32_SFLOAT, Format::R32G32B32_SFLOAT, Format::R32G32_SFLOAT, Format::R32G32B32_SFLOAT,
+            Format::R32G32B32A32_UINT, Format::R32G32B32A32_SFLOAT};
 
-    inputLayout.mBinding = 0;
-    inputLayout.mStride  = sizeof(MeshVertex);
-    inputLayout.mRate    = InputRate::Vertex;
+        inputLayout.mBinding = 0;
+        inputLayout.mStride  = sizeof(MeshVertex);
+        inputLayout.mRate    = InputRate::Vertex;
 
-    PipelineStateDesc desc;
-    desc.mVS = &shaders[VS_TEST];
-    desc.mFS = &shaders[FS_TEST];
-    desc.mInputLayouts.push_back(inputLayouts[IL_Type_MeshVertex]);
+        // Main
+        PipelineStateDesc desc;
+        desc.mDepthStencilFormat    = Format::D32_SFLOAT_S8_UINT;
+        desc.mColorAttachmentFormat = Format::R8G8B8A8_SRGB;
+        desc.mVS                    = &shaders[VS_TEST];
+        desc.mFS                    = &shaders[FS_TEST];
+        desc.mDescriptorBindings    = {
+            DescriptorBinding(MODEL_PARAMS_BIND, ResourceUsage::UniformBuffer, ShaderStage::Vertex | ShaderStage::Fragment),
+            DescriptorBinding(SKINNING_BIND, ResourceUsage::UniformBuffer, ShaderStage::Vertex | ShaderStage::Fragment),
+            DescriptorBinding(ALBEDO_BIND, ResourceUsage::SampledTexture, ShaderStage::Fragment),
+            DescriptorBinding(NORMAL_BIND, ResourceUsage::SampledTexture, ShaderStage::Fragment),
+            DescriptorBinding(SHADOW_MAP_BIND, ResourceUsage::SampledTexture, ShaderStage::Fragment),
+        };
+        desc.mInputLayouts.push_back(&inputLayouts[IL_Type_MeshVertex]);
+        desc.mPushConstantRange.mOffset     = 0;
+        desc.mPushConstantRange.mSize       = sizeof(PushConstant);
+        desc.mPushConstantRange.mStageFlags = ShaderStage::Vertex;
+        device->CreateShader(&desc, &pipelineState);
 
-    device->CreateShader(&desc, &pipelineState);
+        // Shadows
+        desc                     = {};
+        desc.mDepthStencilFormat = Format::D32_SFLOAT;
+        desc.mVS                 = &shaders[VS_SHADOWMAP];
+        desc.mDescriptorBindings = {
+            DescriptorBinding(MODEL_PARAMS_BIND, ResourceUsage::UniformBuffer, ShaderStage::Vertex),
+            DescriptorBinding(SKINNING_BIND, ResourceUsage::UniformBuffer, ShaderStage::Vertex),
+        };
+        desc.mInputLayouts.push_back(&inputLayouts[IL_Type_MeshVertex]);
+        desc.mPushConstantRange.mOffset     = 0;
+        desc.mPushConstantRange.mSize       = sizeof(ShadowPushConstant);
+        desc.mPushConstantRange.mStageFlags = ShaderStage::Vertex;
+        device->CreateShader(&desc, &shadowMapPipeline);
+    }
 }
 
 internal void Render()
@@ -1168,74 +1318,158 @@ internal void Render()
     G_State *g_state         = engine->GetGameState();
     RenderState *renderState = engine->GetRenderState();
 
-    LoadedModel *model  = GetModel(g_state->model);
     CommandList cmdList = device->BeginCommandList(QueueType_Graphics);
 
     GPUBuffer *currentSkinBufUpload = &skinningBufferUpload[device->GetCurrentBuffer()];
     GPUBuffer *currentSkinBuf       = &skinningBuffer[device->GetCurrentBuffer()];
 
-    GPUBarrier barrier = CreateBarrier(currentSkinBufUpload, ResourceUsage_TransferSrc, ResourceUsage_None);
-    device->Barrier(cmdList, &barrier, 1);
+    GPUBarrier barrier = CreateBarrier(currentSkinBufUpload, ResourceUsage::TransferSrc, ResourceUsage::None);
+    // device->Barrier(cmdList, &barrier, 1);
     device->CopyBuffer(cmdList, currentSkinBuf, currentSkinBufUpload, g_state->mSkinningBufferSize);
 
-    // TODO: get this from somewhere else :)
-    Mat4 translate = Translate4(V3{0, 20, -30});
-    Mat4 scale     = Scale(V3{0.5f, 0.5f, 0.5f});
-    Mat4 rotate    = Rotate4(MakeV3(1, 0, 0), PI / 2);
-    Mat4 transform = translate * rotate * scale;
-    transform      = renderState->transform * transform;
+    // Setup uniform buffer
+    {
+        Ubo uniforms;
+        for (u32 i = 0; i < g_state->mEntityCount; i++)
+        {
+            ModelParams *modelParams     = &uniforms.params[i];
+            modelParams->transform       = renderState->transform * g_state->mTransforms[i];
+            modelParams->modelViewMatrix = renderState->viewMatrix * g_state->mTransforms[i];
+            modelParams->modelMatrix     = g_state->mTransforms[i];
+        }
+        ViewLight testLight = {};
+        testLight.dir       = {0, 0, 1};
+        uniforms.lightDir   = MakeV4(testLight.dir, 1.0);
+        uniforms.viewPos    = MakeV4(renderState->camera.position, 1.0);
 
-    device->FrameAllocate(&ubo, transform.elements[0], cmdList);
+        R_CascadedShadowMap(&testLight, uniforms.lightViewProjectionMatrices, uniforms.cascadeDistances.elements);
+        device->FrameAllocate(&ubo, &uniforms, cmdList);
+    }
 
     GPUBarrier barriers[] =
         {
-            CreateBarrier(&ubo, ResourceUsage_TransferSrc, ResourceUsage_UniformBuffer),
-            CreateBarrier(currentSkinBuf, ResourceUsage_TransferDst, ResourceUsage_UniformBuffer),
+            CreateBarrier(&ubo, ResourceUsage::TransferSrc, ResourceUsage::UniformBuffer),
+            CreateBarrier(currentSkinBuf, ResourceUsage::TransferDst, ResourceUsage::UniformBuffer),
         };
     device->Barrier(cmdList, barriers, ArrayLength(barriers));
 
-    RenderPassImage images[] = {
-        {
-            RenderPassImage::RenderImageType::Depth,
-            &depthBufferMain,
-        },
-    };
-
-    device->BeginRenderPass(&swapchain, images, ArrayLength(images), cmdList);
-
-    Viewport viewport;
-    viewport.width  = (f32)swapchain.GetDesc().width;
-    viewport.height = (f32)swapchain.GetDesc().height;
-
-    device->BindPipeline(&pipelineState, cmdList);
-
-    device->BindResource(&ubo, 0, cmdList);
-    device->BindResource(currentSkinBuf, 2, cmdList);
-
-    device->SetViewport(cmdList, &viewport);
-    Rect2 scissor;
-    scissor.minP = {0, 0};
-    scissor.maxP = {65536, 65536};
-
-    device->SetScissor(cmdList, scissor);
-
-    for (u32 i = 0; i < model->numMeshes; i++)
+    // Shadow pass :)
     {
-        Mesh *mesh       = &model->meshes[i];
-        Texture *texture = GetTexture(mesh->material.textureHandles[TextureType_Diffuse]);
-        device->BindResource(texture, 1, cmdList);
+        for (u32 shadowSlice = 0; shadowSlice < shadowDepthBuffer.mDesc.mNumLayers; shadowSlice++)
+        {
+            RenderPassImage images[] = {
+                RenderPassImage::DepthStencil(&shadowDepthBuffer,
+                                              ResourceUsage::SampledTexture, ResourceUsage::SampledTexture, shadowSlice),
+            };
 
-        graphics::GPUBuffer *buffers[] = {&mesh->surface.mVertexBuffer};
-        device->BindVertexBuffer(cmdList, buffers, ArrayLength(buffers), 0);
-        device->BindIndexBuffer(cmdList, &mesh->surface.mIndexBuffer);
-        device->UpdateDescriptorSet(cmdList);
+            device->BeginRenderPass(images, ArrayLength(images), cmdList);
+            device->BindPipeline(&shadowMapPipeline, cmdList);
+            device->BindResource(&ubo, MODEL_PARAMS_BIND, cmdList);
+            device->BindResource(currentSkinBuf, SKINNING_BIND, cmdList);
 
-        device->DrawIndexed(cmdList, mesh->surface.indexCount, 0, 0);
+            Viewport viewport;
+            viewport.width  = (f32)shadowDepthBuffer.mDesc.mWidth;
+            viewport.height = (f32)shadowDepthBuffer.mDesc.mHeight;
+
+            device->SetViewport(cmdList, &viewport);
+            Rect2 scissor;
+            scissor.minP = {0, 0};
+            scissor.maxP = {65536, 65536};
+
+            device->SetScissor(cmdList, scissor);
+
+            ShadowPushConstant pc;
+            pc.cascadeNum = shadowSlice;
+
+            for (u32 entityIndex = 0; entityIndex < g_state->mEntityCount; entityIndex++)
+            {
+                game::Entity *entity = &g_state->mEntities[entityIndex];
+                LoadedModel *model   = GetModel(entity->mAssetHandle);
+                pc.skinningOffset    = entity->mSkinningOffset;
+                pc.modelIndex        = entityIndex;
+                device->PushConstants(cmdList, sizeof(pc), &pc);
+
+                for (u32 meshIndex = 0; meshIndex < model->numMeshes; meshIndex++)
+                {
+                    Mesh *mesh = &model->meshes[meshIndex];
+
+                    graphics::GPUBuffer *buffers[] = {&mesh->surface.mVertexBuffer};
+                    device->BindVertexBuffer(cmdList, buffers, ArrayLength(buffers), 0);
+                    device->BindIndexBuffer(cmdList, &mesh->surface.mIndexBuffer);
+                    device->UpdateDescriptorSet(cmdList);
+
+                    device->DrawIndexed(cmdList, mesh->surface.indexCount, 0, 0);
+                }
+            }
+            device->EndRenderPass(cmdList);
+        }
     }
 
-    device->EndRenderPass(cmdList);
-    // device->WaitForGPU();
-}
+    // Main geo pass
+
+    {
+        // RenderPassImage images[] = {
+        //     RenderPassImage::DepthStencil(&depthBufferMain,
+        //                                   ResourceUsage::None, ResourceUsage::DepthStencil),
+        // };
+
+        RenderPassImage images[] = {
+            {
+                RenderPassImage::RenderImageType::Depth,
+                &depthBufferMain,
+            },
+        };
+
+        device->BeginRenderPass(&swapchain, images, ArrayLength(images), cmdList);
+        device->BindPipeline(&pipelineState, cmdList);
+        device->BindResource(&ubo, MODEL_PARAMS_BIND, cmdList);
+        device->BindResource(currentSkinBuf, SKINNING_BIND, cmdList);
+        device->BindResource(&shadowDepthBuffer, SHADOW_MAP_BIND, cmdList);
+
+        Viewport viewport;
+        viewport.width  = (f32)swapchain.GetDesc().width;
+        viewport.height = (f32)swapchain.GetDesc().height;
+
+        device->SetViewport(cmdList, &viewport);
+        Rect2 scissor;
+        scissor.minP = {0, 0};
+        scissor.maxP = {65536, 65536};
+
+        device->SetScissor(cmdList, scissor);
+
+        for (u32 entityIndex = 0; entityIndex < g_state->mEntityCount; entityIndex++)
+        {
+            game::Entity *entity = &g_state->mEntities[entityIndex];
+            LoadedModel *model   = GetModel(entity->mAssetHandle);
+            PushConstant pc;
+            pc.modelIndex     = entityIndex;
+            pc.skinningOffset = entity->mSkinningOffset;
+            device->PushConstants(cmdList, sizeof(pc), &pc);
+
+            for (u32 meshIndex = 0; meshIndex < model->numMeshes; meshIndex++)
+            {
+                Mesh *mesh       = &model->meshes[meshIndex];
+                Texture *texture = GetTexture(mesh->material.textureHandles[TextureType_Diffuse]);
+                device->BindResource(texture, ALBEDO_BIND, cmdList);
+                texture = GetTexture(mesh->material.textureHandles[TextureType_Normal]);
+                device->BindResource(texture, NORMAL_BIND, cmdList);
+
+                graphics::GPUBuffer *buffers[] = {&mesh->surface.mVertexBuffer};
+                device->BindVertexBuffer(cmdList, buffers, ArrayLength(buffers), 0);
+                device->BindIndexBuffer(cmdList, &mesh->surface.mIndexBuffer);
+                device->UpdateDescriptorSet(cmdList);
+
+                device->DrawIndexed(cmdList, mesh->surface.indexCount, 0, 0);
+            }
+        }
+        device->EndRenderPass(cmdList);
+    } // namespace render
+    device->SubmitCommandLists();
+} // namespace render
+
+// void RenderMeshes()
+// {
+// }
 
 } // namespace render
 

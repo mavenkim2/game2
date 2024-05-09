@@ -500,11 +500,11 @@ JOB_CALLBACK(AS_LoadAsset)
 
             graphics::GPUBufferDesc desc;
             desc.mSize          = sizeof(mesh->surface.vertices[0]) * mesh->surface.vertexCount;
-            desc.mResourceUsage = graphics::ResourceUsage_VertexBuffer;
+            desc.mResourceUsage = graphics::ResourceUsage::VertexBuffer;
             device->CreateBuffer(&mesh->surface.mVertexBuffer, desc, mesh->surface.vertices);
 
             desc.mSize          = sizeof(mesh->surface.indices[0]) * mesh->surface.indexCount;
-            desc.mResourceUsage = graphics::ResourceUsage_IndexBuffer;
+            desc.mResourceUsage = graphics::ResourceUsage::IndexBuffer;
             device->CreateBuffer(&mesh->surface.mIndexBuffer, desc, mesh->surface.indices);
 
             AddBounds(model->bounds, mesh->surface.bounds);
@@ -661,11 +661,12 @@ JOB_CALLBACK(AS_LoadAsset)
 #endif
 
         graphics::TextureDesc desc;
-        desc.mWidth         = width;
-        desc.mHeight        = height;
-        desc.mFormat        = format;
-        desc.mResourceUsage = graphics::ResourceUsage_SampledTexture;
-        desc.mTextureType   = graphics::TextureDesc::TextureType::Texture2D;
+        desc.mWidth        = width;
+        desc.mHeight       = height;
+        desc.mFormat       = format;
+        desc.mInitialUsage = graphics::ResourceUsage::SampledTexture;
+        desc.mTextureType  = graphics::TextureDesc::TextureType::Texture2D;
+        desc.mSampler      = graphics::TextureDesc::DefaultSampler::Linear;
 
         device->CreateTexture(&asset->texture, desc, texData);
 

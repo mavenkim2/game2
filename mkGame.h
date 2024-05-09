@@ -143,6 +143,15 @@ struct EntityState
     u32 entityCount;
 };
 
+namespace game
+{
+struct Entity
+{
+    AS_Handle mAssetHandle;
+    i32 mSkinningOffset;
+};
+}; // namespace game
+
 struct G_State
 {
     // Input
@@ -166,13 +175,15 @@ struct G_State
 
     CameraMode cameraMode;
 
-    AnimationPlayer animPlayer;
+    game::Entity mEntities[4];
+    AnimationPlayer mAnimPlayers[4];
+    Mat4 mTransforms[4];
+    u32 mEntityCount = 0;
 
-    // TODO: add entities please
-    AS_Handle model;
-    AS_Handle model2;
-    AS_Handle eva;
-    AS_Handle modelBall;
+    // AS_Handle model;
+    // AS_Handle model2;
+    // AS_Handle eva;
+    // AS_Handle modelBall;
 
     AS_Handle font;
 

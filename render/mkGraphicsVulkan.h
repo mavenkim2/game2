@@ -156,6 +156,8 @@ struct mkGraphicsVulkan : mkGraphics
         list<VkDescriptorSet> mDescriptorSets;
         // u32 mCurrentSet = 0;
         VkPipelineLayout mPipelineLayout;
+
+        VkPushConstantRange mPushConstantRange = {};
     };
 
     //////////////////////////////
@@ -174,8 +176,16 @@ struct mkGraphicsVulkan : mkGraphics
     struct TextureVulkan
     {
         VkImage mImage            = VK_NULL_HANDLE;
-        VkImageView mImageView    = VK_NULL_HANDLE;
         VmaAllocation mAllocation = VK_NULL_HANDLE;
+
+        struct Subresource
+        {
+            VkImageView mImageView = VK_NULL_HANDLE;
+            u32 mBaseLayer;
+            u32 mNumLayers;
+        };
+        Subresource mSubresource; // whole view
+        list<Subresource> mSubresources; // sub views
     };
 
     struct SamplerVulkan
@@ -247,16 +257,17 @@ struct mkGraphicsVulkan : mkGraphics
     b32 CreateSwapchain(Window window, SwapchainDesc *desc, Swapchain *swapchain) override;
     void CreateShader(PipelineStateDesc *inDesc, PipelineState *outPS) override;
     void CreateBuffer(GPUBuffer *inBuffer, GPUBufferDesc inDesc, void *inData) override;
-    void CopyBuffer(CommandList cmd, GPUBuffer *dest, GPUBuffer *src, u32 size) override; 
+    void CopyBuffer(CommandList cmd, GPUBuffer *dest, GPUBuffer *src, u32 size) override;
     void DeleteBuffer(GPUBuffer *buffer) override;
     void CreateTexture(Texture *outTexture, TextureDesc desc, void *inData) override;
     void CreateSampler(Sampler *sampler, SamplerDesc desc) override;
     void BindResource(GPUResource *resource, u32 slot, CommandList cmd) override;
-    void CreateSubresource(Texture *texture) override;
+    i32 CreateSubresource(Texture *texture, u32 baseLayer = 0, u32 numLayers = ~0u) override;
     void UpdateBuffer(GPUBuffer *inBuffer, void *inData);
     void UpdateDescriptorSet(CommandList cmd);
     CommandList BeginCommandList(QueueType queue) override;
     void BeginRenderPass(Swapchain *inSwapchain, RenderPassImage *images, u32 count, CommandList inCommandList) override;
+    void BeginRenderPass(RenderPassImage *images, u32 count, CommandList cmd) override;
     void Draw(CommandList cmd, u32 vertexCount, u32 firstVertex) override;
     void DrawIndexed(CommandList cmd, u32 indexCount, u32 firstVertex, u32 baseVertex);
 
@@ -265,7 +276,9 @@ struct mkGraphicsVulkan : mkGraphics
     void SetViewport(CommandList cmd, Viewport *viewport) override;
     void SetScissor(CommandList cmd, Rect2 scissor) override;
     void EndRenderPass(CommandList cmd) override;
+    void SubmitCommandLists() override;
     void BindPipeline(const PipelineState *ps, CommandList cmd) override;
+    void PushConstants(CommandList cmd, u32 size, void *data, u32 offset = 0) override;
     void WaitForGPU() override;
 
     void Barrier(CommandList cmd, GPUBarrier *barriers, u32 count) override;
@@ -274,7 +287,7 @@ struct mkGraphicsVulkan : mkGraphics
     void SetName(u64 handle, GraphicsObjectType type, const char *name) override;
 
 private:
-    const i32 cPoolSize = 32;
+    const i32 cPoolSize = 64;
     b32 CreateSwapchain(Swapchain *inSwapchain);
 
     //////////////////////////////
@@ -306,10 +319,12 @@ private:
     //
     VkSampler mNullSampler;
     VkSampler mLinearSampler;
+    VkSampler mNearestSampler;
 
     VkImage mNullImage2D;
     VmaAllocation mNullImage2DAllocation;
     VkImageView mNullImageView2D;
+    VkImageView mNullImageView2DArray;
 
     VkBuffer mNullBuffer;
     VmaAllocation mNullBufferAllocation;

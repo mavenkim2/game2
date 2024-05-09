@@ -112,6 +112,12 @@ inline u32 FloorF32ToU32(f32 value)
     return result;
 }
 
+inline f32 Floor(f32 value)
+{
+    f32 result = floorf(value);
+    return result;
+}
+
 #define Radians(angle) ((PI * angle) / (180))
 #define Degrees(angle) ((180 * angle) / (PI))
 
@@ -510,6 +516,15 @@ inline V2 Normalize(V2 a)
  * VECTOR 3
  */
 
+inline V3 MakeV3(f32 a)
+{
+    V3 result;
+    result.x = a;
+    result.y = a;
+    result.z = a;
+    return result;
+}
+
 inline V3 MakeV3(f32 x, f32 y, f32 z)
 {
     V3 result;
@@ -682,6 +697,14 @@ inline V3 Lerp(V3 a, V3 b, f32 t)
 {
     V3 result = (1 - t) * a + t * b;
     return result;
+}
+
+inline V3 Floor(V3 value)
+{
+    value.x = Floor(value.x);
+    value.y = Floor(value.y);
+    value.z = Floor(value.z);
+    return value;
 }
 
 /*
@@ -1295,7 +1318,7 @@ inline Mat4 Perspective4(f32 fov, f32 aspectRatio, f32 nearZ, f32 farZ, b32 lh =
     if (lh == 0)
     {
         // no longer flip n and f, rotate view matrix so that it aligns with ndc axis
-        result.elements[2][2] = farZ / depth;
+        result.elements[2][2] = -result.elements[2][2]; // farZ / depth;
         result.elements[2][3] = 1.f;
         // x right, y down, z into screen
         result = result * Rotate4({1, 0, 0}, PI);
@@ -1303,19 +1326,38 @@ inline Mat4 Perspective4(f32 fov, f32 aspectRatio, f32 nearZ, f32 farZ, b32 lh =
     return result;
 }
 
-inline Mat4 Orthographic4(f32 left, f32 right, f32 bottom, f32 top, f32 nearZ, f32 farZ)
+inline Mat4 Orthographic4(f32 left, f32 right, f32 bottom, f32 top, f32 nearZ, f32 farZ, b32 rh = 1, b32 zeroToOne = 1)
 {
     Mat4 result = {};
 
-    result.elements[0][0] = 2.0f / (right - left);
-    result.elements[1][1] = 2.0f / (top - bottom);
-    // Converts from right handed view space to left handed ndc by mirroring
-    result.elements[2][2] = -2.0f / (farZ - nearZ);
-    result.elements[3][3] = 1.0f;
+    if (!zeroToOne)
+    {
+        result.elements[0][0] = 2.0f / (right - left);
+        result.elements[1][1] = 2.0f / (top - bottom);
+        // Converts from right handed view space to left handed ndc by mirroring
+        result.elements[2][2] = -2.0f / (farZ - nearZ);
+        result.elements[3][3] = 1.0f;
 
-    result.elements[3][0] = -(left + right) / (right - left);
-    result.elements[3][1] = -(bottom + top) / (top - bottom);
-    result.elements[3][2] = -(nearZ + farZ) / (farZ - nearZ);
+        result.elements[3][0] = -(left + right) / (right - left);
+        result.elements[3][1] = -(bottom + top) / (top - bottom);
+        result.elements[3][2] = -(nearZ + farZ) / (farZ - nearZ);
+    }
+    else
+    {
+        result.elements[0][0] = 2.f / (right - left);
+        result.elements[1][1] = 2.f / (top - bottom);
+        result.elements[2][2] = 1.f / (farZ - nearZ);
+
+        result.elements[3][0] = -(left + right) / (right - left);
+        result.elements[3][1] = -(bottom + top) / (top - bottom);
+        result.elements[3][2] = -nearZ / (farZ - nearZ);
+    }
+
+    if (rh)
+    {
+        result.elements[2][2] = -result.elements[2][2];
+        result                = result * Rotate4({1, 0, 0}, PI);
+    }
 
     return result;
 }

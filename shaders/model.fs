@@ -98,7 +98,6 @@ void main()
         }
     }
 
-    // I think mostly everything above here is fine.
     V4 lightSpacePos = lightViewProjectionMatrices[shadowIndex] * V4(fragment.worldFragPos, 1.f);
     lightSpacePos.xyz /= lightSpacePos.w;
 

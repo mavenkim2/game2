@@ -196,17 +196,36 @@ G_INIT(G_Init)
         g_state->frameArena     = frameArena;
 
         // Load assets
+        {
+            g_state->mEntities[0].mAssetHandle = AS_GetAsset(Str8Lit("data/dragon/scene.model"));
+            g_state->mEntities[1].mAssetHandle = AS_GetAsset(Str8Lit("data/hero/scene.model"));
 
-        g_state->model  = AS_GetAsset(Str8Lit("data/dragon/scene.model"));
-        g_state->model2 = AS_GetAsset(Str8Lit("data/hero/scene.model"));
-        g_state->eva    = AS_GetAsset(Str8Lit("data/eva/Eva01.model"));
+            Mat4 translate          = Translate4(V3{0, 20, 0});
+            Mat4 scale              = Scale(V3{0.5f, 0.5f, 0.5f});
+            Mat4 rotate             = Rotate4(MakeV3(1, 0, 0), PI / 2);
+            g_state->mTransforms[0] = translate * rotate * scale;
 
-        g_state->modelBall = AS_GetAsset(Str8Lit("data/ball/scene.model"));
+            translate               = Translate4(V3{0, 20, 20});
+            scale                   = Scale(V3{1, 1, 1});
+            g_state->mTransforms[1] = translate * rotate;
 
-        KeyframedAnimation *animation = PushStruct(g_state->permanentArena, KeyframedAnimation);
+            AS_Handle anim           = AS_GetAsset(Str8Lit("data/dragon/Qishilong_attack01.anim"));
+            AnimationPlayer *aPlayer = &g_state->mAnimPlayers[0];
+            StartLoopedAnimation(g_state->permanentArena, aPlayer, anim);
+
+            anim    = AS_GetAsset(Str8Lit("data/hero/Mon_BlackDragon31_Btl_Atk01.anim"));
+            aPlayer = &g_state->mAnimPlayers[1];
+            StartLoopedAnimation(g_state->permanentArena, aPlayer, anim);
+
+            g_state->mEntityCount += 2;
+            // KeyframedAnimation *animation = PushStruct(g_state->permanentArena, KeyframedAnimation);
+        }
+
+        // g_state->eva    = AS_GetAsset(Str8Lit("data/eva/Eva01.model"));
+
+        // g_state->modelBall = AS_GetAsset(Str8Lit("data/ball/scene.model"));
 
         // ReadAnimationFile(g_state->worldArena, animation, Str8Lit("data/dragon_attack_01.anim"));
-        AS_Handle anim = AS_GetAsset(Str8Lit("data/dragon/Qishilong_attack01.anim"));
         // AS_Handle anim = LoadAssetFile(Str8Lit("data/dragon/Qishilong_attack02.anim"));
         // g_state->font = AS_GetAsset(Str8Lit("data/liberation_mono.ttf"));
 
@@ -233,9 +252,6 @@ G_INIT(G_Init)
         swap->color.b = 1.f;
         swap->color.a = 1.f;
         AddFlag(swap, Entity_Valid | Entity_Collidable | Entity_Swappable);
-
-        AnimationPlayer *aPlayer = &g_state->animPlayer;
-        StartLoopedAnimation(g_state->permanentArena, aPlayer, anim);
 
         // Initialize input
         g_state->bindings.bindings[I_Button_Up]         = OS_Key_W;
@@ -544,9 +560,15 @@ DLL G_UPDATE(G_Update)
     }
 
     // Update
-    // TODO: structure of arrays
-    u32 totalSkinningSize = 0;
-    totalSkinningSize += sizeof(Mat4) * GetSkeletonFromModel(g_state->model)->count;
+    u32 totalMatrixCount = 0;
+
+    for (u32 i = 0; i < g_state->mEntityCount; i++)
+    {
+        u32 offset = totalMatrixCount;
+        totalMatrixCount += GetSkeletonFromModel(g_state->mEntities[i].mAssetHandle)->count;
+        g_state->mEntities[i].mSkinningOffset = offset;
+    }
+    u32 totalSkinningSize = totalMatrixCount * sizeof(Mat4);
 
     GPUBuffer *skinningBufferUpload = &render::skinningBufferUpload[device->GetCurrentBuffer()];
     GPUBuffer *skinningBuffer       = &render::skinningBuffer[device->GetCurrentBuffer()];
@@ -569,19 +591,19 @@ DLL G_UPDATE(G_Update)
     Mat4 *skinningMappedData = (Mat4 *)skinningBufferUpload->mMappedData;
 
     // Model 1
-    Mat4 translate  = Translate4(V3{0, 20, -30});
-    Mat4 scale      = Scale(V3{0.5f, 0.5f, 0.5f});
-    Mat4 rotate     = Rotate4(MakeV3(1, 0, 0), PI / 2);
-    Mat4 transform1 = translate * rotate * scale;
+    for (u32 i = 0; i < g_state->mEntityCount; i++)
+    {
+        game::Entity *entity       = &g_state->mEntities[i];
+        LoadedSkeleton *skeleton   = GetSkeletonFromModel(entity->mAssetHandle);
+        AnimationTransform *tforms = PushArray(g_state->frameArena, AnimationTransform, skeleton->count);
+        PlayCurrentAnimation(g_state->permanentArena, &g_state->mAnimPlayers[i], dt, tforms);
+        SkinModelToAnimation(&g_state->mAnimPlayers[i], entity->mAssetHandle, tforms,
+                             skinningMappedData + entity->mSkinningOffset);
+    }
 
-    LoadedSkeleton *skeleton    = GetSkeletonFromModel(g_state->model);
-    AnimationTransform *tforms1 = PushArray(g_state->frameArena, AnimationTransform, skeleton->count);
-    PlayCurrentAnimation(g_state->permanentArena, &g_state->animPlayer, dt, tforms1);
-
-    SkinModelToAnimation(&g_state->animPlayer, g_state->model, tforms1, skinningMappedData);
-    DebugDrawSkeleton(g_state->model, transform1, skinningMappedData);
+    // DebugDrawSkeleton(g_state->model, transform1, skinningMappedData);
     // SkinModelToBindPose(g_state->model, skinningMatrices1);
-    Mat4 mvp1 = renderState->transform * transform1;
+    // Mat4 mvp1 = renderState->transform * transform1;
     // D_PushModel(g_state->model, transform1, mvp1, skinningMatrices1, skeleton->count);
 
     // Render
@@ -743,11 +765,6 @@ DLL G_UPDATE(G_Update)
 #endif
 
 #if 0
-        // Model 1
-        Mat4 translate  = Translate4(V3{0, 20, -30});
-        Mat4 scale      = Scale(V3{0.5f, 0.5f, 0.5f});
-        Mat4 rotate     = Rotate4(MakeV3(1, 0, 0), PI / 2);
-        Mat4 transform1 = translate * rotate * scale;
 
         LoadedSkeleton *skeleton    = GetSkeletonFromModel(g_state->model);
         AnimationTransform *tforms1 = PushArray(g_state->frameArena, AnimationTransform, skeleton->count);
@@ -758,11 +775,6 @@ DLL G_UPDATE(G_Update)
         // SkinModelToBindPose(g_state->model, skinningMatrices1);
         Mat4 mvp1 = renderState->transform * transform1;
         D_PushModel(g_state->model, transform1, mvp1, skinningMatrices1, skeleton->count);
-
-        // Model 2
-        translate       = Translate4(V3{0, 20, 20});
-        scale           = Scale(V3{1, 1, 1});
-        Mat4 transform2 = translate * rotate;
 
         LoadedSkeleton *skeleton2   = GetSkeletonFromModel(g_state->model2);
         AnimationTransform *tforms2 = PushArray(g_state->frameArena, AnimationTransform, skeleton2->count);

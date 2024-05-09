@@ -408,15 +408,15 @@ struct Program
     R_BufferHandle mApiObject;
 };
 
-enum
-{
-    ShaderStage_Vertex      = 1 << 0,
-    ShaderStage_Tesselation = 1 << 1,
-    ShaderStage_Geometry    = 1 << 2,
-    ShaderStage_Fragment    = 1 << 3,
-    ShaderStage_Compute     = 1 << 4,
-    ShaderStage_Default     = ShaderStage_Vertex | ShaderStage_Fragment,
-};
+// enum
+// {
+//     ShaderStage_Vertex      = 1 << 0,
+//     ShaderStage_Tesselation = 1 << 1,
+//     ShaderStage_Geometry    = 1 << 2,
+//     ShaderStage_Fragment    = 1 << 3,
+//     ShaderStage_Compute     = 1 << 4,
+//     ShaderStage_Default     = ShaderStage_Vertex | ShaderStage_Fragment,
+// };
 
 enum BindingLayout
 {
