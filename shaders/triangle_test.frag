@@ -12,7 +12,7 @@ struct ModelParams
 layout(binding = 0) uniform ModelBufferObject 
 {
     ModelParams params[8];
-    mat4 lightViewProjectionMatrices;
+    mat4 lightViewProjectionMatrices[8];
     vec4 cascadeDistances;
     vec4 lightDir;
     vec4 viewPos;
@@ -34,10 +34,10 @@ void main()
 {
     vec3 albedo = texture(albedo, fragment.uv).rgb;
     vec3 normal = normalize(texture(normalSampler, fragment.uv).rgb * 2 - 1);
-    float viewZ = -fragment.viewFragPos.z;
+    float viewZ = abs(fragment.viewFragPos.z);
 
-    int shadowIndex = 4;
-    for (int i = 0; i < 4; i++)
+    int shadowIndex = 3;
+    for (int i = 0; i < 3; i++)
     {
         if (viewZ <= ubo.cascadeDistances[i])
         {
@@ -49,14 +49,14 @@ void main()
     vec4 lightSpacePos = ubo.lightViewProjectionMatrices[shadowIndex] * fragment.worldFragPos;
     lightSpacePos.xyz /= lightSpacePos.w;
 
-    lightSpacePos = lightSpacePos * 0.5f + 0.5f;
+    lightSpacePos.xy = lightSpacePos.xy * 0.5f + 0.5f;
 
     // Shadow bias
-    float bias = max(0.1 * (1.0 - dot(normal, ubo.lightDir.xyz)), 0.005);
-    float biasModifier = 2;
+    float bias = max(0.10 * (1.0 - dot(normal, ubo.lightDir.xyz)), 0.01);
+    float biasModifier = 4;
 
     bias *= biasModifier / (ubo.cascadeDistances[shadowIndex]);
-    bias += 0.0015;
+    bias += 0.005;
 
     // PCF
     vec2 texelSize = 1.0 / vec2(textureSize(shadowMaps, 0));
@@ -94,8 +94,25 @@ void main()
     float spec = specularStrength;
     vec3 specular = spec * albedo;
 
-    vec3 color = (ambient + diffuse + specular);// * (1 - .8 * shadow);
+    vec3 color = (ambient + diffuse + specular) * (1 - .8 * shadow);
     outColor = vec4(color, 1.0);
+
+#if 0
+    if (shadowIndex == 0)
+    {
+        outColor = vec4(color.r, color.g * .25, color.b * .25, 1.0);
+    }
+    if (shadowIndex == 1)
+    {
+        outColor = vec4(color.r * .25, color.g, color.b * .25, 1.0);
+    }
+    if (shadowIndex == 2)
+    {
+        outColor = vec4(color.r * .25, color.g * .25, color.b, 1.0);
+    }
+#endif
+    //outColor = vec4(vec3(viewZ/ubo.cascadeDistances[3], 0, 0), 1.0);
+    //outColor = vec4(vec3(4 - shadowIndex) * .25, 1.f);
 
     // vec3 color = 
     // color = pow(color, vec3(1/2.2));

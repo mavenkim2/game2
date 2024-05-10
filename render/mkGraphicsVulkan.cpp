@@ -1156,12 +1156,31 @@ void mkGraphicsVulkan::CreateShader(PipelineStateDesc *inDesc, PipelineState *ou
     rasterizer.rasterizerDiscardEnable                = VK_FALSE;
     rasterizer.polygonMode                            = VK_POLYGON_MODE_FILL;
     rasterizer.lineWidth                              = 1.f;
-    rasterizer.cullMode                               = VK_CULL_MODE_BACK_BIT;
-    rasterizer.frontFace                              = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-    rasterizer.depthBiasEnable                        = VK_FALSE;
-    rasterizer.depthBiasConstantFactor                = 0.f;
-    rasterizer.depthBiasClamp                         = 0.f;
-    rasterizer.depthBiasSlopeFactor                   = 0.f;
+    switch (inDesc->mRasterState->mCullMode)
+    {
+        case RasterizationState::CullMode::Back:
+        {
+            rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
+        }
+        break;
+        case RasterizationState::CullMode::Front:
+        {
+            rasterizer.cullMode = VK_CULL_MODE_FRONT_BIT;
+        }
+        break;
+        case RasterizationState::CullMode::None:
+        {
+            rasterizer.cullMode = VK_CULL_MODE_NONE;
+        }
+        break;
+        default: Assert(0);
+    }
+
+    rasterizer.frontFace               = inDesc->mRasterState->mFrontFaceCCW ? VK_FRONT_FACE_COUNTER_CLOCKWISE : VK_FRONT_FACE_CLOCKWISE;
+    rasterizer.depthBiasEnable         = VK_FALSE;
+    rasterizer.depthBiasConstantFactor = 0.f;
+    rasterizer.depthBiasClamp          = 0.f;
+    rasterizer.depthBiasSlopeFactor    = 0.f;
 
     // Multisampling
     VkPipelineMultisampleStateCreateInfo multisampling = {};
@@ -1245,7 +1264,7 @@ void mkGraphicsVulkan::CreateShader(PipelineStateDesc *inDesc, PipelineState *ou
 
         Assert(res == VK_SUCCESS);
         ps->mDescriptorSetLayouts.push_back(descriptorLayout);
-    }
+    } // namespace graphics
 
     VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
     pipelineLayoutInfo.sType                      = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
@@ -1945,7 +1964,7 @@ void mkGraphicsVulkan::FrameAllocate(GPUBuffer *inBuf, void *inData, CommandList
 
     VkBufferCopy copy = {};
     copy.srcOffset    = offset;
-    copy.dstOffset    = 0;
+    copy.dstOffset    = inOffset;
     copy.size         = size;
 
     vkCmdCopyBuffer(command->GetCommandBuffer(), ToInternal(&currentFrameData->mBuffer)->mBuffer, bufVulk->mBuffer, 1, &copy);
@@ -2486,14 +2505,14 @@ void mkGraphicsVulkan::BeginRenderPass(RenderPassImage *images, u32 count, Comma
             {
                 depthAttachment.imageView                     = subresource.mImageView;
                 depthAttachment.loadOp                        = VK_ATTACHMENT_LOAD_OP_CLEAR;
-                depthAttachment.storeOp                       = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+                depthAttachment.storeOp                       = VK_ATTACHMENT_STORE_OP_STORE;
                 depthAttachment.imageLayout                   = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
                 depthAttachment.clearValue.depthStencil.depth = 1.f;
                 if (IsFormatStencilSupported(texture->mDesc.mFormat))
                 {
                     stencilAttachment.imageView                       = subresource.mImageView;
                     stencilAttachment.loadOp                          = VK_ATTACHMENT_LOAD_OP_CLEAR;
-                    stencilAttachment.storeOp                         = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+                    stencilAttachment.storeOp                         = VK_ATTACHMENT_STORE_OP_STORE;
                     stencilAttachment.imageLayout                     = VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL;
                     stencilAttachment.clearValue.depthStencil.stencil = 0;
                 }
@@ -2799,10 +2818,10 @@ void mkGraphicsVulkan::SubmitCommandLists()
                 Assert(res == VK_SUCCESS);
             }
         }
+        mFrameAllocator[GetCurrentBuffer()].mOffset.store(0);
     }
 
     // Reset the next frame
-    mFrameAllocator->mOffset.store(0);
     // PipelineStateVulkan *ps = ToInternal(commandList->mCurrentPipeline);
 
     Cleanup();

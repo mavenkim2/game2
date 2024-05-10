@@ -218,7 +218,7 @@ struct mkGraphicsVulkan : mkGraphics
     {
         GPUBuffer mBuffer;
         std::atomic<u64> mOffset = 0;
-        u64 mTotalSize           = 0;
+        // u64 mTotalSize           = 0;
         u32 mAlignment           = 0;
     } mFrameAllocator[cNumBuffers];
 

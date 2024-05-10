@@ -292,7 +292,8 @@ internal void D_EndFrame()
 }
 #endif
 
-global Rect3 BoundsUnitCube = {{-1, -1, -1}, {1, 1, 1}};
+global Rect3 BoundsUnitCube      = {{-1, -1, -1}, {1, 1, 1}};
+global Rect3 BoundsZeroToOneCube = {{-1, -1, 0}, {1, 1, 0}};
 
 internal void R_GetFrustumCorners(Mat4 &inInverseMvp, Rect3 &inBounds, V3 *outFrustumCorners)
 {
@@ -1003,20 +1004,32 @@ internal void R_ShadowMapFrusta(i32 splits, f32 splitWeight, Mat4 *outMatrices, 
 internal void R_CascadedShadowMap(const ViewLight *inLight, Mat4 *outLightViewProjectionMatrices,
                                   f32 *outCascadeDistances)
 {
-    RenderState *renderState = engine->GetRenderState();
+    RenderState *renderState   = engine->GetRenderState();
+    Mat4 inverseViewProjection = Inverse(renderState->transform);
+    f32 zNear                  = renderState->nearZ;
+    f32 zFar                   = renderState->farZ;
+
+    f32 cascadeDistances[cNumCascades];
+
+    f32 range  = zFar - zNear;
+    f32 ratio  = zFar / zNear;
+    f32 lambda = 0.8f;
+    // https://developer.nvidia.com/gpugems/gpugems3/part-ii-light-and-shadows/chapter-10-parallel-split-shadow-maps-programmable-gpus
+    for (u32 i = 0; i < cNumCascades; i++)
+    {
+        f32 p               = (f32)(i + 1) / cNumCascades;
+        f32 uniform         = zNear + range * p;
+        f32 log             = zNear * Powf(ratio, p);
+        cascadeDistances[i] = lambda * log + (1 - lambda) * uniform;
+    }
     // Mat4 mvpMatrices[cNumCascades];
-    f32 cascadeDistances[cNumCascades] = {20.f, 80.f, 400.f, 1000.f};
     MemoryCopy(outCascadeDistances, cascadeDistances, sizeof(cascadeDistances));
     // R_ShadowMapFrusta(cNumSplits, .9f, mvpMatrices, cascadeDistances);
     Assert(inLight->type == LightType_Directional);
 
-    V3 worldUp     = {0, 0, 1};
-    Mat4 lightView = LookAt4({}, -inLight->dir, worldUp);
+    // V3 worldUp     = renderState->camera.right; //{0, 0, 1};
+    Mat4 lightView = LookAt4({}, -inLight->dir, {0, 1, 0});
     // Step 0. Set up the mvp matrix for each frusta.
-
-    Mat4 inverseViewProjection = Inverse(renderState->transform);
-    f32 zNear                  = renderState->nearZ;
-    f32 zFar                   = renderState->farZ;
 
     // Step 1. Get the corners of each of the view frusta in world space.
     V3 corners[8] = {
@@ -1045,7 +1058,7 @@ internal void R_CascadedShadowMap(const ViewLight *inLight, Mat4 *outLightViewPr
         f32 nearStep = cascadeIndex == 0 ? 0.f : (cascadeDistances[cascadeIndex - 1] - zNear) / (zFar - zNear);
         f32 farStep  = (cascadeDistances[cascadeIndex] - zNear) / (zFar - zNear);
 
-        for (i32 i = 0; i < ArrayLength(corners) / 2; i += 2)
+        for (i32 i = 0; i < ArrayLength(corners); i += 2)
         {
             frustumVertices[i]     = Lerp(corners[i], corners[i + 1], nearStep);
             frustumVertices[i + 1] = Lerp(corners[i], corners[i + 1], farStep);
@@ -1061,77 +1074,113 @@ internal void R_CascadedShadowMap(const ViewLight *inLight, Mat4 *outLightViewPr
             center += frustumVertices[i];
         }
         center /= 8;
-        for (i32 i = 0; i < ArrayLength(frustumVertices[cascadeIndex]); i++)
+        for (i32 i = 0; i < ArrayLength(frustumVertices); i++)
         {
-            radius = Max(Abs(Length(frustumVertices[i] - center)), radius);
+            radius = Max(Length(frustumVertices[i] - center), radius);
         }
 
         // Snap to shadow map texel size (prevents shimmering)
-        f32 texelsPerUnit = 1024.f / (2.f * radius); //(aabb.maxP - aabb.minP); // 2 * radius
-        center            = Floor(center * texelsPerUnit) / texelsPerUnit;
-
         Rect3 aabb;
         V3 extents = MakeV3(radius);
         aabb.minP  = center - extents;
         aabb.maxP  = center + extents;
 
+        f32 texelsPerUnit = 1024.f / (2.f * radius); //(aabb.maxP - aabb.minP); // 2 * radius
+        aabb.minP         = Floor(aabb.minP * texelsPerUnit) / texelsPerUnit;
+        aabb.maxP         = Floor(aabb.maxP * texelsPerUnit) / texelsPerUnit;
+        center            = (aabb.minP + aabb.maxP) / 2.f;
+
+        // f32 ext   = Abs(center.z - aabb.minP.z);
+        // ext       = Max(ext, Min(1500.f, zFar) / 2.f);
+        // aabb.minZ = center.z - ext;
+        // aabb.maxZ = center.z + ext;
+        // center    = (aabb.minP + aabb.maxP) / 2.f;
+
+        f32 zRange            = aabb.maxZ - aabb.minZ;
+        Mat4 updatedLightView = LookAt4(center + inLight->dir * -aabb.minZ, center, {0, 1, 0});
+
         outLightViewProjectionMatrices[cascadeIndex] =
-            Orthographic4(aabb.minX, aabb.maxX, aabb.minY, aabb.maxY, aabb.minZ, aabb.maxZ) * lightView;
-
-        // V3 frustumVertices[cNumCascades][8];
-        // for (i32 cascadeIndex = 0; cascadeIndex < cNumCascades; cascadeIndex++)
-        // {
-        //     R_GetFrustumCorners(mvpMatrices[cascadeIndex], BoundsUnitCube, frustumVertices[cascadeIndex]);
-        // }
-
-        // Step 2. Find light world to view matrix (first get center point of frusta)
-
-        // Light direction is specified from surface -> light origin
-        // V3 worldUp = renderState->camera.right;
-        // Mat4 lightViewMatrices[cNumCascades];
-        // for (i32 cascadeIndex = 0; cascadeIndex < cNumCascades; cascadeIndex++)
-        // {
-        //     for (i32 i = 0; i < 8; i++)
-        //     {
-        //         centers[cascadeIndex] += frustumVertices[cascadeIndex][i];
-        //     }
-        //     centers[cascadeIndex] /= 8;
-        //     lightViewMatrices[cascadeIndex] = LookAt4(centers[cascadeIndex] + inLight->dir, centers[cascadeIndex], worldUp);
-        // }
-
-        // Rect3 bounds[cNumCascades];
-        // for (i32 cascadeIndex = 0; cascadeIndex < cNumCascades; cascadeIndex++)
-        // {
-        //     Init(&bounds[cascadeIndex]);
-        //     // Loop over each corner of each frusta
-        //     for (i32 i = 0; i < 8; i++)
-        //     {
-        //         V4 result = Transform(lightViewMatrices[cascadeIndex], frustumVertices[cascadeIndex][i]);
-        //         AddBounds(bounds[cascadeIndex], result.xyz);
-        //     }
-        // }
-
-        // TODO: instead of tightly fitting the frusta, the light's box could be tighter
-
-        // for (i32 i = 0; i < cNumCascades; i++)
-        // {
-        //     // When viewing down the -z axis, the max is the near plane and the min is the far plane.
-        //     Rect3 *currentBounds = &bounds[i];
-        //     // The orthographic projection expects 0 < n < f
+            // Orthographic4(aabb.minX, aabb.maxX, aabb.minY, aabb.maxY, aabb.minZ, aabb.maxZ) * lightView; // aabb.minZ, aabb.maxZ) * lightView;
+            Orthographic4(-extents.x, extents.x, -extents.y, extents.y, 0, zRange) * updatedLightView;
         //
-        //     // TODO: use the bounds of the light instead
-        //     f32 zNear = -currentBounds->maxZ - 50;
-        //     f32 zFar  = -currentBounds->minZ;
+        // Increase the resolution by bounding to the frustum
+        // Rect2 bounds;
+        // bounds.minP = {FLT_MAX, FLT_MAX};
+        // bounds.maxP = {-FLT_MAX, -FLT_MAX};
+        // for (i32 i = 0; i < ArrayLength(frustumVertices); i++)
+        // {
+        //     V4 ndc = outLightViewProjectionMatrices[cascadeIndex] * MakeV4(frustumVertices[i], 1.0);
+        //     // Assert(ndc.x >= -ndc.w && ndc.x <= ndc.w);
+        //     // Assert(ndc.y >= -ndc.w && ndc.y <= ndc.w);
+        //     // Assert(ndc.z >= -ndc.w && ndc.z <= ndc.w);
+        //     ndc.xyz /= ndc.w;
+        //     bounds.minX = Min(bounds.minX, ndc.x);
+        //     bounds.minY = Min(bounds.minY, ndc.y);
         //
-        //     f32 extent = zFar - zNear;
-        //
-        //     V3 shadowCameraPos = centers[i] - inLight->dir * zNear;
-        //     Mat4 fixedLookAt   = LookAt4(shadowCameraPos, centers[i], worldUp);
-        //
-        //     outLightViewProjectionMatrices[i] = Orthographic4(currentBounds->minX, currentBounds->maxX, currentBounds->minY, currentBounds->maxY, 0, extent) * fixedLookAt;
-        //     outCascadeDistances[i]            = cascadeDistances[i];
+        //     bounds.maxX = Max(bounds.maxX, ndc.x);
+        //     bounds.maxY = Max(bounds.maxX, ndc.y);
         // }
+        // V2 boundCenter  = (bounds.minP + bounds.maxP) / 2.f;
+        // V2 boundExtents = bounds.maxP - bounds.minP;
+        // Mat4 grow       = Scale(MakeV3(1.f / boundExtents.x, 1.f / boundExtents.y, 1.f)) * Translate4(-MakeV3(boundCenter, 0.f));
+        //
+        // outLightViewProjectionMatrices[cascadeIndex] = grow * outLightViewProjectionMatrices[cascadeIndex];
     }
+
+    // V3 frustumVertices[cNumCascades][8];
+    // for (i32 cascadeIndex = 0; cascadeIndex < cNumCascades; cascadeIndex++)
+    // {
+    //     R_GetFrustumCorners(mvpMatrices[cascadeIndex], BoundsZeroToOneCube, frustumVertices[cascadeIndex]);
+    // }
+    //
+    // // Step 2. Find light world to view matrix (first get center point of frusta)
+    //
+    // V3 centers[cNumCascades];
+    // // Light direction is specified from surface->light origin
+    // V3 worldUp = renderState->camera.right;
+    // Mat4 lightViewMatrices[cNumCascades];
+    // for (i32 cascadeIndex = 0; cascadeIndex < cNumCascades; cascadeIndex++)
+    // {
+    //     for (i32 i = 0; i < 8; i++)
+    //     {
+    //         centers[cascadeIndex] += frustumVertices[cascadeIndex][i];
+    //     }
+    //     centers[cascadeIndex] /= 8;
+    //     lightViewMatrices[cascadeIndex] = LookAt4(centers[cascadeIndex] + inLight->dir, centers[cascadeIndex], worldUp);
+    // }
+    //
+    // Rect3 bounds[cNumCascades];
+    // for (i32 cascadeIndex = 0; cascadeIndex < cNumCascades; cascadeIndex++)
+    // {
+    //     Init(&bounds[cascadeIndex]);
+    //     // Loop over each corner of each frusta
+    //     for (i32 i = 0; i < 8; i++)
+    //     {
+    //         V4 result = Transform(lightViewMatrices[cascadeIndex], frustumVertices[cascadeIndex][i]);
+    //         AddBounds(bounds[cascadeIndex], result.xyz);
+    //     }
+    // }
+    //
+    // // TODO: instead of tightly fitting the frusta, the light's box could be tighter
+    //
+    // for (i32 i = 0; i < cNumCascades; i++)
+    // {
+    //     // When viewing down the -z axis, the max is the near plane and the min is the far plane.
+    //     Rect3 *currentBounds = &bounds[i];
+    //     // The orthographic projection expects 0 < n < f
+    //
+    //     // TODO: use the bounds of the light instead
+    //     f32 zNear = -currentBounds->maxZ - 50;
+    //     f32 zFar  = -currentBounds->minZ;
+    //
+    //     f32 extent = zFar - zNear;
+    //
+    //     V3 shadowCameraPos = centers[i] - inLight->dir * zNear;
+    //     Mat4 fixedLookAt   = LookAt4(shadowCameraPos, centers[i], worldUp);
+    //
+    //     outLightViewProjectionMatrices[i] = Orthographic4(currentBounds->minX, currentBounds->maxX, currentBounds->minY, currentBounds->maxY, 0, extent) * fixedLookAt;
+    //     outCascadeDistances[i]            = cascadeDistances[i];
+    // }
 }
 
 using namespace graphics;
@@ -1192,6 +1241,7 @@ graphics::GPUBuffer skinningBufferUpload[device->cNumBuffers];
 
 InputLayout inputLayouts[IL_Type_Count];
 Shader shaders[ShaderType_Count];
+RasterizationState rasterizers[RasterType_Count];
 
 Texture depthBufferMain;
 Texture shadowDepthBuffer;
@@ -1212,7 +1262,7 @@ internal void Initialize()
     // Initialize buffers
     {
         GPUBufferDesc desc;
-        desc.mSize          = kilobytes(4);
+        desc.mSize          = kilobytes(64);
         desc.mResourceUsage = ResourceUsage::UniformBuffer;
         device->CreateBuffer(&ubo, desc, 0);
 
@@ -1261,6 +1311,13 @@ internal void Initialize()
         }
     }
 
+    // Initialize rasterization state
+    {
+        rasterizers[RasterType_CCW_CullBack].mCullMode  = RasterizationState::CullMode::Back;
+        rasterizers[RasterType_CCW_CullFront].mCullMode = RasterizationState::CullMode::Front;
+        rasterizers[RasterType_CCW_CullNone].mCullMode  = RasterizationState::CullMode::None;
+    }
+
     // Initialize shaders
     shaders[VS_TEST].mName      = "src/shaders/triangle_test_vert.spv";
     shaders[FS_TEST].mName      = "src/shaders/triangle_test_frag.spv";
@@ -1291,6 +1348,7 @@ internal void Initialize()
             DescriptorBinding(SHADOW_MAP_BIND, ResourceUsage::SampledTexture, ShaderStage::Fragment),
         };
         desc.mInputLayouts.push_back(&inputLayouts[IL_Type_MeshVertex]);
+        desc.mRasterState                   = &rasterizers[RasterType_CCW_CullBack];
         desc.mPushConstantRange.mOffset     = 0;
         desc.mPushConstantRange.mSize       = sizeof(PushConstant);
         desc.mPushConstantRange.mStageFlags = ShaderStage::Vertex;
@@ -1305,6 +1363,7 @@ internal void Initialize()
             DescriptorBinding(SKINNING_BIND, ResourceUsage::UniformBuffer, ShaderStage::Vertex),
         };
         desc.mInputLayouts.push_back(&inputLayouts[IL_Type_MeshVertex]);
+        desc.mRasterState                   = &rasterizers[RasterType_CCW_CullNone];
         desc.mPushConstantRange.mOffset     = 0;
         desc.mPushConstantRange.mSize       = sizeof(ShadowPushConstant);
         desc.mPushConstantRange.mStageFlags = ShaderStage::Vertex;
@@ -1338,12 +1397,13 @@ internal void Render()
             modelParams->modelMatrix     = g_state->mTransforms[i];
         }
         ViewLight testLight = {};
-        testLight.dir       = {0, 0, 1};
+        testLight.dir       = {0, .5, .5};
+        testLight.dir       = Normalize(testLight.dir);
         uniforms.lightDir   = MakeV4(testLight.dir, 1.0);
         uniforms.viewPos    = MakeV4(renderState->camera.position, 1.0);
 
         R_CascadedShadowMap(&testLight, uniforms.lightViewProjectionMatrices, uniforms.cascadeDistances.elements);
-        device->FrameAllocate(&ubo, &uniforms, cmdList);
+        device->FrameAllocate(&ubo, &uniforms, cmdList, sizeof(uniforms));
     }
 
     GPUBarrier barriers[] =

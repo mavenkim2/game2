@@ -559,6 +559,7 @@ DLL G_UPDATE(G_Update)
         }
     }
 
+    renderState->camera = g_state->camera;
     // Update
     u32 totalMatrixCount = 0;
 
@@ -723,8 +724,6 @@ DLL G_UPDATE(G_Update)
     // }
     // PushCube(&openGL->group, player->pos, player->size, player->color);
     // DrawRectangle(&renderState, V2(0, 0), V2(renderState.width / 10, renderState.height / 10));
-
-    renderState->camera = g_state->camera;
 
         static b8 test = 0;
         static VC_Handle vertex;

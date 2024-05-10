@@ -231,6 +231,14 @@ enum ShaderType
     ShaderType_Count,
 };
 
+enum RasterType
+{
+    RasterType_CCW_CullBack,
+    RasterType_CCW_CullFront,
+    RasterType_CCW_CullNone,
+    RasterType_Count,
+};
+
 struct GraphicsObject
 {
     void *internalState = 0;
@@ -314,7 +322,7 @@ struct PipelineStateDesc
     Format mColorAttachmentFormat = Format::Null;
     Shader *mVS;
     Shader *mFS;
-    // RasterizationState *mRasterState;
+    RasterizationState *mRasterState;
     list<InputLayout *> mInputLayouts;
     list<DescriptorBinding> mDescriptorBindings;
     PushConstantRange mPushConstantRange;
@@ -364,14 +372,14 @@ struct TextureDesc
         Texture2DArray,
         // Texture3D,
         Cubemap,
-    } mTextureType     = TextureType::Texture2D;
-    u32 mWidth         = 1;
-    u32 mHeight        = 1;
-    u32 mDepth         = 1;
-    u32 mNumMips       = 1;
-    u32 mNumLayers     = 1;
-    Format mFormat     = Format::Null;
-    MemoryUsage mUsage = MemoryUsage::GPU_ONLY;
+    } mTextureType              = TextureType::Texture2D;
+    u32 mWidth                  = 1;
+    u32 mHeight                 = 1;
+    u32 mDepth                  = 1;
+    u32 mNumMips                = 1;
+    u32 mNumLayers              = 1;
+    Format mFormat              = Format::Null;
+    MemoryUsage mUsage          = MemoryUsage::GPU_ONLY;
     ResourceUsage mInitialUsage = ResourceUsage::None;
     ResourceUsage mFutureUsages = ResourceUsage::None;
     enum class DefaultSampler

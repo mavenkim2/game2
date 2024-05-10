@@ -20,6 +20,8 @@ layout(binding = 0) uniform ModelBufferObject
     ModelParams params[8];
     mat4 lightViewProjectionMatrices[8];
     vec4 cascadeDistances;
+    vec4 lightDir;
+    vec4 viewPos;
 } ubo;
 
 layout(binding = 1) uniform SkinningBuffer

@@ -609,57 +609,6 @@ JOB_CALLBACK(AS_LoadAsset)
 
         Assert(nComponents >= 1);
 
-#if 0
-        R_TexFormat format;
-        switch (nComponents)
-        {
-            case 1:
-            {
-                format = R_TexFormat_R8;
-                break;
-            }
-            case 3:
-            {
-                switch (asset->texture.type)
-                {
-                    case TextureType_Diffuse:
-                    {
-                        format = R_TexFormat_SRGB8;
-                        break;
-                    }
-                    case TextureType_MR:
-                    case TextureType_Normal:
-                    {
-                        format = R_TexFormat_RGB8;
-                        break;
-                    }
-                    default: Assert(!"Invalid default");
-                };
-                break;
-            }
-            case 4:
-            {
-                switch (asset->texture.type)
-                {
-                    case TextureType_Diffuse:
-                    {
-                        format = R_TexFormat_SRGBA8;
-                        break;
-                    }
-                    case TextureType_MR:
-                    case TextureType_Normal:
-                    {
-                        format = R_TexFormat_RGBA8;
-                        break;
-                    }
-                    default: Assert(!"Invalid default");
-                };
-                break;
-            }
-            default: Assert(!"Invalid default");
-        }
-#endif
-
         graphics::TextureDesc desc;
         desc.mWidth        = width;
         desc.mHeight       = height;
@@ -671,12 +620,6 @@ JOB_CALLBACK(AS_LoadAsset)
         device->CreateTexture(&asset->texture, desc, texData);
 
         stbi_image_free(texData);
-
-        // switch (nComponents):
-        // {
-        // }
-
-        // asset->texture.handle = renderer.R_AllocateTexture(texData, width, height, format);
     }
     else if (extension == Str8Lit("ttf"))
     {

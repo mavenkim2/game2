@@ -22,10 +22,10 @@ struct ModelParams
     mat4 modelMatrix;
 };
 
-layout(binding = 0) uniform ModelBufferObject 
+layout(std140, binding = 0) uniform ModelBufferObject 
 {
     ModelParams params[8];
-    mat4 lightViewProjectionMatrices;
+    mat4 lightViewProjectionMatrices[8];
     vec4 cascadeDistances;
     vec4 lightDir;
     vec4 viewPos;
@@ -57,6 +57,7 @@ void main()
     result.viewFragPos = ubo.params[pc.modelIndex].modelViewMatrix * modelSpacePos;
     result.worldFragPos = modelToWorldMatrix * modelSpacePos;
 
+    modelToWorldMatrix = modelToWorldMatrix * boneTransform;
     vec3 tN = normalize(mat3(modelToWorldMatrix) * n);
     vec3 tT = normalize(mat3(modelToWorldMatrix) * tangent);
     vec3 tB = cross(tN, tT);
