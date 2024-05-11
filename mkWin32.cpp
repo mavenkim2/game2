@@ -839,6 +839,13 @@ OS_SET_THREAD_NAME(OS_SetThreadName)
     ScratchEnd(scratch);
 }
 
+OS_SET_THREAD_AFFINITY(SetThreadAffinity)
+{
+    HANDLE handle  = (HANDLE)input.handle;
+    DWORD_PTR mask = 1ull << index;
+    SetThreadAffinityMask(handle, mask);
+}
+
 //////////////////////////////
 // Semaphores
 //

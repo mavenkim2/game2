@@ -13,12 +13,12 @@ DBG_Event::DBG_Event(char *filename, char *functionName, u32 lineNum)
     record->function   = functionName;
     record->lineNumber = lineNum;
 
-    startTime = platform.OS_NowSeconds();
+    startTime = platform.NowSeconds();
 }
 
 DBG_Event::~DBG_Event()
 {
-    f32 endTime         = platform.OS_NowSeconds();
+    f32 endTime         = platform.NowSeconds();
     record->timeElapsed = endTime - startTime;
 }
 

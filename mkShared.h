@@ -118,43 +118,88 @@ typedef OS_GET_CENTER(os_get_center);
 #define OS_SET_MOUSE_POS(name) void name(OS_Handle handle, V2 pos)
 typedef OS_SET_MOUSE_POS(os_set_mouse_pos);
 
-// #define OS_
+#define OS_GET_THREAD_CONTEXT(name) ThreadContext *name()
+typedef OS_GET_THREAD_CONTEXT(os_get_thread_context);
+
+#define OS_SET_THREAD_AFFINITY(name) void name(OS_Handle input, u32 index)
+typedef OS_SET_THREAD_AFFINITY(os_set_thread_affinity);
 
 struct PlatformApi
 {
     print_func *Printf;
-    os_get_last_write_time *OS_GetLastWriteTime;
-    os_page_size *OS_PageSize;
-    os_alloc *OS_Alloc;
-    os_reserve *OS_Reserve;
-    os_commit *OS_Commit;
-    os_release *OS_Release;
-    os_get_window_dimension *OS_GetWindowDimension;
-    os_read_file_handle *OS_ReadFileHandle;
-    os_read_entire_file *OS_ReadEntireFile;
-    os_get_events *OS_GetEvents;
-    os_set_thread_name *OS_SetThreadName;
-    os_write_file *OS_WriteFile;
-    os_num_processors *OS_NumProcessors;
-    os_create_semaphore *OS_CreateSemaphore;
-    os_thread_start *OS_ThreadStart;
-    os_thread_join *OS_ThreadJoin;
-    os_release_semaphore *OS_ReleaseSemaphore;
-    os_delete_semaphore *OS_DeleteSemaphore;
-    os_release_semaphores *OS_ReleaseSemaphores;
-    os_signal_wait *OS_SignalWait;
-    os_open_file *OS_OpenFile;
-    os_attributes_from_file *OS_AttributesFromFile;
-    os_close_file *OS_CloseFile;
-    os_attributes_from_path *OS_AttributesFromPath;
-    os_sleep *OS_Sleep;
-    os_now_seconds *OS_NowSeconds;
-    os_get_mouse_pos *OS_GetMousePos;
-    os_toggle_cursor *OS_ToggleCursor;
-    os_get_center *OS_GetCenter;
-    os_set_mouse_pos *OS_SetMousePos;
+    os_get_last_write_time *GetLastWriteTime;
+    os_page_size *PageSize;
+    os_alloc *Alloc;
+    os_reserve *Reserve;
+    os_commit *Commit;
+    os_release *Release;
+    os_get_window_dimension *GetWindowDimension;
+    os_read_file_handle *ReadFileHandle;
+    os_read_entire_file *ReadEntireFile;
+    os_get_events *GetEvents;
+    os_set_thread_name *SetThreadName;
+    os_write_file *WriteFile;
+    os_num_processors *NumProcessors;
+    os_create_semaphore *CreateSemaphore;
+    os_thread_start *ThreadStart;
+    os_thread_join *ThreadJoin;
+    os_release_semaphore *ReleaseSemaphore;
+    os_delete_semaphore *DeleteSemaphore;
+    os_release_semaphores *ReleaseSemaphores;
+    os_signal_wait *SignalWait;
+    os_open_file *OpenFile;
+    os_attributes_from_file *AttributesFromFile;
+    os_close_file *CloseFile;
+    os_attributes_from_path *AttributesFromPath;
+    os_sleep *Sleep;
+    os_now_seconds *NowSeconds;
+    os_get_mouse_pos *GetMousePos;
+    os_toggle_cursor *ToggleCursor;
+    os_get_center *GetCenter;
+    os_set_mouse_pos *SetMousePos;
+    os_get_thread_context *ThreadContextGet;
+    os_set_thread_affinity *SetThreadAffinity;
 };
 extern PlatformApi platform;
+
+inline PlatformApi GetPlatform()
+{
+    PlatformApi platform_;
+    Printf                       = Print;
+    platform_.Printf             = Print;
+    platform_.GetLastWriteTime   = OS_GetLastWriteTime;
+    platform_.PageSize           = OS_PageSize;
+    platform_.Alloc              = OS_Alloc;
+    platform_.Reserve            = OS_Reserve;
+    platform_.Commit             = OS_Commit;
+    platform_.Release            = OS_Release;
+    platform_.GetWindowDimension = OS_GetWindowDimension;
+    platform_.ReadEntireFile     = OS_ReadEntireFile;
+    platform_.ReadFileHandle     = OS_ReadEntireFile;
+    platform_.GetEvents          = OS_GetEvents;
+    platform_.SetThreadName      = OS_SetThreadName;
+    platform_.WriteFile          = OS_WriteFile;
+    platform_.NumProcessors      = OS_NumProcessors;
+    platform_.CreateSemaphore    = OS_CreateSemaphore;
+    platform_.ThreadStart        = OS_ThreadStart;
+    platform_.ThreadJoin         = OS_ThreadJoin;
+    platform_.ReleaseSemaphore   = OS_ReleaseSemaphore;
+    platform_.ReleaseSemaphores  = OS_ReleaseSemaphores;
+    platform_.SignalWait         = OS_SignalWait;
+    platform_.OpenFile           = OS_OpenFile;
+    platform_.AttributesFromFile = OS_AttributesFromFile;
+    platform_.CloseFile          = OS_CloseFile;
+    platform_.AttributesFromPath = OS_AttributesFromPath;
+    platform_.Sleep              = OS_Sleep;
+    platform_.NowSeconds         = OS_NowSeconds;
+    platform_.GetMousePos        = OS_GetMousePos;
+    platform_.ToggleCursor       = OS_ToggleCursor;
+    platform_.GetCenter          = OS_GetCenter;
+    platform_.SetMousePos        = OS_SetMousePos;
+    platform_.ThreadContextGet   = ThreadContextGet;
+    platform_.SetThreadAffinity  = SetThreadAffinity;
+    return platform_;
+}
 
 //////////////////////////////
 // Renderer DLL

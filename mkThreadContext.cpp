@@ -21,13 +21,14 @@ internal void ThreadContextInitialize(ThreadContext *t, b32 isMainThread = 0)
 
 internal void ThreadContextRelease()
 {
-    for (u32 i = 0; i < ArrayLength(tLocalContext->arenas); i++)
+    ThreadContext *t = platform.ThreadContextGet();
+    for (u32 i = 0; i < ArrayLength(t->arenas); i++)
     {
-        ArenaRelease(tLocalContext->arenas[i]);
+        ArenaRelease(t->arenas[i]);
     }
 }
 
-internal ThreadContext *ThreadContextGet()
+OS_GET_THREAD_CONTEXT(ThreadContextGet)
 {
     return tLocalContext;
 }
@@ -39,11 +40,11 @@ internal void ThreadContextSet(ThreadContext *tctx)
 
 internal Arena *ThreadContextScratch(Arena **conflicts, u32 count)
 {
-    // ThreadContext *t = ThreadContextGet();
-    Arena *result = 0;
-    for (u32 i = 0; i < ArrayLength(tLocalContext->arenas); i++)
+    ThreadContext *t = platform.ThreadContextGet();
+    Arena *result    = 0;
+    for (u32 i = 0; i < ArrayLength(t->arenas); i++)
     {
-        Arena *arenaPtr = tLocalContext->arenas[i];
+        Arena *arenaPtr = t->arenas[i];
         b32 hasConflict = 0;
         for (u32 j = 0; j < count; j++)
         {
@@ -65,27 +66,25 @@ internal Arena *ThreadContextScratch(Arena **conflicts, u32 count)
 
 internal void SetThreadName(string name)
 {
-    ThreadContext *context  = ThreadContextGet();
+    ThreadContext *context  = platform.ThreadContextGet();
     context->threadNameSize = Min(name.size, sizeof(context->threadName));
     MemoryCopy(context->threadName, name.str, context->threadNameSize);
-    platform.OS_SetThreadName(name);
+    platform.SetThreadName(name);
 }
 
 internal void SetThreadIndex(u32 index)
 {
-    ThreadContext *context = ThreadContextGet();
+    ThreadContext *context = platform.ThreadContextGet();
     context->index         = index;
 }
 
 internal u32 GetThreadIndex()
 {
-    ThreadContext *context = ThreadContextGet();
+    ThreadContext *context = platform.ThreadContextGet();
     u32 result             = context->index;
     return result;
 }
 
-// TODO: this is not playing well with the dlls. right now each thread has a scratch arena on the platform entry
-// point dll and in the game dll itself, when there really should only just be one.
 internal void BaseThreadEntry(OS_ThreadFunction *func, void *params)
 {
     ThreadContext tContext_ = {};

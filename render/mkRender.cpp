@@ -1252,8 +1252,8 @@ internal void Initialize()
     // Initialize swap chain
     {
         SwapchainDesc desc;
-        desc.width  = (u32)platform.OS_GetWindowDimension(shared->windowHandle).x;
-        desc.height = (u32)platform.OS_GetWindowDimension(shared->windowHandle).y;
+        desc.width  = (u32)platform.GetWindowDimension(shared->windowHandle).x;
+        desc.height = (u32)platform.GetWindowDimension(shared->windowHandle).y;
         desc.format = graphics::Format::R8G8B8A8_SRGB;
 
         device->CreateSwapchain((Window)shared->windowHandle.handle, &desc, &swapchain);

@@ -68,15 +68,15 @@ internal void AS_Init()
     as_state->ringBuffer     = PushArray(arena, u8, as_state->ringBufferSize);
 
     as_state->threadCount    = 1; // Min(1, OS_NumProcessors() - 1);
-    as_state->readSemaphore  = platform.OS_CreateSemaphore(as_state->threadCount);
-    as_state->writeSemaphore = platform.OS_CreateSemaphore(as_state->threadCount);
+    as_state->readSemaphore  = platform.CreateSemaphore(as_state->threadCount);
+    as_state->writeSemaphore = platform.CreateSemaphore(as_state->threadCount);
 
     AS_InitializeAllocator();
 
     as_state->threads = PushArray(arena, AS_Thread, as_state->threadCount);
     for (u64 i = 0; i < as_state->threadCount; i++)
     {
-        as_state->threads[i].handle = platform.OS_ThreadStart(AS_EntryPoint, (void *)i);
+        as_state->threads[i].handle = platform.ThreadStart(AS_EntryPoint, (void *)i);
     }
     // #if 0
     //     as_state->hotloadThread = OS_ThreadStart(AS_HotloadEntryPoint, 0);
@@ -123,14 +123,14 @@ internal void AS_Flush()
     WriteBarrier();
 
     AS_CacheState *as_state = engine->GetAssetCacheState();
-    platform.OS_ReleaseSemaphores(as_state->readSemaphore, as_state->threadCount);
+    platform.ReleaseSemaphores(as_state->readSemaphore, as_state->threadCount);
     // platform.OS_ReleaseSemaphores(js_state->readSemaphore, js_state->threadCount);
     // platform.OS_ReleaseSemaphore(as_state->readSemaphore);
     // platform.OS_ReleaseSemaphore(as_state->writeSemaphore);
 
     for (u64 i = 0; i < as_state->threadCount; i++)
     {
-        platform.OS_ThreadJoin(as_state->threads[i].handle);
+        platform.ThreadJoin(as_state->threads[i].handle);
     }
 }
 
@@ -140,7 +140,7 @@ internal void AS_Restart()
     AS_CacheState *as_state = engine->GetAssetCacheState();
     for (u64 i = 0; i < as_state->threadCount; i++)
     {
-        as_state->threads[i].handle = platform.OS_ThreadStart(AS_EntryPoint, (void *)i);
+        as_state->threads[i].handle = platform.ThreadStart(AS_EntryPoint, (void *)i);
     }
 }
 
@@ -197,11 +197,11 @@ internal b32 AS_EnqueueFile(string path)
         }
         EndTicketMutex(&as_state->mutex);
         // Ideally this should never signal
-        platform.OS_SignalWait(as_state->writeSemaphore);
+        platform.SignalWait(as_state->writeSemaphore);
     }
     if (sent)
     {
-        platform.OS_ReleaseSemaphore(as_state->readSemaphore);
+        platform.ReleaseSemaphore(as_state->readSemaphore);
     }
     return sent;
 }
@@ -223,7 +223,7 @@ internal string AS_DequeueFile(Arena *arena)
                                       result.str, result.size);
         as_state->readPos       = AlignPow2(as_state->readPos, 8);
         result.str[result.size] = 0;
-        platform.OS_ReleaseSemaphore(as_state->writeSemaphore);
+        platform.ReleaseSemaphore(as_state->writeSemaphore);
     }
     EndTicketMutex(&as_state->mutex);
 
@@ -238,9 +238,6 @@ internal string AS_DequeueFile(Arena *arena)
 // single-threaded, or if stuff can be timed so that it doesn't overlap somehow?
 internal void AS_EntryPoint(void *p)
 {
-    ThreadContext tContext_ = {};
-    ThreadContextInitialize(&tContext_);
-
     AS_CacheState *as_state = engine->GetAssetCacheState();
     SetThreadName(Str8Lit("[AS] Scanner"));
     for (; !gTerminateThreads;)
@@ -254,8 +251,8 @@ internal void AS_EntryPoint(void *p)
         if (path.size != 0)
         {
 
-            OS_Handle handle             = platform.OS_OpenFile(OS_AccessFlag_Read | OS_AccessFlag_ShareRead, path);
-            OS_FileAttributes attributes = platform.OS_AttributesFromFile(handle);
+            OS_Handle handle             = platform.OpenFile(OS_AccessFlag_Read | OS_AccessFlag_ShareRead, path);
+            OS_FileAttributes attributes = platform.AttributesFromFile(handle);
             // If the file doesn't exist, abort
             if (attributes.lastModified == 0 && attributes.size == 0)
             {
@@ -294,7 +291,7 @@ internal void AS_EntryPoint(void *p)
                 // AtomicCompareExchangeU32(&asset->status, AS_Status_Unloaded, AS_Status_Loaded) != AS_Status_Loaded)
 
                 u32 loaded = AS_Status_Loaded;
-                if (asset->status.compare_exchange_strong(loaded, AS_Status_Unloaded))
+                if (!asset->status.compare_exchange_strong(loaded, AS_Status_Unloaded))
                 {
                     continue;
                 }
@@ -358,8 +355,8 @@ internal void AS_EntryPoint(void *p)
             asset->memoryBlock = AS_Alloc((i32)attributes.size);
             EndTicketMutex(&as_state->allocator.ticketMutex);
 
-            asset->size = platform.OS_ReadFileHandle(handle, AS_GetMemory(asset));
-            platform.OS_CloseFile(handle);
+            asset->size = platform.ReadFileHandle(handle, AS_GetMemory(asset));
+            platform.CloseFile(handle);
 
             // TODO IMPORTANT: virtual protect the memory so it can only be read
 
@@ -370,19 +367,15 @@ internal void AS_EntryPoint(void *p)
         else
         {
             ScratchEnd(scratch);
-            platform.OS_SignalWait(as_state->readSemaphore);
+            platform.SignalWait(as_state->readSemaphore);
         }
     }
-    ThreadContextRelease();
 }
 
 internal void AS_HotloadEntryPoint(void *p)
 {
-    ThreadContext tContext_ = {};
-    ThreadContextInitialize(&tContext_);
-
     AS_CacheState *as_state = engine->GetAssetCacheState();
-    SetThreadName(Str8Lit("[AS] Hotload"));
+    SetThreadName("[AS] Hotload");
 
     for (; !gTerminateThreads;)
     {
@@ -392,7 +385,7 @@ internal void AS_HotloadEntryPoint(void *p)
             if (asset->lastModified)
             {
                 // If the asset was modified, its write time changes. Need to hotload.
-                OS_FileAttributes attributes = platform.OS_AttributesFromPath(asset->path);
+                OS_FileAttributes attributes = platform.AttributesFromPath(asset->path);
                 u64 lastModified             = asset->lastModified;
                 if (attributes.lastModified != 0 && attributes.lastModified != lastModified)
                 {
@@ -404,9 +397,8 @@ internal void AS_HotloadEntryPoint(void *p)
                 }
             }
         }
-        platform.OS_Sleep(100);
+        platform.Sleep(100);
     }
-    ThreadContextRelease();
 }
 
 //////////////////////////////

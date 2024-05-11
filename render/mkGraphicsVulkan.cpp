@@ -1026,11 +1026,11 @@ void mkGraphicsVulkan::CreateShader(PipelineStateDesc *inDesc, PipelineState *ou
 
     if (inDesc->mVS)
     {
-        vert = platform.OS_ReadEntireFile(mArena, inDesc->mVS->mName);
+        vert = platform.ReadEntireFile(mArena, inDesc->mVS->mName);
     }
     if (inDesc->mFS)
     {
-        frag = platform.OS_ReadEntireFile(mArena, inDesc->mFS->mName);
+        frag = platform.ReadEntireFile(mArena, inDesc->mFS->mName);
     }
 
     list<VkShaderModule> shaderModules;

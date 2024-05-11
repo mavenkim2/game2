@@ -206,13 +206,14 @@ b32 OS_WriteFile(string filename, void *fileMemory, u32 fileSize);
 OS_Handle OS_ThreadAlloc(OS_ThreadFunction *func, void *ptr);
 OS_Handle OS_ThreadStart(OS_ThreadFunction *func, void *ptr);
 void OS_SetThreadName(string name);
+void SetThreadAffinity(OS_Handle input, u32 index);
 
 //////////////////////////////
 // Semaphores
 //
 OS_Handle OS_CreateSemaphore(u32 maxCount);
 void OS_ReleaseSemaphore(OS_Handle input);
-void OS_ReleaseSemaphore(OS_Handle input, u32 count);
+void OS_ReleaseSemaphores(OS_Handle input, u32 count);
 
 //////////////////////////////
 // Mutexes
@@ -247,7 +248,7 @@ void OS_BroadcastConditionVariable(OS_Handle cv);
 /// Events
 ///
 OS_Handle OS_CreateSignal();
-b32 OS_SignalWait(OS_Handle input, u32 time = U32Max);
+b32 OS_SignalWait(OS_Handle input);
 void OS_RaiseSignal(OS_Handle input);
 
 /////////////////////////////////////////////////////

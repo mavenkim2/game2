@@ -25,38 +25,9 @@ using namespace graphics;
 
 // TODO: job graph with fibers :)
 MAIN()
-{ // Initialization
-    Printf                         = Print;
-    platform.Printf                = Print;
-    platform.OS_GetLastWriteTime   = OS_GetLastWriteTime;
-    platform.OS_PageSize           = OS_PageSize;
-    platform.OS_Alloc              = OS_Alloc;
-    platform.OS_Reserve            = OS_Reserve;
-    platform.OS_Commit             = OS_Commit;
-    platform.OS_Release            = OS_Release;
-    platform.OS_GetWindowDimension = OS_GetWindowDimension;
-    platform.OS_ReadEntireFile     = OS_ReadEntireFile;
-    platform.OS_ReadFileHandle     = OS_ReadEntireFile;
-    platform.OS_GetEvents          = OS_GetEvents;
-    platform.OS_SetThreadName      = OS_SetThreadName;
-    platform.OS_WriteFile          = OS_WriteFile;
-    platform.OS_NumProcessors      = OS_NumProcessors;
-    platform.OS_CreateSemaphore    = OS_CreateSemaphore;
-    platform.OS_ThreadStart        = OS_ThreadStart;
-    platform.OS_ThreadJoin         = OS_ThreadJoin;
-    platform.OS_ReleaseSemaphore   = OS_ReleaseSemaphore;
-    platform.OS_ReleaseSemaphores  = OS_ReleaseSemaphores;
-    platform.OS_SignalWait         = OS_SignalWait;
-    platform.OS_OpenFile           = OS_OpenFile;
-    platform.OS_AttributesFromFile = OS_AttributesFromFile;
-    platform.OS_CloseFile          = OS_CloseFile;
-    platform.OS_AttributesFromPath = OS_AttributesFromPath;
-    platform.OS_Sleep              = OS_Sleep;
-    platform.OS_NowSeconds         = OS_NowSeconds;
-    platform.OS_GetMousePos        = OS_GetMousePos;
-    platform.OS_ToggleCursor       = OS_ToggleCursor;
-    platform.OS_GetCenter          = OS_GetCenter;
-    platform.OS_SetMousePos        = OS_SetMousePos;
+{
+    // Initialization
+    platform = GetPlatform();
 
     Arena *arena        = ArenaAlloc();
     ThreadContext *tctx = PushStruct(arena, ThreadContext);

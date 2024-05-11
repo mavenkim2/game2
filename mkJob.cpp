@@ -19,13 +19,13 @@ internal void JS_Init()
     engine->SetJobState(js_state);
 
     // js_state->threadCount   = Clamp(OS_NumProcessors() - 1, 1, 8);
-    js_state->threadCount   = platform.OS_NumProcessors();
-    js_state->readSemaphore = platform.OS_CreateSemaphore(js_state->threadCount);
+    js_state->threadCount   = platform.NumProcessors();
+    js_state->readSemaphore = platform.CreateSemaphore(js_state->threadCount);
 
     // Initialize priority queues
-    js_state->highPriorityQueue.writeSemaphore   = platform.OS_CreateSemaphore(js_state->threadCount);
-    js_state->normalPriorityQueue.writeSemaphore = platform.OS_CreateSemaphore(js_state->threadCount);
-    js_state->lowPriorityQueue.writeSemaphore    = platform.OS_CreateSemaphore(js_state->threadCount);
+    js_state->highPriorityQueue.writeSemaphore   = platform.CreateSemaphore(js_state->threadCount);
+    js_state->normalPriorityQueue.writeSemaphore = platform.CreateSemaphore(js_state->threadCount);
+    js_state->lowPriorityQueue.writeSemaphore    = platform.CreateSemaphore(js_state->threadCount);
 
     js_state->threads = PushArray(arena, JS_Thread, js_state->threadCount);
 
@@ -35,7 +35,7 @@ internal void JS_Init()
     SetThreadIndex(0);
     for (u64 i = 1; i < js_state->threadCount; i++)
     {
-        js_state->threads[i].handle = platform.OS_ThreadStart(JobThreadEntryPoint, (void *)i);
+        js_state->threads[i].handle = platform.ThreadStart(JobThreadEntryPoint, (void *)i);
         js_state->threads[i].arena  = ArenaAlloc();
     }
 }
@@ -51,11 +51,11 @@ internal void JS_Flush()
            !JS_PopJob(&js_state->lowPriorityQueue, thread))
         ;
 
-    platform.OS_ReleaseSemaphores(js_state->readSemaphore, js_state->threadCount);
+    platform.ReleaseSemaphores(js_state->readSemaphore, js_state->threadCount);
 
     for (u64 i = 1; i < js_state->threadCount; i++)
     {
-        platform.OS_ThreadJoin(js_state->threads[i].handle);
+        platform.ThreadJoin(js_state->threads[i].handle);
     }
 }
 
@@ -65,7 +65,7 @@ internal void JS_Restart()
     JS_State *js_state   = engine->GetJobState();
     for (u64 i = 1; i < js_state->threadCount; i++)
     {
-        js_state->threads[i].handle = platform.OS_ThreadStart(JobThreadEntryPoint, (void *)i);
+        js_state->threads[i].handle = platform.ThreadStart(JobThreadEntryPoint, (void *)i);
     }
 }
 
@@ -130,7 +130,7 @@ internal void JS_Kick(JobCallback *callback, void *data, Arena **arena, Priority
             newJob->counter  = counter;
 
             EndMutex(&queue->lock);
-            platform.OS_ReleaseSemaphore(js_state->readSemaphore);
+            platform.ReleaseSemaphore(js_state->readSemaphore);
 
             if (arena != 0)
             {
@@ -139,7 +139,7 @@ internal void JS_Kick(JobCallback *callback, void *data, Arena **arena, Priority
             break;
         }
         EndMutex(&queue->lock);
-        platform.OS_SignalWait(queue->writeSemaphore);
+        platform.SignalWait(queue->writeSemaphore);
     }
 }
 
@@ -194,7 +194,7 @@ internal b32 JS_PopJob(JS_Queue *queue, JS_Thread *thread)
         JobCallback *func   = job->callback;
 
         EndMutex(&queue->lock);
-        platform.OS_ReleaseSemaphore(queue->writeSemaphore);
+        platform.ReleaseSemaphore(queue->writeSemaphore);
 
         if (arena == 0)
         {
@@ -223,9 +223,6 @@ internal void JobThreadEntryPoint(void *p)
     u64 threadIndex    = (u64)p;
     JS_Thread *thread  = &js_state->threads[threadIndex];
 
-    ThreadContext tContext_ = {};
-    ThreadContextInitialize(&tContext_);
-
     TempArena temp = ScratchStart(0, 0);
     SetThreadName(PushStr8F(temp.arena, "[JS] Worker %u", threadIndex));
     ScratchEnd(temp);
@@ -235,11 +232,9 @@ internal void JobThreadEntryPoint(void *p)
         if (JS_PopJob(&js_state->highPriorityQueue, thread) && JS_PopJob(&js_state->normalPriorityQueue, thread) &&
             JS_PopJob(&js_state->lowPriorityQueue, thread))
         {
-            platform.OS_SignalWait(js_state->readSemaphore);
+            platform.SignalWait(js_state->readSemaphore);
         }
     }
-
-    ThreadContextRelease();
 }
 
 //////////////////////////////

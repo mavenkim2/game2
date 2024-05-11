@@ -539,7 +539,7 @@ internal string CombineBuilderNodes(StringBuilder *builder)
 internal b32 WriteEntireFile(StringBuilder *builder, string filename)
 {
     string result = CombineBuilderNodes(builder);
-    b32 success   = platform.OS_WriteFile(filename, result.str, (u32)result.size);
+    b32 success   = platform.WriteFile(filename, result.str, (u32)result.size);
     return success;
 }
 

@@ -47,11 +47,11 @@ internal void G_EntryPoint(void *p)
     f32 frameDt    = 1.f / 144.f;
     f32 multiplier = 1.f;
 
-    f32 frameTime = OS_NowSeconds();
+    f32 frameTime = NowSeconds();
 
     for (; shared->running == 1;)
     {
-        frameTime = OS_NowSeconds();
+        frameTime = NowSeconds();
 
         // TODO: dll this and the endframe
         G_Update(frameDt * multiplier);
@@ -60,7 +60,7 @@ internal void G_EntryPoint(void *p)
         R_EndFrame();
 
         // Wait until new update
-        f32 endWorkFrameTime = OS_NowSeconds();
+        f32 endWorkFrameTime = NowSeconds();
         f32 timeElapsed      = endWorkFrameTime - frameTime;
 
         if (timeElapsed < frameDt)
@@ -68,13 +68,13 @@ internal void G_EntryPoint(void *p)
             u32 msTimeToSleep = (u32)(1000.f * (frameDt - timeElapsed));
             if (msTimeToSleep > 0)
             {
-                OS_Sleep(msTimeToSleep);
+                Sleep(msTimeToSleep);
             }
         }
 
         while (timeElapsed < frameDt)
         {
-            timeElapsed = OS_NowSeconds() - frameTime;
+            timeElapsed = NowSeconds() - frameTime;
         }
     }
 }
@@ -320,7 +320,7 @@ DLL G_UPDATE(G_Update)
         I_PollInput();
 
         OS_Events events = I_GetInput(g_state->frameArena);
-        V2 mousePos      = platform.OS_GetMousePos(shared->windowHandle);
+        V2 mousePos      = platform.GetMousePos(shared->windowHandle);
 
         if (GetEventType(&events, OS_EventType_Quit))
         {
@@ -381,12 +381,12 @@ DLL G_UPDATE(G_Update)
             if (g_state->cameraMode == CameraMode_Player)
             {
                 g_state->cameraMode = CameraMode_Debug;
-                platform.OS_ToggleCursor(1);
+                platform.ToggleCursor(1);
             }
             else
             {
                 g_state->cameraMode = CameraMode_Player;
-                platform.OS_ToggleCursor(0);
+                platform.ToggleCursor(0);
             }
         }
     }
@@ -401,12 +401,12 @@ DLL G_UPDATE(G_Update)
         case CameraMode_Player:
         {
             // TODO: hide mouse, move camera about player
-            V2 center = platform.OS_GetCenter(shared->windowHandle, 1);
+            V2 center = platform.GetCenter(shared->windowHandle, 1);
             // V2 mousePos = OS_GetMousePos(shared->windowHandle);
             V2 dMouseP = playerController->mousePos - center;
 
-            center = platform.OS_GetCenter(shared->windowHandle, 0);
-            platform.OS_SetMousePos(shared->windowHandle, center);
+            center = platform.GetCenter(shared->windowHandle, 0);
+            platform.SetMousePos(shared->windowHandle, center);
 
             Camera *camera   = &g_state->camera;
             f32 cameraOffset = 10.f;
@@ -527,7 +527,7 @@ DLL G_UPDATE(G_Update)
                 // screen space -> homogeneous clip space -> view space -> world space
                 Mat4 screenSpaceToWorldMatrix = Inverse(transform);
                 V2 mouseP                     = playerController->mousePos;
-                V2 viewport                   = platform.OS_GetWindowDimension(shared->windowHandle);
+                V2 viewport                   = platform.GetWindowDimension(shared->windowHandle);
                 // Screen space ->NDC
                 mouseP.x = Clamp(2 * mouseP.x / viewport.x - 1, -1, 1);
                 mouseP.y = Clamp(1 - (2 * mouseP.y / viewport.y), -1, 1);

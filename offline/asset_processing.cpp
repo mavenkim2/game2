@@ -5,9 +5,13 @@
 #include "../mkMemory.cpp"
 #include "../mkString.cpp"
 #include "../mkJob.cpp"
+#include "../mkJobsystem.h"
 
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "../third_party/stb_truetype.h"
+
+#define CGLTF_IMPLEMENTATION
+#include "../third_party/cgltf.h"
 
 Engine *engine;
 //////////////////////////////
@@ -65,6 +69,37 @@ inline AnimationTransform MakeAnimTform(V3 position, Quat rotation, V3 scale)
 //////////////////////////////
 // Model Loading
 //
+
+internal void LoadAndWriteModel2(void *ptr)
+{
+    TempArena temp   = ScratchStart(0, 0);
+    Data *fileData   = (Data *)ptr;
+    string directory = fileData->directory;
+    string filename  = fileData->filename;
+    string fullPath  = StrConcat(temp.arena, directory, filename);
+
+    cgltf_options options = {};
+    cgltf_data *data      = 0;
+    cgltf_result result   = cgltf_parse_file(&options, (const char *)fullPath.str, &data);
+    Assert(result == cgltf_result_success);
+
+    jobsystem::Counter counter = {};
+
+    for (size_t meshIndex = 0; meshIndex < data->meshes_count; meshIndex++)
+    {
+        // does this take the group index?
+        jobsystem::KickJob(&counter, [&](jobsystem::JobArgs args)
+                           {
+            cgltf_mesh *mesh = &data->meshes[meshIndex];
+            // for (size_t primitiveIndex = 0; mesh->primit
+            // mesh->primitives
+            // mesh->weights
+        });
+    }
+
+    cgltf_free(data);
+}
+
 internal void *LoadAndWriteModel(void *ptr, Arena *arena)
 {
     TempArena scratch = ScratchStart(&arena, 1);
@@ -1245,37 +1280,7 @@ PlatformApi platform;
 // Model processing entry point
 int main(int argc, char *argv[])
 {
-    Printf                         = Print;
-    platform.Printf                = Print;
-    platform.OS_GetLastWriteTime   = OS_GetLastWriteTime;
-    platform.OS_PageSize           = OS_PageSize;
-    platform.OS_Alloc              = OS_Alloc;
-    platform.OS_Reserve            = OS_Reserve;
-    platform.OS_Commit             = OS_Commit;
-    platform.OS_Release            = OS_Release;
-    platform.OS_GetWindowDimension = OS_GetWindowDimension;
-    platform.OS_ReadEntireFile     = OS_ReadEntireFile;
-    platform.OS_ReadFileHandle     = OS_ReadEntireFile;
-    platform.OS_GetEvents          = OS_GetEvents;
-    platform.OS_SetThreadName      = OS_SetThreadName;
-    platform.OS_WriteFile          = OS_WriteFile;
-    platform.OS_NumProcessors      = OS_NumProcessors;
-    platform.OS_CreateSemaphore    = OS_CreateSemaphore;
-    platform.OS_ThreadStart        = OS_ThreadStart;
-    platform.OS_ThreadJoin         = OS_ThreadJoin;
-    platform.OS_ReleaseSemaphore   = OS_ReleaseSemaphore;
-    platform.OS_ReleaseSemaphores  = OS_ReleaseSemaphores;
-    platform.OS_SignalWait         = OS_SignalWait;
-    platform.OS_OpenFile           = OS_OpenFile;
-    platform.OS_AttributesFromFile = OS_AttributesFromFile;
-    platform.OS_CloseFile          = OS_CloseFile;
-    platform.OS_AttributesFromPath = OS_AttributesFromPath;
-    platform.OS_Sleep              = OS_Sleep;
-    platform.OS_NowSeconds         = OS_NowSeconds;
-    platform.OS_GetMousePos        = OS_GetMousePos;
-    platform.OS_ToggleCursor       = OS_ToggleCursor;
-    platform.OS_GetCenter          = OS_GetCenter;
-    platform.OS_SetMousePos        = OS_SetMousePos;
+    platform = GetPlatform();
 
     ThreadContext tctx = {};
     ThreadContextInitialize(&tctx, 1);

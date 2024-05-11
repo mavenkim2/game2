@@ -6,15 +6,15 @@
 
 internal Arena *ArenaAlloc(u64 resSize, u64 cmtSize)
 {
-    u64 pageSize = platform.OS_PageSize();
+    u64 pageSize = platform.PageSize();
     resSize      = AlignPow2(resSize, pageSize);
     cmtSize      = AlignPow2(cmtSize, pageSize);
 
-    void *memory = platform.OS_Reserve(resSize);
-    if (!platform.OS_Commit(memory, cmtSize))
+    void *memory = platform.Reserve(resSize);
+    if (!platform.Commit(memory, cmtSize))
     {
         memory = 0;
-        platform.OS_Release(memory);
+        platform.Release(memory);
     }
 
     Arena *arena = (Arena *)memory;
@@ -81,7 +81,7 @@ internal void *ArenaPushNoZero(Arena *arena, u64 size)
         u64 cmtAligned = AlignPow2(newPos, ARENA_COMMIT_SIZE);
         cmtAligned     = Min(cmtAligned, current->res);
         u64 cmtSize    = cmtAligned - current->cmt;
-        b8 result      = platform.OS_Commit((u8 *)current + current->cmt, cmtSize);
+        b8 result      = platform.Commit((u8 *)current + current->cmt, cmtSize);
         Assert(result);
         current->cmt = cmtAligned;
     }
@@ -112,7 +112,7 @@ internal void ArenaPopTo(Arena *arena, u64 pos)
     for (Arena *prev = 0; current->basePos >= pos; current = prev)
     {
         prev = current->prev;
-        platform.OS_Release(current);
+        platform.Release(current);
     }
     Assert(current);
     arena->current = current;
@@ -128,7 +128,7 @@ internal void ArenaPopToZero(Arena *arena, u64 pos)
     for (Arena *prev = 0; current->basePos >= pos; current = prev)
     {
         prev = current->prev;
-        platform.OS_Release(current);
+        platform.Release(current);
     }
     Assert(current);
     u64 newPos = pos - current->basePos;
@@ -179,6 +179,6 @@ internal void ArenaRelease(Arena *arena)
     for (Arena *a = arena->current, *prev = 0; a != 0; a = prev)
     {
         prev = a->prev;
-        platform.OS_Release(a);
+        platform.Release(a);
     }
 }

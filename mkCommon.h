@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <emmintrin.h>
 #include <stdint.h>
+#include <type_traits>
 
 #if _MSC_VER
 #define COMPILER_MSVC 1
