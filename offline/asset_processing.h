@@ -48,7 +48,12 @@ struct Skeleton
 //
 struct InputMaterial
 {
+    string name;
     string texture[TextureType_Count];
+
+    f32 metallicFactor  = 0.f;
+    f32 roughnessFactor = 1.f;
+    V4 baseColor        = {1, 1, 1, 1};
 };
 
 struct InputMesh
@@ -58,7 +63,8 @@ struct InputMesh
     u32 vertexCount;
     u32 indexCount;
 
-    InputMaterial material;
+    // InputMaterial material;
+    string materialName;
     Rect3 bounds;
 };
 
@@ -103,18 +109,22 @@ struct CompressedAnimationRotation
 struct CompressedBoneChannel
 {
     string name;
-    AnimationPosition *positions;
-    AnimationScale *scales;
-    CompressedAnimationRotation *rotations;
+    list<AnimationPosition> positions;
+    list<AnimationScale> scales;
+    list<CompressedAnimationRotation> rotations;
+    // AnimationPosition *positions;
+    // AnimationScale *scales;
+    // CompressedAnimationRotation *rotations;
 
-    u32 numPositionKeys;
-    u32 numScalingKeys;
-    u32 numRotationKeys;
+    // u32 numPositionKeys;
+    // u32 numScalingKeys;
+    // u32 numRotationKeys;
 };
 
 struct CompressedKeyframedAnimation
 {
-    CompressedBoneChannel *boneChannels;
+    // CompressedBoneChannel *boneChannels;
+    list<CompressedBoneChannel> boneChannels;
     u32 numNodes;
 
     f32 duration;

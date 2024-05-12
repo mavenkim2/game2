@@ -42,6 +42,7 @@ struct Job
 {
     Counter *counter;
     JobFunction func;
+    u32 groupId;
     u32 groupJobStart;
     u32 groupJobSize;
 };
@@ -68,14 +69,15 @@ global JobSystem jobSystem;
 
 void InitializeJobsystem()
 {
-    jobSystem.readSemaphore = platform.CreateSemaphore(jobSystem.threads.size());
     // jobSystem.threads.resize((size_t)platform.NumProcessors());
     u32 numProcessors = platform.NumProcessors();
     jobSystem.threads.resize(numProcessors);
+    jobSystem.readSemaphore = platform.CreateSemaphore(numProcessors);
 
     for (size_t i = 0; i < jobSystem.threads.size(); i++)
     {
         jobSystem.threads[i] = platform.ThreadStart(jobsystem::JobThreadEntryPoint, (void *)i);
+        platform.SetThreadAffinity(jobSystem.threads[i], i);
     }
 }
 
@@ -98,6 +100,7 @@ void KickJob(Counter *counter, const JobFunction &func, Priority priority = Prio
             Job *job           = &queue->jobs[writePos];
             job->func          = func;
             job->counter       = counter;
+            job->groupId       = 0;
             job->groupJobStart = 0;
             job->groupJobSize  = 1;
             job->counter->count.fetch_add(1);
@@ -133,9 +136,11 @@ void KickJobs(Counter *counter, u32 numJobs, u32 numGroups, const JobFunction &f
                 Job *job           = &queue->jobs[writePos + i];
                 job->func          = func;
                 job->counter       = counter;
+                job->groupId       = i;
                 job->groupJobStart = i * groupSize;
                 job->groupJobSize  = Min(groupSize, numJobs - (i * groupSize));
             }
+            queue->writePos.fetch_add(numGroups);
             counter->count.fetch_add(numGroups);
             platform.ReleaseSemaphores(jobSystem.readSemaphore, numGroups);
             break;
@@ -185,7 +190,6 @@ void JobThreadEntryPoint(void *p)
     TempArena temp  = ScratchStart(0, 0);
     SetThreadName(PushStr8F(temp.arena, "[Jobsystem] Worker %u", threadIndex));
     ScratchEnd(temp);
-    // platform.OS_SetThreadName(
     for (; !gTerminateJobs;)
     {
         if (!Pop(jobSystem.highPriorityQueue) && !Pop(jobSystem.lowPriorityQueue))
@@ -198,11 +202,9 @@ void JobThreadEntryPoint(void *p)
 void EndJobsystem()
 {
     gTerminateJobs = 1;
-    while (!Pop(jobSystem.highPriorityQueue) && !Pop(jobSystem.lowPriorityQueue))
-        ;
+    while (!Pop(jobSystem.highPriorityQueue) && !Pop(jobSystem.lowPriorityQueue)) continue;
 
     platform.ReleaseSemaphores(jobSystem.readSemaphore, jobSystem.threads.size());
-
     for (size_t i = 0; i < jobSystem.threads.size(); i++)
     {
         platform.ThreadJoin(jobSystem.threads[i]);

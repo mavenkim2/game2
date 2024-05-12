@@ -501,15 +501,47 @@ JOB_CALLBACK(AS_LoadAsset)
 
             AddBounds(model->bounds, mesh->surface.bounds);
         }
-
-        WriteBarrier();
     }
     else if (extension == Str8Lit("anim"))
     {
         asset->type = AS_Anim;
         u8 *buffer  = AS_GetMemory(asset);
 
+        Tokenizer tokenizer;
+        tokenizer.input.str  = buffer;
+        tokenizer.input.size = asset->size;
+        tokenizer.cursor     = tokenizer.input.str;
+
+        GetPointerValue(&tokenizer, &asset->anim.numNodes);
+        GetPointerValue(&tokenizer, &asset->anim.duration);
+
+        // TODO: LEAK
+        BeginTicketMutex(&as_state->allocator.ticketMutex);
+        asset->anim.boneChannels = PushArray(as_state->allocator.arena, BoneChannel, asset->anim.numNodes);
+        EndTicketMutex(&as_state->allocator.ticketMutex);
+
+        for (u32 i = 0; i < asset->anim.numNodes; i++)
+        {
+            BoneChannel *channel = &asset->anim.boneChannels[i];
+            GetPointerValue(&tokenizer, &channel->name.size);
+            channel->name.str = GetTokenCursor(&tokenizer, u8);
+            Advance(&tokenizer, sizeof(channel->name.str[0] * channel->name.size));
+
+            GetPointerValue(&tokenizer, &channel->numPositionKeys);
+            channel->positions = GetTokenCursor(&tokenizer, AnimationPosition);
+            Advance(&tokenizer, sizeof(channel->positions[0]) * channel->numPositionKeys);
+
+            GetPointerValue(&tokenizer, &channel->numScalingKeys);
+            channel->scales = GetTokenCursor(&tokenizer, AnimationScale);
+            Advance(&tokenizer, sizeof(channel->scales[0]) * channel->numScalingKeys);
+
+            GetPointerValue(&tokenizer, &channel->numRotationKeys);
+            channel->rotations = GetTokenCursor(&tokenizer, AnimationRotation);
+            Advance(&tokenizer, sizeof(channel->rotations[0]) * channel->numRotationKeys);
+        }
+
         // NOTE: crazy town incoming
+#if 0
         KeyframedAnimation **animation = &asset->anim;
         *animation                     = (KeyframedAnimation *)buffer;
         KeyframedAnimation *a          = asset->anim;
@@ -526,7 +558,7 @@ JOB_CALLBACK(AS_LoadAsset)
             ConvertOffsetToPointer(buffer, &boneChannel->scales, AnimationScale);
             ConvertOffsetToPointer(buffer, &boneChannel->rotations, AnimationRotation);
         }
-        WriteBarrier();
+#endif
     }
     else if (extension == Str8Lit("skel"))
     {
@@ -849,7 +881,7 @@ internal KeyframedAnimation *GetAnim(AS_Handle handle)
     if (asset)
     {
         Assert(asset->type == AS_Anim);
-        result = result = asset->anim;
+        result = &asset->anim;
     }
     return result;
 }

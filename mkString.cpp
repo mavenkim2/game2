@@ -506,6 +506,20 @@ internal u64 PutU64(StringBuilder *builder, u64 value)
     return result;
 }
 
+internal void PutLine(StringBuilder *builder, u32 indents, char *fmt, ...)
+{
+    string result = {};
+    va_list args;
+    va_start(args, fmt);
+    for (u32 i = 0; i < indents; i++)
+    {
+        Put(builder, "\t");
+    }
+    result = PushStr8FV(builder->arena, fmt, args);
+    Put(builder, "\n");
+    va_end(args);
+}
+
 internal StringBuilder ConcatBuilders(Arena *arena, StringBuilder *a, StringBuilder *b)
 {
     StringBuilder result = {};

@@ -127,6 +127,7 @@ internal string CombineBuilderNodes(StringBuilder *builder);
 internal b32 WriteEntireFile(StringBuilder *builder, string filename);
 inline u64 PutPointer(StringBuilder *builder, u64 address);
 inline void ConvertPointerToOffset(u8 *buffer, u64 location, u64 offset);
+internal void PutLine(StringBuilder *builder, u32 indents, char *fmt, ...);
 
 #define ConvertOffsetToPointer(buffer, ptr, type) (*(ptr)) = (type *)((u8 *)(buffer) + (u64)(*(ptr)))
 #define PutPointerValue(builder, ptr)             Put(builder, ptr, sizeof(*ptr))

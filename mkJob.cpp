@@ -48,8 +48,7 @@ internal void JS_Flush()
     JS_State *js_state = engine->GetJobState();
     JS_Thread *thread  = &js_state->threads[0];
     while (!JS_PopJob(&js_state->highPriorityQueue, thread) || !JS_PopJob(&js_state->normalPriorityQueue, thread) ||
-           !JS_PopJob(&js_state->lowPriorityQueue, thread))
-        ;
+           !JS_PopJob(&js_state->lowPriorityQueue, thread)) continue;
 
     platform.ReleaseSemaphores(js_state->readSemaphore, js_state->threadCount);
 
@@ -208,8 +207,7 @@ internal b32 JS_PopJob(JS_Queue *queue, JS_Thread *thread)
         {
             AtomicDecrementU32(&counter->c);
         }
-    }
-    else
+    } else
     {
         EndMutex(&queue->lock);
         sleep = true;

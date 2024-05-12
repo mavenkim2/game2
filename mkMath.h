@@ -131,7 +131,7 @@ union V2
     {
         f32 u, v;
     };
-    f32 e[2];
+    f32 elements[2];
 };
 
 union V2I32
@@ -710,6 +710,15 @@ inline V3 Floor(V3 value)
 /*
  * VECTOR 4
  */
+inline V4 MakeV4(float f)
+{
+    V4 result;
+    result.x = f;
+    result.y = f;
+    result.z = f;
+    result.w = f;
+    return result;
+}
 inline V4 MakeV4(V3 xyz, float w)
 {
     V4 result;
@@ -806,6 +815,12 @@ inline V4 operator/=(V4 &a, f32 b)
 inline b32 operator==(V4 &a, V4 b)
 {
     b32 result = a.x == b.x && a.y == b.y && a.z == b.z && a.w == b.w ? true : false;
+    return result;
+}
+
+inline b32 operator!=(V4 &a, V4 b)
+{
+    b32 result = a.x != b.x || a.y != b.y || a.z != b.z || a.w != b.w ? true : false;
     return result;
 }
 
@@ -1670,6 +1685,21 @@ inline b8 AlmostEqual(V3 a, V3 b, f32 epsilon)
     b8 result = 0;
     if (diffx > -epsilon && diffx < epsilon && diffy > -epsilon && diffy < epsilon && diffz > -epsilon &&
         diffz < epsilon)
+    {
+        result = 1;
+    }
+    return result;
+}
+
+inline b8 AlmostEqual(V4 a, V4 b, f32 epsilon)
+{
+    f32 diffx = a.x - b.x;
+    f32 diffy = a.y - b.y;
+    f32 diffz = a.z - b.z;
+    f32 diffw = a.w - b.w;
+    b8 result = 0;
+    if (diffx > -epsilon && diffx < epsilon && diffy > -epsilon && diffy < epsilon && diffz > -epsilon &&
+        diffz < epsilon && diffw > -epsilon && diffw < epsilon)
     {
         result = 1;
     }

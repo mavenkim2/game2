@@ -288,7 +288,7 @@ struct AS_Asset
         LoadedSkeleton skeleton;
         graphics::Texture texture;
         LoadedModel model;
-        KeyframedAnimation *anim;
+        KeyframedAnimation anim;
         Font font;
     };
 };
