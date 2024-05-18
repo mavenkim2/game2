@@ -70,6 +70,13 @@ struct HashIndex
         hash[slot]        = index;
     }
 
+    void AddInHash(i32 key, i32 index, i32 value)
+    {
+        i32 slot          = key & hashMask;
+        indexChain[index] = hash[slot];
+        hash[slot]        = value;
+    }
+
     b32 RemoveFromHash(i32 key, i32 index)
     {
         b32 result = 0;

@@ -20,6 +20,8 @@ typedef HINSTANCE Instance;
 enum class GraphicsObjectType
 {
     Queue,
+    DescriptorSet,
+    DescriptorSetLayout,
 };
 
 enum class ValidationMode

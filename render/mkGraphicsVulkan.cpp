@@ -635,17 +635,6 @@ mkGraphicsVulkan::mkGraphicsVulkan(OS_Handle window, ValidationMode validationMo
     mDynamicStateInfo.dynamicStateCount = (u32)mDynamicStates.size();
     mDynamicStateInfo.pDynamicStates    = mDynamicStates.data();
 
-    // Init frame allocators
-    GPUBufferDesc desc;
-    desc.mUsage         = MemoryUsage::CPU_TO_GPU;
-    desc.mSize          = megabytes(32);
-    desc.mResourceUsage = ResourceUsage::VertexBuffer | ResourceUsage::IndexBuffer | ResourceUsage::UniformBuffer;
-    for (u32 i = 0; i < cNumBuffers; i++)
-    {
-        CreateBuffer(&mFrameAllocator[i].mBuffer, desc, 0);
-        mFrameAllocator[i].mAlignment = 8;
-    }
-
     // Init descriptor pool
     {
         VkDescriptorPoolSize poolSizes[2];
@@ -668,6 +657,110 @@ mkGraphicsVulkan::mkGraphicsVulkan(OS_Handle window, ValidationMode validationMo
 
         res = vkCreateDescriptorPool(mDevice, &createInfo, 0, &mPool);
         Assert(res == VK_SUCCESS);
+    }
+
+    // Bindless descriptor pools
+    {
+        for (DescriptorType type = (DescriptorType)0; type < DescriptorType_Count; type = (DescriptorType)(type + 1))
+        {
+            VkDescriptorType descriptorType;
+            switch (type)
+            {
+                case DescriptorType_CombinedSampler: descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; break;
+                case DescriptorType_Storage: descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; break;
+                default: Assert(0);
+            }
+
+            BindlessDescriptorPool &bindlessDescriptorPool = bindlessDescriptorPools[type];
+            VkDescriptorPoolSize poolSize                  = {};
+            poolSize.type                                  = descriptorType;
+            if (type == DescriptorType_Storage)
+            {
+                poolSize.descriptorCount = Min(100, mDeviceProperties.properties.limits.maxDescriptorSetStorageBuffers / 4);
+            }
+            else if (type == DescriptorType_CombinedSampler)
+            {
+                poolSize.descriptorCount = Min(100, mDeviceProperties.properties.limits.maxDescriptorSetSampledImages / 4);
+            }
+            bindlessDescriptorPool.descriptorCount = poolSize.descriptorCount;
+
+            VkDescriptorPoolCreateInfo createInfo = {};
+            createInfo.sType                      = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+            createInfo.poolSizeCount              = 1;
+            createInfo.pPoolSizes                 = &poolSize;
+            createInfo.maxSets                    = 1;
+            createInfo.flags                      = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
+            res                                   = vkCreateDescriptorPool(mDevice, &createInfo, 0, &bindlessDescriptorPool.pool);
+            Assert(res == VK_SUCCESS);
+
+            VkDescriptorSetLayoutBinding binding = {};
+            binding.binding                      = 0;
+            binding.pImmutableSamplers           = 0;
+            binding.stageFlags                   = VK_SHADER_STAGE_ALL;
+            binding.descriptorType               = descriptorType;
+            binding.descriptorCount              = bindlessDescriptorPool.descriptorCount;
+
+            // These flags enable bindless: https://registry.khronos.org/vulkan/specs/1.3-extensions/man/html/VkDescriptorBindingFlagBits.html
+            VkDescriptorBindingFlags bindingFlags =
+                VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT |
+                VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT;
+            // this flag just ruined my life I guess? | VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT;
+            VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsCreate = {};
+            bindingFlagsCreate.sType                                       = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
+            bindingFlagsCreate.bindingCount                                = 1;
+            bindingFlagsCreate.pBindingFlags                               = &bindingFlags;
+
+            VkDescriptorSetLayoutCreateInfo createSetLayout = {};
+            createSetLayout.sType                           = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+            createSetLayout.bindingCount                    = 1;
+            createSetLayout.pBindings                       = &binding;
+            createSetLayout.flags                           = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
+            createSetLayout.pNext                           = &bindingFlagsCreate;
+
+            res = vkCreateDescriptorSetLayout(mDevice, &createSetLayout, 0, &bindlessDescriptorPool.layout);
+            Assert(res == VK_SUCCESS);
+
+            VkDescriptorSetAllocateInfo allocInfo = {};
+            allocInfo.sType                       = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+            allocInfo.descriptorPool              = bindlessDescriptorPool.pool;
+            allocInfo.descriptorSetCount          = 1;
+            allocInfo.pSetLayouts                 = &bindlessDescriptorPool.layout;
+            res                                   = vkAllocateDescriptorSets(mDevice, &allocInfo, &bindlessDescriptorPool.set);
+            Assert(res == VK_SUCCESS);
+
+            for (u32 i = 0; i < poolSize.descriptorCount; i++)
+            {
+                bindlessDescriptorPool.freeList.push_back(poolSize.descriptorCount - i - 1);
+            }
+            bindlessDescriptorSets.push_back(bindlessDescriptorPool.set);
+            bindlessDescriptorSetLayouts.push_back(bindlessDescriptorPool.layout);
+
+            // Set debug names
+            TempArena temp = ScratchStart(0, 0);
+            string typeName;
+            switch (type)
+            {
+                case DescriptorType_CombinedSampler: typeName = "Combined Sampler"; break;
+                case DescriptorType_Storage: typeName = "Storage Buffer"; break;
+            }
+            string name = PushStr8F(temp.arena, "Bindless Descriptor Set Layout: %S", typeName);
+            SetName((u64)bindlessDescriptorPool.layout, GraphicsObjectType::DescriptorSetLayout, (const char *)name.str);
+
+            name = PushStr8F(temp.arena, "Bindless Descriptor Set: %S", typeName);
+            SetName((u64)bindlessDescriptorPool.set, GraphicsObjectType::DescriptorSet, (const char *)name.str);
+            ScratchEnd(temp);
+        }
+    }
+
+    // Init frame allocators
+    GPUBufferDesc desc;
+    desc.mUsage         = MemoryUsage::CPU_TO_GPU;
+    desc.mSize          = megabytes(32);
+    desc.mResourceUsage = ResourceUsage::VertexBuffer | ResourceUsage::IndexBuffer | ResourceUsage::UniformBuffer;
+    for (u32 i = 0; i < cNumBuffers; i++)
+    {
+        CreateBuffer(&mFrameAllocator[i].mBuffer, desc, 0);
+        mFrameAllocator[i].mAlignment = 8;
     }
 
     // Default samplers
@@ -790,80 +883,6 @@ mkGraphicsVulkan::mkGraphicsVulkan(OS_Handle window, ValidationMode validationMo
 
         res = vmaCreateBuffer(mAllocator, &bufferInfo, &allocInfo, &mNullBuffer, &mNullBufferAllocation, 0);
         Assert(res == VK_SUCCESS);
-    }
-
-    // Bindless
-    {
-        for (DescriptorType type = (DescriptorType)0; type < DescriptorType_Count; type = (DescriptorType)(type + 1))
-        {
-            VkDescriptorType descriptorType;
-            switch (descriptorType)
-            {
-                case DescriptorType_Storage: descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; break;
-                case DescriptorType_CombinedSampler: descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE; break;
-                default: Assert(0);
-            }
-
-            BindlessDescriptorPool &bindlessDescriptorPool = bindlessDescriptorPools[type];
-            VkDescriptorPoolSize poolSize                  = {};
-            poolSize.type                                  = descriptorType;
-            if (type == DescriptorType_Storage)
-            {
-                poolSize.descriptorCount = Min(100, mDeviceProperties.properties.limits.maxDescriptorSetStorageBuffers / 4);
-            }
-            else if (type == DescriptorType_CombinedSampler)
-            {
-                poolSize.descriptorCount = Min(100, mDeviceProperties.properties.limits.maxDescriptorSetSampledImages / 4);
-            }
-
-            VkDescriptorPoolCreateInfo createInfo = {};
-            createInfo.sType                      = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-            createInfo.poolSizeCount              = 1;
-            createInfo.pPoolSizes                 = &poolSize;
-            createInfo.maxSets                    = 1;
-            createInfo.flags                      = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
-            res                                   = vkCreateDescriptorPool(mDevice, &createInfo, 0, &bindlessDescriptorPool.pool);
-            Assert(res == VK_SUCCESS);
-
-            VkDescriptorSetLayoutBinding binding = {};
-            binding.binding                      = 0;
-            binding.pImmutableSamplers           = 0;
-            binding.stageFlags                   = VK_SHADER_STAGE_ALL;
-            binding.descriptorCount              = poolSize.descriptorCount;
-            binding.descriptorType               = descriptorType;
-
-            // These flags enable bindless: https://registry.khronos.org/vulkan/specs/1.3-extensions/man/html/VkDescriptorBindingFlagBits.html
-            VkDescriptorBindingFlags bindingFlags =
-                VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT |
-                VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT | VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT;
-            VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsCreate = {};
-            bindingFlagsCreate.sType                                       = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
-            bindingFlagsCreate.bindingCount                                = 1;
-            bindingFlagsCreate.pBindingFlags                               = &bindingFlags;
-
-            VkDescriptorSetLayoutCreateInfo createSetLayout = {};
-            createSetLayout.sType                           = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-            createSetLayout.bindingCount                    = 1;
-            createSetLayout.pBindings                       = &binding;
-            createSetLayout.flags                           = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
-            createSetLayout.pNext                           = &bindingFlagsCreate;
-
-            res = vkCreateDescriptorSetLayout(mDevice, &createSetLayout, 0, &bindlessDescriptorPool.layout);
-            Assert(res == VK_SUCCESS);
-
-            VkDescriptorSetAllocateInfo allocInfo = {};
-            allocInfo.sType                       = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-            allocInfo.descriptorPool              = bindlessDescriptorPool.pool;
-            allocInfo.descriptorSetCount          = 1;
-            allocInfo.pSetLayouts                 = &bindlessDescriptorPool.layout;
-            res                                   = vkAllocateDescriptorSets(mDevice, &allocInfo, &bindlessDescriptorPool.set);
-            Assert(res == VK_SUCCESS);
-
-            for (u32 i = 0; i < poolSize.descriptorCount; i++)
-            {
-                bindlessDescriptorPool.freeList.push_back(i);
-            }
-        }
     }
 } // namespace graphics
 
@@ -1341,10 +1360,16 @@ void mkGraphicsVulkan::CreateShader(PipelineStateDesc *inDesc, PipelineState *ou
         ps->mDescriptorSetLayouts.push_back(descriptorLayout);
     } // namespace graphics
 
+    // Push bindless descriptor set layouts
+    for (auto &layout : bindlessDescriptorSetLayouts)
+    {
+        ps->mDescriptorSetLayouts.push_back(layout);
+    }
+
     VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
     pipelineLayoutInfo.sType                      = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipelineLayoutInfo.setLayoutCount             = 1;
-    pipelineLayoutInfo.pSetLayouts                = &descriptorLayout;
+    pipelineLayoutInfo.setLayoutCount             = (u32)ps->mDescriptorSetLayouts.size();
+    pipelineLayoutInfo.pSetLayouts                = ps->mDescriptorSetLayouts.data();
     // Push constants are kind of like compile time constants for shaders? except they don't have to be
     // specified at shader creation, instead pipeline creation
     pipelineLayoutInfo.pushConstantRangeCount = 0;
@@ -1355,7 +1380,7 @@ void mkGraphicsVulkan::CreateShader(PipelineStateDesc *inDesc, PipelineState *ou
     {
         range.size                                = inDesc->mPushConstantRange.mSize;
         range.offset                              = inDesc->mPushConstantRange.mOffset;
-        range.stageFlags                          = ConvertShaderStage(inDesc->mPushConstantRange.mStageFlags);
+        range.stageFlags                          = VK_SHADER_STAGE_ALL;
         pipelineLayoutInfo.pushConstantRangeCount = 1;
         pipelineLayoutInfo.pPushConstantRanges    = &range;
     }
@@ -1512,6 +1537,10 @@ void mkGraphicsVulkan::CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDes
     {
         createInfo.usage |= VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
     }
+    if (HasFlags(inDesc.mResourceUsage, ResourceUsage::StorageBuffer))
+    {
+        createInfo.usage |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+    }
 
     // Sharing
     if (mFamilies.size() > 1)
@@ -1582,6 +1611,8 @@ void mkGraphicsVulkan::CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDes
 
             // TODO: I think this barrier is useless, because the semaphore should signal the graphics queue
             // when the staging buffer transfer is complete.
+
+#if 0
             VkBufferMemoryBarrier2 bufferBarrier = {};
             bufferBarrier.sType                  = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
             bufferBarrier.buffer                 = buffer->mBuffer;
@@ -1612,12 +1643,16 @@ void mkGraphicsVulkan::CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDes
             dependencyInfo.pBufferMemoryBarriers    = &bufferBarrier;
 
             vkCmdPipelineBarrier2(cmd.mTransitionBuffer, &dependencyInfo);
+#endif
 
             Submit(cmd);
         }
     }
 
-    CreateSubresource(inBuffer, SubresourceType::SRV);
+    if (HasFlags(inDesc.mResourceUsage, ResourceUsage::StorageBuffer))
+    {
+        CreateSubresource(inBuffer, SubresourceType::SRV);
+    }
 
     // If data is provided, do the transfer
 
@@ -1950,6 +1985,7 @@ i32 mkGraphicsVulkan::CreateSubresource(GPUBuffer *buffer, SubresourceType type,
 
         vkUpdateDescriptorSets(mDevice, 1, &write, 0, 0);
 
+        // TODO: remove this last minute decision making. this control path is only entered from one place.
         if (!bufVulk->subresource.IsValid())
         {
             bufVulk->subresource = subresource;
@@ -2997,6 +3033,10 @@ void mkGraphicsVulkan::BindPipeline(const PipelineState *ps, CommandList cmd)
 
         PipelineStateVulkan *psVulkan = ToInternal(ps);
         vkCmdBindPipeline(command->GetCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS, psVulkan->mPipeline);
+
+        // Bind bindless
+        vkCmdBindDescriptorSets(command->GetCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS, psVulkan->mPipelineLayout,
+                                1, (u32)bindlessDescriptorSets.size(), bindlessDescriptorSets.data(), 0, 0);
     }
 }
 
@@ -3045,6 +3085,8 @@ void mkGraphicsVulkan::SetName(u64 handle, GraphicsObjectType type, const char *
     switch (type)
     {
         case GraphicsObjectType::Queue: info.objectType = VK_OBJECT_TYPE_QUEUE; break;
+        case GraphicsObjectType::DescriptorSet: info.objectType = VK_OBJECT_TYPE_DESCRIPTOR_SET; break;
+        case GraphicsObjectType::DescriptorSetLayout: info.objectType = VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT; break;
     }
     info.objectHandle = handle;
     VkResult res      = vkSetDebugUtilsObjectNameEXT(mDevice, &info);

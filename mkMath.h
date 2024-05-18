@@ -251,10 +251,22 @@ union V4
     }
 };
 
+union U16V4
+{
+    u16 x, y, z, w;
+    u16 elements[4];
+};
+
 union UV4
 {
-    u32 x, y, z, w;
-    u32 elements[4];
+    struct
+    {
+        u32 x, y, z, w;
+    };
+    struct
+    {
+        u32 elements[4];
+    };
 };
 
 union V4I32

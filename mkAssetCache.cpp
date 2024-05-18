@@ -20,6 +20,7 @@
 #include "mkGame.h"
 #include "mkScene.h"
 #include "mkList.h"
+#include "mkString.h"
 #endif
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -243,7 +244,6 @@ internal void AS_EntryPoint(void *p)
 
         if (path.size != 0)
         {
-
             OS_Handle handle             = platform.OpenFile(OS_AccessFlag_Read | OS_AccessFlag_ShareRead, path);
             OS_FileAttributes attributes = platform.AttributesFromFile(handle);
             // If the file doesn't exist, abort
@@ -423,7 +423,8 @@ JOB_CALLBACK(AS_LoadAsset)
         model->meshes = (Mesh *)AS_Alloc(sizeof(Mesh) * model->numMeshes);
 
         // Load the associated material file. TODO: these should probably just be combined if it's a scene
-        string materialData = platform.ReadEntireFile(temp.arena, StrConcat(temp.arena, materialDirectory, filename));
+        string materialFilename = PushStr8F(temp.arena, "%S%S.mtr", materialDirectory, RemoveFileExtension(filename));
+        string materialData     = platform.ReadEntireFile(temp.arena, materialFilename);
 
         Tokenizer materialTokenizer;
         materialTokenizer.input.str  = materialData.str;
@@ -433,14 +434,16 @@ JOB_CALLBACK(AS_LoadAsset)
         Assert(Advance(&materialTokenizer, "Num materials: "));
         u32 numMaterials = ReadUint(&materialTokenizer);
         SkipToNextLine(&materialTokenizer);
+        SkipToNextLine(&materialTokenizer);
 
         for (u32 i = 0; i < numMaterials; i++)
         {
-            Assert(Advance(&materialTokenizer, "Name :"));
+            Assert(Advance(&materialTokenizer, "Name: "));
             string line = ReadLine(&materialTokenizer);
 
-            scene::MaterialComponent component = gameScene.materials.Create(line);
-            component.name                     = line;
+            SkipToNextLine(&materialTokenizer);
+            scene::MaterialComponent &component = gameScene.materials.Create(line);
+            component.name                      = line;
 
             // Read the diffuse texture if there is one
             b32 result = Advance(&materialTokenizer, "\tDiffuse: ");
@@ -474,13 +477,11 @@ JOB_CALLBACK(AS_LoadAsset)
             if (result)
             {
                 component.metallicFactor = ReadFloat(&materialTokenizer);
-                SkipToNextLine(&materialTokenizer);
             }
             result = Advance(&materialTokenizer, "\tRoughness Factor: ");
             if (result)
             {
                 component.roughnessFactor = ReadFloat(&materialTokenizer);
-                SkipToNextLine(&materialTokenizer);
             }
             SkipToNextLine(&materialTokenizer); // final closing bracket }
         }
@@ -502,6 +503,7 @@ JOB_CALLBACK(AS_LoadAsset)
             // Get all of the subsets
             GetPointerValue(&tokenizer, &mesh->numSubsets);
 
+            // TODO: faster allocations for the asset system
             mesh->subsets = (Mesh::MeshSubset *)AS_Alloc(sizeof(Mesh::MeshSubset) * mesh->numSubsets);
 
             for (u32 subsetIndex = 0; subsetIndex < mesh->numSubsets; subsetIndex++)
@@ -560,7 +562,9 @@ JOB_CALLBACK(AS_LoadAsset)
             {
                 path.str = GetTokenCursor(&tokenizer, u8);
                 Advance(&tokenizer, (u32)path.size);
-                model->skeleton = AS_GetAsset(StrConcat(temp.arena, skeletonDirectory, path));
+
+                string skeletonFilename = PushStr8F(temp.arena, "%S%S.skel", skeletonDirectory, RemoveFileExtension(path));
+                model->skeleton         = AS_GetAsset(skeletonFilename);
                 Printf("Skeleton file name: %S\n", path);
             }
             else
@@ -699,9 +703,10 @@ JOB_CALLBACK(AS_LoadAsset)
         for (u32 i = 0; i < asset->anim.numNodes; i++)
         {
             BoneChannel *channel = &asset->anim.boneChannels[i];
+
             GetPointerValue(&tokenizer, &channel->name.size);
             channel->name.str = GetTokenCursor(&tokenizer, u8);
-            Advance(&tokenizer, sizeof(channel->name.str[0] * channel->name.size));
+            Advance(&tokenizer, (u32)(sizeof(channel->name.str[0]) * channel->name.size));
 
             GetPointerValue(&tokenizer, &channel->numPositionKeys);
             channel->positions = GetTokenCursor(&tokenizer, AnimationPosition);
@@ -767,20 +772,7 @@ JOB_CALLBACK(AS_LoadAsset)
         if (FindSubstring(asset->path, Str8Lit("diffuse"), 0, MatchFlag_CaseInsensitive) != asset->path.size)
         {
             format = graphics::Format::R8G8B8A8_SRGB;
-            // asset->texture.type = TextureType_Diffuse;
         }
-        // else if (FindSubstring(asset->path, Str8Lit("normal"), 0, MatchFlag_CaseInsensitive) != asset->path.size)
-        // {
-        //     asset->texture.type = TextureType_Normal;
-        // }
-        // else if (FindSubstring(asset->path, Str8Lit("metallic"), 0, MatchFlag_CaseInsensitive) != asset->path.size)
-        // {
-        //     asset->texture.type = TextureType_MR;
-        // }
-        // else if (FindSubstring(asset->path, Str8Lit("height"), 0, MatchFlag_CaseInsensitive) != asset->path.size)
-        // {
-        // }
-
         i32 width, height, nComponents;
         void *texData =
             stbi_load_from_memory(AS_GetMemory(asset), (i32)asset->size, &width, &height, &nComponents, 4);
@@ -1053,222 +1045,6 @@ inline b8 IsAnimNil(KeyframedAnimation *anim)
     b8 result = (anim == 0 || anim == &animNil);
     return result;
 }
-
-//////////////////////////////
-// Memory Helpers
-//
-
-// Removes the first element from free list
-// #if 0
-// internal AS_MemoryHeaderNode *AllocateBlock()
-// {
-//     AS_MemoryHeaderNode *sentinel   = &as_state->freeBlockSentinel;
-//     AS_MemoryHeaderNode *headerNode = sentinel->next;
-//     headerNode->next->prev          = headerNode->prev;
-//     headerNode->prev->next          = headerNode->next;
-//     headerNode->next = headerNode->prev = 0;
-//     return headerNode;
-// }
-// // Removes the input element from the free list (for >2MB block allocation)
-// internal AS_MemoryHeaderNode *AllocateBlock(AS_MemoryHeaderNode *headerNode)
-// {
-//     headerNode->next->prev = headerNode->prev;
-//     headerNode->prev->next = headerNode->next;
-//     headerNode->next = headerNode->prev = 0;
-//     return headerNode;
-// }
-// // Adds to free list
-// internal void FreeBlock(AS_MemoryHeaderNode *headerNode)
-// {
-//     AS_MemoryHeaderNode *sentinel = &as_state->freeBlockSentinel;
-//     headerNode->next              = sentinel;
-//     headerNode->prev              = sentinel->prev;
-//     headerNode->next->prev        = headerNode;
-//     headerNode->prev->next        = headerNode;
-// }
-//
-// internal void FreeBlocks(AS_Asset *asset)
-// {
-//     TicketMutexScope(&as_state->mutex)
-//     {
-//         i32 numBlocks = (i32)((asset->size / as_state->blockSize) + (asset->size % as_state->blockSize !=
-//         0)); AS_MemoryHeaderNode *node = asset->memoryBlock;
-//
-//         Assert(node + numBlocks <= as_state->memoryHeaderNodes + as_state->numBlocks);
-//         for (i32 i = 0; i < numBlocks; i++)
-//         {
-//             FreeBlock(node + i);
-//         }
-//         asset->memoryBlock = 0;
-//     }
-// }
-//
-// internal AS_MemoryHeaderNode *AllocateBlocks(u64 size)
-// {
-//     AS_MemoryHeaderNode *result = 0;
-//     TicketMutexScope(&as_state->mutex)
-//     {
-//         AS_MemoryHeaderNode *sentinel = &as_state->freeBlockSentinel;
-//         Assert(sentinel->next != 0);
-//         // Assert(attributes.size <= 2 * as_state->blockSize);
-//         // If block is small enough, just get off free list
-//         if (size <= as_state->blockSize)
-//         {
-//             AS_MemoryHeaderNode *block = sentinel->next;
-//             result                     = AllocateBlock();
-//         }
-//         // Otherwise
-//         else
-//         {
-//             u32 s = SafeTruncateU64(size);
-//             // Find a set of consecutive blocks that fits the needed size
-//             i32 numBlocks  = (i32)((s / as_state->blockSize) + (s % as_state->blockSize != 0));
-//             i32 startIndex = -1;
-//             i32 count      = 0;
-//             for (i32 i = 0; i < (i32)as_state->numBlocks - (i32)numBlocks; i++)
-//             {
-//                 AS_MemoryHeaderNode *n = &as_state->memoryHeaderNodes[i];
-//                 b32 isFree             = (n->next != 0);
-//                 b32 isChaining         = (startIndex != -1 && count != 0);
-//                 // Start a chain of contiguous blocks
-//                 if (isFree && !isChaining)
-//                 {
-//                     startIndex = i;
-//                     count      = 1;
-//                 }
-//                 // If there aren't enough contiguous blocks, restart
-//                 else if (!isFree && isChaining)
-//                 {
-//                     startIndex = -1;
-//                     count      = 0;
-//                 }
-//                 // If block is free and part of an ongoing chain, increment and continue
-//                 else if (isFree && isChaining)
-//                 {
-//                     count += 1;
-//                 }
-//                 if (count == numBlocks)
-//                 {
-//                     Assert(as_state->memoryHeaderNodes[startIndex].next != 0);
-//                     Assert(&as_state->memoryHeaderNodes[startIndex] + count <=
-//                            as_state->memoryHeaderNodes + as_state->numBlocks);
-//                     for (i32 j = startIndex; j < startIndex + count; j++)
-//                     {
-//                         AllocateBlock(&as_state->memoryHeaderNodes[j]);
-//                     }
-//                     result = &as_state->memoryHeaderNodes[startIndex];
-//                     break;
-//                 }
-//             }
-//         }
-//     }
-//     return result;
-// }
-//
-// inline u8 *GetAssetBuffer(AS_Asset *asset)
-// {
-//     u8 *result = 0;
-//     if (asset->memoryBlock)
-//     {
-//         result = asset->memoryBlock->header.buffer;
-//     }
-//     return result;
-// }
-//
-// inline void EndTemporaryMemory(AS_Asset *asset)
-// {
-//     FreeBlocks(asset);
-// }
-// #endif
-
-//////////////////////////////
-// Asset tags
-//
-// #if 0
-// internal void AS_AddAssetTag(AS_TagKey tagKey, f32 tagValue, AS_Handle handle)
-// {
-//     AS_TagSlot *slot   = as_state->tagMap.slots + tagKey;
-//     AS_TagNode *parent = 0;
-//     // Root nodes
-//     u32 nodeIndex    = 0;
-//     AS_TagNode *node = slot->nodes + nodeIndex;
-//     for (;;)
-//     {
-//         i32 index = -1;
-//         for (i32 i = 0; i < node->count; i++)
-//         {
-//             AS_TagKeyValuePair *pair = node->pairs + i;
-//             if (tagValue <= pair->value)
-//             {
-//                 index = i;
-//                 break;
-//             }
-//         }
-//
-//         index = index == -1 ? node->count : index;
-//         // Assumption: node has no children until "nodes" is filled. then children are created
-//         if (node->count < ArrayLength(node->pairs))
-//         {
-//             // Shift all elements up by 1
-//             if (index != node->count)
-//             {
-//                 MemoryCopy(node->pairs + index + 1, node->pairs + index, node->count - index);
-//             }
-//             node->pairs[node->count++] = {handle, tagValue};
-//             break;
-//         }
-//         // Find new child to iterate to, adding node if necesary
-//         else
-//         {
-//             nodeIndex = node->children[index];
-//             if (nodeIndex == 0)
-//             {
-//                 Assert(slot->count < slot->maxCount);
-//                 node->children[index] = slot->count++;
-//                 nodeIndex             = node->children[index];
-//             }
-//             parent = node;
-//             node   = slot->nodes + nodeIndex;
-//         }
-//     }
-// }
-//
-// internal AS_Handle AS_GetAssetByTag(AS_TagKey tagKey, f32 tagValue)
-// {
-//     AS_TagSlot *slot = as_state->tagMap.slots + tagKey;
-//     AS_TagNode *node = slot->nodes + 0;
-//
-//     f32 bestMatchValue        = FLT_MAX;
-//     AS_Handle bestMatchHandle = {};
-//
-//     for (;;)
-//     {
-//         i32 nodeIndex = -1;
-//         for (i32 i = 0; i < node->count; i++)
-//         {
-//             AS_TagKeyValuePair *pair = node->pairs + i;
-//             if (tagValue == pair->value)
-//             {
-//                 return pair->assetHandle;
-//             }
-//             if (Abs(pair->value - tagValue) < bestMatchValue)
-//             {
-//                 bestMatchValue  = pair->value;
-//                 bestMatchHandle = pair->assetHandle;
-//             }
-//             if (tagValue < pair->value)
-//             {
-//                 nodeIndex = node->children[i];
-//                 break;
-//             }
-//         }
-//         nodeIndex = -1 ? node->children[ArrayLength(node->children) - 1] : nodeIndex;
-//         node      = slot->nodes + nodeIndex;
-//     }
-//
-//     return bestMatchHandle;
-// }
-// #endif
 
 //////////////////////////////
 // B-tree memory allocation
@@ -1727,7 +1503,9 @@ internal AS_MemoryBlockNode *AS_Alloc(i32 size)
         allocator->freeBlocks++;
         allocator->freeBlockMemory += alignedSize;
 
+        EndTicketMutex(&as_state->allocator.ticketMutex);
         AS_Free(newBlock);
+        BeginTicketMutex(&as_state->allocator.ticketMutex);
     }
     EndTicketMutex(&as_state->allocator.ticketMutex);
     return memoryBlock;

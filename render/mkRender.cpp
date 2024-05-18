@@ -1314,11 +1314,11 @@ internal void Initialize()
         desc.mDescriptorBindings    = {
             DescriptorBinding(MODEL_PARAMS_BIND, ResourceUsage::UniformBuffer, ShaderStage::Vertex | ShaderStage::Fragment),
             DescriptorBinding(SKINNING_BIND, ResourceUsage::UniformBuffer, ShaderStage::Vertex | ShaderStage::Fragment),
-            DescriptorBinding(ALBEDO_BIND, ResourceUsage::SampledTexture, ShaderStage::Fragment),
-            DescriptorBinding(NORMAL_BIND, ResourceUsage::SampledTexture, ShaderStage::Fragment),
+            // DescriptorBinding(ALBEDO_BIND, ResourceUsage::SampledTexture, ShaderStage::Fragment),
+            // DescriptorBinding(NORMAL_BIND, ResourceUsage::SampledTexture, ShaderStage::Fragment),
             DescriptorBinding(SHADOW_MAP_BIND, ResourceUsage::SampledTexture, ShaderStage::Fragment),
         };
-        desc.mInputLayouts.push_back(&inputLayouts[IL_Type_MeshVertex]);
+        // desc.mInputLayouts.push_back(&inputLayouts[IL_Type_MeshVertex]);
         desc.mRasterState                   = &rasterizers[RasterType_CCW_CullBack];
         desc.mPushConstantRange.mOffset     = 0;
         desc.mPushConstantRange.mSize       = sizeof(PushConstant);
@@ -1333,7 +1333,7 @@ internal void Initialize()
             DescriptorBinding(MODEL_PARAMS_BIND, ResourceUsage::UniformBuffer, ShaderStage::Vertex),
             DescriptorBinding(SKINNING_BIND, ResourceUsage::UniformBuffer, ShaderStage::Vertex),
         };
-        desc.mInputLayouts.push_back(&inputLayouts[IL_Type_MeshVertex]);
+        // desc.mInputLayouts.push_back(&inputLayouts[IL_Type_MeshVertex]);
         desc.mRasterState                   = &rasterizers[RasterType_CCW_CullNone];
         desc.mPushConstantRange.mOffset     = 0;
         desc.mPushConstantRange.mSize       = sizeof(ShadowPushConstant);
@@ -1355,7 +1355,10 @@ internal void Render()
 
     GPUBarrier barrier = CreateBarrier(currentSkinBufUpload, ResourceUsage::TransferSrc, ResourceUsage::None);
     // device->Barrier(cmdList, &barrier, 1);
-    device->CopyBuffer(cmdList, currentSkinBuf, currentSkinBufUpload, g_state->mSkinningBufferSize);
+    if (g_state->mSkinningBufferSize)
+    {
+        device->CopyBuffer(cmdList, currentSkinBuf, currentSkinBufUpload, g_state->mSkinningBufferSize);
+    }
 
     // Setup uniform buffer
     {

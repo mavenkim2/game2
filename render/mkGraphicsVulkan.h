@@ -335,16 +335,16 @@ private:
     enum DescriptorType
     {
         // DescriptorType_Uniform,
-        DescriptorType_Storage,
         DescriptorType_CombinedSampler,
+        DescriptorType_Storage,
         DescriptorType_Count,
     };
 
     struct BindlessDescriptorPool
     {
-        VkDescriptorPool pool = VK_NULL_HANDLE;
-        VkDescriptorSet set   = VK_NULL_HANDLE;
-        VkDescriptorSetLayout layout;
+        VkDescriptorPool pool        = VK_NULL_HANDLE;
+        VkDescriptorSet set          = VK_NULL_HANDLE;
+        VkDescriptorSetLayout layout = VK_NULL_HANDLE;
 
         u32 descriptorCount;
         list<i32> freeList;
@@ -378,6 +378,9 @@ private:
     };
 
     BindlessDescriptorPool bindlessDescriptorPools[DescriptorType_Count];
+
+    list<VkDescriptorSet> bindlessDescriptorSets;
+    list<VkDescriptorSetLayout> bindlessDescriptorSetLayouts;
 
     //////////////////////////////
     // Default samplers

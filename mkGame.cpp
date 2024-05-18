@@ -197,8 +197,8 @@ G_INIT(G_Init)
 
         // Load assets
         {
-            g_state->mEntities[0].mAssetHandle = AS_GetAsset(Str8Lit("data/dragon/scene.model"));
-            g_state->mEntities[1].mAssetHandle = AS_GetAsset(Str8Lit("data/hero/scene.model"));
+            g_state->mEntities[0].mAssetHandle = AS_GetAsset(Str8Lit("data/models/dragon.model"));
+            g_state->mEntities[1].mAssetHandle = AS_GetAsset(Str8Lit("data/models/hero.model"));
 
             Mat4 translate          = Translate4(V3{0, 20, 0});
             Mat4 scale              = Scale(V3{0.5f, 0.5f, 0.5f});
@@ -209,11 +209,11 @@ G_INIT(G_Init)
             scale                   = Scale(V3{1, 1, 1});
             g_state->mTransforms[1] = translate * rotate;
 
-            AS_Handle anim           = AS_GetAsset(Str8Lit("data/dragon/Qishilong_attack01.anim"));
+            AS_Handle anim           = AS_GetAsset(Str8Lit("data/animations/Qishilong_attack01.anim"));
             AnimationPlayer *aPlayer = &g_state->mAnimPlayers[0];
             StartLoopedAnimation(g_state->permanentArena, aPlayer, anim);
 
-            anim    = AS_GetAsset(Str8Lit("data/hero/Mon_BlackDragon31_Btl_Atk01.anim"));
+            anim    = AS_GetAsset(Str8Lit("data/animations/Mon_BlackDragon31_Btl_Atk01.anim"));
             aPlayer = &g_state->mAnimPlayers[1];
             StartLoopedAnimation(g_state->permanentArena, aPlayer, anim);
 

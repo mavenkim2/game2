@@ -1124,175 +1124,186 @@ int main(int argc, char *argv[])
                     });
 
                     // Get any animations
-                    jobsystem::KickJob(&counter, [data](jobsystem::JobArgs args) {
-                        TempArena temp                           = ScratchStart(0, 0);
-                        CompressedKeyframedAnimation *animations = PushArrayNoZero(temp.arena, CompressedKeyframedAnimation, data->animations_count);
-                        for (size_t i = 0; i < data->animations_count; i++)
+                    jobsystem::KickJobs(&counter, data->animations_count, 8, [data](jobsystem::JobArgs args) {
+                        TempArena temp = ScratchStart(0, 0);
+
+                        CompressedKeyframedAnimation *animation = PushStructNoZero(temp.arena, CompressedKeyframedAnimation);
+                        cgltf_animation &anim                   = data->animations[args.jobId];
+                        animation->boneChannels                 = PushArrayNoZero(temp.arena, CompressedBoneChannel, anim.channels_count);
+                        u32 channelCount                        = 0;
+                        std::unordered_map<cgltf_node *, i32> animationNodeIndexMap;
+
+                        f32 minTime       = FLT_MAX;
+                        f32 maxTime       = -FLT_MAX;
+                        const f32 epsilon = 0.000001f;
+
+                        for (size_t channelIndex = 0; channelIndex < anim.channels_count; channelIndex++)
                         {
-                            CompressedKeyframedAnimation *animation = &animations[i];
-                            cgltf_animation &anim                   = data->animations[i];
-                            animation->boneChannels                 = PushArrayNoZero(temp.arena, CompressedBoneChannel, anim.channels_count);
-                            u32 channelCount                        = 0;
-                            std::unordered_map<cgltf_node *, i32> animationNodeIndexMap;
-
-                            const f32 uninitialized = -10000000.f;
-                            const f32 epsilon       = 0.000001f;
-                            V3 firstPosition;
-                            firstPosition.x       = uninitialized;
-                            b32 addPositionToList = 0;
-
-                            V3 firstScale;
-                            firstScale.x       = uninitialized;
-                            b32 addScaleToList = 0;
-
-                            V4 firstRotation;
-                            firstRotation.x       = uninitialized;
-                            b32 addRotationToList = 0;
-
-                            f32 minTime = FLT_MAX;
-                            f32 maxTime = -FLT_MAX;
-
-                            for (size_t channelIndex = 0; channelIndex < anim.channels_count; channelIndex++)
+                            cgltf_animation_channel &channel = anim.channels[channelIndex];
+                            auto it                          = animationNodeIndexMap.find(channel.target_node);
+                            i32 animationNodeIndex           = -1;
+                            if (it == animationNodeIndexMap.end())
                             {
-                                cgltf_animation_channel &channel = anim.channels[channelIndex];
-                                // i32 jointIndex                   =
-                                // nodeToIndex.find(channel.target_node)->second;
-                                auto it                = animationNodeIndexMap.find(channel.target_node);
-                                i32 animationNodeIndex = -1;
-                                if (it == animationNodeIndexMap.end())
-                                {
-                                    animationNodeIndexMap[channel.target_node] = channelCount;
-                                    animationNodeIndex                         = channelCount;
-                                    CompressedBoneChannel &boneChannel         = animation->boneChannels[channelCount];
-                                    boneChannel.name                           = Str8C(channel.target_node->name);
-                                    boneChannel.positions                      = PushArrayNoZero(temp.arena, AnimationPosition, anim.channels_count);
-                                    boneChannel.scales                         = PushArrayNoZero(temp.arena, AnimationScale, anim.channels_count);
-                                    boneChannel.rotations                      = PushArrayNoZero(temp.arena, CompressedAnimationRotation, anim.channels_count);
-                                    boneChannel.numPositionKeys                = 0;
-                                    boneChannel.numScalingKeys                 = 0;
-                                    boneChannel.numRotationKeys                = 0;
+                                animationNodeIndexMap[channel.target_node] = channelCount;
+                                animationNodeIndex                         = channelCount;
+                                CompressedBoneChannel &boneChannel         = animation->boneChannels[channelCount];
+                                boneChannel.name                           = Str8C(channel.target_node->name);
+                                boneChannel.numPositionKeys                = 0;
+                                boneChannel.numScalingKeys                 = 0;
+                                boneChannel.numRotationKeys                = 0;
 
-                                    channelCount++;
-                                }
-                                else
-                                {
-                                    animationNodeIndex = it->second;
-                                }
-                                CompressedBoneChannel &boneChannel = animation->boneChannels[animationNodeIndex];
+                                channelCount++;
+                            }
+                            else
+                            {
+                                animationNodeIndex = it->second;
+                            }
+                            CompressedBoneChannel &boneChannel = animation->boneChannels[animationNodeIndex];
+                            minTime                            = Min(minTime, channel.sampler->input->min[0]);
+                            maxTime                            = Max(maxTime, channel.sampler->input->max[0]);
 
-                                f32 time;
-                                Assert(cgltf_accessor_read_float(channel.sampler->input, 0, &time, 1));
-                                minTime = Min(minTime, channel.sampler->input->min[0]);
-                                maxTime = Max(maxTime, channel.sampler->input->max[0]);
-                                // NOTE: subtracts the minimum time from the sample time, because
-                                // sometimes the start time is really really late. also checks to
-                                // see if all of the samples for position/scale/rotation are all
-                                // roughly equal, and if so just store one copy otherwise store all
-                                // of the copies
-                                switch (channel.target_path)
+                            // NOTE: subtracts the minimum time from the sample time, because
+                            // sometimes the start time is really really late. also checks to
+                            // see if all of the samples for position/scale/rotation are all
+                            // roughly equal, and if so just store one copy otherwise store all
+                            // of the copies
+                            switch (channel.target_path)
+                            {
+                                case cgltf_animation_path_type_translation:
                                 {
-                                    case cgltf_animation_path_type_translation:
+                                    const u32 positionKeyCount = channel.sampler->output->count;
+                                    boneChannel.positions      = PushArrayNoZero(temp.arena, AnimationPosition, positionKeyCount);
+                                    b8 passThrough             = 1;
+                                    V3 firstPosition;
+                                    f32 firstTime;
+                                    Assert(cgltf_accessor_read_float(channel.sampler->input, 0, &firstTime, 1));
+                                    Assert(cgltf_accessor_read_float(channel.sampler->output, 0, firstPosition.elements, 3));
+
+                                    boneChannel.positions[0].time     = firstTime - channel.sampler->input->min[0];
+                                    boneChannel.positions[0].position = firstPosition;
+                                    for (u32 i = 1; i < positionKeyCount; i++)
                                     {
+                                        f32 time;
                                         V3 position;
-                                        Assert(cgltf_accessor_read_float(channel.sampler->output, 0, position.elements, 3));
-                                        if (firstPosition.x == uninitialized)
+                                        Assert(cgltf_accessor_read_float(channel.sampler->input, i, &time, 1));
+                                        Assert(cgltf_accessor_read_float(channel.sampler->output, i, position.elements, 3));
+
+                                        if (!passThrough || !AlmostEqual(position, firstPosition, epsilon))
                                         {
-                                            firstPosition                                               = position;
-                                            boneChannel.positions[boneChannel.numPositionKeys].time     = time - channel.sampler->input->min[0];
-                                            boneChannel.positions[boneChannel.numPositionKeys].position = position;
-                                            boneChannel.numPositionKeys++;
-                                        }
-                                        else if (addPositionToList || !AlmostEqual(position, firstPosition, epsilon))
-                                        {
-                                            addPositionToList                                           = 1;
-                                            boneChannel.positions[boneChannel.numPositionKeys].time     = time - channel.sampler->input->min[0];
-                                            boneChannel.positions[boneChannel.numPositionKeys].position = position;
-                                            boneChannel.numPositionKeys++;
+                                            passThrough = 0;
+                                            // IMPORTANT: MAKE SURE THESE ARE IN ORDER
+                                            boneChannel.positions[i].time     = time - channel.sampler->input->min[0];
+                                            boneChannel.positions[i].position = position;
                                         }
                                     }
-                                    break;
-                                    case cgltf_animation_path_type_rotation:
-                                    {
-                                        V4 rotation;
-                                        Assert(cgltf_accessor_read_float(channel.sampler->output, 0, rotation.elements, 4));
-                                        if (firstRotation.x == uninitialized)
-                                        {
-                                            firstRotation                                           = rotation;
-                                            boneChannel.rotations[boneChannel.numRotationKeys].time = time - channel.sampler->input->min[0];
-                                            for (u32 rotIndex = 0; rotIndex < 4; rotIndex++)
-                                            {
-                                                boneChannel.rotations[boneChannel.numRotationKeys].rotation[rotIndex] =
-                                                    CompressRotationChannel(rotation[rotIndex]);
-                                            }
-                                            boneChannel.numRotationKeys++;
-                                        }
-                                        else if (addRotationToList || !AlmostEqual(rotation, firstRotation, epsilon))
-                                        {
-                                            addRotationToList                                       = 1;
-                                            boneChannel.rotations[boneChannel.numRotationKeys].time = time - channel.sampler->input->min[0];
-                                            for (u32 rotIndex = 0; rotIndex < 4; rotIndex++)
-                                            {
-                                                boneChannel.rotations[boneChannel.numRotationKeys].rotation[rotIndex] =
-                                                    CompressRotationChannel(rotation[rotIndex]);
-                                            }
-                                            boneChannel.numRotationKeys++;
-                                        }
-                                    }
-                                    break;
-                                    case cgltf_animation_path_type_scale:
-                                    {
-                                        V3 scale;
-                                        Assert(cgltf_accessor_read_float(channel.sampler->output, 0, scale.elements, 3));
-                                        if (firstScale.x == uninitialized)
-                                        {
-                                            firstScale                                           = scale;
-                                            boneChannel.scales[boneChannel.numScalingKeys].time  = time - channel.sampler->input->min[0];
-                                            boneChannel.scales[boneChannel.numScalingKeys].scale = scale;
-                                            boneChannel.numScalingKeys++;
-                                        }
-                                        else if (addScaleToList || !AlmostEqual(scale, firstScale, epsilon))
-                                        {
-                                            addScaleToList                                       = 1;
-                                            boneChannel.scales[boneChannel.numScalingKeys].time  = time - channel.sampler->input->min[0];
-                                            boneChannel.scales[boneChannel.numScalingKeys].scale = scale;
-                                            boneChannel.numScalingKeys++;
-                                        }
-                                    }
-                                    break;
+                                    boneChannel.numPositionKeys = passThrough ? 1 : positionKeyCount;
                                 }
+                                break;
+                                case cgltf_animation_path_type_rotation:
+                                {
+                                    u32 rotationKeyCount  = channel.sampler->output->count;
+                                    boneChannel.rotations = PushArrayNoZero(temp.arena, CompressedAnimationRotation, rotationKeyCount);
+                                    b8 passThrough        = 1;
+
+                                    // First rotation/time
+                                    V4 firstRotation;
+                                    f32 firstTime;
+                                    Assert(cgltf_accessor_read_float(channel.sampler->input, 0, &firstTime, 1));
+                                    Assert(cgltf_accessor_read_float(channel.sampler->output, 0, firstRotation.elements, 4));
+                                    boneChannel.rotations[0].time = firstTime - channel.sampler->input->min[0];
+                                    for (u32 rotIndex = 0; rotIndex < 4; rotIndex++)
+                                    {
+                                        boneChannel.rotations[0].rotation[rotIndex] = CompressRotationChannel(firstRotation[rotIndex]);
+                                    }
+
+                                    for (u32 i = 1; i < rotationKeyCount; i++)
+                                    {
+                                        f32 time;
+                                        V4 rotation;
+                                        Assert(cgltf_accessor_read_float(channel.sampler->input, i, &time, 1));
+                                        Assert(cgltf_accessor_read_float(channel.sampler->output, i, rotation.elements, 4));
+                                        if (!passThrough || !AlmostEqual(rotation, firstRotation, epsilon))
+                                        {
+                                            passThrough                   = 0;
+                                            boneChannel.rotations[i].time = time - channel.sampler->input->min[0];
+                                            for (u32 rotIndex = 0; rotIndex < 4; rotIndex++)
+                                            {
+                                                boneChannel.rotations[i].rotation[rotIndex] = CompressRotationChannel(rotation[rotIndex]);
+                                            }
+                                        }
+                                    }
+                                    boneChannel.numRotationKeys = passThrough ? 1 : rotationKeyCount;
+                                }
+                                break;
+                                case cgltf_animation_path_type_scale:
+                                {
+                                    u32 scaleKeyCount  = channel.sampler->output->count;
+                                    boneChannel.scales = PushArrayNoZero(temp.arena, AnimationScale, scaleKeyCount);
+
+                                    b8 passThrough = 1;
+                                    V3 firstScale;
+                                    f32 firstTime;
+                                    Assert(cgltf_accessor_read_float(channel.sampler->input, 0, &firstTime, 1));
+                                    Assert(cgltf_accessor_read_float(channel.sampler->output, 0, firstScale.elements, 3));
+                                    boneChannel.scales[0].time  = firstTime - channel.sampler->input->min[0];
+                                    boneChannel.scales[0].scale = firstScale;
+
+                                    for (u32 i = 1; i < scaleKeyCount; i++)
+                                    {
+                                        f32 time;
+                                        V3 scale;
+                                        Assert(cgltf_accessor_read_float(channel.sampler->input, i, &time, 1));
+                                        Assert(cgltf_accessor_read_float(channel.sampler->output, i, scale.elements, 3));
+
+                                        if (!passThrough || !AlmostEqual(scale, firstScale, epsilon))
+                                        {
+                                            passThrough                 = 0;
+                                            boneChannel.scales[i].time  = time - channel.sampler->input->min[0];
+                                            boneChannel.scales[i].scale = scale;
+                                        }
+                                    }
+                                    boneChannel.numScalingKeys = passThrough ? 1 : scaleKeyCount;
+                                }
+                                break;
                             }
-                            animation->duration = maxTime - minTime;
+                        }
+                        animation->duration = maxTime - minTime;
 
-                            // Write animation to file
-                            StringBuilder builder = {};
-                            builder.arena         = temp.arena;
-                            u64 numNodes          = animationNodeIndexMap.size();
+                        // Write animation to file
+                        StringBuilder builder = {};
+                        builder.arena         = temp.arena;
+                        u64 numNodes          = animationNodeIndexMap.size();
+                        Assert(numNodes == channelCount);
 
-                            animation->numNodes = numNodes;
+                        animation->numNodes = numNodes;
 
-                            Put(&builder, (u32)numNodes);
-                            Put(&builder, animation->duration);
-                            for (u32 i = 0; i < numNodes; i++)
-                            {
-                                CompressedBoneChannel *boneChannel = &animation->boneChannels[i];
+                        Put(&builder, (u32)numNodes);
+                        PutPointerValue(&builder, &animation->duration);
+                        for (u32 i = 0; i < numNodes; i++)
+                        {
+                            CompressedBoneChannel *boneChannel = &animation->boneChannels[i];
+                            // TODO: sometimes there are no defined position keys? handle this case
+                            // Assert(boneChannel->numPositionKeys != 0);
 
-                                PutPointerValue(&builder, &boneChannel->name.size);
-                                Put(&builder, boneChannel->name);
-                                Put(&builder, boneChannel->numPositionKeys);
-                                AppendArray(&builder, boneChannel->positions, boneChannel->numPositionKeys);
-                                Put(&builder, boneChannel->numScalingKeys);
-                                AppendArray(&builder, boneChannel->scales, boneChannel->numScalingKeys);
-                                Put(&builder, boneChannel->numRotationKeys);
-                                AppendArray(&builder, boneChannel->rotations, boneChannel->numRotationKeys);
-                            }
+                            PutPointerValue(&builder, &boneChannel->name.size);
+                            Put(&builder, boneChannel->name);
 
-                            string animationFilename = PushStr8F(temp.arena, "data\\animations\\%S.anim", Str8C(anim.name));
-                            b32 success              = WriteEntireFile(&builder, animationFilename);
-                            if (!success)
-                            {
-                                Printf("Failed to write file %S\n", animationFilename);
-                                Assert(0);
-                            }
+                            Put(&builder, boneChannel->numPositionKeys);
+                            AppendArray(&builder, boneChannel->positions, boneChannel->numPositionKeys);
+
+                            Put(&builder, boneChannel->numScalingKeys);
+                            AppendArray(&builder, boneChannel->scales, boneChannel->numScalingKeys);
+
+                            Put(&builder, boneChannel->numRotationKeys);
+                            AppendArray(&builder, boneChannel->rotations, boneChannel->numRotationKeys);
+                        }
+
+                        string animationFilename = PushStr8F(temp.arena, "data\\animations\\%S.anim", Str8C(anim.name));
+                        b32 success              = WriteEntireFile(&builder, animationFilename);
+                        if (!success)
+                        {
+                            Printf("Failed to write file %S\n", animationFilename);
+                            Assert(0);
                         }
                         ScratchEnd(temp);
                     });

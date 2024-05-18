@@ -86,9 +86,10 @@ public:
         i32 index = GetComponentIndex(name);
         if (index != -1)
         {
+            // TODO: I did not think this through :)
             i32 storedValue = ((i32)(index & MATERIAL_MASK) << MATERIAL_SHIFT) |
                               ((i32)(entity & ENTITY_MASK));
-            handleMap.AddInHash(entity, storedValue);
+            handleMap.AddInHash(entity, index, storedValue);
             return &components[index];
         }
         return 0;
