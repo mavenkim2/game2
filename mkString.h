@@ -17,7 +17,10 @@ struct string
     string();
     string(const char *text);
     ~string();
+
     void operator=(const char *text);
+    b32 operator==(const string &a);
+    b32 operator==(const char *text);
 };
 
 #define STB_SPRINTF_IMPLEMENTATION
@@ -114,6 +117,11 @@ struct Tokenizer
 };
 
 inline void Advance(Tokenizer *tokenizer, u32 size);
+inline b32 Advance(Tokenizer *tokenizer, string check);
+internal string ReadLine(Tokenizer *tokenizer);
+inline u32 ReadUint(Tokenizer *iter);
+inline f32 ReadFloat(Tokenizer *iter);
+inline void SkipToNextLine(Tokenizer *iter);
 inline u8 *GetCursor_(Tokenizer *tokenizer);
 inline b32 EndOfBuffer(Tokenizer *tokenizer);
 internal string ReadLine(Tokenizer *tokenizer);

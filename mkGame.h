@@ -24,6 +24,7 @@
 #include "mkDebug.h"
 #include "mkEntity.h"
 #include "mkLevel.h"
+#include "mkScene.h"
 
 //////////////////////////////
 // Input

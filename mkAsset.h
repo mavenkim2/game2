@@ -25,6 +25,13 @@ enum TextureType
     TextureType_Count,
 };
 
+typedef u32 MeshFlags;
+enum
+{
+    MeshFlags_Skinned = 1 << 0,
+    MeshFlags_Uvs   = 1 << 1,
+};
+
 #if 0
 struct Texture
 {
@@ -184,10 +191,21 @@ struct AnimationPlayer
     b8 loaded;
 };
 
+// struct Material
+// {
+//     AS_Handle textureHandles[TextureType_Count];
+// };
+#if 0
 struct Material
 {
+    string name;
     AS_Handle textureHandles[TextureType_Count];
+
+    f32 metallicFactor  = 0.f;
+    f32 roughnessFactor = 1.f;
+    V4 baseColor        = {1, 1, 1, 1};
 };
+#endif
 
 // TODO: choose one please maven kim
 // 1. separate different types of asset allocation. static cpu memory, static gpu memory, dynamic cpu memory
@@ -205,24 +223,67 @@ struct Material
 // as necessary
 // 4. need to actually differentiate hotloading / deleting an asset
 
-struct TriangleSurface
-{
-    // VC_Handle vertexBuffer;
-    // VC_Handle indexBuffer;
-    graphics::GPUBuffer mVertexBuffer;
-    graphics::GPUBuffer mIndexBuffer;
 
-    MeshVertex *vertices;
-    u32 *indices;
-    Rect3 bounds;
-    u32 vertexCount;
-    u32 indexCount;
-};
+// struct TriangleSurface
+// {
+//     // VC_Handle vertexBuffer;
+//     // VC_Handle indexBuffer;
+//     graphics::GPUBuffer mVertexBuffer;
+//     graphics::GPUBuffer mIndexBuffer;
+//
+//     MeshVertex *vertices;
+//     u32 *indices;
+//     Rect3 bounds;
+//     u32 vertexCount;
+//     u32 indexCount;
+// };
 
 struct Mesh
 {
-    TriangleSurface surface;
-    Material material;
+    // TriangleSurface surface;
+    V3 *positions;
+    V3 *normals;
+    V3 *tangents;
+    V2 *uvs;
+    UV4 *boneIds;
+    V4 *boneWeights;
+    u32 *indices;
+
+    struct MeshSubset
+    {
+        u32 indexStart;
+        u32 indexCount;
+        i32 materialIndex;
+    };
+    MeshSubset *subsets;
+    u32 numSubsets;
+
+    Rect3 bounds;
+    Mat4 transform;
+
+    u32 vertexCount;
+    u32 indexCount;
+
+    graphics::GPUBuffer buffer;
+    struct BufferView
+    {
+        u64 offset                = ~0ull;
+        u64 size                  = 0ull;
+        i32 subresourceIndex      = -1;
+        i32 subresourceDescriptor = -1;
+
+        b32 IsValid()
+        {
+            return offset != ~0ull;
+        }
+    };
+    BufferView indexView;
+    BufferView vertexPosView;
+    BufferView vertexNorView;
+    BufferView vertexTanView;
+    BufferView vertexUvView;
+    BufferView vertexBoneIdView;
+    BufferView vertexBoneWeightView;
 };
 
 // TODO: split the model into submeshes, which each have a single surface with bounds

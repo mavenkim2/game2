@@ -14,6 +14,7 @@
 #include "../third_party/cgltf.h"
 
 #include <unordered_map>
+#include <atomic>
 
 Engine *engine;
 //////////////////////////////
@@ -66,740 +67,6 @@ inline AnimationTransform MakeAnimTform(V3 position, Quat rotation, V3 scale)
     result.scale       = scale;
     return result;
 }
-
-//////////////////////////////
-// Model Loading
-//
-
-// #if 0
-// internal void *LoadAndWriteModel(void *ptr, Arena *arena)
-// {
-//     TempArena scratch = ScratchStart(&arena, 1);
-//     Data *data        = (Data *)ptr;
-//     string directory  = data->directory;
-//     string filename   = data->filename;
-//     string fullPath   = StrConcat(scratch.arena, directory, filename);
-//
-//     InputModel model;
-//
-//     // Load gltf file using Assimp
-//     Assimp::Importer importer;
-//     const char *file = (const char *)fullPath.str;
-//     const aiScene *scene =
-//         importer.ReadFile(file, aiProcess_Triangulate | aiProcess_FlipUVs |
-//         aiProcess_CalcTangentSpace);
-//
-//     if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode)
-//     {
-//         Printf("Unable to load %S\n", fullPath);
-//         Assert(!":(");
-//     }
-//
-//     filename = RemoveFileExtension(filename);
-//
-//     // Static mesh
-//     if (scene->mMeshes[0]->mNumBones == 0)
-//     {
-//         // Mat4 rootTransform = ConvertAssimpMatrix4x4(scene->mRootNode->mTransformation);
-//         model.numMeshes = scene->mNumMeshes;
-//         model.meshes    = PushArray(scratch.arena, InputMesh, model.numMeshes);
-//         for (u32 i = 0; i < scene->mNumMeshes; i++)
-//         {
-//             InputMesh *inputMesh = &model.meshes[i];
-//             aiMesh *mesh         = scene->mMeshes[i];
-//             ProcessMesh(scratch.arena, inputMesh, scene, mesh);
-//
-//             Init(&inputMesh->bounds);
-//             for (u32 vertexIndex = 0; vertexIndex < inputMesh->vertexCount; vertexIndex++)
-//             {
-//                 // inputMesh->vertices[vertexIndex].position =
-//                 // rootTransform * inputMesh->vertices[vertexIndex].position;
-//                 AddBounds(inputMesh->bounds, inputMesh->vertices[vertexIndex].position);
-//             }
-//         }
-//         model.skeleton.filename.size = 0;
-//         JS_Counter counter           = {};
-//         ModelJobData modelData       = {};
-//         modelData.model              = &model;
-//         modelData.directory          = directory;
-//         modelData.path               = PushStr8F(scratch.arena, "%S%S.model", directory,
-//         filename); Printf("Writing model to file: %S\n", modelData.path);
-//         JS_Kick(WriteModelToFile, &modelData, 0, Priority_Normal, &counter);
-//         JS_Join(&counter);
-//     }
-//     // Skeletal mesh
-//     else
-//     {
-//         aiMatrix4x4t<f32> transform = scene->mRootNode->mTransformation;
-//         model                       = LoadAllMeshes(scratch.arena, scene);
-//
-//         // Load skeleton
-//         model.skeleton.parents            = PushArray(scratch.arena, i32,
-//         scene->mMeshes[0]->mNumBones); model.skeleton.transformsToParent =
-//         PushArray(scratch.arena, Mat4, scene->mMeshes[0]->mNumBones);
-//
-//         MeshNodeInfoArray infoArray;
-//         infoArray.items = PushArrayNoZero(scratch.arena, MeshNodeInfo, 200);
-//         // TODO; hardcoded
-//         infoArray.cap   = 200;
-//         infoArray.count = 0;
-//         ProcessNode(scratch.arena, &infoArray, scene->mRootNode);
-//
-//         Mat4 rootTransform;
-//         {
-//             u32 skeletonCount = 0;
-//             b32 rootNodeFound = 0;
-//             Assert(infoArray.count >= model.skeleton.count);
-//             for (u32 i = 0; i < infoArray.count; i++)
-//             {
-//                 MeshNodeInfo *info = &infoArray.items[i]; // + shift];
-//                 // TODO: if this becomes slow in future, generate a hash table that maps names of
-//                 skeleton joints
-//                 // to their indices within the skeleton
-//                 i32 id = FindNodeIndex(&model.skeleton, info->name);
-//                 if (id == -1)
-//                 {
-//                     Printf("Skipped node name: %S\n", info->name);
-//                     continue;
-//                 }
-//
-//                 skeletonCount++;
-//                 Assert(info->hasParent);
-//                 string parentName = info->parentName;
-//                 i32 parentId      = FindNodeIndex(&model.skeleton, parentName);
-//
-//                 model.skeleton.parents[id] = parentId;
-//                 Mat4 parentTransform       = info->transformToParent;
-//                 // Root node
-//                 if (parentId == -1)
-//                 {
-//                     // NOTE: there should only be one node in the skeleton that has no parent.
-//                     Assert(rootNodeFound == 0);
-//                     parentId = FindMeshNodeInfo(&infoArray, parentName);
-//                     while (parentId != -1)
-//                     {
-//                         info            = &infoArray.items[parentId];
-//                         parentTransform = info->transformToParent * parentTransform;
-//                         parentId        = FindMeshNodeInfo(&infoArray, info->parentName);
-//                     }
-//                     rootTransform = parentTransform;
-//                     rootNodeFound = 1;
-//                 }
-//                 model.skeleton.transformsToParent[id] = parentTransform;
-//             }
-//             Assert(skeletonCount == model.skeleton.count);
-//             Assert(model.skeleton.parents[0] == -1);
-//         }
-//         Printf("Root ");
-//         Print(rootTransform);
-//         Printf("IBP ");
-//         Print(model.skeleton.inverseBindPoses[0]);
-//
-//         Mat4 *bindPosePalette = PushArray(scratch.arena, Mat4, model.skeleton.count);
-//         SkinModelToBindPose(&model, bindPosePalette);
-//
-//         // Compute vertex bounds in bind pose
-//         for (u32 i = 0; i < model.numMeshes; i++)
-//         {
-//             Rect3 bounds;
-//             Init(&bounds);
-//             InputMesh *mesh = &model.meshes[i];
-//             for (u32 j = 0; j < mesh->vertexCount; j++)
-//             {
-//                 MeshVertex *vertex  = &mesh->vertices[j];
-//                 Mat4 skinningMatrix = bindPosePalette[vertex->boneIds[0]] *
-//                 vertex->boneWeights[0]; for (u32 k = 1; k < 4; k++)
-//                 {
-//                     skinningMatrix += bindPosePalette[vertex->boneIds[k]] *
-//                     vertex->boneWeights[k];
-//                 }
-//                 V3 newPos = skinningMatrix * vertex->position;
-//                 AddBounds(bounds, newPos);
-//             }
-//             mesh->bounds = bounds;
-//         }
-//
-//         JS_Counter counter = {};
-//         // Process all animations and write to file
-//         JS_Counter animationCounter = {};
-//         u32 numAnimations           = scene->mNumAnimations;
-//         AnimationJobData *jobData   = PushArray(scratch.arena, AnimationJobData, numAnimations);
-//         Printf("Number of animations: %u\n", numAnimations);
-//         {
-//             for (u32 i = 0; i < numAnimations; i++)
-//             {
-//                 jobData[i].outAnimation = PushStruct(scratch.arena,
-//                 CompressedKeyframedAnimation); jobData[i].inAnimation  = scene->mAnimations[i];
-//                 JS_Kick(ProcessAnimation, &jobData[i], 0, Priority_Normal, &animationCounter);
-//             }
-//             JS_Join(&animationCounter);
-//         }
-//
-//         // AnimationJobWriteData *writeData = PushArray(scratch.arena, AnimationJobWriteData,
-//         numAnimations); for (u32 i = 0; i < numAnimations; i++)
-//         {
-//             AnimationJobWriteData *data = PushStruct(scratch.arena, AnimationJobWriteData);
-//             data->animation             = jobData[i].outAnimation;
-//             data->path                  = PushStr8F(scratch.arena, "%S%S.anim", directory,
-//             jobData[i].outName); Printf("Writing animation to file: %S\n", data->path);
-//             JS_Kick(WriteAnimationToFile, data, 0, Priority_Normal, &counter);
-//         }
-//
-//         // Write skeleton file
-//         SkeletonJobData skelData = {};
-//         skelData.skeleton        = &model.skeleton;
-//         skelData.path            = PushStr8F(scratch.arena, "%S%S.skel", directory, filename);
-//         Printf("Writing skeleton to file: %S\n", skelData.path);
-//         JS_Kick(WriteSkeletonToFile, &skelData, 0, Priority_Normal, &counter);
-//
-//         // Write model file (vertex data & dependencies)
-//         model.skeleton.filename = StrConcat(scratch.arena, filename, Str8Lit(".skel"));
-//         ModelJobData modelData  = {};
-//         modelData.model         = &model;
-//         modelData.directory     = directory;
-//         modelData.path          = PushStr8F(scratch.arena, "%S%S.model", directory, filename);
-//         Printf("Writing model to file: %S\n", modelData.path);
-//         JS_Kick(WriteModelToFile, &modelData, 0, Priority_Normal, &counter);
-//
-//         JS_Join(&counter);
-//     }
-//     ScratchEnd(scratch);
-//     return 0;
-// }
-//
-// internal InputModel LoadAllMeshes(Arena *arena, const aiScene *scene)
-// {
-//     TempArena scratch    = ScratchStart(&arena, 1);
-//     u32 totalVertexCount = 0;
-//     u32 totalFaceCount   = 0;
-//     InputModel model     = {};
-//     loopi(0, scene->mNumMeshes)
-//     {
-//         aiMesh *mesh = scene->mMeshes[i];
-//         totalVertexCount += mesh->mNumVertices;
-//         totalFaceCount += mesh->mNumFaces;
-//     }
-//
-//     AssimpSkeletonAsset assetSkeleton = {};
-//     assetSkeleton.inverseBindPoses    = PushArray(arena, Mat4, scene->mMeshes[0]->mNumBones);
-//     assetSkeleton.names               = PushArray(arena, string, scene->mMeshes[0]->mNumBones);
-//     assetSkeleton.vertexBoneInfo      = PushArray(arena, VertexBoneInfo, totalVertexCount);
-//
-//     model.meshes    = PushArray(arena, InputMesh, scene->mNumMeshes);
-//     model.numMeshes = scene->mNumMeshes;
-//
-//     for (i32 i = 0; i < scene->mNumMeshes; i++)
-//     {
-//         aiMesh *mesh = scene->mMeshes[i];
-//         ProcessMesh(arena, &model.meshes[i], scene, mesh);
-//     }
-//
-//     u32 baseVertex = 0;
-//     loopi(0, scene->mNumMeshes)
-//     {
-//         aiMesh *mesh = scene->mMeshes[i];
-//         LoadBones(arena, &assetSkeleton, mesh, baseVertex);
-//         baseVertex += mesh->mNumVertices;
-//     }
-//
-//     u32 vertexOffset = 0;
-//     for (u32 numMeshes = 0; numMeshes < model.numMeshes; numMeshes++)
-//     {
-//         InputMesh *inputMesh = &model.meshes[numMeshes];
-//         for (u32 vertexCount = 0; vertexCount < inputMesh->vertexCount; vertexCount++)
-//         {
-//             VertexBoneInfo *piece = &assetSkeleton.vertexBoneInfo[vertexCount + vertexOffset];
-//             for (u32 j = 0; j < MAX_MATRICES_PER_VERTEX; j++)
-//             {
-//                 inputMesh->vertices[vertexCount].boneIds[j]     = piece->pieces[j].boneIndex;
-//                 inputMesh->vertices[vertexCount].boneWeights[j] = piece->pieces[j].boneWeight;
-//             }
-//         }
-//         vertexOffset += inputMesh->vertexCount;
-//     }
-//
-//     model.skeleton.count            = assetSkeleton.count;
-//     model.skeleton.inverseBindPoses = assetSkeleton.inverseBindPoses;
-//     model.skeleton.names            = assetSkeleton.names;
-//
-//     ScratchEnd(scratch);
-//     return model;
-// }
-//
-// // internal void ProcessMesh(Arena *arena, InputModel *model, const aiScene *scene, const aiMesh
-// *mesh) internal void ProcessMesh(Arena *arena, InputMesh *inputMesh, const aiScene *scene, const
-// aiMesh *mesh)
-// {
-//     inputMesh->vertices = PushArrayNoZero(arena, MeshVertex, mesh->mNumVertices);
-//     inputMesh->indices  = PushArrayNoZero(arena, u32, mesh->mNumFaces * 3);
-//     for (u32 i = 0; i < mesh->mNumVertices; i++)
-//     {
-//         MeshVertex vertex = {};
-//         vertex.position.x = mesh->mVertices[i].x;
-//         vertex.position.y = mesh->mVertices[i].y;
-//         vertex.position.z = mesh->mVertices[i].z;
-//
-//         vertex.tangent.x = mesh->mTangents[i].x;
-//         vertex.tangent.y = mesh->mTangents[i].y;
-//         vertex.tangent.z = mesh->mTangents[i].z;
-//
-//         if (mesh->HasNormals())
-//         {
-//             vertex.normal.x = mesh->mNormals[i].x;
-//             vertex.normal.y = mesh->mNormals[i].y;
-//             vertex.normal.z = mesh->mNormals[i].z;
-//         }
-//         if (mesh->mTextureCoords[0])
-//         {
-//             vertex.uv.u = mesh->mTextureCoords[0][i].x;
-//             vertex.uv.y = mesh->mTextureCoords[0][i].y;
-//         }
-//         else
-//         {
-//             vertex.uv = {0, 0};
-//         }
-//         inputMesh->vertices[inputMesh->vertexCount++] = vertex;
-//     }
-//     for (u32 i = 0; i < mesh->mNumFaces; i++)
-//     {
-//         aiFace *face = &mesh->mFaces[i];
-//         for (u32 indexindex = 0; indexindex < face->mNumIndices; indexindex++)
-//         {
-//             inputMesh->indices[inputMesh->indexCount++] = face->mIndices[indexindex];
-//         }
-//     }
-//     aiMaterial *mMaterial = scene->mMaterials[mesh->mMaterialIndex];
-//     aiColor4D diffuse;
-//     aiGetMaterialColor(mMaterial, AI_MATKEY_COLOR_DIFFUSE, &diffuse);
-//     InputMaterial *material = &inputMesh->material;
-//     // material->startIndex      = baseIndex;
-//     // material->onePlusEndIndex = model->indices.count;
-//     // Diffuse
-//     for (u32 i = 0; i < mMaterial->GetTextureCount(aiTextureType_DIFFUSE); i++)
-//     {
-//         aiString str;
-//         mMaterial->GetTexture(aiTextureType_DIFFUSE, i, &str);
-//         string *texturePath = &material->texture[TextureType_Diffuse];
-//         texturePath->size   = str.length;
-//         texturePath->str    = PushArray(arena, u8, str.length);
-//         MemoryCopy(texturePath->str, str.data, str.length);
-//         *texturePath = PathSkipLastSlash(*texturePath);
-//     }
-//     // Specular
-//     for (u32 i = 0; i < mMaterial->GetTextureCount(aiTextureType_UNKNOWN); i++)
-//     {
-//         aiString str;
-//         mMaterial->GetTexture(aiTextureType_UNKNOWN, i, &str);
-//         int pause = 5;
-//         // string *texturePath = &material->texture[TextureType_Specular];
-//         // texturePath->size   = str.length;
-//         // texturePath->str    = PushArray(arena, u8, str.length);
-//         // MemoryCopy(texturePath->str, str.data, str.length);
-//         // *texturePath = PathSkipLastSlash(*texturePath);
-//     }
-//     // Normals
-//     for (u32 i = 0; i < mMaterial->GetTextureCount(aiTextureType_NORMALS); i++)
-//     {
-//         aiString str;
-//         mMaterial->GetTexture(aiTextureType_NORMALS, i, &str);
-//         string *texturePath = &material->texture[TextureType_Normal];
-//         texturePath->size   = str.length;
-//         texturePath->str    = PushArray(arena, u8, str.length);
-//         MemoryCopy(texturePath->str, str.data, str.length);
-//         *texturePath = PathSkipLastSlash(*texturePath);
-//     }
-//     // Metallic Roughness
-//     for (u32 i = 0; i < mMaterial->GetTextureCount(aiTextureType_DIFFUSE_ROUGHNESS); i++)
-//     {
-//         aiString str;
-//         mMaterial->GetTexture(aiTextureType_DIFFUSE_ROUGHNESS, i, &str);
-//         string *texturePath = &material->texture[TextureType_MR];
-//         texturePath->size   = str.length;
-//         texturePath->str    = PushArray(arena, u8, str.length);
-//         MemoryCopy(texturePath->str, str.data, str.length);
-//         *texturePath = PathSkipLastSlash(*texturePath);
-//     }
-// }
-//
-// //////////////////////////////
-// // Skeleton
-// //
-// internal void LoadBones(Arena *arena, AssimpSkeletonAsset *skeleton, aiMesh *mesh, u32
-// baseVertex)
-// {
-//     skeleton->count = mesh->mNumBones;
-//     for (u32 i = 0; i < mesh->mNumBones; i++)
-//     {
-//         aiBone *bone = mesh->mBones[i];
-//         if (baseVertex == 0)
-//         {
-//             string name = Str8((u8 *)bone->mName.data, bone->mName.length);
-//             name        = PushStr8Copy(arena, name);
-//
-//             skeleton->names[skeleton->nameCount++]                 = name;
-//             skeleton->inverseBindPoses[skeleton->inverseBPCount++] =
-//             ConvertAssimpMatrix4x4(bone->mOffsetMatrix);
-//         }
-//
-//         for (u32 j = 0; j < bone->mNumWeights; j++)
-//         {
-//             aiVertexWeight *weight = bone->mWeights + j;
-//             u32 vertexId           = weight->mVertexId + baseVertex;
-//             f32 boneWeight         = weight->mWeight;
-//             if (boneWeight)
-//             {
-//                 VertexBoneInfo *info = &skeleton->vertexBoneInfo[vertexId];
-//                 Assert(info->numMatrices < MAX_MATRICES_PER_VERTEX);
-//                 // NOTE: this doesn't increment the count of the array
-//                 info->pieces[info->numMatrices].boneIndex  = i;
-//                 info->pieces[info->numMatrices].boneWeight = boneWeight;
-//                 info->numMatrices++;
-//             }
-//         }
-//     }
-// }
-//
-// internal void ProcessNode(Arena *arena, MeshNodeInfoArray *nodeArray, const aiNode *node)
-// {
-//     u32 index                   = nodeArray->count++;
-//     MeshNodeInfo *nodeInfo      = &nodeArray->items[index];
-//     string name                 = Str8((u8 *)node->mName.data, node->mName.length);
-//     name                        = PushStr8Copy(arena, name);
-//     nodeInfo->name              = name;
-//     nodeInfo->transformToParent = ConvertAssimpMatrix4x4(node->mTransformation);
-//     if (node->mParent)
-//     {
-//         nodeInfo->hasParent  = true;
-//         string parentName    = Str8((u8 *)node->mParent->mName.data,
-//         node->mParent->mName.length); parentName           = PushStr8Copy(arena, parentName);
-//         nodeInfo->parentName = parentName;
-//     }
-//     else
-//     {
-//         nodeInfo->hasParent = false;
-//     }
-//
-//     Assert(nodeArray->count < nodeArray->cap);
-//
-//     for (u32 i = 0; i < node->mNumChildren; i++)
-//     {
-//         ProcessNode(arena, nodeArray, node->mChildren[i]);
-//     }
-// }
-//
-// //////////////////////////////
-// // Animation Loading
-// //
-// internal string ProcessAnimation(Arena *arena, CompressedKeyframedAnimation *outAnimation,
-// aiAnimation *inAnimation)
-//
-// {
-//     outAnimation->boneChannels          = PushArray(arena, CompressedBoneChannel,
-//     inAnimation->mNumChannels); outAnimation->numNodes              = inAnimation->mNumChannels;
-//     outAnimation->duration              = (f32)inAnimation->mDuration /
-//     (f32)inAnimation->mTicksPerSecond; CompressedBoneChannel *boneChannels =
-//     outAnimation->boneChannels; f32 startTime                       = FLT_MAX; b8 change = 0; for
-//     (u32 i = 0; i < inAnimation->mNumChannels; i++)
-//     {
-//         CompressedBoneChannel *boneChannel = &boneChannels[i];
-//         aiNodeAnim *channel                = inAnimation->mChannels[i];
-//         string name;
-//         name.str  = PushArray(arena, u8, channel->mNodeName.length);
-//         name.size = channel->mNodeName.length;
-//         MemoryCopy(name.str, channel->mNodeName.data, name.size);
-//         name = PushStr8Copy(arena, name);
-//
-//         boneChannel->name      = name;
-//         boneChannel->positions = PushArray(arena, AnimationPosition, channel->mNumPositionKeys);
-//         boneChannel->scales    = PushArray(arena, AnimationScale, channel->mNumScalingKeys);
-//         boneChannel->rotations = PushArray(arena, CompressedAnimationRotation,
-//         channel->mNumRotationKeys);
-//
-//         boneChannel->numPositionKeys = 1;
-//         boneChannel->numScalingKeys  = 1;
-//         boneChannel->numRotationKeys = channel->mNumRotationKeys;
-//
-//         f64 minTimeTest = Min(Min(channel->mPositionKeys[0].mTime,
-//         channel->mScalingKeys[0].mTime), channel->mRotationKeys[0].mTime); f32 time        =
-//         (f32)minTimeTest / (f32)(inAnimation->mTicksPerSecond); if (time < startTime)
-//         {
-//             if (!(change && time == 0))
-//             {
-//                 startTime = time;
-//                 change++;
-//             }
-//         }
-//
-//         V3 firstPosition = MakeV3(channel->mPositionKeys[0].mValue.x,
-//         channel->mPositionKeys[0].mValue.y, channel->mPositionKeys[0].mValue.z); f32 epsilon =
-//         0.000001;
-//
-//         for (u32 j = 0; j < channel->mNumPositionKeys; j++)
-//         {
-//             aiVector3t<f32> aiPosition  = channel->mPositionKeys[j].mValue;
-//             AnimationPosition *position = boneChannel->positions + j;
-//             position->position          = MakeV3(aiPosition.x, aiPosition.y, aiPosition.z);
-//             if (!AlmostEqual(position->position, firstPosition, epsilon))
-//             {
-//                 boneChannel->numPositionKeys = channel->mNumPositionKeys;
-//             }
-//             position->time = ((f32)channel->mPositionKeys[j].mTime /
-//             (f32)inAnimation->mTicksPerSecond - time);
-//         }
-//
-//         V3 firstScale = MakeV3(channel->mScalingKeys[0].mValue.x,
-//         channel->mScalingKeys[0].mValue.y, channel->mScalingKeys[0].mValue.z); for (u32 j = 0; j
-//         < channel->mNumScalingKeys; j++)
-//         {
-//             aiVector3t<f32> aiScale = channel->mScalingKeys[j].mValue;
-//             AnimationScale *scale   = boneChannel->scales + j;
-//             scale->scale            = MakeV3(aiScale.x, aiScale.y, aiScale.z);
-//             if (!AlmostEqual(scale->scale, firstScale, epsilon))
-//             {
-//                 boneChannel->numScalingKeys = channel->mNumScalingKeys;
-//             }
-//             scale->time = ((f32)channel->mScalingKeys[j].mTime /
-//             (f32)inAnimation->mTicksPerSecond - time);
-//         }
-//         for (u32 j = 0; j < channel->mNumRotationKeys; j++)
-//         {
-//             aiQuaterniont<f32> aiQuat             = channel->mRotationKeys[j].mValue;
-//             CompressedAnimationRotation *rotation = boneChannel->rotations + j;
-//             Quat r                                = Normalize(MakeQuat(aiQuat.x, aiQuat.y,
-//             aiQuat.z, aiQuat.w)); rotation->rotation[0]                 =
-//             CompressRotationChannel(r.x); rotation->rotation[1]                 =
-//             CompressRotationChannel(r.y); rotation->rotation[2]                 =
-//             CompressRotationChannel(r.z); rotation->rotation[3]                 =
-//             CompressRotationChannel(r.w); rotation->time                        =
-//             ((f32)channel->mRotationKeys[j].mTime / (f32)inAnimation->mTicksPerSecond - time);
-//         }
-//     }
-//     outAnimation->duration -= startTime == FLT_MAX ? 0 : startTime;
-//
-//     // string animationName = {(u8 *)inAnimation->mName.data, inAnimation->mName.length};
-//     string animationName = Str8((u8 *)inAnimation->mName.data, inAnimation->mName.length);
-//     animationName        = PushStr8Copy(arena, animationName);
-//     return animationName;
-// }
-//
-// JOB_CALLBACK(ProcessAnimation)
-// {
-//     AnimationJobData *jobData = (AnimationJobData *)data;
-//     string name               = ProcessAnimation(arena, jobData->outAnimation,
-//     jobData->inAnimation); jobData->outName          = name; return 0;
-// }
-// #endif
-
-//////////////////////////////
-// Convert
-//
-// #if 0
-// internal void WriteModelToFile(InputModel *model, string directory, string filename)
-// {
-//     StringBuilder builder = {};
-//     TempArena temp        = ScratchStart(0, 0);
-//     builder.arena         = temp.arena;
-//
-//     // Get sizes and offsets for each section
-//     u64 totalOffset = 0;
-//     u64 totalSize   = 0;
-//
-//     // Write the header
-//     // Put(&builder, Str8Lit("MAIN"));
-//     // Put(&builder, Str8Lit("TEMP"));
-//     // Put(&builder, Str8Lit("DBG "));
-//
-//     /*
-//      * Types of sections:
-//      *
-//      * have currently
-//      * - GPU : sent to vram
-//      * - MAIN: allocated in main memory to be directly used by the asset cache
-//      *      - note if the data is sent to main memory & some transmutation is performed on it,
-//      but
-//      *      said transmutation doesn't change the size
-//      * - (maybe this is actually TEMP) DEP : dependency related information (e.g animations,
-//      materials)
-//      *
-//      * maybe need later
-//      * - TEMP: used only in loading then discarded
-//      * - DBG : used for debugging
-//      *
-//      * Each section is represented by a 4 char tag put in the file. Directly after the tag is a
-//      64-bit
-//      * uint that says how big the section is (so the OS knows how much to read and such).
-//      */
-//
-//     // Gpu memory
-//     // AssetFileSectionHeader gpu;
-//     {
-//         // gpu.tag = "GPU ";
-//         // gpu.size = sizeof(model->vertices.count) + model->vertices.count *
-//         sizeof(model->vertices[0]) +
-//         //            sizeof(model->indices.count) + model->indices.count *
-//         sizeof(model->indices[0]);
-//         // gpu.numBlocks = 2;
-//
-//         // PutStruct(&builder, gpu);
-//
-//         // AssetFileBlockHeader block;
-//         // block.count = model->vertices.count;
-//         // block.size  = (u32)(model->vertices.count * sizeof(model->vertices[0]));
-//         Put(&builder, model->numMeshes);
-//         for (u32 i = 0; i < model->numMeshes; i++)
-//         {
-//             InputMesh *mesh = &model->meshes[i];
-//             OptimizeMesh(mesh);
-//
-//             Put(&builder, mesh->vertexCount);
-//             Put(&builder, mesh->vertices, sizeof(mesh->vertices[0]) * mesh->vertexCount);
-//
-//             Put(&builder, mesh->indexCount);
-//             Put(&builder, mesh->indices, sizeof(mesh->indices[0]) * mesh->indexCount);
-//
-//             PutStruct(&builder, mesh->bounds);
-//
-//             // TODO: also bounds here
-//
-//             Printf("Num vertices: %u\n", mesh->vertexCount);
-//             Printf("Num indices: %u\n", mesh->indexCount);
-//
-//             for (u32 j = 0; j < TextureType_Count; j++)
-//             {
-//                 if (mesh->material.texture[j].size != 0)
-//                 {
-//                     string output = StrConcat(temp.arena, directory, mesh->material.texture[j]);
-//                     Printf("Writing texture filename: %S\n", output);
-//                     // Place the pointer to the string data
-//                     PutU64(&builder, output.size);
-//                     Put(&builder, output);
-//                 }
-//                 else
-//                 {
-//                     PutU64(&builder, 0);
-//                 }
-//             }
-//         }
-//
-//         if (model->skeleton.filename.size != 0)
-//         {
-//             string output = StrConcat(temp.arena, directory, model->skeleton.filename);
-//             PutU64(&builder, output.size);
-//             Put(&builder, output);
-//         }
-//         else
-//         {
-//             PutU64(&builder, 0);
-//         }
-//     }
-//
-//     b32 success = WriteEntireFile(&builder, filename);
-//     if (!success)
-//     {
-//         Printf("Failed to write file %S\n", filename);
-//     }
-//     ScratchEnd(temp);
-// }
-//
-// JOB_CALLBACK(WriteModelToFile)
-// {
-//     ModelJobData *modelData = (ModelJobData *)data;
-//     WriteModelToFile(modelData->model, modelData->directory, modelData->path);
-//     return 0;
-// }
-//
-// internal void WriteSkeletonToFile(Skeleton *skeleton, string filename)
-// {
-//     StringBuilder builder = {};
-//     TempArena temp        = ScratchStart(0, 0);
-//     builder.arena         = temp.arena;
-//     Put(&builder, skeletonVersionNumber);
-//     Put(&builder, skeleton->count);
-//     Printf("Num bones: %u\n", skeleton->count);
-//
-//     for (u32 i = 0; i < skeleton->count; i++)
-//     {
-//         string *name = &skeleton->names[i];
-//         u64 offset   = PutPointer(&builder, 8);
-//         PutPointerValue(&builder, &name->size);
-//         Assert(builder.totalSize == offset);
-//         Put(&builder, *name);
-//     }
-//
-//     PutArray(&builder, skeleton->parents, skeleton->count);
-//     PutArray(&builder, skeleton->inverseBindPoses, skeleton->count);
-//     PutArray(&builder, skeleton->transformsToParent, skeleton->count);
-//
-//     b32 success = WriteEntireFile(&builder, filename);
-//     if (!success)
-//     {
-//         Printf("Failed to write file %S\n", filename);
-//         Assert(!"Failed");
-//     }
-//     ScratchEnd(temp);
-// }
-//
-// JOB_CALLBACK(WriteSkeletonToFile)
-// {
-//     SkeletonJobData *jobData = (SkeletonJobData *)data;
-//     WriteSkeletonToFile(jobData->skeleton, jobData->path);
-//     return 0;
-// }
-//
-// internal void WriteAnimationToFile(CompressedKeyframedAnimation *animation, string filename)
-// {
-//     StringBuilder builder = {};
-//     TempArena temp        = ScratchStart(0, 0);
-//     builder.arena         = temp.arena;
-//
-//     u64 animationWrite   = PutPointerValue(&builder, animation);
-//     u64 boneChannelWrite = AppendArray(&builder, animation->boneChannels, animation->numNodes);
-//
-//     u64 *stringDataWrites = PushArray(builder.arena, u64, animation->numNodes);
-//     u64 *positionWrites   = PushArray(builder.arena, u64, animation->numNodes);
-//     u64 *scalingWrites    = PushArray(builder.arena, u64, animation->numNodes);
-//     u64 *rotationWrites   = PushArray(builder.arena, u64, animation->numNodes);
-//
-//     for (u32 i = 0; i < animation->numNodes; i++)
-//     {
-//         CompressedBoneChannel *boneChannel = animation->boneChannels + i;
-//
-//         stringDataWrites[i] = Put(&builder, animation->boneChannels[i].name);
-//         positionWrites[i]   = AppendArray(&builder, boneChannel->positions,
-//         boneChannel->numPositionKeys); scalingWrites[i]    = AppendArray(&builder,
-//         boneChannel->scales, boneChannel->numScalingKeys); rotationWrites[i]   =
-//         AppendArray(&builder, boneChannel->rotations, boneChannel->numRotationKeys);
-//     }
-//
-//     string result = CombineBuilderNodes(&builder);
-//     ConvertPointerToOffset(result.str, animationWrite + Offset(CompressedKeyframedAnimation,
-//     boneChannels), boneChannelWrite); for (u32 i = 0; i < animation->numNodes; i++)
-//     {
-//         ConvertPointerToOffset(result.str, boneChannelWrite + i * sizeof(CompressedBoneChannel) +
-//         Offset(CompressedBoneChannel, name) + Offset(string, str), stringDataWrites[i]);
-//         ConvertPointerToOffset(result.str, boneChannelWrite + i * sizeof(CompressedBoneChannel) +
-//         Offset(CompressedBoneChannel, positions), positionWrites[i]);
-//         ConvertPointerToOffset(result.str, boneChannelWrite + i * sizeof(CompressedBoneChannel) +
-//         Offset(CompressedBoneChannel, scales), scalingWrites[i]);
-//         ConvertPointerToOffset(result.str, boneChannelWrite + i * sizeof(CompressedBoneChannel) +
-//         Offset(CompressedBoneChannel, rotations), rotationWrites[i]);
-//     }
-//
-//     b32 success = OS_WriteFile(filename, result.str, (u32)result.size);
-//     if (!success)
-//     {
-//         Printf("Failed to write file %S\n", filename);
-//     }
-//     ScratchEnd(temp);
-// }
-//
-// JOB_CALLBACK(WriteAnimationToFile)
-// {
-//     AnimationJobWriteData *jobData = (AnimationJobWriteData *)data;
-//     WriteAnimationToFile(jobData->animation, jobData->path);
-//     return 0;
-// }
-// #endif
 
 //////////////////////////////
 // Helpers
@@ -925,7 +192,7 @@ internal f32 CalculateVertexScore(VertData *data)
 }
 
 // https://tomforsyth1000.github.io/papers/fast_vert_cache_opt.html
-internal void OptimizeMesh(InputMesh *mesh)
+internal void OptimizeMesh(InputMesh::MeshSubset *mesh)
 {
     TempArena temp = ScratchStart(0, 0);
 
@@ -1140,25 +407,57 @@ internal void OptimizeMesh(InputMesh *mesh)
     }
 
     // Sanity checks
-    // for (u32 i = 0; i < numVertices; i++)
     // {
-    //     VertData *vert = vertData + i;
-    //     Assert(vert->remainingTriangles == 0);
+    //     for (u32 i = 0; i < numVertices; i++)
+    //     {
+    //         VertData *vert = vertData + i;
+    //         Assert(vert->remainingTriangles == 0);
+    //     }
+    //
+    //     u32 *test     = PushArray(temp.arena, u32, mesh->vertexCount);
+    //     u32 testCount = 0;
+    //     for (u32 i = 0; i < mesh->indexCount; i++)
+    //     {
+    //         u32 vertexIndex = mesh->indices[i];
+    //         if (test[vertexIndex] == 0)
+    //         {
+    //             testCount++;
+    //             test[vertexIndex] = 1;
+    //         }
+    //     }
+    //     Assert(testCount == mesh->vertexCount);
     // }
 
     // Rewrite indices in the new order
-    u32 indexCount = 0;
+    u32 idxCount = 0;
     for (u32 i = 0; i < numFaces; i++)
     {
         TriData *tri = triData + drawOrderList[i];
         for (u32 j = 0; j < 3; j++)
         {
-            mesh->indices[indexCount++] = tri->vertIndices[j];
+            mesh->indices[idxCount++] = tri->vertIndices[j];
         }
     }
 
     // Rearrange the vertices based on the order of the faces
-    MeshVertex *newVertices = PushArrayNoZero(temp.arena, MeshVertex, mesh->vertexCount);
+    V3 *newPositions = PushArray(temp.arena, V3, mesh->vertexCount);
+    V3 *newNormals   = PushArray(temp.arena, V3, mesh->vertexCount);
+    V3 *newTangents  = PushArray(temp.arena, V3, mesh->vertexCount);
+
+    V2 *newUvs = 0;
+
+    if (mesh->uvs)
+    {
+        newUvs = PushArray(temp.arena, V2, mesh->vertexCount);
+    }
+    UV4 *newBoneIds    = 0;
+    V4 *newBoneWeights = 0;
+    if (mesh->boneIds)
+    {
+        newBoneIds     = PushArray(temp.arena, UV4, mesh->vertexCount);
+        newBoneWeights = PushArray(temp.arena, V4, mesh->vertexCount);
+    }
+
     // Mapping from old indices to new indices
     i32 *order = PushArray(temp.arena, i32, mesh->vertexCount);
     for (u32 i = 0; i < mesh->vertexCount; i++)
@@ -1172,15 +471,55 @@ internal void OptimizeMesh(InputMesh *mesh)
         Assert(vertexIndex < mesh->vertexCount);
         if (order[vertexIndex] == -1)
         {
-            order[vertexIndex]              = count++;
-            newVertices[order[vertexIndex]] = mesh->vertices[vertexIndex];
+            order[vertexIndex] = count++;
+
+            newPositions[order[vertexIndex]] = mesh->positions[vertexIndex];
+            newNormals[order[vertexIndex]]   = mesh->normals[vertexIndex];
+            newTangents[order[vertexIndex]]  = mesh->tangents[vertexIndex];
+
+            if (newUvs)
+            {
+                newUvs[order[vertexIndex]] = mesh->uvs[vertexIndex];
+            }
+            if (newBoneIds)
+            {
+                newBoneIds[order[vertexIndex]]     = mesh->boneIds[vertexIndex];
+                newBoneWeights[order[vertexIndex]] = mesh->boneWeights[vertexIndex];
+            }
         }
         mesh->indices[i] = order[vertexIndex];
     }
-    Assert(count == mesh->vertexCount);
-    for (u32 i = 0; i < count; i++)
+
+    // Assert(count == mesh->vertexCount); NOTE: sometimes models have unused vertices
+    for (u32 i = 0; i < mesh->vertexCount; i++)
     {
-        mesh->vertices[i] = newVertices[i];
+        mesh->positions[i] = newPositions[i];
+    }
+    for (u32 i = 0; i < mesh->vertexCount; i++)
+    {
+        mesh->normals[i] = newNormals[i];
+    }
+    for (u32 i = 0; i < mesh->vertexCount; i++)
+    {
+        mesh->tangents[i] = newTangents[i];
+    }
+    if (newUvs)
+    {
+        for (u32 i = 0; i < mesh->vertexCount; i++)
+        {
+            mesh->uvs[i] = newUvs[i];
+        }
+    }
+    if (newBoneIds)
+    {
+        for (u32 i = 0; i < mesh->vertexCount; i++)
+        {
+            mesh->boneIds[i] = newBoneIds[i];
+        }
+        for (u32 i = 0; i < mesh->vertexCount; i++)
+        {
+            mesh->boneWeights[i] = newBoneWeights[i];
+        }
     }
 
     ScratchEnd(temp);
@@ -1190,40 +529,40 @@ internal void OptimizeMesh(InputMesh *mesh)
 // Bounds
 //
 
-internal Rect3 GetMeshBounds(InputMesh *mesh)
-{
-    Rect3 rect;
-    Init(&rect);
-    for (u32 i = 0; i < mesh->vertexCount; i++)
-    {
-        MeshVertex *vertex = &mesh->vertices[i];
-        if (vertex->position.x < rect.minP.x)
-        {
-            rect.minP.x = vertex->position.x;
-        }
-        if (vertex->position.x > rect.maxP.x)
-        {
-            rect.maxP.x = vertex->position.x;
-        }
-        if (vertex->position.y < rect.minP.y)
-        {
-            rect.minP.y = vertex->position.y;
-        }
-        if (vertex->position.y > rect.maxP.y)
-        {
-            rect.maxP.y = vertex->position.y;
-        }
-        if (vertex->position.z < rect.minP.z)
-        {
-            rect.minP.z = vertex->position.z;
-        }
-        if (vertex->position.z > rect.maxP.z)
-        {
-            rect.maxP.z = vertex->position.z;
-        }
-    }
-    return rect;
-}
+// internal Rect3 GetMeshBounds(InputMesh *mesh)
+// {
+//     Rect3 rect;
+//     Init(&rect);
+//     for (u32 i = 0; i < mesh->vertexCount; i++)
+//     {
+//         MeshVertex *vertex = &mesh->vertices[i];
+//         if (vertex->position.x < rect.minP.x)
+//         {
+//             rect.minP.x = vertex->position.x;
+//         }
+//         if (vertex->position.x > rect.maxP.x)
+//         {
+//             rect.maxP.x = vertex->position.x;
+//         }
+//         if (vertex->position.y < rect.minP.y)
+//         {
+//             rect.minP.y = vertex->position.y;
+//         }
+//         if (vertex->position.y > rect.maxP.y)
+//         {
+//             rect.maxP.y = vertex->position.y;
+//         }
+//         if (vertex->position.z < rect.minP.z)
+//         {
+//             rect.minP.z = vertex->position.z;
+//         }
+//         if (vertex->position.z > rect.maxP.z)
+//         {
+//             rect.maxP.z = vertex->position.z;
+//         }
+//     }
+//     return rect;
+// }
 
 internal void SkinModelToBindPose(const InputModel *inModel, Mat4 *outFinalTransforms)
 {
@@ -1252,6 +591,45 @@ internal void SkinModelToBindPose(const InputModel *inModel, Mat4 *outFinalTrans
         outFinalTransforms[id] = transformToParent[id] * skeleton->inverseBindPoses[id];
     }
     ScratchEnd(temp);
+}
+
+struct LoadState
+{
+    std::unordered_map<cgltf_mesh *, i32> meshMap;
+    list<Mat4> transforms;
+    i32 count = 0;
+};
+
+// NOTE: fix this. some nodes aren't meshes :)
+internal void LoadNode(cgltf_node *node, LoadState *state)
+{
+    if (node->mesh)
+    {
+        auto it = state->meshMap.find(node->mesh);
+        if (it == state->meshMap.end())
+        {
+            state->meshMap[node->mesh] = state->count++;
+            Mat4 transform;
+            cgltf_node_transform_world(node, transform.elements[0]);
+            state->transforms.push_back(transform);
+            Assert(state->count == state->transforms.size());
+        }
+    }
+    for (u32 i = 0; i < node->children_count; i++)
+    {
+        LoadNode(node->children[i], state);
+    }
+}
+
+internal LoadState LoadNodes(cgltf_data *data)
+{
+    LoadState state;
+
+    for (u32 i = 0; i < data->nodes_count; i++)
+    {
+        LoadNode(&data->nodes[i], &state);
+    }
+    return state;
 }
 
 PlatformApi platform;
@@ -1301,6 +679,10 @@ int main(int argc, char *argv[])
                     string fullPath            = StrConcat(scratch.arena, directoryPath, props.name);
                     jobsystem::Counter counter = {};
 
+                    string folderName = directoryPath;
+                    folderName.size -= 1;
+                    folderName = PathSkipLastSlash(folderName);
+
                     cgltf_options options = {};
                     cgltf_data *data      = 0;
                     cgltf_result result   = cgltf_parse_file(&options, (const char *)fullPath.str, &data);
@@ -1309,10 +691,12 @@ int main(int argc, char *argv[])
                     result = cgltf_load_buffers(&options, data, (const char *)fullPath.str);
                     Assert(result == cgltf_result_success);
 
+                    LoadState state = LoadNodes(data);
+
                     // Get all of the materials
-                    jobsystem::KickJob(&counter, [data, directoryPath](jobsystem::JobArgs args) {
+                    jobsystem::KickJob(&counter, [data, folderName](jobsystem::JobArgs args) {
                         TempArena temp           = ScratchStart(0, 0);
-                        InputMaterial *materials = PushArrayNoZero(temp.arena, InputMaterial, data->materials_count);
+                        InputMaterial *materials = PushArray(temp.arena, InputMaterial, data->materials_count);
                         for (size_t i = 0; i < data->materials_count; i++)
                         {
                             InputMaterial &material      = materials[i];
@@ -1327,7 +711,7 @@ int main(int argc, char *argv[])
                                     {
                                         Assert(0);
                                     }
-                                    material.texture[type] = Str8C(view.texture->image->uri);
+                                    material.texture[type] = PathSkipLastSlash(Str8C(view.texture->image->uri));
                                 }
                             };
 
@@ -1386,11 +770,11 @@ int main(int argc, char *argv[])
                             {
                                 PutLine(&builder, 1, "MR Map: %S", material.texture[TextureType_MR]);
                             }
-                            if (material.roughnessFactor != 1.f)
+                            if (material.metallicFactor != 1.f)
                             {
                                 PutLine(&builder, 1, "Metallic Factor: %f", material.metallicFactor);
                             }
-                            if (material.metallicFactor != 0.f)
+                            if (material.roughnessFactor != 1.f)
                             {
                                 PutLine(&builder, 1, "Roughness Factor: %f", material.roughnessFactor);
                             }
@@ -1398,11 +782,8 @@ int main(int argc, char *argv[])
                         }
 
                         // Write to disk
-                        string directory = directoryPath;
+                        string materialFilename = PushStr8F(temp.arena, "data\\materials\\%S.mtr", folderName);
 
-                        directory.size -= 1;
-                        string materialFilename = PushStr8F(temp.arena, "data\\materials\\%S.mtr", PathSkipLastSlash(directory));
-                        ;
                         b32 result = WriteEntireFile(&builder, materialFilename);
                         if (!result)
                         {
@@ -1410,42 +791,62 @@ int main(int argc, char *argv[])
                             Assert(0);
                         }
 
-                        ScratchEnd(temp); });
+                        ScratchEnd(temp);
+                    });
 
                     // Write all of the models
                     TempArena temp = ScratchStart(&scratch.arena, 1);
                     InputModel model;
-                    u32 totalMeshCount = 0;
                     // Find total number of meshes
-                    for (size_t meshIndex = 0; meshIndex < data->meshes_count; meshIndex++)
-                    {
-                        cgltf_mesh *mesh = &data->meshes[meshIndex];
-                        totalMeshCount += mesh->primitives_count;
-                    }
-                    Assert(totalMeshCount >= data->meshes_count);
-                    InputMesh *meshes = PushArrayNoZero(temp.arena, InputMesh, totalMeshCount);
+                    InputMesh *meshes = PushArrayNoZero(temp.arena, InputMesh, data->meshes_count);
                     model.meshes      = meshes;
-                    model.numMeshes   = totalMeshCount;
+                    model.numMeshes   = data->meshes_count;
+
+                    // TODO: find a way to have per thread allocations that don't last for only one function scope?
+                    // u32 numThreads = jobsystem::GetNumThreads();
+                    // Arena **arenas = PushArrayNoZero(temp.arena, Arena **, numThreads);
+                    Arena *arenas[16];
+                    for (u32 i = 0; i < ArrayLength(arenas); i++)
+                    {
+                        arenas[i] = ArenaAlloc();
+                    }
 
                     jobsystem::KickJobs(
-                        &counter, data->meshes_count, 8, [meshes, data, directoryPath](jobsystem::JobArgs args) {
-                            TempArena temp = ScratchStart(0, 0);
-
+                        &counter, data->meshes_count, 8, [&state, meshes, data, &arenas](jobsystem::JobArgs args) {
                             // Get the vertex/index attribute data
-                            cgltf_mesh *mesh = &data->meshes[args.jobId];
-                            for (size_t primitiveIndex = 0; primitiveIndex < mesh->primitives_count; primitiveIndex++)
+                            //
+                            Arena *arena          = arenas[args.threadId];
+                            cgltf_mesh *cgltfMesh = &data->meshes[args.jobId];
+                            InputMesh *mesh       = &meshes[args.jobId];
+
+                            mesh->subsets = PushArray(arena, InputMesh::MeshSubset, cgltfMesh->primitives_count);
+
+                            mesh->transform        = state.transforms[state.meshMap[cgltfMesh]];
+                            mesh->totalVertexCount = 0;
+                            mesh->totalIndexCount  = 0;
+                            mesh->flags            = 0;
+                            mesh->totalSubsets     = cgltfMesh->primitives_count;
+
+                            for (size_t primitiveIndex = 0; primitiveIndex < cgltfMesh->primitives_count; primitiveIndex++)
                             {
-                                cgltf_primitive *primitive = &mesh->primitives[primitiveIndex];
-                                InputMesh *mesh            = &meshes[args.jobId];
+                                cgltf_primitive *primitive = &cgltfMesh->primitives[primitiveIndex];
 
-                                mesh->materialName = primitive->material->name;
+                                InputMesh::MeshSubset *subset = &mesh->subsets[primitiveIndex];
+                                if (primitive->material->name)
+                                {
+                                    subset->materialName = primitive->material->name;
+                                }
+                                else
+                                {
+                                    subset->materialName.size = 0;
+                                }
 
-                                // Get the indices
-                                mesh->indices    = PushArrayNoZero(temp.arena, u32, primitive->indices->count);
-                                mesh->indexCount = primitive->indices->count;
+                                subset->indexCount = primitive->indices->count;
+                                mesh->totalIndexCount += subset->indexCount;
+                                subset->indices = PushArrayNoZero(arena, u32, subset->indexCount);
                                 for (size_t indexIndex = 0; indexIndex < primitive->indices->count; indexIndex++)
                                 {
-                                    mesh->indices[indexIndex] = cgltf_accessor_read_index(primitive->indices, indexIndex);
+                                    subset->indices[indexIndex] = cgltf_accessor_read_index(primitive->indices, indexIndex);
                                 }
 
                                 // Get the attributes
@@ -1453,22 +854,18 @@ int main(int argc, char *argv[])
                                 for (size_t attribIndex = 0; attribIndex < primitive->attributes_count; attribIndex++)
                                 {
                                     cgltf_attribute *attribute = &primitive->attributes[attribIndex];
-                                    Assert(vertexCount == 0 || vertexCount == attribute->data->count);
-                                    vertexCount = attribute->data->count;
-                                }
-
-                                mesh->vertices    = PushArray(temp.arena, MeshVertex, vertexCount);
-                                mesh->vertexCount = vertexCount;
-
-                                for (size_t attribIndex = 0; attribIndex < primitive->attributes_count; attribIndex++)
-                                {
-                                    cgltf_attribute *attribute = &primitive->attributes[attribIndex];
-                                    if (attribute->name == Str8Lit("POSITION"))
+                                    if (Str8C(attribute->name) == Str8Lit("POSITION"))
                                     {
-                                        for (u32 i = 0; i < vertexCount; i++)
+                                        vertexCount         = attribute->data->count;
+                                        subset->vertexCount = vertexCount;
+                                        mesh->totalVertexCount += vertexCount;
+                                        subset->positions = PushArrayNoZero(arena, V3, vertexCount);
+
+                                        for (u32 i = 0; i < attribute->data->count; i++)
                                         {
-                                            cgltf_accessor_read_float(attribute->data, i, mesh->vertices[i].position.elements, 3);
+                                            cgltf_accessor_read_float(attribute->data, i, subset->positions[i].elements, 3);
                                         }
+
                                         Assert(attribute->data->has_max && attribute->data->has_min);
                                         V3 min;
                                         min.x             = attribute->data->min[0];
@@ -1482,112 +879,180 @@ int main(int argc, char *argv[])
                                         max.z             = attribute->data->max[2];
                                         mesh->bounds.maxP = max;
                                     }
-                                    else if (attribute->name == Str8Lit("NORMAL"))
+                                    else if (Str8C(attribute->name) == Str8Lit("NORMAL"))
                                     {
-                                        for (u32 i = 0; i < vertexCount; i++)
+                                        subset->normals = PushArrayNoZero(arena, V3, vertexCount);
+                                        for (u32 i = 0; i < attribute->data->count; i++)
                                         {
-                                            cgltf_accessor_read_float(attribute->data, i, mesh->vertices[i].normal.elements, 3);
+                                            cgltf_accessor_read_float(attribute->data, i, subset->normals[i].elements, 3);
                                         }
                                     }
-                                    else if (attribute->name == Str8Lit("TANGENT"))
+                                    else if (Str8C(attribute->name) == Str8Lit("TANGENT"))
                                     {
-                                        for (u32 i = 0; i < vertexCount; i++)
+                                        subset->tangents = PushArrayNoZero(arena, V3, vertexCount);
+                                        for (u32 i = 0; i < attribute->data->count; i++)
                                         {
-                                            cgltf_accessor_read_float(attribute->data, i, mesh->vertices[i].tangent.elements, 3);
+                                            V4 tangent;
+                                            cgltf_accessor_read_float(attribute->data, i, tangent.elements, 4);
+                                            subset->tangents[i] = tangent.xyz;
                                         }
                                     }
-                                    else if (attribute->name == Str8Lit("TEXCOORD_0"))
+                                    else if (Str8C(attribute->name) == Str8Lit("TEXCOORD_0"))
                                     {
-                                        for (u32 i = 0; i < vertexCount; i++)
+                                        mesh->flags |= MeshFlags_Uvs;
+                                        subset->uvs = PushArrayNoZero(arena, V2, vertexCount);
+                                        for (u32 i = 0; i < attribute->data->count; i++)
                                         {
-                                            cgltf_accessor_read_float(attribute->data, i, mesh->vertices[i].uv.elements, 2);
+                                            cgltf_accessor_read_float(attribute->data, i, subset->uvs[i].elements, 2);
                                         }
                                     }
-                                    else if (attribute->name == Str8Lit("JOINTS_0"))
+                                    else if (Str8C(attribute->name) == Str8Lit("JOINTS_0"))
                                     {
-                                        for (u32 i = 0; i < vertexCount; i++)
+                                        vertexCount = attribute->data->count;
+                                        mesh->flags |= MeshFlags_Skinned;
+                                        subset->boneIds = PushArrayNoZero(arena, UV4, vertexCount);
+                                        for (u32 i = 0; i < attribute->data->count; i++)
                                         {
-                                            cgltf_accessor_read_uint(attribute->data, i, mesh->vertices[i].boneIds, 4);
+                                            cgltf_accessor_read_uint(attribute->data, i, subset->boneIds[i].elements, 4);
                                         }
                                     }
-                                    else if (attribute->name == Str8Lit("WEIGHTS_0"))
+                                    else if (Str8C(attribute->name) == Str8Lit("WEIGHTS_0"))
                                     {
-                                        for (u32 i = 0; i < vertexCount; i++)
+                                        subset->boneWeights = PushArrayNoZero(arena, V4, vertexCount);
+                                        for (u32 i = 0; i < attribute->data->count; i++)
                                         {
-                                            cgltf_accessor_read_float(attribute->data, i, mesh->vertices[i].boneWeights, 4);
+                                            cgltf_accessor_read_float(attribute->data, i, subset->boneWeights[i].elements, 4);
                                         }
                                     }
-                                    else if (attribute->name == Str8Lit("COLOR_0"))
+                                    else if (Str8C(attribute->name) == Str8Lit("COLOR_0"))
                                     {
                                         // TODO
                                     }
                                 }
 
-                                OptimizeMesh(mesh);
+                                Assert(subset->positions);
+                                Assert(subset->normals);
+                                // TODO: I'm going to have to generate these, either using mikkt or manually
+                                Assert(subset->tangents);
+                                OptimizeMesh(subset);
                             }
-                            ScratchEnd(temp);
+                            // ScratchEnd(temp);
                         },
                         jobsystem::Priority::High);
 
                     // Write the whole model to file
-                    StringBuilder builder = {};
-                    builder.arena         = temp.arena;
-                    Put(&builder, model.numMeshes);
-                    for (u32 i = 0; i < model.numMeshes; i++)
-                    {
-                        InputMesh *mesh = &model.meshes[i];
+                    jobsystem::WaitJobs(&counter);
 
-                        Put(&builder, mesh->vertexCount);
-                        Put(&builder, mesh->vertices, sizeof(mesh->vertices[0]) * mesh->vertexCount);
-
-                        Put(&builder, mesh->indexCount);
-                        Put(&builder, mesh->indices, sizeof(mesh->indices[0]) * mesh->indexCount);
-
-                        PutStruct(&builder, mesh->bounds);
-
-                        // TODO: also bounds here
-
-                        Printf("Num vertices: %u\n", mesh->vertexCount);
-                        Printf("Num indices: %u\n", mesh->indexCount);
-
-                        if (mesh->materialName.size != 0)
+                    jobsystem::KickJob(&counter, [&model, &temp, data, folderName](jobsystem::JobArgs args) {
+                        StringBuilder builder = {};
+                        builder.arena         = temp.arena;
+                        Put(&builder, model.numMeshes);
+                        for (u32 meshIndex = 0; meshIndex < model.numMeshes; meshIndex++)
                         {
-                            Printf("Writing material: %S\n", mesh->materialName);
-                            // Place the pointer to the string data
-                            PutU64(&builder, mesh->materialName.size);
-                            Put(&builder, mesh->materialName);
+                            InputMesh *mesh = &model.meshes[meshIndex];
+
+                            Put(&builder, mesh->totalVertexCount);
+                            Put(&builder, mesh->flags);
+                            Put(&builder, mesh->totalSubsets);
+
+                            u32 indexOffset = 0;
+                            for (u32 subsetIndex = 0; subsetIndex < mesh->totalSubsets; subsetIndex++)
+                            {
+                                InputMesh::MeshSubset *subset = &mesh->subsets[subsetIndex];
+                                PutPointerValue(&builder, &indexOffset);
+                                PutPointerValue(&builder, &subset->indexCount);
+                                PutU64(&builder, subset->materialName.size);
+                                if (subset->materialName.size != 0)
+                                {
+                                    Put(&builder, subset->materialName);
+                                }
+
+                                indexOffset += subset->indexCount;
+                            }
+
+                            // Positions
+                            for (u32 subsetIndex = 0; subsetIndex < mesh->totalSubsets; subsetIndex++)
+                            {
+                                InputMesh::MeshSubset *subset = &mesh->subsets[subsetIndex];
+                                Assert(subset->positions);
+                                Put(&builder, subset->positions, sizeof(subset->positions[0]) * subset->vertexCount);
+                            }
+
+                            // Normals
+                            for (u32 subsetIndex = 0; subsetIndex < mesh->totalSubsets; subsetIndex++)
+                            {
+                                InputMesh::MeshSubset *subset = &mesh->subsets[subsetIndex];
+                                Assert(subset->normals);
+                                Put(&builder, subset->normals, sizeof(subset->normals[0]) * subset->vertexCount);
+                            }
+
+                            // Tangents
+                            for (u32 subsetIndex = 0; subsetIndex < mesh->totalSubsets; subsetIndex++)
+                            {
+                                InputMesh::MeshSubset *subset = &mesh->subsets[subsetIndex];
+                                Assert(subset->tangents);
+                                Put(&builder, subset->tangents, sizeof(subset->tangents[0]) * subset->vertexCount);
+                            }
+
+                            // Uvs. (what if some subsets have uvs and some don't?)
+                            if (mesh->flags & MeshFlags_Uvs)
+                            {
+                                for (u32 subsetIndex = 0; subsetIndex < mesh->totalSubsets; subsetIndex++)
+                                {
+                                    InputMesh::MeshSubset *subset = &mesh->subsets[subsetIndex];
+                                    Assert(subset->uvs);
+                                    Put(&builder, subset->uvs, sizeof(subset->uvs[0]) * subset->vertexCount);
+                                }
+                            }
+
+                            // Skinning data
+                            if (mesh->flags & MeshFlags_Skinned)
+                            {
+                                for (u32 subsetIndex = 0; subsetIndex < mesh->totalSubsets; subsetIndex++)
+                                {
+                                    InputMesh::MeshSubset *subset = &mesh->subsets[subsetIndex];
+                                    Assert(subset->boneIds && subset->boneWeights);
+                                    Put(&builder, subset->boneIds, sizeof(subset->boneIds[0]) * subset->vertexCount);
+                                    Put(&builder, subset->boneWeights, sizeof(subset->boneWeights[0]) * subset->vertexCount);
+                                }
+                            }
+
+                            // Finally indices
+                            Put(&builder, mesh->totalIndexCount);
+                            for (u32 subsetIndex = 0; subsetIndex < mesh->totalSubsets; subsetIndex++)
+                            {
+                                InputMesh::MeshSubset *subset = &mesh->subsets[subsetIndex];
+                                Assert(subset->indices);
+                                Put(&builder, subset->indices, sizeof(subset->indices[0]) * subset->indexCount);
+                            }
+
+                            PutStruct(&builder, mesh->bounds);
+                            PutStruct(&builder, mesh->transform);
+                        }
+
+                        if (data->skins_count != 0)
+                        {
+                            Assert(data->skins_count == 1);
+                            PutU64(&builder, folderName.size);
+                            Put(&builder, folderName);
                         }
                         else
                         {
                             PutU64(&builder, 0);
                         }
-                    }
+                        string modelFilename = PushStr8F(temp.arena, "data\\models\\%S.model", folderName);
+                        b32 success          = WriteEntireFile(&builder, modelFilename);
+                        if (!success)
+                        {
+                            Printf("Failed to write file %S\n", modelFilename);
+                            Assert(0);
+                        }
 
-                    if (data->skins_count != 0)
-                    {
-                        Assert(data->skins_count == 1);
-                        string skeletonFilename = Str8C(data->skins[0].name);
-                        PutU64(&builder, skeletonFilename.size);
-                        Put(&builder, skeletonFilename);
-                    }
-                    else
-                    {
-                        PutU64(&builder, 0);
-                    }
-                    string directory = directoryPath;
-                    directory.size -= 1;
-                    string modelFilename = PushStr8F(temp.arena, "data\\models\\%S.model", PathSkipLastSlash(directory));
-                    b32 success          = WriteEntireFile(&builder, modelFilename);
-                    if (!success)
-                    {
-                        Printf("Failed to write file %S\n", modelFilename);
-                        Assert(0);
-                    }
-
-                    ScratchEnd(temp);
+                        ScratchEnd(temp);
+                    });
 
                     // Get any skeleton data
-                    jobsystem::KickJob(&counter, [data](jobsystem::JobArgs args) {
+                    jobsystem::KickJob(&counter, [data, folderName](jobsystem::JobArgs args) {
                         TempArena temp = ScratchStart(0, 0);
                         for (size_t i = 0; i < data->skins_count; i++)
                         {
@@ -1647,7 +1112,7 @@ int main(int argc, char *argv[])
                             PutArray(&builder, skeleton.inverseBindPoses, skeleton.count);
                             PutArray(&builder, skeleton.transformsToParent, skeleton.count);
 
-                            string skeletonFilename = PushStr8F(temp.arena, "data\\skeletons\\%S.skel", Str8C(skin.name));
+                            string skeletonFilename = PushStr8F(temp.arena, "data\\skeletons\\%S.skel", folderName);
                             b32 success             = WriteEntireFile(&builder, skeletonFilename);
                             if (!success)
                             {
@@ -1666,8 +1131,8 @@ int main(int argc, char *argv[])
                         {
                             CompressedKeyframedAnimation *animation = &animations[i];
                             cgltf_animation &anim                   = data->animations[i];
-                            animation->boneChannels.reserve(anim.channels_count);
-                            u32 channelCount = 0;
+                            animation->boneChannels                 = PushArrayNoZero(temp.arena, CompressedBoneChannel, anim.channels_count);
+                            u32 channelCount                        = 0;
                             std::unordered_map<cgltf_node *, i32> animationNodeIndexMap;
 
                             const f32 uninitialized = -10000000.f;
@@ -1698,13 +1163,16 @@ int main(int argc, char *argv[])
                                 {
                                     animationNodeIndexMap[channel.target_node] = channelCount;
                                     animationNodeIndex                         = channelCount;
+                                    CompressedBoneChannel &boneChannel         = animation->boneChannels[channelCount];
+                                    boneChannel.name                           = Str8C(channel.target_node->name);
+                                    boneChannel.positions                      = PushArrayNoZero(temp.arena, AnimationPosition, anim.channels_count);
+                                    boneChannel.scales                         = PushArrayNoZero(temp.arena, AnimationScale, anim.channels_count);
+                                    boneChannel.rotations                      = PushArrayNoZero(temp.arena, CompressedAnimationRotation, anim.channels_count);
+                                    boneChannel.numPositionKeys                = 0;
+                                    boneChannel.numScalingKeys                 = 0;
+                                    boneChannel.numRotationKeys                = 0;
+
                                     channelCount++;
-                                    animation->boneChannels.emplace_back();
-                                    CompressedBoneChannel &boneChannel = animation->boneChannels.back();
-                                    boneChannel.name                   = Str8C(channel.target_node->name);
-                                    boneChannel.positions.reserve(anim.channels_count);
-                                    boneChannel.scales.reserve(anim.channels_count);
-                                    boneChannel.rotations.reserve(anim.channels_count);
                                 }
                                 else
                                 {
@@ -1729,17 +1197,17 @@ int main(int argc, char *argv[])
                                         Assert(cgltf_accessor_read_float(channel.sampler->output, 0, position.elements, 3));
                                         if (firstPosition.x == uninitialized)
                                         {
-                                            firstPosition = position;
-                                            boneChannel.positions.emplace_back();
-                                            boneChannel.positions.back().time     = time - channel.sampler->input->min[0];
-                                            boneChannel.positions.back().position = position;
+                                            firstPosition                                               = position;
+                                            boneChannel.positions[boneChannel.numPositionKeys].time     = time - channel.sampler->input->min[0];
+                                            boneChannel.positions[boneChannel.numPositionKeys].position = position;
+                                            boneChannel.numPositionKeys++;
                                         }
                                         else if (addPositionToList || !AlmostEqual(position, firstPosition, epsilon))
                                         {
-                                            addPositionToList = 1;
-                                            boneChannel.positions.emplace_back();
-                                            boneChannel.positions.back().time     = time - channel.sampler->input->min[0];
-                                            boneChannel.positions.back().position = position;
+                                            addPositionToList                                           = 1;
+                                            boneChannel.positions[boneChannel.numPositionKeys].time     = time - channel.sampler->input->min[0];
+                                            boneChannel.positions[boneChannel.numPositionKeys].position = position;
+                                            boneChannel.numPositionKeys++;
                                         }
                                     }
                                     break;
@@ -1749,23 +1217,25 @@ int main(int argc, char *argv[])
                                         Assert(cgltf_accessor_read_float(channel.sampler->output, 0, rotation.elements, 4));
                                         if (firstRotation.x == uninitialized)
                                         {
-                                            firstRotation = rotation;
-                                            boneChannel.rotations.emplace_back();
-                                            boneChannel.rotations.back().time = time - channel.sampler->input->min[0];
+                                            firstRotation                                           = rotation;
+                                            boneChannel.rotations[boneChannel.numRotationKeys].time = time - channel.sampler->input->min[0];
                                             for (u32 rotIndex = 0; rotIndex < 4; rotIndex++)
                                             {
-                                                boneChannel.rotations.back().rotation[rotIndex] = CompressRotationChannel(rotation[rotIndex]);
+                                                boneChannel.rotations[boneChannel.numRotationKeys].rotation[rotIndex] =
+                                                    CompressRotationChannel(rotation[rotIndex]);
                                             }
+                                            boneChannel.numRotationKeys++;
                                         }
                                         else if (addRotationToList || !AlmostEqual(rotation, firstRotation, epsilon))
                                         {
-                                            addRotationToList = 1;
-                                            boneChannel.rotations.emplace_back();
-                                            boneChannel.rotations.back().time = time - channel.sampler->input->min[0];
+                                            addRotationToList                                       = 1;
+                                            boneChannel.rotations[boneChannel.numRotationKeys].time = time - channel.sampler->input->min[0];
                                             for (u32 rotIndex = 0; rotIndex < 4; rotIndex++)
                                             {
-                                                boneChannel.rotations.back().rotation[rotIndex] = CompressRotationChannel(rotation[rotIndex]);
+                                                boneChannel.rotations[boneChannel.numRotationKeys].rotation[rotIndex] =
+                                                    CompressRotationChannel(rotation[rotIndex]);
                                             }
+                                            boneChannel.numRotationKeys++;
                                         }
                                     }
                                     break;
@@ -1775,17 +1245,17 @@ int main(int argc, char *argv[])
                                         Assert(cgltf_accessor_read_float(channel.sampler->output, 0, scale.elements, 3));
                                         if (firstScale.x == uninitialized)
                                         {
-                                            firstScale = scale;
-                                            boneChannel.scales.emplace_back();
-                                            boneChannel.scales.back().time  = time - channel.sampler->input->min[0];
-                                            boneChannel.scales.back().scale = scale;
+                                            firstScale                                           = scale;
+                                            boneChannel.scales[boneChannel.numScalingKeys].time  = time - channel.sampler->input->min[0];
+                                            boneChannel.scales[boneChannel.numScalingKeys].scale = scale;
+                                            boneChannel.numScalingKeys++;
                                         }
                                         else if (addScaleToList || !AlmostEqual(scale, firstScale, epsilon))
                                         {
-                                            addScaleToList = 1;
-                                            boneChannel.scales.emplace_back();
-                                            boneChannel.scales.back().time  = time - channel.sampler->input->min[0];
-                                            boneChannel.scales.back().scale = scale;
+                                            addScaleToList                                       = 1;
+                                            boneChannel.scales[boneChannel.numScalingKeys].time  = time - channel.sampler->input->min[0];
+                                            boneChannel.scales[boneChannel.numScalingKeys].scale = scale;
+                                            boneChannel.numScalingKeys++;
                                         }
                                     }
                                     break;
@@ -1796,7 +1266,7 @@ int main(int argc, char *argv[])
                             // Write animation to file
                             StringBuilder builder = {};
                             builder.arena         = temp.arena;
-                            u64 numNodes          = animation->boneChannels.size();
+                            u64 numNodes          = animationNodeIndexMap.size();
 
                             animation->numNodes = numNodes;
 
@@ -1808,12 +1278,12 @@ int main(int argc, char *argv[])
 
                                 PutPointerValue(&builder, &boneChannel->name.size);
                                 Put(&builder, boneChannel->name);
-                                Put(&builder, (u32)boneChannel->positions.size());
-                                AppendArray(&builder, boneChannel->positions.data(), (u32)boneChannel->positions.size());
-                                Put(&builder, (u32)boneChannel->scales.size());
-                                AppendArray(&builder, boneChannel->scales.data(), (u32)boneChannel->scales.size());
-                                Put(&builder, (u32)boneChannel->rotations.size());
-                                AppendArray(&builder, boneChannel->rotations.data(), (u32)boneChannel->rotations.size());
+                                Put(&builder, boneChannel->numPositionKeys);
+                                AppendArray(&builder, boneChannel->positions, boneChannel->numPositionKeys);
+                                Put(&builder, boneChannel->numScalingKeys);
+                                AppendArray(&builder, boneChannel->scales, boneChannel->numScalingKeys);
+                                Put(&builder, boneChannel->numRotationKeys);
+                                AppendArray(&builder, boneChannel->rotations, boneChannel->numRotationKeys);
                             }
 
                             string animationFilename = PushStr8F(temp.arena, "data\\animations\\%S.anim", Str8C(anim.name));
@@ -1824,10 +1294,16 @@ int main(int argc, char *argv[])
                                 Assert(0);
                             }
                         }
-                        ScratchEnd(temp); });
+                        ScratchEnd(temp);
+                    });
 
                     jobsystem::WaitJobs(&counter);
+                    // Free
                     cgltf_free(data);
+                    for (u32 i = 0; i < ArrayLength(arenas); i++)
+                    {
+                        ArenaRelease(arenas[i]);
+                    }
                 }
             }
             else

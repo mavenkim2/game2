@@ -566,8 +566,15 @@ DLL G_UPDATE(G_Update)
     for (u32 i = 0; i < g_state->mEntityCount; i++)
     {
         u32 offset = totalMatrixCount;
-        totalMatrixCount += GetSkeletonFromModel(g_state->mEntities[i].mAssetHandle)->count;
-        g_state->mEntities[i].mSkinningOffset = offset;
+        u32 count  = GetSkeletonFromModel(g_state->mEntities[i].mAssetHandle)->count;
+        if (count == 0)
+        {
+            g_state->mEntities[i].mSkinningOffset = -1;
+        }
+        else
+        {
+            totalMatrixCount += GetSkeletonFromModel(g_state->mEntities[i].mAssetHandle)->count;
+        }
     }
     u32 totalSkinningSize = totalMatrixCount * sizeof(Mat4);
 
@@ -594,12 +601,15 @@ DLL G_UPDATE(G_Update)
     // Model 1
     for (u32 i = 0; i < g_state->mEntityCount; i++)
     {
-        game::Entity *entity       = &g_state->mEntities[i];
-        LoadedSkeleton *skeleton   = GetSkeletonFromModel(entity->mAssetHandle);
-        AnimationTransform *tforms = PushArray(g_state->frameArena, AnimationTransform, skeleton->count);
-        PlayCurrentAnimation(g_state->permanentArena, &g_state->mAnimPlayers[i], dt, tforms);
-        SkinModelToAnimation(&g_state->mAnimPlayers[i], entity->mAssetHandle, tforms,
-                             skinningMappedData + entity->mSkinningOffset);
+        game::Entity *entity = &g_state->mEntities[i];
+        if (entity->mSkinningOffset != -1)
+        {
+            LoadedSkeleton *skeleton   = GetSkeletonFromModel(entity->mAssetHandle);
+            AnimationTransform *tforms = PushArray(g_state->frameArena, AnimationTransform, skeleton->count);
+            PlayCurrentAnimation(g_state->permanentArena, &g_state->mAnimPlayers[i], dt, tforms);
+            SkinModelToAnimation(&g_state->mAnimPlayers[i], entity->mAssetHandle, tforms,
+                                 skinningMappedData + entity->mSkinningOffset);
+        }
     }
 
     // DebugDrawSkeleton(g_state->model, transform1, skinningMappedData);

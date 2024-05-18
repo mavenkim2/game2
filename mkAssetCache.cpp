@@ -10,17 +10,26 @@
 // - LRU for eviction
 #include "mkCrack.h"
 #ifdef LSP_INCLUDE
-#include "keepmovingforward_common.h"
-#include "render/render.h"
-#include "asset.h"
-#include "asset_cache.h"
-#include "./offline/asset_processing.h"
-#include "font.h"
+#include "mkCommon.h"
+#include "render/mkRender.h"
+#include "mkAsset.h"
+#include "mkAssetCache.h"
+#include "offline/asset_processing.h"
+#include "mkFont.h"
 #include "render/mkGraphics.h"
+#include "mkGame.h"
+#include "mkScene.h"
+#include "mkList.h"
 #endif
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "third_party/stb_image.h"
+
+global const string skeletonDirectory  = "data/skeletons/";
+global const string modelDirectory     = "data/models/";
+global const string materialDirectory  = "data/materials/";
+global const string textureDirectory   = "data/textures/";
+global const string animationDirectory = "data/animations/";
 
 global volatile b32 gTerminateThreads;
 // const i32 invalidIndex = -1;
@@ -45,23 +54,7 @@ internal void AS_Init()
 
     // Hash table
     {
-        as_state->fileHash.hashCount = 1024;
-        as_state->fileHash.hash      = PushArray(arena, i32, as_state->fileHash.hashCount);
-        // Sets array to be full of -1s
-        MemorySet(as_state->fileHash.hash, 0xff,
-                  sizeof(as_state->fileHash.hash[0]) * as_state->fileHash.hashCount);
-        as_state->fileHash.hashMask = as_state->fileHash.hashCount - 1;
-
-        as_state->fileHash.indexCount = 1024;
-        as_state->fileHash.indexChain = PushArray(arena, i32, as_state->fileHash.indexCount);
-        MemorySet(as_state->fileHash.indexChain, 0xff,
-                  sizeof(as_state->fileHash.indexChain[0]) * as_state->fileHash.indexCount);
-
-        // Stripes
-#if 0
-        as_state->numStripes = 64;
-        as_state->stripes    = PushArray(arena, AS_Stripe, as_state->numStripes);
-#endif
+        as_state->fileHash.Init(1024, 1024);
     }
 
     as_state->ringBufferSize = kilobytes(64);
@@ -268,7 +261,7 @@ internal void AS_EntryPoint(void *p)
             Assert(((as_state->assetCapacity) & (as_state->assetCapacity - 1)) == 0);
 
             // The asset should've been added to the cache already.
-            for (i32 i = AS_FirstInHash(hash); i != -1; i = AS_NextInHash(i))
+            for (i32 i = as_state->fileHash.FirstInHash(hash); i != -1; i = as_state->fileHash.NextInHash(i))
             {
                 AS_Asset *nextAsset = as_state->assets[i];
                 if (nextAsset->path == path)
@@ -296,10 +289,8 @@ internal void AS_EntryPoint(void *p)
                     continue;
                 }
 
-                BeginTicketMutex(&as_state->allocator.ticketMutex);
                 AS_Free(asset);
                 Printf("Asset freed");
-                EndTicketMutex(&as_state->allocator.ticketMutex);
             }
             asset->lastModified = attributes.lastModified;
 
@@ -351,9 +342,7 @@ internal void AS_EntryPoint(void *p)
             //             }
             // #endif
 
-            BeginTicketMutex(&as_state->allocator.ticketMutex);
             asset->memoryBlock = AS_Alloc((i32)attributes.size);
-            EndTicketMutex(&as_state->allocator.ticketMutex);
 
             asset->size = platform.ReadFileHandle(handle, AS_GetMemory(asset));
             platform.CloseFile(handle);
@@ -409,6 +398,7 @@ internal void AS_HotloadEntryPoint(void *p)
 
 JOB_CALLBACK(AS_LoadAsset)
 {
+    TempArena temp          = ScratchStart(0, 0);
     AS_CacheState *as_state = engine->GetAssetCacheState();
     AS_Asset *asset         = (AS_Asset *)data;
     u32 unloaded            = AS_Status_Unloaded;
@@ -419,7 +409,7 @@ JOB_CALLBACK(AS_LoadAsset)
     string extension = GetFileExtension(asset->path);
     if (extension == Str8Lit("model"))
     {
-        string directory = Str8PathChopPastLastSlash(asset->path);
+        string filename = PathSkipLastSlash(asset->path);
 
         LoadedModel *model = &asset->model;
         asset->type        = AS_Model;
@@ -430,37 +420,136 @@ JOB_CALLBACK(AS_LoadAsset)
         tokenizer.cursor     = tokenizer.input.str;
 
         GetPointerValue(&tokenizer, &model->numMeshes);
-        // TODO: LEAK (all pusharrays/structs in this method)
-        BeginTicketMutex(&as_state->allocator.ticketMutex);
-        model->meshes = PushArray(as_state->allocator.arena, Mesh, model->numMeshes);
-        EndTicketMutex(&as_state->allocator.ticketMutex);
+        model->meshes = (Mesh *)AS_Alloc(sizeof(Mesh) * model->numMeshes);
+
+        // Load the associated material file. TODO: these should probably just be combined if it's a scene
+        string materialData = platform.ReadEntireFile(temp.arena, StrConcat(temp.arena, materialDirectory, filename));
+
+        Tokenizer materialTokenizer;
+        materialTokenizer.input.str  = materialData.str;
+        materialTokenizer.input.size = asset->size;
+        materialTokenizer.cursor     = materialTokenizer.input.str;
+
+        Assert(Advance(&materialTokenizer, "Num materials: "));
+        u32 numMaterials = ReadUint(&materialTokenizer);
+        SkipToNextLine(&materialTokenizer);
+
+        for (u32 i = 0; i < numMaterials; i++)
+        {
+            Assert(Advance(&materialTokenizer, "Name :"));
+            string line = ReadLine(&materialTokenizer);
+
+            scene::MaterialComponent component = gameScene.materials.Create(line);
+            component.name                     = line;
+
+            // Read the diffuse texture if there is one
+            b32 result = Advance(&materialTokenizer, "\tDiffuse: ");
+            if (result)
+            {
+                line                                    = ReadLine(&materialTokenizer);
+                component.textures[TextureType_Diffuse] = AS_GetAsset(StrConcat(temp.arena, textureDirectory, line));
+            }
+            result = Advance(&materialTokenizer, "\tColor: ");
+            if (result)
+            {
+                component.baseColor.x = ReadFloat(&materialTokenizer);
+                component.baseColor.y = ReadFloat(&materialTokenizer);
+                component.baseColor.z = ReadFloat(&materialTokenizer);
+                component.baseColor.w = ReadFloat(&materialTokenizer);
+                SkipToNextLine(&materialTokenizer);
+            }
+            result = Advance(&materialTokenizer, "\tNormal: ");
+            if (result)
+            {
+                line                                   = ReadLine(&materialTokenizer);
+                component.textures[TextureType_Normal] = AS_GetAsset(StrConcat(temp.arena, textureDirectory, line));
+            }
+            result = Advance(&materialTokenizer, "\tMR Map: ");
+            if (result)
+            {
+                line                               = ReadLine(&materialTokenizer);
+                component.textures[TextureType_MR] = AS_GetAsset(StrConcat(temp.arena, textureDirectory, line));
+            }
+            result = Advance(&materialTokenizer, "\tMetallic Factor: ");
+            if (result)
+            {
+                component.metallicFactor = ReadFloat(&materialTokenizer);
+                SkipToNextLine(&materialTokenizer);
+            }
+            result = Advance(&materialTokenizer, "\tRoughness Factor: ");
+            if (result)
+            {
+                component.roughnessFactor = ReadFloat(&materialTokenizer);
+                SkipToNextLine(&materialTokenizer);
+            }
+            SkipToNextLine(&materialTokenizer); // final closing bracket }
+        }
 
         for (u32 i = 0; i < model->numMeshes; i++)
         {
             Mesh *mesh = &model->meshes[i];
-            GetPointerValue(&tokenizer, &mesh->surface.vertexCount);
-            mesh->surface.vertices = GetTokenCursor(&tokenizer, MeshVertex);
-            Advance(&tokenizer, sizeof(mesh->surface.vertices[0]) * mesh->surface.vertexCount);
+            *mesh      = {};
 
-            GetPointerValue(&tokenizer, &mesh->surface.indexCount);
-            mesh->surface.indices = GetTokenCursor(&tokenizer, u32);
-            Advance(&tokenizer, sizeof(mesh->surface.indices[0]) * mesh->surface.indexCount);
+            // Get the size
+            u32 vertexCount;
+            GetPointerValue(&tokenizer, &vertexCount);
+            mesh->vertexCount = vertexCount;
 
-            GetPointerValue(&tokenizer, &mesh->surface.bounds);
+            // Get the flags
+            MeshFlags flags;
+            GetPointerValue(&tokenizer, &flags);
 
-            Material *material = &mesh->material;
-            for (u32 j = 0; j < TextureType_Count; j++)
+            // Get all of the subsets
+            GetPointerValue(&tokenizer, &mesh->numSubsets);
+
+            mesh->subsets = (Mesh::MeshSubset *)AS_Alloc(sizeof(Mesh::MeshSubset) * mesh->numSubsets);
+
+            for (u32 subsetIndex = 0; subsetIndex < mesh->numSubsets; subsetIndex++)
             {
-                string path;
-                GetPointerValue(&tokenizer, &path.size);
-                if (path.size != 0)
+                GetPointerValue(&tokenizer, &mesh->subsets[subsetIndex].indexStart);
+                GetPointerValue(&tokenizer, &mesh->subsets[subsetIndex].indexCount);
+
+                string materialName;
+                GetPointerValue(&tokenizer, &materialName.size);
+
+                if (materialName.size != 0)
                 {
-                    path.str = GetTokenCursor(&tokenizer, u8);
-                    Advance(&tokenizer, (u32)path.size);
-                    material->textureHandles[j] = AS_GetAsset(path);
-                    Printf("Texture Type: %u, File: %S\n", j, path);
+                    materialName.str     = GetTokenCursor(&tokenizer, u8);
+                    scene::Entity entity = gameScene.CreateEntity();
+                    gameScene.materials.Link(entity, materialName);
+                    mesh->subsets[subsetIndex].materialIndex = entity;
+                    Advance(&tokenizer, (u32)materialName.size);
                 }
             }
+
+            mesh->positions = GetTokenCursor(&tokenizer, V3);
+            Advance(&tokenizer, sizeof(mesh->positions[0]) * vertexCount);
+            mesh->normals = GetTokenCursor(&tokenizer, V3);
+            Advance(&tokenizer, sizeof(mesh->normals[0]) * vertexCount);
+            mesh->tangents = GetTokenCursor(&tokenizer, V3);
+            Advance(&tokenizer, sizeof(mesh->tangents[0]) * vertexCount);
+            if (flags & MeshFlags_Uvs)
+            {
+                mesh->uvs = GetTokenCursor(&tokenizer, V2);
+                Advance(&tokenizer, sizeof(mesh->uvs[0]) * vertexCount);
+            }
+            if (flags & MeshFlags_Skinned)
+            {
+                mesh->boneIds = GetTokenCursor(&tokenizer, UV4);
+                Advance(&tokenizer, sizeof(mesh->boneIds[0]) * vertexCount);
+
+                mesh->boneWeights = GetTokenCursor(&tokenizer, V4);
+                Advance(&tokenizer, sizeof(mesh->boneWeights[0]) * vertexCount);
+            }
+            u32 indexCount;
+            GetPointerValue(&tokenizer, &indexCount);
+            mesh->indexCount = indexCount;
+
+            mesh->indices = GetTokenCursor(&tokenizer, u32);
+            Advance(&tokenizer, sizeof(mesh->indices[0]) * indexCount);
+
+            GetPointerValue(&tokenizer, &mesh->bounds);
+            GetPointerValue(&tokenizer, &mesh->transform);
         }
 
         // Skeleton
@@ -471,7 +560,7 @@ JOB_CALLBACK(AS_LoadAsset)
             {
                 path.str = GetTokenCursor(&tokenizer, u8);
                 Advance(&tokenizer, (u32)path.size);
-                model->skeleton = AS_GetAsset(path);
+                model->skeleton = AS_GetAsset(StrConcat(temp.arena, skeletonDirectory, path));
                 Printf("Skeleton file name: %S\n", path);
             }
             else
@@ -483,23 +572,113 @@ JOB_CALLBACK(AS_LoadAsset)
 
         Assert(EndOfBuffer(&tokenizer));
 
-        RenderState *state = engine->GetRenderState();
         Init(&model->bounds);
         // Load vertices and indices of each mesh to he GPU
         for (u32 i = 0; i < model->numMeshes; i++)
         {
-            Mesh *mesh = &model->meshes[i];
+            Mesh *mesh      = &model->meshes[i];
+            u32 vertexCount = mesh->vertexCount;
+            u32 indexCount  = mesh->indexCount;
 
             graphics::GPUBufferDesc desc;
-            desc.mSize          = sizeof(mesh->surface.vertices[0]) * mesh->surface.vertexCount;
-            desc.mResourceUsage = graphics::ResourceUsage::VertexBuffer;
-            device->CreateBuffer(&mesh->surface.mVertexBuffer, desc, mesh->surface.vertices);
+            desc.mResourceUsage = graphics::ResourceUsage::StorageBuffer;
+            u64 alignment       = device->GetMinAlignment(&desc);
 
-            desc.mSize          = sizeof(mesh->surface.indices[0]) * mesh->surface.indexCount;
-            desc.mResourceUsage = graphics::ResourceUsage::IndexBuffer;
-            device->CreateBuffer(&mesh->surface.mIndexBuffer, desc, mesh->surface.indices);
+            Assert(IsPow2(alignment));
+            desc.mSize = AlignPow2(sizeof(mesh->positions[0]) * vertexCount, alignment) + Align(sizeof(mesh->normals[0]) * vertexCount, alignment) + Align(sizeof(mesh->tangents[0]) * vertexCount, alignment);
+            if (mesh->uvs)
+            {
+                desc.mSize += AlignPow2(sizeof(mesh->uvs[0]) * vertexCount, alignment);
+            }
+            if (mesh->boneIds)
+            {
+                desc.mSize += AlignPow2(sizeof(mesh->boneIds[0]) * vertexCount, alignment);
+                desc.mSize += AlignPow2(sizeof(mesh->boneWeights[0]) * vertexCount, alignment);
+            }
+            desc.mSize += AlignPow2(sizeof(mesh->indices[0]) * indexCount, alignment);
 
-            AddBounds(model->bounds, mesh->surface.bounds);
+            auto initCallback = [&](void *dest) {
+                u64 currentOffset = 0;
+                u8 *bufferDest    = (u8 *)dest;
+
+                // Load positions
+                mesh->vertexPosView.offset = currentOffset;
+                mesh->vertexPosView.size   = sizeof(mesh->positions[0]) * vertexCount;
+                MemoryCopy(bufferDest + currentOffset, mesh->positions, mesh->vertexPosView.size);
+                currentOffset += AlignPow2(mesh->vertexPosView.size, alignment);
+
+                // Load normals
+                mesh->vertexNorView.offset = currentOffset;
+                mesh->vertexNorView.size   = sizeof(mesh->normals[0]) * vertexCount;
+                MemoryCopy(bufferDest + currentOffset, mesh->normals, mesh->vertexNorView.size);
+                currentOffset += AlignPow2(mesh->vertexNorView.size, alignment);
+
+                // Load tangents
+                mesh->vertexTanView.offset = currentOffset;
+                mesh->vertexTanView.size   = sizeof(mesh->tangents[0]) * vertexCount;
+                MemoryCopy(bufferDest + currentOffset, mesh->normals, mesh->vertexTanView.size);
+                currentOffset += AlignPow2(mesh->vertexTanView.size, alignment);
+
+                // Load uvs if they exist
+                if (mesh->uvs != 0)
+                {
+                    mesh->vertexUvView.offset = currentOffset;
+                    mesh->vertexUvView.size   = sizeof(mesh->uvs[0]) * vertexCount;
+                    MemoryCopy(bufferDest + currentOffset, mesh->uvs, mesh->vertexUvView.size);
+                    currentOffset += AlignPow2(mesh->vertexUvView.size, alignment);
+                }
+                if (mesh->boneIds)
+                {
+                    Assert(mesh->boneWeights);
+                    mesh->vertexBoneIdView.offset = currentOffset;
+                    mesh->vertexBoneIdView.size   = sizeof(mesh->boneIds[0]) * vertexCount;
+                    MemoryCopy(bufferDest + currentOffset, mesh->boneIds, mesh->vertexBoneIdView.size);
+                    currentOffset += AlignPow2(mesh->vertexBoneIdView.size, alignment);
+
+                    mesh->vertexBoneWeightView.offset = currentOffset;
+                    mesh->vertexBoneWeightView.size   = sizeof(mesh->boneWeights[0]) * vertexCount;
+                    MemoryCopy(bufferDest + currentOffset, mesh->boneWeights, mesh->vertexBoneWeightView.size);
+                    currentOffset += AlignPow2(mesh->vertexBoneWeightView.size, alignment);
+                }
+
+                mesh->indexView.offset = currentOffset;
+                mesh->indexView.size   = sizeof(mesh->indices[0]) * mesh->indexCount;
+                MemoryCopy(bufferDest + currentOffset, mesh->indices, mesh->indexView.size);
+                currentOffset += AlignPow2(mesh->indexView.size, alignment);
+            };
+
+            // device->CreateBuffer(&mesh->buffer, desc, mesh->surface.vertices);
+            device->CreateBufferCopy(&mesh->buffer, desc, initCallback);
+
+            Assert(mesh->positions);
+            mesh->vertexPosView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::SubresourceType::SRV, mesh->vertexPosView.offset, mesh->vertexPosView.size);
+            mesh->vertexPosView.subresourceDescriptor = device->GetDescriptorIndex(&mesh->buffer, mesh->vertexPosView.subresourceIndex);
+
+            Assert(mesh->normals);
+            mesh->vertexNorView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::SubresourceType::SRV, mesh->vertexNorView.offset, mesh->vertexNorView.size);
+            mesh->vertexNorView.subresourceDescriptor = device->GetDescriptorIndex(&mesh->buffer, mesh->vertexNorView.subresourceIndex);
+
+            Assert(mesh->tangents);
+            mesh->vertexTanView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::SubresourceType::SRV, mesh->vertexTanView.offset, mesh->vertexTanView.size);
+            mesh->vertexTanView.subresourceDescriptor = device->GetDescriptorIndex(&mesh->buffer, mesh->vertexTanView.subresourceIndex);
+
+            if (mesh->uvs != 0)
+            {
+                mesh->vertexUvView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::SubresourceType::SRV, mesh->vertexUvView.offset, mesh->vertexUvView.size);
+                mesh->vertexUvView.subresourceDescriptor = device->GetDescriptorIndex(&mesh->buffer, mesh->vertexUvView.subresourceIndex);
+            }
+            if (mesh->boneIds)
+            {
+                mesh->vertexBoneIdView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::SubresourceType::SRV, mesh->vertexBoneIdView.offset, mesh->vertexBoneIdView.size);
+                mesh->vertexBoneIdView.subresourceDescriptor = device->GetDescriptorIndex(&mesh->buffer, mesh->vertexBoneIdView.subresourceIndex);
+
+                Assert(mesh->boneWeights);
+                mesh->vertexBoneWeightView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::SubresourceType::SRV, mesh->vertexBoneWeightView.offset, mesh->vertexBoneWeightView.size);
+                mesh->vertexBoneWeightView.subresourceDescriptor = device->GetDescriptorIndex(&mesh->buffer, mesh->vertexBoneWeightView.subresourceIndex);
+            }
+
+            Rect3 modelSpaceBounds = Transform(mesh->transform, mesh->bounds);
+            AddBounds(model->bounds, modelSpaceBounds);
         }
     }
     else if (extension == Str8Lit("anim"))
@@ -515,10 +694,7 @@ JOB_CALLBACK(AS_LoadAsset)
         GetPointerValue(&tokenizer, &asset->anim.numNodes);
         GetPointerValue(&tokenizer, &asset->anim.duration);
 
-        // TODO: LEAK
-        BeginTicketMutex(&as_state->allocator.ticketMutex);
-        asset->anim.boneChannels = PushArray(as_state->allocator.arena, BoneChannel, asset->anim.numNodes);
-        EndTicketMutex(&as_state->allocator.ticketMutex);
+        asset->anim.boneChannels = (BoneChannel *)AS_Alloc(sizeof(BoneChannel) * asset->anim.numNodes);
 
         for (u32 i = 0; i < asset->anim.numNodes; i++)
         {
@@ -539,26 +715,6 @@ JOB_CALLBACK(AS_LoadAsset)
             channel->rotations = GetTokenCursor(&tokenizer, AnimationRotation);
             Advance(&tokenizer, sizeof(channel->rotations[0]) * channel->numRotationKeys);
         }
-
-        // NOTE: crazy town incoming
-#if 0
-        KeyframedAnimation **animation = &asset->anim;
-        *animation                     = (KeyframedAnimation *)buffer;
-        KeyframedAnimation *a          = asset->anim;
-
-        // CompressedKeyframedAnimation *a = (CompressedKeyframedAnimation *)buffer;
-        Printf("Num nodes: %u\n", a->numNodes);
-        // Printf("offset: %u\n", (u64)(a->boneChannels));
-        a->boneChannels = (BoneChannel *)(buffer + (u64)(a->boneChannels));
-        for (u32 i = 0; i < a->numNodes; i++)
-        {
-            BoneChannel *boneChannel = a->boneChannels + i;
-            ConvertOffsetToPointer(buffer, &boneChannel->name.str, u8);
-            ConvertOffsetToPointer(buffer, &boneChannel->positions, AnimationPosition);
-            ConvertOffsetToPointer(buffer, &boneChannel->scales, AnimationScale);
-            ConvertOffsetToPointer(buffer, &boneChannel->rotations, AnimationRotation);
-        }
-#endif
     }
     else if (extension == Str8Lit("skel"))
     {
@@ -580,10 +736,8 @@ JOB_CALLBACK(AS_LoadAsset)
             // When written, pointers are converted to offsets in file. Offset + base file address is the new
             // pointer location. For now, I am storing the string data right after the offset and size, but
             // this could theoretically be moved elsewhere.
-            // TODO: get rid of these types of allocations
-            BeginTicketMutex(&as_state->allocator.ticketMutex);
-            skeleton.names = PushArray(as_state->allocator.arena, string, skeleton.count);
-            EndTicketMutex(&as_state->allocator.ticketMutex);
+            // TODO: get rid of these types of allocations through pointer fix ups
+            skeleton.names = (string *)AS_Alloc(sizeof(string) * skeleton.count);
             for (u32 i = 0; i < count; i++)
             {
                 string *boneName = &skeleton.names[i];
@@ -652,17 +806,12 @@ JOB_CALLBACK(AS_LoadAsset)
         asset->font.fontData = F_InitializeFont(buffer);
         // FreeBlocks(node);
     }
-    else if (extension == Str8Lit("vs"))
-    {
-    }
-    else if (extension == Str8Lit("fs"))
-    {
-    }
     else
     {
         Assert(!"Asset type not supported");
     }
     asset->status.store(AS_Status_Loaded);
+    ScratchEnd(temp);
     return 0;
 }
 
@@ -699,7 +848,6 @@ internal void AS_UnloadAsset(AS_Asset *asset)
         }
         case AS_Skeleton: break;
         case AS_Model: break;
-        case AS_Shader: break;
         default: Assert(!"Invalid asset type");
     }
 }
@@ -758,7 +906,7 @@ internal AS_Asset *AS_AllocAsset(const string inPath)
         StringCopy(&asset->path, inPath);
         asset->id = assetId;
     }
-    AS_AddInHash(hash, asset->id);
+    as_state->fileHash.AddInHash(hash, asset->id);
 
     EndFakeLock(&as_state->fakeLock);
 
@@ -793,7 +941,7 @@ internal AS_Handle AS_GetAsset_(const string inPath, const b32 inLoadIfNotFound 
     result.i32[0]           = -1;
 
     i32 hash = HashFromString(inPath);
-    for (i32 i = AS_FirstInHash(hash); i != -1; i = AS_NextInHash(i))
+    for (i32 i = as_state->fileHash.FirstInHash(hash); i != -1; i = as_state->fileHash.NextInHash(i))
     {
         if (as_state->assets[i]->path == inPath)
         {
@@ -1121,57 +1269,6 @@ inline b8 IsAnimNil(KeyframedAnimation *anim)
 //     return bestMatchHandle;
 // }
 // #endif
-
-//////////////////////////////
-// Iterate hash
-//
-internal i32 AS_FirstInHash(i32 hash)
-{
-    AS_CacheState *as_state = engine->GetAssetCacheState();
-    i32 result              = as_state->fileHash.hash[hash & as_state->fileHash.hashMask];
-    return result;
-}
-
-internal i32 AS_NextInHash(i32 index)
-{
-    AS_CacheState *as_state = engine->GetAssetCacheState();
-    i32 result              = as_state->fileHash.indexChain[index];
-    return result;
-}
-
-internal i32 AS_FirstInHash(string path)
-{
-    i32 hash = HashFromString(path);
-    return AS_FirstInHash(hash);
-}
-
-internal void AS_AddInHash(i32 key, i32 index)
-{
-    AS_CacheState *as_state              = engine->GetAssetCacheState();
-    i32 hash                             = key & as_state->fileHash.hashMask;
-    as_state->fileHash.indexChain[index] = as_state->fileHash.hash[hash];
-    as_state->fileHash.hash[hash]        = index;
-}
-
-internal void AS_RemoveFromHash(i32 key, i32 index)
-{
-    AS_CacheState *as_state = engine->GetAssetCacheState();
-    i32 hash                = key & as_state->fileHash.hashMask;
-    if (as_state->fileHash.hash[hash] == index)
-    {
-        as_state->fileHash.hash[hash] = -1;
-    }
-    else
-    {
-        for (i32 i = as_state->fileHash.hash[hash]; i != -1; i = as_state->fileHash.indexChain[i])
-        {
-            if (as_state->fileHash.indexChain[i] == index)
-            {
-                as_state->fileHash.indexChain[i] = as_state->fileHash.indexChain[index];
-            }
-        }
-    }
-}
 
 //////////////////////////////
 // B-tree memory allocation
@@ -1546,6 +1643,12 @@ internal u8 *AS_GetMemory(AS_MemoryBlockNode *node)
     return result;
 }
 
+internal AS_MemoryBlockNode *AS_GetMemoryBlock(u8 *memory)
+{
+    AS_MemoryBlockNode *result = (AS_MemoryBlockNode *)memory - 1;
+    return result;
+}
+
 internal u8 *AS_GetMemory(AS_Asset *asset)
 {
     return AS_GetMemory(asset->memoryBlock);
@@ -1553,7 +1656,8 @@ internal u8 *AS_GetMemory(AS_Asset *asset)
 
 internal AS_MemoryBlockNode *AS_Alloc(i32 size)
 {
-    AS_CacheState *as_state             = engine->GetAssetCacheState();
+    AS_CacheState *as_state = engine->GetAssetCacheState();
+    BeginTicketMutex(&as_state->allocator.ticketMutex);
     i32 alignedSize                     = AlignPow2(size, 16);
     AS_DynamicBlockAllocator *allocator = &as_state->allocator;
     allocator->usedBlocks++;
@@ -1625,12 +1729,14 @@ internal AS_MemoryBlockNode *AS_Alloc(i32 size)
 
         AS_Free(newBlock);
     }
+    EndTicketMutex(&as_state->allocator.ticketMutex);
     return memoryBlock;
 }
 
 internal void AS_Free(AS_MemoryBlockNode *memoryBlock)
 {
     AS_CacheState *as_state = engine->GetAssetCacheState();
+    BeginTicketMutex(&as_state->allocator.ticketMutex);
     Assert(memoryBlock->node == 0);
     Assert(memoryBlock->isBaseBlock == 0 || memoryBlock->isBaseBlock == 1);
     // Merge the next node if it's free and part of the same contiguous chain
@@ -1691,10 +1797,18 @@ internal void AS_Free(AS_MemoryBlockNode *memoryBlock)
         allocator->freeBlocks++;
         allocator->freeBlockMemory += memoryBlock->size;
     }
+    EndTicketMutex(&as_state->allocator.ticketMutex);
 }
 
 internal void AS_Free(AS_Asset *asset)
 {
     AS_Free(asset->memoryBlock);
     asset->memoryBlock = 0;
+}
+
+internal void AS_Free(void **ptr)
+{
+    AS_MemoryBlockNode *node = (AS_MemoryBlockNode *)(*ptr) - 1;
+    AS_Free(node);
+    *ptr = 0;
 }

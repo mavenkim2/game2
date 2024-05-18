@@ -167,6 +167,19 @@ struct mkGraphicsVulkan : mkGraphics
     {
         VkBuffer mBuffer;
         VmaAllocation mAllocation;
+
+        struct Subresource
+        {
+            VkDescriptorBufferInfo info;
+            i32 descriptorIndex = -1;
+
+            b32 IsValid()
+            {
+                return descriptorIndex != -1;
+            }
+        };
+        Subresource subresource;
+        list<Subresource> subresources;
     };
 
     //////////////////////////////
@@ -184,7 +197,7 @@ struct mkGraphicsVulkan : mkGraphics
             u32 mBaseLayer;
             u32 mNumLayers;
         };
-        Subresource mSubresource; // whole view
+        Subresource mSubresource;        // whole view
         list<Subresource> mSubresources; // sub views
     };
 
@@ -219,7 +232,7 @@ struct mkGraphicsVulkan : mkGraphics
         GPUBuffer mBuffer;
         std::atomic<u64> mOffset = 0;
         // u64 mTotalSize           = 0;
-        u32 mAlignment           = 0;
+        u32 mAlignment = 0;
     } mFrameAllocator[cNumBuffers];
 
     // The gpu buffer should already be created
@@ -254,16 +267,18 @@ struct mkGraphicsVulkan : mkGraphics
     }
 
     mkGraphicsVulkan(OS_Handle window, ValidationMode validationMode, GPUDevicePreference preference);
+    u64 GetMinAlignment(GPUBufferDesc *inDesc) override;
     b32 CreateSwapchain(Window window, SwapchainDesc *desc, Swapchain *swapchain) override;
     void CreateShader(PipelineStateDesc *inDesc, PipelineState *outPS) override;
-    void CreateBuffer(GPUBuffer *inBuffer, GPUBufferDesc inDesc, void *inData) override;
+    void CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDesc, CopyFunction initCallback) override;
     void CopyBuffer(CommandList cmd, GPUBuffer *dest, GPUBuffer *src, u32 size) override;
     void DeleteBuffer(GPUBuffer *buffer) override;
     void CreateTexture(Texture *outTexture, TextureDesc desc, void *inData) override;
     void CreateSampler(Sampler *sampler, SamplerDesc desc) override;
     void BindResource(GPUResource *resource, u32 slot, CommandList cmd) override;
+    i32 GetDescriptorIndex(GPUResource *resource, i32 subresourceIndex = -1) override;
+    i32 CreateSubresource(GPUBuffer *buffer, SubresourceType type, u64 offset = 0ull, u64 size = ~0ull, Format format = Format::Null) override;
     i32 CreateSubresource(Texture *texture, u32 baseLayer = 0, u32 numLayers = ~0u) override;
-    void UpdateBuffer(GPUBuffer *inBuffer, void *inData);
     void UpdateDescriptorSet(CommandList cmd);
     CommandList BeginCommandList(QueueType queue) override;
     void BeginRenderPass(Swapchain *inSwapchain, RenderPassImage *images, u32 count, CommandList inCommandList) override;
@@ -272,7 +287,7 @@ struct mkGraphicsVulkan : mkGraphics
     void DrawIndexed(CommandList cmd, u32 indexCount, u32 firstVertex, u32 baseVertex);
 
     void BindVertexBuffer(CommandList cmd, GPUBuffer **buffers, u32 count = 1, u32 *offsets = 0) override;
-    void BindIndexBuffer(CommandList cmd, GPUBuffer *buffer) override;
+    void BindIndexBuffer(CommandList cmd, GPUBuffer *buffer, u64 offset = 0) override;
     void SetViewport(CommandList cmd, Viewport *viewport) override;
     void SetScissor(CommandList cmd, Rect2 scissor) override;
     void EndRenderPass(CommandList cmd) override;
@@ -313,6 +328,56 @@ private:
 
     TransferCommand Stage(u64 size);
     void Submit(TransferCommand cmd);
+
+    //////////////////////////////
+    // Bindless resources
+    //
+    enum DescriptorType
+    {
+        // DescriptorType_Uniform,
+        DescriptorType_Storage,
+        DescriptorType_CombinedSampler,
+        DescriptorType_Count,
+    };
+
+    struct BindlessDescriptorPool
+    {
+        VkDescriptorPool pool = VK_NULL_HANDLE;
+        VkDescriptorSet set   = VK_NULL_HANDLE;
+        VkDescriptorSetLayout layout;
+
+        u32 descriptorCount;
+        list<i32> freeList;
+
+        Mutex mutex = {};
+
+        i32 Allocate()
+        {
+            i32 result = -1;
+            MutexScope(&mutex)
+            {
+                if (freeList.size() != 0)
+                {
+                    result = freeList.back();
+                    freeList.pop_back();
+                }
+            }
+            return result;
+        }
+
+        void Free(i32 i)
+        {
+            if (i >= 0)
+            {
+                MutexScope(&mutex)
+                {
+                    freeList.push_back(i);
+                }
+            }
+        }
+    };
+
+    BindlessDescriptorPool bindlessDescriptorPools[DescriptorType_Count];
 
     //////////////////////////////
     // Default samplers

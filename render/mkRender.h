@@ -19,6 +19,7 @@
  * when meshes are loaded though, textures are also loaded (eventually async). when they are finished
  * loading, they are sent to the gpu then freed
  */
+#include "../shaders/ShaderInterop.h"
 #include "../mkCrack.h"
 #ifdef LSP_INCLUDE
 #include "../mkCommon.h"

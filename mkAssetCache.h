@@ -216,7 +216,7 @@ struct AS_CacheState
     i32 freeAssetCount;
 
     // inspired by idHashIndex
-    AS_HashMap fileHash;
+    HashIndex fileHash;
 
     // Tag Maps for assets
     AS_TagMap tagMap;
@@ -245,7 +245,6 @@ enum AS_Type
     AS_Skeleton,
     AS_Anim,
     AS_Model,
-    AS_Shader,
     AS_Count,
 };
 
@@ -260,12 +259,6 @@ struct Font
 {
     F_Data fontData;
 };
-
-// enum AS_MemoryType
-// {
-//     AS_MemoryType_StaticCPU,
-//     AS_MemoryType_StaticGPU,
-// };
 
 struct AS_Asset
 {
@@ -292,20 +285,6 @@ struct AS_Asset
         Font font;
     };
 };
-
-// struct AS_Node
-// {
-//     AS_Node *next;
-//     AS_Asset asset;
-// };
-//
-// struct AS_Slot
-// {
-//     AS_Node *first;
-//     AS_Node *last;
-//
-//     Mutex mutex;
-// };
 
 internal void AS_Init();
 internal u64 RingRead(u8 *base, u64 ringSize, u64 readPos, void *dest, u64 destSize);
@@ -366,22 +345,13 @@ inline b8 IsFontNil(Font *font)
 // #endif
 
 //////////////////////////////
-// Asset hash maps (using indices)
-//
-
-internal i32 AS_FirstInHash(i32 hash);
-internal i32 AS_NextInHash(i32 index);
-internal i32 AS_FirstInHash(string path);
-internal void AS_AddInHash(i32 key, i32 index);
-internal void AS_RemoveFromHash(i32 key, i32 index);
-
-//////////////////////////////
 // B tree
 //
 
 // Main functions
 internal AS_MemoryBlockNode *AS_Alloc(i32 size);
 internal void AS_Free(AS_Asset *asset);
+internal void AS_Free(void **ptr);
 internal u8 *AS_GetMemory(AS_Asset *asset);
 
 // Helpers

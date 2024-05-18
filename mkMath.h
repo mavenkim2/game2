@@ -11,6 +11,12 @@
 #define Max(a, b) ((a) > (b) ? (a) : (b))
 #define Min(a, b) ((a) < (b) ? (a) : (b))
 
+template <typename T>
+inline b32 IsPow2(T value)
+{
+    return (value & (value - 1)) == 0;
+}
+
 inline u32 SafeTruncateU64(u64 value)
 {
     Assert(value <= 0xffffffff);
@@ -243,6 +249,12 @@ union V4
     {
         return elements[index];
     }
+};
+
+union UV4
+{
+    u32 x, y, z, w;
+    u32 elements[4];
 };
 
 union V4I32
@@ -1421,6 +1433,26 @@ inline V4 GetRow(Mat4 &mat, i32 idx)
     row.z = mat.columns[2][idx];
     row.w = mat.columns[3][idx];
     return row;
+}
+
+inline Rect3 Transform(Mat4 &transform, Rect3 bounds)
+{
+    bounds.minP = transform * bounds.minP;
+    bounds.maxP = transform * bounds.maxP;
+
+    if (bounds.minP.x > bounds.maxP.x)
+    {
+        Swap(f32, bounds.minP.x, bounds.maxP.x);
+    }
+    if (bounds.minP.y > bounds.maxP.y)
+    {
+        Swap(f32, bounds.minP.y, bounds.maxP.y);
+    }
+    if (bounds.minP.z > bounds.maxP.z)
+    {
+        Swap(f32, bounds.minP.z, bounds.maxP.z);
+    }
+    return bounds;
 }
 
 // Returns a basis from a direction vector

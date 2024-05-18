@@ -1,49 +1,29 @@
-#version 460 core
-#define f32 float
-#define u32 int unsigned
-#define V2 vec2
-#define V3 vec3
-#define V4 vec4
-#define Mat4 mat4
+#extension GL_EXT_nonuniform_qualifier : enable
 
-#define PI 3.14159265
-const int MAX_CASCADES = 4;
-const int MAX_BONES = 200;
+#include "ShaderInterop.h"
 
-// TODO: these should be passed in
-#define MAX_TEXTURES_PER_MATERIAL 4
-#define MAX_MESHES 32
-
-// NOTE: this is the max size.(64 KB)
-#define MAX_SKINNING_MATRICES 1024
-
-struct MeshPerDrawParams 
+layout(set = 1, binding = 0) uniform sampler2D bindlessTextures[];
+layout(set = 2, binding = 0) buffer bindlessStorageBuffers_
 {
-    Mat4 mModelToWorldMatrix;
-    uvec2 mIndex[MAX_TEXTURES_PER_MATERIAL];
-    unsigned int mSlice[MAX_TEXTURES_PER_MATERIAL];
-    int mJointOffset;
-    int mIsPBR;
+    float v[];
+} bindlessStorageBuffers[];
 
-    int _pad[2];
-};
-
-layout (std140, binding = 2) uniform globalUniforms
+layout(set = 2, binding = 0) buffer bindlessStorageBuffersVec2_
 {
-    Mat4 viewPerspectiveMatrix;
-    Mat4 viewMatrix;
-    V4 viewPosition;
-    // TODO: light struct
-    V4 lightDir;
-    V4 cascadeDistances;
-};
+    vec2 v[];
+} bindlessStorageBuffersVec2[];
 
-layout (std430, binding = 3) readonly buffer perDrawUniforms
+layout(set = 2, binding = 0) buffer bindlessStorageBuffersVec3_
 {
-    MeshPerDrawParams rMeshParams[MAX_MESHES];
-};
+    vec3 v[];
+} bindlessStorageBuffersVec3[];
 
-layout (std140, binding = 4) uniform skinningMatrices
+layout(set = 2, binding = 0) buffer bindlessStorageBuffersVec4_
 {
-    Mat4 rBoneTransforms[MAX_SKINNING_MATRICES];
-};
+    vec4 v[];
+} bindlessStorageBuffersVec4[];
+
+layout(set = 2, binding = 0) buffer bindlessStorageBuffersUVec4_
+{
+    uvec4 v[];
+} bindlessStorageBuffersUVec4[];

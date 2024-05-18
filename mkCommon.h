@@ -10,7 +10,7 @@
 #define COMPILER_MSVC 1
 #if defined(_WIN32)
 #define WINDOWS 1
-#define VULKAN 1
+#define VULKAN  1
 #endif
 #endif
 
@@ -159,6 +159,12 @@ print_func *Printf;
 #define loopj(start, end) for (u32 j = start; j < end; j++)
 
 #define AlignPow2(x, b) (((x) + (b)-1) & (~((b)-1)))
+
+template <typename T>
+inline T Align(T value, T alignment)
+{
+    return ((value + alignment - T(1)) / alignment) * alignment;
+}
 
 ////////////////////////////////////////////////////////////////////////////////////////
 // Linked list helpers
@@ -349,6 +355,16 @@ inline void EndLock(FakeLock *lock)
     lock->mLocked = 0;
 }
 
+//////////////////////////////
+// Flags
+//
+
+template <typename E>
+inline b32 HasFlags(E lhs, E rhs)
+{
+    return (lhs & rhs) == rhs;
+}
+
 #if INTERNAL
 #define BeginFakeLock(lock) BeginLock(lock)
 #define EndFakeLock(lock)   EndLock(lock)
@@ -373,11 +389,5 @@ inline void EndLock(FakeLock *lock)
 //
 #define Glue(a, b)             a##b
 #define StaticAssert(expr, ID) global u8 Glue(ID, __LINE__)[(expr) ? 1 : -1]
-
-#ifdef GAME_DLL
-#define SHARED extern
-#else
-#define SHARED
-#endif
 
 #endif

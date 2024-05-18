@@ -195,14 +195,14 @@ internal void StringCopy(string *out, string in)
     out->size = in.size;
 }
 
-internal b32 operator==(string a, string b)
+b32 string::operator==(const string &a)
 {
     b32 result = false;
-    if (a.size == b.size)
+    if (size == a.size)
     {
         for (int i = 0; i < a.size; i++)
         {
-            result = (a.str[i] == b.str[i]);
+            result = (str[i] == a.str[i]);
             if (!result)
             {
                 break;
@@ -210,6 +210,12 @@ internal b32 operator==(string a, string b)
         }
     }
     return result;
+}
+
+b32 string::operator==(const char *text)
+{
+    string test = Str8C(text);
+    return *this == test;
 }
 
 internal string SkipWhitespace(string str)
@@ -409,6 +415,21 @@ internal u64 HashStruct_(void *ptr, u64 size)
 //////////////////////////////
 // String reading
 //
+inline b32 Advance(Tokenizer *tokenizer, string check)
+{
+    string token;
+    Assert((u64)(tokenizer->input.str + tokenizer->input.size - tokenizer->cursor) > check.size);
+    token.size   = check.size;
+    token.str = tokenizer->cursor;
+
+    if (token == check)
+    {
+        tokenizer->cursor += check.size;
+        return true;
+    }
+    return false;
+}
+
 inline void Advance(Tokenizer *tokenizer, u32 size)
 {
     if (tokenizer->cursor + size <= tokenizer->input.str + tokenizer->input.size)
@@ -433,18 +454,90 @@ inline b32 EndOfBuffer(Tokenizer *tokenizer)
     return result;
 }
 
-// TODO: maybe I don't want to advance if the end of the buffer is reached
 internal string ReadLine(Tokenizer *tokenizer)
 {
     string result;
     result.str  = tokenizer->cursor;
     result.size = 0;
 
-    while (*tokenizer->cursor++ != '\n' && !EndOfBuffer(tokenizer))
+    while (!EndOfBuffer(tokenizer) && *tokenizer->cursor++ != '\n')
     {
         result.size++;
     }
     return result;
+}
+
+inline f32 ReadFloat(Tokenizer *iter)
+{
+    f32 value    = 0;
+    i32 exponent = 0;
+    u8 c;
+    b32 valueSign = (*iter->cursor == '-');
+    if (valueSign || *iter->cursor == '+')
+    {
+        iter->cursor++;
+    }
+    while (CharIsDigit((c = *iter->cursor++)))
+    {
+        value = value * 10.0f + (c - '0');
+    }
+    if (c == '.')
+    {
+        while (CharIsDigit((c = *iter->cursor++)))
+        {
+            value = value * 10.0f + (c - '0');
+            exponent -= 1;
+        }
+    }
+    if (c == 'e' || c == 'E')
+    {
+        i32 sign = 1;
+        i32 i    = 0;
+        c        = *iter->cursor++;
+        sign     = c == '+' ? 1 : -1;
+        c        = *iter->cursor++;
+        while (CharIsDigit(c))
+        {
+            i = i * 10 + (c - '0');
+            c = *iter->cursor++;
+        }
+        exponent += i * sign;
+    }
+    while (exponent > 0)
+    {
+        value *= 10.0f;
+        exponent--;
+    }
+    while (exponent < 0)
+    {
+        value *= 0.1f;
+        exponent++;
+    }
+    if (valueSign)
+    {
+        value = -value;
+    }
+    return value;
+}
+
+inline u32 ReadUint(Tokenizer *iter)
+{
+    u32 result = 0;
+    while (CharIsDigit(*iter->cursor))
+    {
+        result *= 10;
+        result += *iter->cursor++ - '0';
+    }
+    return result;
+}
+
+inline void SkipToNextLine(Tokenizer *iter)
+{
+    while (!EndOfBuffer(iter) && *iter->cursor != '\n')
+    {
+        iter->cursor++;
+    }
+    iter->cursor++;
 }
 
 internal void Get(Tokenizer *tokenizer, void *ptr, u32 size)
@@ -508,14 +601,14 @@ internal u64 PutU64(StringBuilder *builder, u64 value)
 
 internal void PutLine(StringBuilder *builder, u32 indents, char *fmt, ...)
 {
-    string result = {};
     va_list args;
     va_start(args, fmt);
     for (u32 i = 0; i < indents; i++)
     {
         Put(builder, "\t");
     }
-    result = PushStr8FV(builder->arena, fmt, args);
+    string result = PushStr8FV(builder->arena, fmt, args);
+    Put(builder, result);
     Put(builder, "\n");
     va_end(args);
 }

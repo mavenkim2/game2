@@ -1,25 +1,14 @@
 #version 450
+#include "global.glsl"
 
 layout(location = 0) out vec4 outColor;
 
-struct ModelParams
-{
-    mat4 transform;
-    mat4 modelViewMatrix;
-    mat4 modelMatrix;
-};
 
 layout(binding = 0) uniform ModelBufferObject 
 {
-    ModelParams params[8];
-    mat4 lightViewProjectionMatrices[8];
-    vec4 cascadeDistances;
-    vec4 lightDir;
-    vec4 viewPos;
-} ubo;
+    Ubo ubo;
+};
 
-layout(binding = 2) uniform sampler2D albedo;
-layout(binding = 3) uniform sampler2D normalSampler;
 layout(binding = 4) uniform sampler2DArray shadowMaps;
 
 in VS_OUT
@@ -30,10 +19,16 @@ in VS_OUT
     layout (location = 3) in mat3 tbn;
 } fragment;
 
+layout (push_constant) uniform PushConstant_
+{
+    PushConstant push;
+};
+
+
 void main()
 {
-    vec3 albedo = texture(albedo, fragment.uv).rgb;
-    vec3 normal = normalize(texture(normalSampler, fragment.uv).rgb * 2 - 1);
+    vec3 albedo = texture(bindlessTextures[nonuniformEXT(push.albedo)], fragment.uv).rgb;
+    vec3 normal = normalize(texture(bindlessTextures[nonuniformEXT(push.normal)], fragment.uv).rgb * 2 - 1);
     float viewZ = abs(fragment.viewFragPos.z);
 
     int shadowIndex = 3;

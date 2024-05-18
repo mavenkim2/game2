@@ -34,6 +34,7 @@ struct JobArgs
     u32 jobId;
     u32 idInGroup;
     b32 isLastJob;
+    u32 threadId;
 };
 
 using JobFunction = std::function<void(JobArgs)>;
@@ -61,7 +62,8 @@ struct JobSystem
     JobQueue highPriorityQueue;
     JobQueue lowPriorityQueue;
 
-    list<OS_Handle> threads;
+    OS_Handle threads[16]; // TODO: ?
+    u32 threadCount;
     OS_Handle readSemaphore;
 };
 
@@ -70,11 +72,11 @@ global JobSystem jobSystem;
 void InitializeJobsystem()
 {
     // jobSystem.threads.resize((size_t)platform.NumProcessors());
-    u32 numProcessors = platform.NumProcessors();
-    jobSystem.threads.resize(numProcessors);
-    jobSystem.readSemaphore = platform.CreateSemaphore(numProcessors);
+    u32 numProcessors       = platform.NumProcessors();
+    jobSystem.threadCount   = Min(ArrayLength(jobSystem.threads), numProcessors);
+    jobSystem.readSemaphore = platform.CreateSemaphore(jobSystem.threadCount);
 
-    for (size_t i = 0; i < jobSystem.threads.size(); i++)
+    for (size_t i = 0; i < numProcessors; i++)
     {
         jobSystem.threads[i] = platform.ThreadStart(jobsystem::JobThreadEntryPoint, (void *)i);
         platform.SetThreadAffinity(jobSystem.threads[i], i);
@@ -111,10 +113,8 @@ void KickJob(Counter *counter, const JobFunction &func, Priority priority = Prio
     }
 }
 
-void KickJobs(Counter *counter, u32 numJobs, u32 numGroups, const JobFunction &func, Priority priority = Priority::Low)
+void KickJobs(Counter *counter, u32 numJobs, u32 groupSize, const JobFunction &func, Priority priority = Priority::Low)
 {
-    Assert(numJobs > 0 && numGroups > 0 && numJobs >= numGroups);
-
     JobQueue *queue = 0;
     switch (priority)
     {
@@ -122,7 +122,7 @@ void KickJobs(Counter *counter, u32 numJobs, u32 numGroups, const JobFunction &f
         case Priority::High: queue = &jobSystem.highPriorityQueue; break;
     }
 
-    u32 groupSize = ((numJobs + numGroups - 1) / numGroups);
+    u32 numGroups = ((numJobs + groupSize - 1) / groupSize);
 
     for (;;)
     {
@@ -138,7 +138,8 @@ void KickJobs(Counter *counter, u32 numJobs, u32 numGroups, const JobFunction &f
                 job->counter       = counter;
                 job->groupId       = i;
                 job->groupJobStart = i * groupSize;
-                job->groupJobSize  = Min(groupSize, numJobs - (i * groupSize));
+                job->groupJobSize  = Min(groupSize, numJobs - job->groupJobStart);
+                u32 x              = 0;
             }
             queue->writePos.fetch_add(numGroups);
             counter->count.fetch_add(numGroups);
@@ -156,7 +157,7 @@ void WaitJobs(Counter *counter)
     }
 }
 
-b32 Pop(JobQueue &queue)
+b32 Pop(JobQueue &queue, u64 threadIndex)
 {
     b32 result         = 0;
     u64 writePos       = queue.writePos.load();
@@ -173,6 +174,7 @@ b32 Pop(JobQueue &queue)
             JobArgs args;
             for (u32 i = job->groupJobStart; i < job->groupJobStart + job->groupJobSize; i++)
             {
+                args.threadId  = (u32)threadIndex;
                 args.jobId     = i;
                 args.idInGroup = i - job->groupJobStart;
                 args.isLastJob = i == (job->groupJobSize + job->groupJobSize - 1);
@@ -192,7 +194,7 @@ void JobThreadEntryPoint(void *p)
     ScratchEnd(temp);
     for (; !gTerminateJobs;)
     {
-        if (!Pop(jobSystem.highPriorityQueue) && !Pop(jobSystem.lowPriorityQueue))
+        if (!Pop(jobSystem.highPriorityQueue, threadIndex) && !Pop(jobSystem.lowPriorityQueue, threadIndex))
         {
             platform.SignalWait(jobSystem.readSemaphore);
         }
@@ -202,10 +204,10 @@ void JobThreadEntryPoint(void *p)
 void EndJobsystem()
 {
     gTerminateJobs = 1;
-    while (!Pop(jobSystem.highPriorityQueue) && !Pop(jobSystem.lowPriorityQueue)) continue;
+    while (!Pop(jobSystem.highPriorityQueue, 0) && !Pop(jobSystem.lowPriorityQueue, 0)) continue;
 
-    platform.ReleaseSemaphores(jobSystem.readSemaphore, jobSystem.threads.size());
-    for (size_t i = 0; i < jobSystem.threads.size(); i++)
+    platform.ReleaseSemaphores(jobSystem.readSemaphore, jobSystem.threadCount);
+    for (size_t i = 0; i < jobSystem.threadCount; i++)
     {
         platform.ThreadJoin(jobSystem.threads[i]);
     }

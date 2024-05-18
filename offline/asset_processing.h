@@ -51,21 +51,35 @@ struct InputMaterial
     string name;
     string texture[TextureType_Count];
 
-    f32 metallicFactor  = 0.f;
+    f32 metallicFactor  = 1.f;
     f32 roughnessFactor = 1.f;
     V4 baseColor        = {1, 1, 1, 1};
 };
 
 struct InputMesh
 {
-    MeshVertex *vertices;
-    u32 *indices;
-    u32 vertexCount;
-    u32 indexCount;
+    struct MeshSubset
+    {
+        V3 *positions;
+        V3 *normals;
+        V2 *uvs;
+        V3 *tangents;
+        UV4 *boneIds;
+        V4 *boneWeights;
+        u32 *indices;
 
-    // InputMaterial material;
-    string materialName;
+        u32 vertexCount;
+        u32 indexCount;
+        string materialName;
+    };
+    MeshSubset *subsets;
+
+    Mat4 transform;
+    u32 totalVertexCount;
+    u32 totalIndexCount;
+    u32 totalSubsets;
     Rect3 bounds;
+    MeshFlags flags;
 };
 
 struct InputModel
@@ -109,22 +123,18 @@ struct CompressedAnimationRotation
 struct CompressedBoneChannel
 {
     string name;
-    list<AnimationPosition> positions;
-    list<AnimationScale> scales;
-    list<CompressedAnimationRotation> rotations;
-    // AnimationPosition *positions;
-    // AnimationScale *scales;
-    // CompressedAnimationRotation *rotations;
+    AnimationPosition *positions;
+    AnimationScale *scales;
+    CompressedAnimationRotation *rotations;
 
-    // u32 numPositionKeys;
-    // u32 numScalingKeys;
-    // u32 numRotationKeys;
+    u32 numPositionKeys;
+    u32 numScalingKeys;
+    u32 numRotationKeys;
 };
 
 struct CompressedKeyframedAnimation
 {
-    // CompressedBoneChannel *boneChannels;
-    list<CompressedBoneChannel> boneChannels;
+    CompressedBoneChannel *boneChannels;
     u32 numNodes;
 
     f32 duration;

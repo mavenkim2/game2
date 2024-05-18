@@ -44,60 +44,6 @@ inline u32 GetType(Iter iter)
     return objType;
 }
 
-// TODO: is float imprecision solvable?
-inline f32 ReadFloat(Iter *iter)
-{
-    f32 value    = 0;
-    i32 exponent = 0;
-    u8 c;
-    b32 valueSign = (*iter->cursor == '-');
-    if (valueSign || *iter->cursor == '+')
-    {
-        iter->cursor++;
-    }
-    while (CharIsDigit((c = *iter->cursor++)))
-    {
-        value = value * 10.0f + (c - '0');
-    }
-    if (c == '.')
-    {
-        while (CharIsDigit((c = *iter->cursor++)))
-        {
-            value = value * 10.0f + (c - '0');
-            exponent -= 1;
-        }
-    }
-    if (c == 'e' || c == 'E')
-    {
-        i32 sign = 1;
-        i32 i    = 0;
-        c        = *iter->cursor++;
-        sign     = c == '+' ? 1 : -1;
-        c        = *iter->cursor++;
-        while (CharIsDigit(c))
-        {
-            i = i * 10 + (c - '0');
-            c = *iter->cursor++;
-        }
-        exponent += i * sign;
-    }
-    while (exponent > 0)
-    {
-        value *= 10.0f;
-        exponent--;
-    }
-    while (exponent < 0)
-    {
-        value *= 0.1f;
-        exponent++;
-    }
-    if (valueSign)
-    {
-        value = -value;
-    }
-    return value;
-}
-
 inline V3I32 ParseFaceVertex(Iter *iter)
 {
     V3I32 result;
@@ -114,15 +60,6 @@ inline V3I32 ParseFaceVertex(Iter *iter)
         iter->cursor++;
     }
     return result;
-}
-
-inline void SkipToNextLine(Iter *iter)
-{
-    while (!IsEndOfFile(iter) && *iter->cursor != '\n')
-    {
-        iter->cursor++;
-    }
-    iter->cursor++;
 }
 
 inline void GetNextWord(Iter *iter)
@@ -182,8 +119,6 @@ internal i32 FindMeshNodeInfo(MeshNodeInfoArray *array, string name)
     }
     return id;
 }
-
-// TODO: load all the other animations
 
 inline V3 CalculateTangents(const MeshVertex *vertex1, const MeshVertex *vertex2, const MeshVertex *vertex3)
 {
