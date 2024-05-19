@@ -676,11 +676,11 @@ mkGraphicsVulkan::mkGraphicsVulkan(OS_Handle window, ValidationMode validationMo
             poolSize.type                                  = descriptorType;
             if (type == DescriptorType_Storage)
             {
-                poolSize.descriptorCount = Min(100, mDeviceProperties.properties.limits.maxDescriptorSetStorageBuffers / 4);
+                poolSize.descriptorCount = Min(10000, mDeviceProperties.properties.limits.maxDescriptorSetStorageBuffers / 4);
             }
             else if (type == DescriptorType_CombinedSampler)
             {
-                poolSize.descriptorCount = Min(100, mDeviceProperties.properties.limits.maxDescriptorSetSampledImages / 4);
+                poolSize.descriptorCount = Min(10000, mDeviceProperties.properties.limits.maxDescriptorSetSampledImages / 4);
             }
             bindlessDescriptorPool.descriptorCount = poolSize.descriptorCount;
 

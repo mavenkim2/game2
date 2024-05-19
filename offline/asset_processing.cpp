@@ -698,6 +698,7 @@ int main(int argc, char *argv[])
                                     subset->materialName.size = 0;
                                 }
 
+                                u32 baseVertex     = mesh->totalVertexCount;
                                 subset->indexCount = primitive->indices->count;
                                 mesh->totalIndexCount += subset->indexCount;
                                 subset->indices = PushArrayNoZero(arena, u32, subset->indexCount);
@@ -797,6 +798,11 @@ int main(int argc, char *argv[])
                                 // TODO: I'm going to have to generate these, either using mikkt or manually
                                 Assert(subset->tangents);
                                 OptimizeMesh(subset);
+
+                                for (size_t indexIndex = 0; indexIndex < primitive->indices->count; indexIndex++)
+                                {
+                                    subset->indices[indexIndex] = subset->indices[indexIndex] + baseVertex;
+                                }
                             }
                             // ScratchEnd(temp);
                         },

@@ -165,9 +165,10 @@ b32 Pop(JobQueue &queue, u64 threadIndex)
     if (availableSpots >= 1)
     {
         result = 1;
-        if (queue.commitReadPos.compare_exchange_weak(readPos, readPos + 1))
+        if (queue.commitReadPos.compare_exchange_strong(readPos, readPos + 1))
         {
             Job *readJob = &queue.jobs[(readPos) & (JOB_QUEUE_LENGTH - 1)];
+            Printf("Read pos: %u\n", readPos);
 
             Job job;
             job.groupJobStart = readJob->groupJobStart;

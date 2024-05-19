@@ -1392,6 +1392,7 @@ internal void Render()
             device->BindPipeline(&shadowMapPipeline, cmdList);
             device->BindResource(&ubo, MODEL_PARAMS_BIND, cmdList);
             device->BindResource(currentSkinBuf, SKINNING_BIND, cmdList);
+            device->UpdateDescriptorSet(cmdList);
 
             Viewport viewport;
             viewport.width  = (f32)shadowDepthBuffer.mDesc.mWidth;
@@ -1427,7 +1428,6 @@ internal void Render()
 
                     device->PushConstants(cmdList, sizeof(pc), &pc);
                     device->BindIndexBuffer(cmdList, &mesh->buffer, mesh->indexView.offset);
-                    device->UpdateDescriptorSet(cmdList);
 
                     device->DrawIndexed(cmdList, mesh->indexCount, 0, 0);
                 }
@@ -1456,6 +1456,7 @@ internal void Render()
         device->BindResource(&ubo, MODEL_PARAMS_BIND, cmdList);
         device->BindResource(currentSkinBuf, SKINNING_BIND, cmdList);
         device->BindResource(&shadowDepthBuffer, SHADOW_MAP_BIND, cmdList);
+        device->UpdateDescriptorSet(cmdList);
 
         Viewport viewport;
         viewport.width  = (f32)swapchain.GetDesc().width;
@@ -1480,6 +1481,7 @@ internal void Render()
             {
                 Mesh *mesh = &model->meshes[meshIndex];
                 // TODO: multi draw indirect somehow
+                u32 baseVertex = 0;
                 for (u32 subsetIndex = 0; subsetIndex < mesh->numSubsets; subsetIndex++)
                 {
                     Mesh::MeshSubset *subset           = &mesh->subsets[subsetIndex];
@@ -1487,7 +1489,7 @@ internal void Render()
 
                     graphics::Texture *texture = GetTexture(material.textures[TextureType_Diffuse]);
                     i32 descriptorIndex        = device->GetDescriptorIndex(texture);
-                    pc.albedo = descriptorIndex;
+                    pc.albedo                  = descriptorIndex;
 
                     texture         = GetTexture(material.textures[TextureType_Normal]);
                     descriptorIndex = device->GetDescriptorIndex(texture);
@@ -1499,13 +1501,14 @@ internal void Render()
                     pc.vertexUv         = mesh->vertexUvView.subresourceDescriptor;
                     pc.vertexBoneId     = mesh->vertexBoneIdView.subresourceDescriptor;
                     pc.vertexBoneWeight = mesh->vertexBoneWeightView.subresourceDescriptor;
+                    pc.meshTransform    = mesh->transform;
 
                     device->PushConstants(cmdList, sizeof(pc), &pc);
 
                     device->BindIndexBuffer(cmdList, &mesh->buffer, mesh->indexView.offset);
-                    device->UpdateDescriptorSet(cmdList);
 
-                    device->DrawIndexed(cmdList, mesh->indexCount, 0, 0);
+                    device->DrawIndexed(cmdList, subset->indexCount, subset->indexStart, 0);
+                    baseVertex += subset->indexCount;
                 }
             }
         }

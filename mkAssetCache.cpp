@@ -459,7 +459,6 @@ JOB_CALLBACK(AS_LoadAsset)
                 component.baseColor.y = ReadFloat(&materialTokenizer);
                 component.baseColor.z = ReadFloat(&materialTokenizer);
                 component.baseColor.w = ReadFloat(&materialTokenizer);
-                SkipToNextLine(&materialTokenizer);
             }
             result = Advance(&materialTokenizer, "\tNormal: ");
             if (result)
@@ -517,10 +516,10 @@ JOB_CALLBACK(AS_LoadAsset)
 
                 if (materialName.size != 0)
                 {
-                    materialName.str     = GetTokenCursor(&tokenizer, u8);
-                    scene::Entity entity = gameScene.CreateEntity();
-                    gameScene.materials.Link(entity, materialName);
-                    mesh->subsets[subsetIndex].materialIndex = entity;
+                    materialName.str = GetTokenCursor(&tokenizer, u8);
+                    // scene::Entity entity = gameScene.CreateEntity();
+                    // gameScene.materials.Link(entity, materialName);
+                    mesh->subsets[subsetIndex].materialIndex = gameScene.materials.GetComponentIndex(materialName);
                     Advance(&tokenizer, (u32)materialName.size);
                 }
             }
@@ -879,7 +878,7 @@ internal AS_Asset *AS_GetAssetFromHandle(AS_Handle handle)
 internal AS_Asset *AS_AllocAsset(const string inPath)
 {
     AS_CacheState *as_state = engine->GetAssetCacheState();
-    BeginFakeLock(&as_state->fakeLock);
+    BeginMutex(&as_state->lock);
 
     AS_Asset *asset = 0;
     i32 hash        = HashFromString(inPath);
@@ -905,7 +904,7 @@ internal AS_Asset *AS_AllocAsset(const string inPath)
     }
     as_state->fileHash.AddInHash(hash, asset->id);
 
-    EndFakeLock(&as_state->fakeLock);
+    EndMutex(&as_state->lock);
 
     AS_EnqueueFile(inPath);
 
@@ -915,7 +914,7 @@ internal AS_Asset *AS_AllocAsset(const string inPath)
 internal void AS_FreeAsset(AS_Handle handle)
 {
     AS_CacheState *as_state = engine->GetAssetCacheState();
-    BeginFakeLock(&as_state->fakeLock);
+    BeginMutex(&as_state->lock);
     AS_Asset *asset = AS_GetAssetFromHandle(handle);
     if (asset)
     {
@@ -928,7 +927,7 @@ internal void AS_FreeAsset(AS_Handle handle)
         Assert(id >= 0);
         as_state->freeAssetList[id] = asset->id;
     }
-    EndFakeLock(&as_state->fakeLock);
+    EndMutex(&as_state->lock);
 }
 
 internal AS_Handle AS_GetAsset_(const string inPath, const b32 inLoadIfNotFound = 1)

@@ -199,7 +199,7 @@ G_INIT(G_Init)
         {
             g_state->mEntities[0].mAssetHandle = AS_GetAsset(Str8Lit("data/models/dragon.model"));
             g_state->mEntities[1].mAssetHandle = AS_GetAsset(Str8Lit("data/models/hero.model"));
-            // g_state->mEntities[2].mAssetHandle = AS_GetAsset(Str8Lit("data/models/Main.1_Sponza.model"));
+            g_state->mEntities[2].mAssetHandle = AS_GetAsset(Str8Lit("data/models/Main.1_Sponza.model"));
 
             Mat4 translate          = Translate4(V3{0, 20, 0});
             Mat4 scale              = Scale(V3{0.5f, 0.5f, 0.5f});
@@ -210,9 +210,9 @@ G_INIT(G_Init)
             // scale                   = Scale(V3{1, 1, 1});
             g_state->mTransforms[1] = translate * rotate;
 
-            // translate = Translate4(V3{0, 0, -50});
-            // scale                   = Scale(V3{1, 1, 1});
-            // g_state->mTransforms[2] = translate * rotate;
+            translate = Translate4(V3{0, 0, -50});
+            scale                   = Scale(V3{1, 1, 1});
+            g_state->mTransforms[2] = translate * rotate;
 
             AS_Handle anim           = AS_GetAsset(Str8Lit("data/animations/Qishilong_attack01.anim"));
             AnimationPlayer *aPlayer = &g_state->mAnimPlayers[0];
@@ -222,7 +222,7 @@ G_INIT(G_Init)
             aPlayer = &g_state->mAnimPlayers[1];
             StartLoopedAnimation(g_state->permanentArena, aPlayer, anim);
 
-            g_state->mEntityCount += 2;
+            g_state->mEntityCount += 3;
             // KeyframedAnimation *animation = PushStruct(g_state->permanentArena, KeyframedAnimation);
         }
 

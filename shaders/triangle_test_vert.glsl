@@ -55,7 +55,7 @@ void main()
     }
     else
     {
-        modelSpacePos = vec4(pos, 1.0);
+        modelSpacePos = push.meshTransform * vec4(pos, 1.0);
         gl_Position = ubo.params[push.modelIndex].transform * modelSpacePos;
     }
 

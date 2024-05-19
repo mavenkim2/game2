@@ -64,6 +64,10 @@ public:
 
         components.emplace_back();
         components.back().name = name;
+        for (u32 i = 0; i < ArrayLength(components.back().textures); i++)
+        {
+            components.back().textures[i] = {};
+        }
         return components.back();
     }
 

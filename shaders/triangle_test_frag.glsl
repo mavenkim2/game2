@@ -87,7 +87,7 @@ void main()
     float spec = specularStrength;
     vec3 specular = spec * albedo;
 
-    vec3 color = (ambient + diffuse + specular) * (1 - .8 * shadow);
+    vec3 color = (ambient + diffuse + specular);// * (1 - .8 * shadow);
     outColor = vec4(color, 1.0);
 
     // outColor = vec4(fragment.boneWeights);

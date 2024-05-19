@@ -32,6 +32,7 @@ struct Ubo
 
 struct PushConstant
 {
+    mat4 meshTransform;
     int modelIndex;
     int skinningOffset;
 

@@ -233,7 +233,7 @@ struct AS_CacheState
 
     AS_DynamicBlockAllocator allocator;
 
-    FakeLock fakeLock;
+    Mutex lock;
 };
 
 enum AS_Type
