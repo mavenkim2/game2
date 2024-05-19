@@ -49,6 +49,7 @@ public:
         }
         components.reserve(reserve);
         handleMap.Init();
+        components.emplace_back(); // null
     }
 
     Component &operator[](i32 index)

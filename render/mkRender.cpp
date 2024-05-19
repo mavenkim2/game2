@@ -1192,12 +1192,6 @@ enum InputLayoutTypes
     IL_Type_Count,
 };
 
-const i32 MODEL_PARAMS_BIND = 0;
-const i32 SKINNING_BIND     = 1;
-const i32 ALBEDO_BIND       = 2;
-const i32 NORMAL_BIND       = 3;
-const i32 SHADOW_MAP_BIND   = 4;
-
 Swapchain swapchain;
 PipelineState pipelineState;
 
@@ -1314,8 +1308,6 @@ internal void Initialize()
         desc.mDescriptorBindings    = {
             DescriptorBinding(MODEL_PARAMS_BIND, ResourceUsage::UniformBuffer, ShaderStage::Vertex | ShaderStage::Fragment),
             DescriptorBinding(SKINNING_BIND, ResourceUsage::UniformBuffer, ShaderStage::Vertex | ShaderStage::Fragment),
-            // DescriptorBinding(ALBEDO_BIND, ResourceUsage::SampledTexture, ShaderStage::Fragment),
-            // DescriptorBinding(NORMAL_BIND, ResourceUsage::SampledTexture, ShaderStage::Fragment),
             DescriptorBinding(SHADOW_MAP_BIND, ResourceUsage::SampledTexture, ShaderStage::Fragment),
         };
         // desc.mInputLayouts.push_back(&inputLayouts[IL_Type_MeshVertex]);
@@ -1323,7 +1315,7 @@ internal void Initialize()
         desc.mPushConstantRange.mOffset     = 0;
         desc.mPushConstantRange.mSize       = sizeof(PushConstant);
         desc.mPushConstantRange.mStageFlags = ShaderStage::Vertex;
-        device->CreateShader(&desc, &pipelineState);
+        device->CreateShader(&desc, &pipelineState, "Main pass");
 
         // Shadows
         desc                     = {};
@@ -1338,7 +1330,7 @@ internal void Initialize()
         desc.mPushConstantRange.mOffset     = 0;
         desc.mPushConstantRange.mSize       = sizeof(ShadowPushConstant);
         desc.mPushConstantRange.mStageFlags = ShaderStage::Vertex;
-        device->CreateShader(&desc, &shadowMapPipeline);
+        device->CreateShader(&desc, &shadowMapPipeline, "Depth pass");
     }
 }
 
@@ -1429,7 +1421,7 @@ internal void Render()
                     pc.vertexPos        = mesh->vertexPosView.subresourceDescriptor;
                     pc.vertexNor        = mesh->vertexNorView.subresourceDescriptor;
                     pc.vertexTan        = mesh->vertexTanView.subresourceDescriptor;
-                    pc.vertexUv         = mesh->vertexTanView.subresourceDescriptor;
+                    pc.vertexUv         = mesh->vertexUvView.subresourceDescriptor;
                     pc.vertexBoneId     = mesh->vertexBoneIdView.subresourceDescriptor;
                     pc.vertexBoneWeight = mesh->vertexBoneWeightView.subresourceDescriptor;
 
@@ -1495,7 +1487,7 @@ internal void Render()
 
                     graphics::Texture *texture = GetTexture(material.textures[TextureType_Diffuse]);
                     i32 descriptorIndex        = device->GetDescriptorIndex(texture);
-                    pc.albedo                  = descriptorIndex;
+                    pc.albedo = descriptorIndex;
 
                     texture         = GetTexture(material.textures[TextureType_Normal]);
                     descriptorIndex = device->GetDescriptorIndex(texture);
@@ -1504,7 +1496,7 @@ internal void Render()
                     pc.vertexPos        = mesh->vertexPosView.subresourceDescriptor;
                     pc.vertexNor        = mesh->vertexNorView.subresourceDescriptor;
                     pc.vertexTan        = mesh->vertexTanView.subresourceDescriptor;
-                    pc.vertexUv         = mesh->vertexTanView.subresourceDescriptor;
+                    pc.vertexUv         = mesh->vertexUvView.subresourceDescriptor;
                     pc.vertexBoneId     = mesh->vertexBoneIdView.subresourceDescriptor;
                     pc.vertexBoneWeight = mesh->vertexBoneWeightView.subresourceDescriptor;
 

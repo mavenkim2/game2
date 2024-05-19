@@ -4,7 +4,6 @@
 #include "../mkThreadContext.cpp"
 #include "../mkMemory.cpp"
 #include "../mkString.cpp"
-#include "../mkJob.cpp"
 #include "../mkJobsystem.h"
 
 #define STB_TRUETYPE_IMPLEMENTATION
@@ -22,109 +21,6 @@ Engine *engine;
 //
 global i32 skeletonVersionNumber = 1;
 global i32 animationFileVersion  = 1;
-
-//////////////////////////////
-// Model Loading
-//
-internal InputModel LoadAllMeshes(Arena *arena, const aiScene *scene);
-internal void ProcessMesh(Arena *arena, InputMesh *inputMesh, const aiScene *scene, const aiMesh *mesh);
-
-//////////////////////////////
-// Skeleton Loading
-//
-internal void LoadBones(Arena *arena, AssimpSkeletonAsset *skeleton, aiMesh *mesh, u32 baseVertex);
-internal void ProcessNode(Arena *arena, MeshNodeInfoArray *nodeArray, const aiNode *node);
-
-//////////////////////////////
-// Animation Loading
-//
-internal string ProcessAnimation(Arena *arena, CompressedKeyframedAnimation *outAnimation, aiAnimation *inAnimation);
-
-JOB_CALLBACK(ProcessAnimation);
-
-//////////////////////////////
-// File Output
-//
-internal void WriteModelToFile(InputModel *model, string directory, string filename);
-internal void WriteSkeletonToFile(Skeleton *skeleton, string filename);
-// internal void WriteAnimationToFile(CompressedKeyframedAnimation *animation, string filename);
-JOB_CALLBACK(WriteSkeletonToFile);
-JOB_CALLBACK(WriteModelToFile);
-// JOB_CALLBACK(WriteAnimationToFile);
-
-//////////////////////////////
-// Helpers
-//
-internal Mat4 ConvertAssimpMatrix4x4(aiMatrix4x4t<f32> m);
-internal i32 FindNodeIndex(Skeleton *skeleton, string name);
-internal i32 FindMeshNodeInfo(MeshNodeInfoArray *array, string name);
-
-inline AnimationTransform MakeAnimTform(V3 position, Quat rotation, V3 scale)
-{
-    AnimationTransform result;
-    result.translation = position;
-    result.rotation    = rotation;
-    result.scale       = scale;
-    return result;
-}
-
-//////////////////////////////
-// Helpers
-//
-internal i32 FindNodeIndex(Skeleton *skeleton, string name)
-{
-    i32 id = -1;
-    for (u32 i = 0; i < skeleton->count; i++)
-    {
-        string *ptrName = &skeleton->names[i];
-        if (*ptrName == name)
-        {
-            id = i;
-            break;
-        }
-    }
-    return id;
-}
-
-internal Mat4 ConvertAssimpMatrix4x4(aiMatrix4x4t<f32> m)
-{
-    Mat4 result;
-    result.a1 = m.a1;
-    result.a2 = m.b1;
-    result.a3 = m.c1;
-    result.a4 = m.d1;
-
-    result.b1 = m.a2;
-    result.b2 = m.b2;
-    result.b3 = m.c2;
-    result.b4 = m.d2;
-
-    result.c1 = m.a3;
-    result.c2 = m.b3;
-    result.c3 = m.c3;
-    result.c4 = m.d3;
-
-    result.d1 = m.a4;
-    result.d2 = m.b4;
-    result.d3 = m.c4;
-    result.d4 = m.d4;
-    return result;
-}
-
-internal i32 FindMeshNodeInfo(MeshNodeInfoArray *array, string name)
-{
-    i32 id = -1;
-    MeshNodeInfo *info;
-    foreach_index (array, info, i)
-    {
-        if (info->name == name)
-        {
-            id = i;
-            break;
-        }
-    }
-    return id;
-}
 
 //////////////////////////////
 // Optimization
@@ -528,42 +424,6 @@ internal void OptimizeMesh(InputMesh::MeshSubset *mesh)
 //////////////////////////////
 // Bounds
 //
-
-// internal Rect3 GetMeshBounds(InputMesh *mesh)
-// {
-//     Rect3 rect;
-//     Init(&rect);
-//     for (u32 i = 0; i < mesh->vertexCount; i++)
-//     {
-//         MeshVertex *vertex = &mesh->vertices[i];
-//         if (vertex->position.x < rect.minP.x)
-//         {
-//             rect.minP.x = vertex->position.x;
-//         }
-//         if (vertex->position.x > rect.maxP.x)
-//         {
-//             rect.maxP.x = vertex->position.x;
-//         }
-//         if (vertex->position.y < rect.minP.y)
-//         {
-//             rect.minP.y = vertex->position.y;
-//         }
-//         if (vertex->position.y > rect.maxP.y)
-//         {
-//             rect.maxP.y = vertex->position.y;
-//         }
-//         if (vertex->position.z < rect.minP.z)
-//         {
-//             rect.minP.z = vertex->position.z;
-//         }
-//         if (vertex->position.z > rect.maxP.z)
-//         {
-//             rect.maxP.z = vertex->position.z;
-//         }
-//     }
-//     return rect;
-// }
-
 internal void SkinModelToBindPose(const InputModel *inModel, Mat4 *outFinalTransforms)
 {
     TempArena temp           = ScratchStart(0, 0);
@@ -802,9 +662,6 @@ int main(int argc, char *argv[])
                     model.meshes      = meshes;
                     model.numMeshes   = data->meshes_count;
 
-                    // TODO: find a way to have per thread allocations that don't last for only one function scope?
-                    // u32 numThreads = jobsystem::GetNumThreads();
-                    // Arena **arenas = PushArrayNoZero(temp.arena, Arena **, numThreads);
                     Arena *arenas[16];
                     for (u32 i = 0; i < ArrayLength(arenas); i++)
                     {
@@ -905,6 +762,11 @@ int main(int argc, char *argv[])
                                         {
                                             cgltf_accessor_read_float(attribute->data, i, subset->uvs[i].elements, 2);
                                         }
+                                    }
+                                    else if (Str8C(attribute->name) == Str8Lit("TEXCOORD_1"))
+                                    {
+                                        // mesh->flags |= MeshFLags_Uvs;
+                                        int x = 5;
                                     }
                                     else if (Str8C(attribute->name) == Str8Lit("JOINTS_0"))
                                     {
@@ -1190,8 +1052,7 @@ int main(int argc, char *argv[])
 
                                         if (!passThrough || !AlmostEqual(position, firstPosition, epsilon))
                                         {
-                                            passThrough = 0;
-                                            // IMPORTANT: MAKE SURE THESE ARE IN ORDER
+                                            passThrough                       = 0;
                                             boneChannel.positions[i].time     = time - channel.sampler->input->min[0];
                                             boneChannel.positions[i].position = position;
                                         }
@@ -1267,7 +1128,9 @@ int main(int argc, char *argv[])
                                 break;
                             }
                         }
-                        animation->duration = maxTime - minTime;
+
+                        AnimationPosition nullPosition = {};
+                        animation->duration            = maxTime - minTime;
 
                         // Write animation to file
                         StringBuilder builder = {};
@@ -1282,8 +1145,11 @@ int main(int argc, char *argv[])
                         for (u32 i = 0; i < numNodes; i++)
                         {
                             CompressedBoneChannel *boneChannel = &animation->boneChannels[i];
-                            // TODO: sometimes there are no defined position keys? handle this case
-                            // Assert(boneChannel->numPositionKeys != 0);
+                            if (boneChannel->numPositionKeys == 0)
+                            {
+                                boneChannel->numPositionKeys = 1;
+                                boneChannel->positions       = &nullPosition;
+                            }
 
                             PutPointerValue(&builder, &boneChannel->name.size);
                             Put(&builder, boneChannel->name);

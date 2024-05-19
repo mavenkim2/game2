@@ -16,12 +16,12 @@ out VS_OUT
     layout(location = 3) out mat3 tbn;
 } result;
 
-layout(std140, binding = 0) uniform ModelBufferObject
+layout(std140, binding = MODEL_PARAMS_BIND) uniform ModelBufferObject
 {
     Ubo ubo;
 };
 
-layout(binding = 1) uniform SkinningBuffer
+layout(binding = SKINNING_BIND) uniform SkinningBuffer
 {
     mat4 transforms[1024];
 } skinning;
@@ -34,12 +34,12 @@ layout(push_constant) uniform PushConstant_
 void main()
 {
     vec4 modelSpacePos;
-    vec3 pos = bindlessStorageBuffersVec3[nonuniformEXT(push.vertexPos)].v[gl_VertexIndex];
-    vec3 n = bindlessStorageBuffersVec3[nonuniformEXT(push.vertexNor)].v[gl_VertexIndex];
-    vec2 uv = bindlessStorageBuffersVec2[nonuniformEXT(push.vertexUv)].v[gl_VertexIndex]; 
-    vec3 tangent = bindlessStorageBuffersVec3[nonuniformEXT(push.vertexTan)].v[gl_VertexIndex]; 
+    vec3 pos = GetVec3(push.vertexPos, gl_VertexIndex);
+    vec3 n = GetVec3(push.vertexNor, gl_VertexIndex);
+    vec2 uv = GetVec2(push.vertexUv, gl_VertexIndex);
+    vec3 tangent = GetVec3(push.vertexTan, gl_VertexIndex);
     uvec4 boneIds = bindlessStorageBuffersUVec4[nonuniformEXT(push.vertexBoneId)].v[gl_VertexIndex];
-    vec4 boneWeights = bindlessStorageBuffersVec4[nonuniformEXT(push.vertexBoneWeight)].v[gl_VertexIndex];
+    vec4 boneWeights = GetVec4(push.vertexBoneWeight, gl_VertexIndex);
 
     mat4 modelToWorldMatrix = ubo.params[push.modelIndex].modelMatrix;
     if (push.skinningOffset != -1)

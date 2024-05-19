@@ -22,6 +22,8 @@ enum class GraphicsObjectType
     Queue,
     DescriptorSet,
     DescriptorSetLayout,
+    Pipeline,
+    Shader,
 };
 
 enum class ValidationMode
@@ -375,8 +377,6 @@ struct GPUBarrier
     ResourceUsage mAfter;
 };
 
-// TODO: remove this when move to hlsl
-
 struct TextureDesc
 {
     enum class TextureType
@@ -504,7 +504,7 @@ struct mkGraphics
     virtual void FrameAllocate(GPUBuffer *inBuf, void *inData, CommandList cmd, u64 inSize = ~0, u64 inOffset = 0) = 0;
 
     virtual b32 CreateSwapchain(Window window, SwapchainDesc *desc, Swapchain *swapchain)               = 0;
-    virtual void CreateShader(PipelineStateDesc *inDesc, PipelineState *outPS)                          = 0;
+    virtual void CreateShader(PipelineStateDesc *inDesc, PipelineState *outPS, string name)             = 0;
     virtual void CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDesc, CopyFunction initCallback) = 0;
 
     void CreateBuffer(GPUBuffer *inBuffer, GPUBufferDesc inDesc, void *inData)
@@ -525,7 +525,8 @@ struct mkGraphics
     virtual void CreateTexture(Texture *outTexture, TextureDesc desc, void *inData)                                                           = 0;
     virtual void CreateSampler(Sampler *sampler, SamplerDesc desc)                                                                            = 0;
     virtual void BindResource(GPUResource *resource, u32 slot, CommandList cmd)                                                               = 0;
-    virtual i32 GetDescriptorIndex(GPUResource *resource, i32 subresourceIndex = -1)                                                          = 0;
+    virtual i32 GetDescriptorIndex(GPUBuffer *resource, i32 subresourceIndex = -1)                                                            = 0;
+    virtual i32 GetDescriptorIndex(Texture *resource, i32 subresourceIndex = -1)                                                              = 0;
     virtual i32 CreateSubresource(GPUBuffer *buffer, SubresourceType type, u64 offset = 0ull, u64 size = ~0ull, Format format = Format::Null) = 0;
     virtual i32 CreateSubresource(Texture *texture, u32 baseLayer = 0, u32 numLayers = ~0u)                                                   = 0;
     virtual void UpdateDescriptorSet(CommandList cmd)                                                                                         = 0;

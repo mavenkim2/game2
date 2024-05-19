@@ -196,6 +196,7 @@ struct mkGraphicsVulkan : mkGraphics
             VkImageView mImageView = VK_NULL_HANDLE;
             u32 mBaseLayer;
             u32 mNumLayers;
+            i32 descriptorIndex;
         };
         Subresource mSubresource;        // whole view
         list<Subresource> mSubresources; // sub views
@@ -269,14 +270,15 @@ struct mkGraphicsVulkan : mkGraphics
     mkGraphicsVulkan(OS_Handle window, ValidationMode validationMode, GPUDevicePreference preference);
     u64 GetMinAlignment(GPUBufferDesc *inDesc) override;
     b32 CreateSwapchain(Window window, SwapchainDesc *desc, Swapchain *swapchain) override;
-    void CreateShader(PipelineStateDesc *inDesc, PipelineState *outPS) override;
+    void CreateShader(PipelineStateDesc *inDesc, PipelineState *outPS, string name) override;
     void CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDesc, CopyFunction initCallback) override;
     void CopyBuffer(CommandList cmd, GPUBuffer *dest, GPUBuffer *src, u32 size) override;
     void DeleteBuffer(GPUBuffer *buffer) override;
     void CreateTexture(Texture *outTexture, TextureDesc desc, void *inData) override;
     void CreateSampler(Sampler *sampler, SamplerDesc desc) override;
     void BindResource(GPUResource *resource, u32 slot, CommandList cmd) override;
-    i32 GetDescriptorIndex(GPUResource *resource, i32 subresourceIndex = -1) override;
+    i32 GetDescriptorIndex(Texture *resource, i32 subresourceIndex = -1) override;
+    i32 GetDescriptorIndex(GPUBuffer *buffer, i32 subresourceIndex = -1) override;
     i32 CreateSubresource(GPUBuffer *buffer, SubresourceType type, u64 offset = 0ull, u64 size = ~0ull, Format format = Format::Null) override;
     i32 CreateSubresource(Texture *texture, u32 baseLayer = 0, u32 numLayers = ~0u) override;
     void UpdateDescriptorSet(CommandList cmd);

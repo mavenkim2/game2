@@ -10,6 +10,10 @@ using vec2 = V2;
 
 #endif
 
+const int MODEL_PARAMS_BIND = 0;
+const int SKINNING_BIND     = 1;
+const int SHADOW_MAP_BIND   = 2;
+
 struct ModelParams
 {
     mat4 transform;

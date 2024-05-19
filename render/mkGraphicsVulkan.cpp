@@ -176,7 +176,7 @@ VkPipelineStageFlags2 ConvertResourceToPipelineStage(ResourceUsage state)
         flags |= VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT;
     }
     // TODO: this is likely going to need to change
-    if (HasFlags(state, ResourceUsage::UniformBuffer))
+    if (HasFlags(state, ResourceUsage::UniformBuffer) || HasFlags(state, ResourceUsage::StorageBuffer))
     {
         flags |= VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
     }
@@ -785,9 +785,9 @@ mkGraphicsVulkan::mkGraphicsVulkan(OS_Handle window, ValidationMode validationMo
         samplerCreate.minFilter    = VK_FILTER_LINEAR;
         samplerCreate.magFilter    = VK_FILTER_LINEAR;
         samplerCreate.mipmapMode   = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-        samplerCreate.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        samplerCreate.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-        samplerCreate.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        samplerCreate.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT; // VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        samplerCreate.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT; // VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        samplerCreate.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT; // VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 
         res = vkCreateSampler(mDevice, &samplerCreate, 0, &mLinearSampler);
         Assert(res == VK_SUCCESS);
@@ -1108,7 +1108,7 @@ b32 mkGraphicsVulkan::CreateSwapchain(Swapchain *inSwapchain)
     return true;
 }
 
-void mkGraphicsVulkan::CreateShader(PipelineStateDesc *inDesc, PipelineState *outPS)
+void mkGraphicsVulkan::CreateShader(PipelineStateDesc *inDesc, PipelineState *outPS, string name)
 {
     VkResult res;
     PipelineStateVulkan *ps = new PipelineStateVulkan();
@@ -1127,10 +1127,8 @@ void mkGraphicsVulkan::CreateShader(PipelineStateDesc *inDesc, PipelineState *ou
         frag = platform.ReadEntireFile(mArena, inDesc->mFS->mName);
     }
 
+    TempArena temp = ScratchStart(0, 0);
     list<VkShaderModule> shaderModules;
-
-    VkShaderModule vertShaderModule = {};
-    VkShaderModule fragShaderModule = {};
 
     // Pipeline create shader stage info
     list<VkPipelineShaderStageCreateInfo> pipelineShaderStageInfo;
@@ -1153,6 +1151,8 @@ void mkGraphicsVulkan::CreateShader(PipelineStateDesc *inDesc, PipelineState *ou
         shaderInfo.stage                            = VK_SHADER_STAGE_VERTEX_BIT;
         shaderInfo.module                           = shaderModules.back();
         shaderInfo.pName                            = "main";
+
+        SetName((u64)shaderModules.back(), GraphicsObjectType::Shader, (const char *)StrConcat(temp.arena, "VS ", name).str);
     }
     if (inDesc->mFS)
     {
@@ -1171,7 +1171,9 @@ void mkGraphicsVulkan::CreateShader(PipelineStateDesc *inDesc, PipelineState *ou
         shaderInfo.stage                            = VK_SHADER_STAGE_FRAGMENT_BIT;
         shaderInfo.module                           = shaderModules.back();
         shaderInfo.pName                            = "main";
+        SetName((u64)shaderModules.back(), GraphicsObjectType::Shader, (const char *)StrConcat(temp.arena, "FS ", name).str);
     }
+    ScratchEnd(temp);
     // Vertex inputs
 
     list<VkVertexInputBindingDescription> bindings;
@@ -1435,6 +1437,7 @@ void mkGraphicsVulkan::CreateShader(PipelineStateDesc *inDesc, PipelineState *ou
 
     // VkPipelineRenderingCreateInfo
     res = vkCreateGraphicsPipelines(mDevice, VK_NULL_HANDLE, 1, &pipelineInfo, 0, &ps->mPipeline);
+    SetName((u64)(ps->mPipeline), GraphicsObjectType::Pipeline, (const char *)name.str);
     Assert(res == VK_SUCCESS);
 }
 
@@ -1515,6 +1518,8 @@ void mkGraphicsVulkan::CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDes
     {
         buffer = PushStruct(mArena, GPUBufferVulkan);
     }
+
+    buffer->subresource.descriptorIndex = -1;
 
     inBuffer->internalState = buffer;
     inBuffer->mDesc         = inDesc;
@@ -1611,6 +1616,7 @@ void mkGraphicsVulkan::CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDes
 
             // TODO: I think this barrier is useless, because the semaphore should signal the graphics queue
             // when the staging buffer transfer is complete.
+            // I was right
 
 #if 0
             VkBufferMemoryBarrier2 bufferBarrier = {};
@@ -1649,41 +1655,10 @@ void mkGraphicsVulkan::CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDes
         }
     }
 
-    if (HasFlags(inDesc.mResourceUsage, ResourceUsage::StorageBuffer))
+    if (HasFlags(inDesc.mResourceUsage, ResourceUsage::StorageBuffer) || HasFlags(inDesc.mResourceUsage, ResourceUsage::UniformBuffer))
     {
         CreateSubresource(inBuffer, SubresourceType::SRV);
     }
-
-    // If data is provided, do the transfer
-
-    // Allocate:
-#if 0
-    vkCreateBuffer(mDevice, &createInfo, 0, &buffer->mBuffer);
-    VkMemoryRequirements memoryRequirement;
-    vkGetBufferMemoryRequirements(mDevice, buffer->mBuffer, &memoryRequirement);
-
-    VkMemoryAllocateInfo allocateInfo = {};
-    allocateInfo.sType                = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    allocateInfo.allocationSize       = memoryRequirement.size;
-
-    u32 memoryPropertyFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
-
-    for (u32 i = 0; i < mMemProperties.memoryProperties.memoryTypeCount; i++)
-    {
-        if (memoryRequirement.memoryTypeBits & (1 << i) &&
-            HasFlags(mMemProperties.memoryProperties.memoryTypes[i].propertyFlags, memoryPropertyFlags))
-        {
-            allocateInfo.memoryTypeIndex = i;
-            break;
-        }
-    }
-
-    VkDeviceMemory memory;
-    res = vkAllocateMemory(mDevice, &allocateInfo, 0, &memory);
-
-    res = vkBindBufferMemory(mDevice, buffer->mBuffer, memory, 0); // memoryRequirement.alignment);
-    Assert(res == VK_SUCCESS);
-#endif
 }
 
 void mkGraphicsVulkan::CreateTexture(Texture *outTexture, TextureDesc desc, void *inData)
@@ -1936,22 +1911,43 @@ void mkGraphicsVulkan::BindResource(GPUResource *resource, u32 slot, CommandList
     // adds to a table in the command list that
 }
 
-i32 mkGraphicsVulkan::GetDescriptorIndex(GPUResource *resource, i32 subresourceIndex)
+i32 mkGraphicsVulkan::GetDescriptorIndex(GPUBuffer *resource, i32 subresourceIndex)
 {
     i32 descriptorIndex = -1;
-    Assert(resource->IsBuffer());
-    GPUBufferVulkan *buffer = ToInternal((GPUBuffer *)resource);
-    if (subresourceIndex == -1)
+    if (resource)
     {
-        descriptorIndex = buffer->subresource.descriptorIndex;
-    }
-    else
-    {
-        descriptorIndex = buffer->subresources[subresourceIndex].descriptorIndex;
+        GPUBufferVulkan *buffer = ToInternal((GPUBuffer *)resource);
+        if (subresourceIndex == -1)
+        {
+            descriptorIndex = buffer->subresource.descriptorIndex;
+        }
+        else
+        {
+            descriptorIndex = buffer->subresources[subresourceIndex].descriptorIndex;
+        }
     }
     return descriptorIndex;
 }
 
+i32 mkGraphicsVulkan::GetDescriptorIndex(Texture *resource, i32 subresourceIndex)
+{
+    i32 descriptorIndex = -1;
+    if (resource)
+    {
+        TextureVulkan *texture = ToInternal((Texture *)resource);
+        if (subresourceIndex == -1)
+        {
+            descriptorIndex = texture->mSubresource.descriptorIndex;
+        }
+        else
+        {
+            descriptorIndex = texture->mSubresources[subresourceIndex].descriptorIndex;
+        }
+    }
+    return descriptorIndex;
+}
+
+// TODO: split these :)
 i32 mkGraphicsVulkan::CreateSubresource(GPUBuffer *buffer, SubresourceType type, u64 offset, u64 size, Format format)
 {
     i32 subresourceIndex     = -1;
@@ -1962,11 +1958,10 @@ i32 mkGraphicsVulkan::CreateSubresource(GPUBuffer *buffer, SubresourceType type,
     GPUBufferVulkan::Subresource subresource;
 
     // Storage buffer
-    if (format == Format::Null)
+    if (HasFlags(buffer->mDesc.mResourceUsage, ResourceUsage::StorageBuffer) && format == Format::Null)
     {
         BindlessDescriptorPool &pool   = bindlessDescriptorPools[DescriptorType_Storage];
         i32 subresourceDescriptorIndex = pool.Allocate();
-        subresource.descriptorIndex    = subresourceDescriptorIndex;
 
         VkWriteDescriptorSet write = {};
         write.sType                = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -1988,18 +1983,25 @@ i32 mkGraphicsVulkan::CreateSubresource(GPUBuffer *buffer, SubresourceType type,
         // TODO: remove this last minute decision making. this control path is only entered from one place.
         if (!bufVulk->subresource.IsValid())
         {
-            bufVulk->subresource = subresource;
+            subresource.descriptorIndex = subresourceDescriptorIndex;
+            bufVulk->subresource        = subresource;
         }
         else
         {
+            subresource.descriptorIndex = subresourceDescriptorIndex;
             bufVulk->subresources.push_back(subresource);
-            subresourceIndex = (i32)bufVulk->subresources.size() - 1;
+            i32 numSubresources = (i32)bufVulk->subresources.size();
+            subresourceIndex    = numSubresources - 1;
         }
     }
     // Texel buffers, not supported yet
-    else
+    else if (HasFlags(buffer->mDesc.mResourceUsage, ResourceUsage::UniformBuffer))
     {
-        Assert(0);
+        subresource.info.buffer = bufVulk->mBuffer;
+        subresource.info.offset = offset;
+        subresource.info.range  = size;
+
+        bufVulk->subresource = subresource;
     }
     return subresourceIndex;
 }
@@ -2051,23 +2053,61 @@ i32 mkGraphicsVulkan::CreateSubresource(Texture *texture, u32 baseLayer, u32 num
     createInfo.subresourceRange.levelCount     = VK_REMAINING_MIP_LEVELS;
 
     i32 result = -1;
+    TextureVulkan::Subresource *subresource;
     if (baseLayer == 0 && numLayers == VK_REMAINING_ARRAY_LAYERS)
     {
-        textureVulk->mSubresource.mBaseLayer = 0;
-        textureVulk->mSubresource.mNumLayers = VK_REMAINING_ARRAY_LAYERS;
-        VkResult res                         = vkCreateImageView(mDevice, &createInfo, 0, &textureVulk->mSubresource.mImageView);
+        subresource             = &textureVulk->mSubresource;
+        subresource->mBaseLayer = 0;
+        subresource->mNumLayers = VK_REMAINING_ARRAY_LAYERS;
+        VkResult res            = vkCreateImageView(mDevice, &createInfo, 0, &subresource->mImageView);
         Assert(res == VK_SUCCESS);
     }
     else
     {
         textureVulk->mSubresources.emplace_back();
-        TextureVulkan::Subresource *subresource = &textureVulk->mSubresources.back();
-        subresource->mBaseLayer                 = baseLayer;
-        subresource->mNumLayers                 = numLayers;
+        subresource             = &textureVulk->mSubresources.back();
+        subresource->mBaseLayer = baseLayer;
+        subresource->mNumLayers = numLayers;
 
         VkResult res = vkCreateImageView(mDevice, &createInfo, 0, &subresource->mImageView);
         Assert(res == VK_SUCCESS);
         result = (i32)(textureVulk->mSubresources.size() - 1);
+    }
+
+    if (HasFlags(texture->mDesc.mInitialUsage, ResourceUsage::SampledTexture) || HasFlags(texture->mDesc.mFutureUsages, ResourceUsage::SampledTexture))
+    {
+        // Adds to the bindless combined image samplers array
+        BindlessDescriptorPool &pool   = bindlessDescriptorPools[DescriptorType_CombinedSampler];
+        i32 subresourceDescriptorIndex = pool.Allocate();
+        subresource->descriptorIndex   = subresourceDescriptorIndex;
+        VkDescriptorImageInfo info;
+        switch (texture->mDesc.mSampler)
+        {
+            case TextureDesc::DefaultSampler::Nearest:
+            {
+                info.sampler = mNearestSampler;
+            }
+            break;
+            case TextureDesc::DefaultSampler::Linear:
+            {
+                info.sampler = mLinearSampler;
+            }
+            break;
+        }
+
+        info.imageView   = subresource->mImageView;
+        info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+        VkWriteDescriptorSet writeSet = {};
+        writeSet.sType                = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writeSet.dstSet               = pool.set;
+        writeSet.dstBinding           = 0;
+        writeSet.descriptorCount      = 1;
+        writeSet.dstArrayElement      = subresourceDescriptorIndex;
+        writeSet.descriptorType       = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writeSet.pImageInfo           = &info;
+
+        vkUpdateDescriptorSets(mDevice, 1, &writeSet, 0, 0);
     }
     return result;
 }
@@ -3087,6 +3127,8 @@ void mkGraphicsVulkan::SetName(u64 handle, GraphicsObjectType type, const char *
         case GraphicsObjectType::Queue: info.objectType = VK_OBJECT_TYPE_QUEUE; break;
         case GraphicsObjectType::DescriptorSet: info.objectType = VK_OBJECT_TYPE_DESCRIPTOR_SET; break;
         case GraphicsObjectType::DescriptorSetLayout: info.objectType = VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT; break;
+        case GraphicsObjectType::Pipeline: info.objectType = VK_OBJECT_TYPE_PIPELINE; break;
+        case GraphicsObjectType::Shader: info.objectType = VK_OBJECT_TYPE_SHADER_MODULE; break;
     }
     info.objectHandle = handle;
     VkResult res      = vkSetDebugUtilsObjectNameEXT(mDevice, &info);

@@ -485,6 +485,7 @@ JOB_CALLBACK(AS_LoadAsset)
             }
             SkipToNextLine(&materialTokenizer); // final closing bracket }
         }
+        WriteBarrier();
 
         for (u32 i = 0; i < model->numMeshes; i++)
         {
@@ -585,7 +586,7 @@ JOB_CALLBACK(AS_LoadAsset)
             u32 indexCount  = mesh->indexCount;
 
             graphics::GPUBufferDesc desc;
-            desc.mResourceUsage = graphics::ResourceUsage::StorageBuffer;
+            desc.mResourceUsage = graphics::ResourceUsage::StorageBuffer | graphics::ResourceUsage::IndexBuffer;
             u64 alignment       = device->GetMinAlignment(&desc);
 
             Assert(IsPow2(alignment));
@@ -620,11 +621,11 @@ JOB_CALLBACK(AS_LoadAsset)
                 // Load tangents
                 mesh->vertexTanView.offset = currentOffset;
                 mesh->vertexTanView.size   = sizeof(mesh->tangents[0]) * vertexCount;
-                MemoryCopy(bufferDest + currentOffset, mesh->normals, mesh->vertexTanView.size);
+                MemoryCopy(bufferDest + currentOffset, mesh->tangents, mesh->vertexTanView.size);
                 currentOffset += AlignPow2(mesh->vertexTanView.size, alignment);
 
                 // Load uvs if they exist
-                if (mesh->uvs != 0)
+                if (mesh->uvs)
                 {
                     mesh->vertexUvView.offset = currentOffset;
                     mesh->vertexUvView.size   = sizeof(mesh->uvs[0]) * vertexCount;
@@ -666,7 +667,7 @@ JOB_CALLBACK(AS_LoadAsset)
             mesh->vertexTanView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::SubresourceType::SRV, mesh->vertexTanView.offset, mesh->vertexTanView.size);
             mesh->vertexTanView.subresourceDescriptor = device->GetDescriptorIndex(&mesh->buffer, mesh->vertexTanView.subresourceIndex);
 
-            if (mesh->uvs != 0)
+            if (mesh->uvs)
             {
                 mesh->vertexUvView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::SubresourceType::SRV, mesh->vertexUvView.offset, mesh->vertexUvView.size);
                 mesh->vertexUvView.subresourceDescriptor = device->GetDescriptorIndex(&mesh->buffer, mesh->vertexUvView.subresourceIndex);
@@ -680,6 +681,9 @@ JOB_CALLBACK(AS_LoadAsset)
                 mesh->vertexBoneWeightView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::SubresourceType::SRV, mesh->vertexBoneWeightView.offset, mesh->vertexBoneWeightView.size);
                 mesh->vertexBoneWeightView.subresourceDescriptor = device->GetDescriptorIndex(&mesh->buffer, mesh->vertexBoneWeightView.subresourceIndex);
             }
+
+            mesh->indexView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::SubresourceType::SRV, mesh->indexView.offset, mesh->indexView.size);
+            mesh->indexView.subresourceDescriptor = device->GetDescriptorIndex(&mesh->buffer, mesh->indexView.subresourceIndex);
 
             Rect3 modelSpaceBounds = Transform(mesh->transform, mesh->bounds);
             AddBounds(model->bounds, modelSpaceBounds);
@@ -769,7 +773,8 @@ JOB_CALLBACK(AS_LoadAsset)
 
         graphics::Format format = graphics::Format::R8G8B8A8_UNORM;
 
-        if (FindSubstring(asset->path, Str8Lit("diffuse"), 0, MatchFlag_CaseInsensitive) != asset->path.size)
+        if (FindSubstring(asset->path, Str8Lit("diffuse"), 0, MatchFlag_CaseInsensitive) != asset->path.size ||
+            FindSubstring(asset->path, Str8Lit("basecolor"), 0, MatchFlag_CaseInsensitive) != asset->path.size)
         {
             format = graphics::Format::R8G8B8A8_SRGB;
         }

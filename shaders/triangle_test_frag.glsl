@@ -3,27 +3,25 @@
 
 layout(location = 0) out vec4 outColor;
 
-
-layout(binding = 0) uniform ModelBufferObject 
+layout(binding = MODEL_PARAMS_BIND) uniform ModelBufferObject
 {
     Ubo ubo;
 };
 
-layout(binding = 4) uniform sampler2DArray shadowMaps;
+layout(binding = SHADOW_MAP_BIND) uniform sampler2DArray shadowMaps;
 
 in VS_OUT
 {
-    layout (location = 0) in vec2 uv;
-    layout (location = 1) in vec4 viewFragPos;
-    layout (location = 2) in vec4 worldFragPos;
-    layout (location = 3) in mat3 tbn;
+    layout(location = 0) in vec2 uv;
+    layout(location = 1) in vec4 viewFragPos;
+    layout(location = 2) in vec4 worldFragPos;
+    layout(location = 3) in mat3 tbn;
 } fragment;
 
-layout (push_constant) uniform PushConstant_
+layout(push_constant) uniform PushConstant_
 {
     PushConstant push;
 };
-
 
 void main()
 {
@@ -56,9 +54,9 @@ void main()
     // PCF
     vec2 texelSize = 1.0 / vec2(textureSize(shadowMaps, 0));
     float shadow = 0.f;
-    for (float x = -1.5f; x <= 1.5f; x+=1.f)
+    for (float x = -1.5f; x <= 1.5f; x += 1.f)
     {
-        for (float y = -1.5f; y <= 1.5f; y+=1.f)
+        for (float y = -1.5f; y <= 1.5f; y += 1.f)
         {
             vec2 shadowUV = lightSpacePos.xy + vec2(x, y) * texelSize;
             float depth = texture(shadowMaps, vec3(shadowUV, shadowIndex)).r;
@@ -92,24 +90,12 @@ void main()
     vec3 color = (ambient + diffuse + specular) * (1 - .8 * shadow);
     outColor = vec4(color, 1.0);
 
-#if 0
-    if (shadowIndex == 0)
-    {
-        outColor = vec4(color.r, color.g * .25, color.b * .25, 1.0);
-    }
-    if (shadowIndex == 1)
-    {
-        outColor = vec4(color.r * .25, color.g, color.b * .25, 1.0);
-    }
-    if (shadowIndex == 2)
-    {
-        outColor = vec4(color.r * .25, color.g * .25, color.b, 1.0);
-    }
-#endif
+    // outColor = vec4(fragment.boneWeights);
+
     //outColor = vec4(vec3(viewZ/ubo.cascadeDistances[3], 0, 0), 1.0);
     //outColor = vec4(vec3(4 - shadowIndex) * .25, 1.f);
 
-    // vec3 color = 
+    // vec3 color =
     // color = pow(color, vec3(1/2.2));
     // outColor = vec4(color, 1.0);
 }

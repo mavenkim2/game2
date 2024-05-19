@@ -199,15 +199,20 @@ G_INIT(G_Init)
         {
             g_state->mEntities[0].mAssetHandle = AS_GetAsset(Str8Lit("data/models/dragon.model"));
             g_state->mEntities[1].mAssetHandle = AS_GetAsset(Str8Lit("data/models/hero.model"));
+            // g_state->mEntities[2].mAssetHandle = AS_GetAsset(Str8Lit("data/models/Main.1_Sponza.model"));
 
             Mat4 translate          = Translate4(V3{0, 20, 0});
             Mat4 scale              = Scale(V3{0.5f, 0.5f, 0.5f});
             Mat4 rotate             = Rotate4(MakeV3(1, 0, 0), PI / 2);
             g_state->mTransforms[0] = translate * rotate * scale;
 
-            translate               = Translate4(V3{0, 20, 20});
-            scale                   = Scale(V3{1, 1, 1});
+            translate = Translate4(V3{0, 20, 20});
+            // scale                   = Scale(V3{1, 1, 1});
             g_state->mTransforms[1] = translate * rotate;
+
+            // translate = Translate4(V3{0, 0, -50});
+            // scale                   = Scale(V3{1, 1, 1});
+            // g_state->mTransforms[2] = translate * rotate;
 
             AS_Handle anim           = AS_GetAsset(Str8Lit("data/animations/Qishilong_attack01.anim"));
             AnimationPlayer *aPlayer = &g_state->mAnimPlayers[0];
@@ -573,6 +578,7 @@ DLL G_UPDATE(G_Update)
         }
         else
         {
+            g_state->mEntities[i].mSkinningOffset = totalMatrixCount;
             totalMatrixCount += GetSkeletonFromModel(g_state->mEntities[i].mAssetHandle)->count;
         }
     }
