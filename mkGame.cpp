@@ -210,7 +210,7 @@ G_INIT(G_Init)
             // scale                   = Scale(V3{1, 1, 1});
             g_state->mTransforms[1] = translate * rotate;
 
-            translate = Translate4(V3{0, 0, -50});
+            translate = Translate4(V3{0, 0, 0});
             scale                   = Scale(V3{1, 1, 1});
             g_state->mTransforms[2] = translate * rotate;
 

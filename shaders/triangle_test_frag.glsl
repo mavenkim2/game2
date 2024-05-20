@@ -25,8 +25,16 @@ layout(push_constant) uniform PushConstant_
 
 void main()
 {
-    vec3 albedo = texture(bindlessTextures[nonuniformEXT(push.albedo)], fragment.uv).rgb;
-    vec3 normal = normalize(texture(bindlessTextures[nonuniformEXT(push.normal)], fragment.uv).rgb * 2 - 1);
+    vec3 albedo = vec3(1, 1, 1);
+    vec3 normal = vec3(1, 1, 1);
+    if (push.albedo >= 0)
+    {
+        albedo = texture(bindlessTextures[nonuniformEXT(push.albedo)], fragment.uv).rgb;
+    }
+    if (push.normal >= 0)
+    {
+        normal = normalize(texture(bindlessTextures[nonuniformEXT(push.normal)], fragment.uv).rgb * 2 - 1);
+    }
     float viewZ = abs(fragment.viewFragPos.z);
 
     int shadowIndex = 3;
@@ -87,7 +95,7 @@ void main()
     float spec = specularStrength;
     vec3 specular = spec * albedo;
 
-    vec3 color = (ambient + diffuse + specular);// * (1 - .8 * shadow);
+    vec3 color = (ambient + diffuse + specular); // * (1 - .8 * shadow);
     outColor = vec4(color, 1.0);
 
     // outColor = vec4(fragment.boneWeights);

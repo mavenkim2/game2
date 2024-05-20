@@ -753,14 +753,32 @@ mkGraphicsVulkan::mkGraphicsVulkan(OS_Handle window, ValidationMode validationMo
     }
 
     // Init frame allocators
-    GPUBufferDesc desc;
-    desc.mUsage         = MemoryUsage::CPU_TO_GPU;
-    desc.mSize          = megabytes(32);
-    desc.mResourceUsage = ResourceUsage::VertexBuffer | ResourceUsage::IndexBuffer | ResourceUsage::UniformBuffer;
-    for (u32 i = 0; i < cNumBuffers; i++)
     {
-        CreateBuffer(&mFrameAllocator[i].mBuffer, desc, 0);
-        mFrameAllocator[i].mAlignment = 8;
+        GPUBufferDesc desc;
+        desc.mUsage         = MemoryUsage::CPU_TO_GPU;
+        desc.mSize          = megabytes(32);
+        desc.mResourceUsage = ResourceUsage::VertexBuffer | ResourceUsage::IndexBuffer | ResourceUsage::UniformBuffer;
+        for (u32 i = 0; i < cNumBuffers; i++)
+        {
+            CreateBuffer(&mFrameAllocator[i].mBuffer, desc, 0);
+            mFrameAllocator[i].mAlignment = 8;
+        }
+    }
+
+    // Initialize ring buffer
+    {
+        u32 ringBufferSize = megabytes(256);
+        GPUBufferDesc desc;
+        desc.mUsage         = MemoryUsage::CPU_TO_GPU;
+        desc.mSize          = ringBufferSize;
+        desc.mResourceUsage = ResourceUsage::TransferSrc;
+
+        CreateBuffer(&stagingRingAllocator.transferRingBuffer, desc, 0);
+        SetName(&stagingRingAllocator.transferRingBuffer, "Transfer Staging Buffer");
+
+        stagingRingAllocator.ringBufferSize = ringBufferSize;
+        stagingRingAllocator.writePos = stagingRingAllocator.readPos = 0;
+        stagingRingAllocator.lock                                    = {};
     }
 
     // Default samplers
@@ -1595,21 +1613,24 @@ void mkGraphicsVulkan::CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDes
         else
         {
             cmd        = Stage(inBuffer->mDesc.mSize);
-            mappedData = cmd.mUploadBuffer.mMappedData;
+            mappedData = cmd.ringAllocation->mappedData;
         }
 
         initCallback(mappedData);
 
         if (cmd.IsValid())
         {
-            // Memory copy data to the staging buffer
-            VkBufferCopy bufferCopy = {};
-            bufferCopy.srcOffset    = 0;
-            bufferCopy.dstOffset    = 0;
-            bufferCopy.size         = inBuffer->mDesc.mSize;
+            if (inBuffer->mDesc.mSize != 0)
+            {
+                // Memory copy data to the staging buffer
+                VkBufferCopy bufferCopy = {};
+                bufferCopy.srcOffset    = cmd.ringAllocation->offset;
+                bufferCopy.dstOffset    = 0;
+                bufferCopy.size         = inBuffer->mDesc.mSize;
 
-            // Copy from the staging buffer to the allocated buffer
-            vkCmdCopyBuffer(cmd.mCmdBuffer, ToInternal(&cmd.mUploadBuffer)->mBuffer, buffer->mBuffer, 1, &bufferCopy);
+                // Copy from the staging buffer to the allocated buffer
+                vkCmdCopyBuffer(cmd.mCmdBuffer, ToInternal(&stagingRingAllocator.transferRingBuffer)->mBuffer, buffer->mBuffer, 1, &bufferCopy);
+            }
 
             // Create a barrier on the graphics queue. Not needed on the transfer queue, since it doesn't
             // ever use the data after copying.
@@ -1747,16 +1768,17 @@ void mkGraphicsVulkan::CreateTexture(Texture *outTexture, TextureDesc desc, void
     {
         TransferCommand cmd;
         void *mappedData = 0;
-        cmd              = Stage(texVulk->mAllocation->GetSize());
-        mappedData       = cmd.mUploadBuffer.mMappedData;
+        u64 texSize      = texVulk->mAllocation->GetSize();
+        cmd              = Stage(texSize);
+        mappedData       = cmd.ringAllocation->mappedData;
 
-        MemoryCopy(mappedData, inData, texVulk->mAllocation->GetSize());
+        MemoryCopy(mappedData, inData, texSize);
 
         if (cmd.IsValid())
         {
             // Copy the contents of the staging buffer to the image
             VkBufferImageCopy imageCopy               = {};
-            imageCopy.bufferOffset                    = 0;
+            imageCopy.bufferOffset                    = cmd.ringAllocation->offset;
             imageCopy.bufferRowLength                 = 0;
             imageCopy.bufferImageHeight               = 0;
             imageCopy.imageSubresource.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -1790,7 +1812,7 @@ void mkGraphicsVulkan::CreateTexture(Texture *outTexture, TextureDesc desc, void
             dependencyInfo.pImageMemoryBarriers    = &barrier;
             vkCmdPipelineBarrier2(cmd.mCmdBuffer, &dependencyInfo);
 
-            vkCmdCopyBufferToImage(cmd.mCmdBuffer, ToInternal(&cmd.mUploadBuffer)->mBuffer, texVulk->mImage,
+            vkCmdCopyBufferToImage(cmd.mCmdBuffer, ToInternal(&stagingRingAllocator.transferRingBuffer)->mBuffer, texVulk->mImage,
                                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &imageCopy);
 
             // Transition to layout used in pipeline
@@ -2264,8 +2286,100 @@ void mkGraphicsVulkan::FrameAllocate(GPUBuffer *inBuf, void *inData, CommandList
     vkCmdCopyBuffer(command->GetCommandBuffer(), ToInternal(&currentFrameData->mBuffer)->mBuffer, bufVulk->mBuffer, 1, &copy);
 }
 
-// Uses transfer queue for allocations.
-// TODO: use a ring instead?
+mkGraphicsVulkan::RingAllocation *mkGraphicsVulkan::RingAlloc(u64 size, VkFence fence)
+{
+    u64 ringBufferSize = stagingRingAllocator.ringBufferSize;
+
+    size = AlignPow2(size, (u64)stagingRingAllocator.alignment);
+    Assert(size <= ringBufferSize);
+    Assert(stagingRingAllocator.writePos <= ringBufferSize);
+    Assert(stagingRingAllocator.readPos <= ringBufferSize);
+
+    RingAllocation *result = 0;
+    i32 offset             = -1;
+    while (offset == -1)
+    {
+        TicketMutexScope(&stagingRingAllocator.lock)
+        {
+            u32 writePos = stagingRingAllocator.writePos;
+            u32 readPos  = stagingRingAllocator.readPos;
+            if (writePos >= readPos)
+            {
+                // Normal default case: enough space for allocation b/t writePos and end of buffer
+                if (ringBufferSize - writePos >= size)
+                {
+                    offset = writePos;
+                    stagingRingAllocator.writePos += (u32)size;
+                }
+                // Not enough space, need to go back to the beginning of the buffer
+                else if (ringBufferSize - writePos < size)
+                {
+                    if (readPos >= size)
+                    {
+                        offset                        = 0;
+                        stagingRingAllocator.writePos = (u32)size;
+                    }
+                }
+            }
+            else
+            {
+                // Normal default case: enough space for allocation b/t readPos
+                if (readPos - writePos >= size)
+                {
+                    offset = writePos;
+                    stagingRingAllocator.writePos += (u32)size;
+                }
+            }
+
+            while (!stagingRingAllocator.allocations.empty())
+            {
+                RingAllocation *freeAllocation = &stagingRingAllocator.allocations.front();
+                if (vkGetFenceStatus(mDevice, freeAllocation->fence) == VK_SUCCESS || freeAllocation->freed)
+                {
+                    stagingRingAllocator.readPos        = freeAllocation->offset + (u32)freeAllocation->size;
+                    if (freeAllocation->cmd)
+                    {
+                        freeAllocation->cmd->ringAllocation = 0;
+                    }
+                    WriteBarrier();
+                    stagingRingAllocator.allocations.pop();
+                }
+                else
+                {
+                    break;
+                }
+            }
+
+            if (offset != -1)
+            {
+                RingAllocation allocation;
+                allocation.size       = size;
+                allocation.offset     = (u32)offset;
+                allocation.mappedData = (u8 *)stagingRingAllocator.transferRingBuffer.mMappedData + offset;
+                allocation.fence      = fence;
+
+                stagingRingAllocator.allocations.push(allocation);
+                result = &stagingRingAllocator.allocations.back();
+            }
+        }
+    }
+
+    return result;
+}
+
+// NOTE: the problem with this is that the allocation being pointed to could be freed.
+void mkGraphicsVulkan::RingFree(RingAllocation *allocation)
+{
+    if (allocation)
+    {
+        TicketMutexScope(&stagingRingAllocator.lock)
+        {
+            allocation->freed = 1;
+            allocation->cmd   = 0;
+        }
+    }
+}
+
 mkGraphicsVulkan::TransferCommand mkGraphicsVulkan::Stage(u64 size)
 {
     VkResult res;
@@ -2274,15 +2388,15 @@ mkGraphicsVulkan::TransferCommand mkGraphicsVulkan::Stage(u64 size)
     TransferCommand cmd;
     for (u32 i = 0; i < (u32)mTransferFreeList.size(); i++)
     {
-        if (mTransferFreeList[i].mUploadBuffer.mDesc.mSize > size)
+        // Submission is done, can reuse cmd pool
+        TransferCommand &testCmd = mTransferFreeList[i];
+        if (vkGetFenceStatus(mDevice, mTransferFreeList[i].mFence) == VK_SUCCESS)
         {
-            // Submission is done, can reuse cmd pool
-            if (vkGetFenceStatus(mDevice, mTransferFreeList[i].mFence) == VK_SUCCESS)
-            {
-                cmd = mTransferFreeList[i];
-                Swap(TransferCommand, mTransferFreeList[mTransferFreeList.size() - 1], mTransferFreeList[i]);
-                mTransferFreeList.pop_back();
-            }
+            RingFree(testCmd.ringAllocation);
+            cmd = testCmd;
+            Swap(TransferCommand, mTransferFreeList[mTransferFreeList.size() - 1], mTransferFreeList[i]);
+            mTransferFreeList.pop_back();
+            cmd.ringAllocation = 0;
             break;
         }
     }
@@ -2326,12 +2440,11 @@ mkGraphicsVulkan::TransferCommand mkGraphicsVulkan::Stage(u64 size)
             Assert(res == VK_SUCCESS);
         }
 
-        GPUBufferDesc desc = {};
-        desc.mSize         = GetNextPowerOfTwo(size);
-        desc.mSize         = Max(desc.mSize, kilobytes(64));
-        desc.mUsage        = MemoryUsage::CPU_TO_GPU;
-        CreateBuffer(&cmd.mUploadBuffer, desc, 0);
-        SetName(&cmd.mUploadBuffer, "Transfer Staging Buffer");
+        // GPUBufferDesc desc = {};
+        // desc.mSize         = GetNextPowerOfTwo(size);
+        // desc.mSize         = Max(desc.mSize, kilobytes(64));
+        // desc.mUsage        = MemoryUsage::CPU_TO_GPU;
+        // CreateBuffer(&cmd.mUploadBuffer, desc, 0);
     }
 
     res = vkResetCommandPool(mDevice, cmd.mCmdPool, 0);
@@ -2350,6 +2463,12 @@ mkGraphicsVulkan::TransferCommand mkGraphicsVulkan::Stage(u64 size)
 
     res = vkResetFences(mDevice, 1, &cmd.mFence);
     Assert(res == VK_SUCCESS);
+
+    if (size != 0)
+    {
+        cmd.ringAllocation      = RingAlloc(size, cmd.mFence);
+        cmd.ringAllocation->cmd = &cmd;
+    }
 
     return cmd;
 }

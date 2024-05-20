@@ -20,6 +20,8 @@
 #define VMA_DYNAMIC_VULKAN_FUNCTIONS 1
 #include "../third_party/vulkan/vk_mem_alloc.h"
 
+#include <queue>
+
 namespace graphics
 {
 
@@ -310,6 +312,16 @@ private:
     //////////////////////////////
     // Dedicated transfer queue
     //
+    struct TransferCommand;
+    struct RingAllocation
+    {
+        void *mappedData;
+        u64 size;
+        u32 offset;
+        VkFence fence;
+        TransferCommand *cmd;
+        b8 freed = 0;
+    };
     Mutex mTransferMutex = {};
     struct TransferCommand
     {
@@ -319,7 +331,7 @@ private:
         VkCommandBuffer mTransitionBuffer            = VK_NULL_HANDLE;
         VkFence mFence                               = VK_NULL_HANDLE; // signals cpu that transfer is complete
         VkSemaphore mSemaphores[QueueType_Count - 1] = {};             // graphics, compute
-        GPUBuffer mUploadBuffer;
+        RingAllocation *ringAllocation;
 
         const b32 IsValid()
         {
@@ -329,7 +341,25 @@ private:
     list<TransferCommand> mTransferFreeList;
 
     TransferCommand Stage(u64 size);
+
     void Submit(TransferCommand cmd);
+
+    struct RingAllocator
+    {
+        TicketMutex lock;
+        GPUBuffer transferRingBuffer;
+        u64 ringBufferSize;
+        u32 writePos;
+        u32 readPos;
+        u32 alignment = 16;
+        std::queue<RingAllocation> allocations;
+
+    } stagingRingAllocator;
+
+    // NOTE: there is a potential case where the allocation has transferred, but the fence isn't signaled (when command buffer
+    // is being reused). current solution is to just not care, since it doesn't impact anything yet.
+    RingAllocation *RingAlloc(u64 size, VkFence fence);
+    void RingFree(RingAllocation *allocation);
 
     //////////////////////////////
     // Bindless resources

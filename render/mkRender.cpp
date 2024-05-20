@@ -1487,6 +1487,7 @@ internal void Render()
                     Mesh::MeshSubset *subset           = &mesh->subsets[subsetIndex];
                     scene::MaterialComponent &material = gameScene.materials[subset->materialIndex];
 
+                    // TODO IMPORTANT: when the descriptor index is -1 I need to render using a white texture
                     graphics::Texture *texture = GetTexture(material.textures[TextureType_Diffuse]);
                     i32 descriptorIndex        = device->GetDescriptorIndex(texture);
                     pc.albedo                  = descriptorIndex;
