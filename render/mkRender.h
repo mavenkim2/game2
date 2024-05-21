@@ -20,6 +20,7 @@
  * loading, they are sent to the gpu then freed
  */
 #include "../shaders/ShaderInterop.h"
+#include "../shaders/ShaderInterop_Mesh.h"
 #include "../mkCrack.h"
 #ifdef LSP_INCLUDE
 #include "../mkCommon.h"

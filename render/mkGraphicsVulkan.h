@@ -173,6 +173,7 @@ struct mkGraphicsVulkan : mkGraphics
         struct Subresource
         {
             VkDescriptorBufferInfo info;
+            VkBufferView view;
             i32 descriptorIndex = -1;
 
             b32 IsValid()
@@ -367,7 +368,8 @@ private:
     enum DescriptorType
     {
         // DescriptorType_Uniform,
-        DescriptorType_CombinedSampler,
+        DescriptorType_SampledImage,
+        DescriptorType_UniformTexel,
         DescriptorType_Storage,
         DescriptorType_Count,
     };
@@ -418,8 +420,11 @@ private:
     // Default samplers
     //
     VkSampler mNullSampler;
-    VkSampler mLinearSampler;
-    VkSampler mNearestSampler;
+
+    // Linear wrap, nearest wrap, cmp > clamp to edge
+    list<VkSampler> immutableSamplers;
+    // VkSampler mLinearSampler;
+    // VkSampler mNearestSampler;
 
     VkImage mNullImage2D;
     VmaAllocation mNullImage2DAllocation;

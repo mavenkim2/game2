@@ -350,7 +350,8 @@ internal void AS_EntryPoint(void *p)
             // TODO IMPORTANT: virtual protect the memory so it can only be read
 
             // Process the raw asset data
-            JS_Kick(AS_LoadAsset, asset, 0, Priority_Low);
+            // JS_Kick(AS_LoadAsset, asset, 0, Priority_Low);
+            AS_LoadAsset(asset);
             ScratchEnd(scratch);
         }
         else
@@ -396,15 +397,16 @@ internal void AS_HotloadEntryPoint(void *p)
 // TODO: create a pack file so you don't have to check the file extension
 // assets should either be loaded directly into main memory, or into a temp storage
 
-JOB_CALLBACK(AS_LoadAsset)
+// JOB_CALLBACK(AS_LoadAsset)
+
+internal void AS_LoadAsset(AS_Asset *asset)
 {
     TempArena temp          = ScratchStart(0, 0);
     AS_CacheState *as_state = engine->GetAssetCacheState();
-    AS_Asset *asset         = (AS_Asset *)data;
     u32 unloaded            = AS_Status_Unloaded;
     if (!asset->status.compare_exchange_strong(unloaded, AS_Status_Queued))
     {
-        return 0;
+        return;
     }
     string extension = GetFileExtension(asset->path);
     if (extension == Str8Lit("model"))
@@ -585,7 +587,7 @@ JOB_CALLBACK(AS_LoadAsset)
             u32 indexCount  = mesh->indexCount;
 
             graphics::GPUBufferDesc desc;
-            desc.mResourceUsage = graphics::ResourceUsage::StorageBuffer | graphics::ResourceUsage::IndexBuffer;
+            desc.mResourceUsage = graphics::ResourceUsage::UniformTexelBuffer | graphics::ResourceUsage::IndexBuffer;
             u64 alignment       = device->GetMinAlignment(&desc);
 
             Assert(IsPow2(alignment));
@@ -655,33 +657,33 @@ JOB_CALLBACK(AS_LoadAsset)
             device->CreateBufferCopy(&mesh->buffer, desc, initCallback);
 
             Assert(mesh->positions);
-            mesh->vertexPosView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::SubresourceType::SRV, mesh->vertexPosView.offset, mesh->vertexPosView.size);
+            mesh->vertexPosView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::SubresourceType::SRV, mesh->vertexPosView.offset, mesh->vertexPosView.size, graphics::Format::R32G32B32_SFLOAT);
             mesh->vertexPosView.subresourceDescriptor = device->GetDescriptorIndex(&mesh->buffer, mesh->vertexPosView.subresourceIndex);
 
             Assert(mesh->normals);
-            mesh->vertexNorView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::SubresourceType::SRV, mesh->vertexNorView.offset, mesh->vertexNorView.size);
+            mesh->vertexNorView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::SubresourceType::SRV, mesh->vertexNorView.offset, mesh->vertexNorView.size, graphics::Format::R32G32B32_SFLOAT);
             mesh->vertexNorView.subresourceDescriptor = device->GetDescriptorIndex(&mesh->buffer, mesh->vertexNorView.subresourceIndex);
 
             Assert(mesh->tangents);
-            mesh->vertexTanView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::SubresourceType::SRV, mesh->vertexTanView.offset, mesh->vertexTanView.size);
+            mesh->vertexTanView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::SubresourceType::SRV, mesh->vertexTanView.offset, mesh->vertexTanView.size, graphics::Format::R32G32B32_SFLOAT);
             mesh->vertexTanView.subresourceDescriptor = device->GetDescriptorIndex(&mesh->buffer, mesh->vertexTanView.subresourceIndex);
 
             if (mesh->uvs)
             {
-                mesh->vertexUvView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::SubresourceType::SRV, mesh->vertexUvView.offset, mesh->vertexUvView.size);
+                mesh->vertexUvView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::SubresourceType::SRV, mesh->vertexUvView.offset, mesh->vertexUvView.size, graphics::Format::R32G32_SFLOAT);
                 mesh->vertexUvView.subresourceDescriptor = device->GetDescriptorIndex(&mesh->buffer, mesh->vertexUvView.subresourceIndex);
             }
             if (mesh->boneIds)
             {
-                mesh->vertexBoneIdView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::SubresourceType::SRV, mesh->vertexBoneIdView.offset, mesh->vertexBoneIdView.size);
+                mesh->vertexBoneIdView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::SubresourceType::SRV, mesh->vertexBoneIdView.offset, mesh->vertexBoneIdView.size, graphics::Format::R32G32B32A32_UINT);
                 mesh->vertexBoneIdView.subresourceDescriptor = device->GetDescriptorIndex(&mesh->buffer, mesh->vertexBoneIdView.subresourceIndex);
 
                 Assert(mesh->boneWeights);
-                mesh->vertexBoneWeightView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::SubresourceType::SRV, mesh->vertexBoneWeightView.offset, mesh->vertexBoneWeightView.size);
+                mesh->vertexBoneWeightView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::SubresourceType::SRV, mesh->vertexBoneWeightView.offset, mesh->vertexBoneWeightView.size, graphics::Format::R32G32B32A32_SFLOAT);
                 mesh->vertexBoneWeightView.subresourceDescriptor = device->GetDescriptorIndex(&mesh->buffer, mesh->vertexBoneWeightView.subresourceIndex);
             }
 
-            mesh->indexView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::SubresourceType::SRV, mesh->indexView.offset, mesh->indexView.size);
+            mesh->indexView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::SubresourceType::SRV, mesh->indexView.offset, mesh->indexView.size, graphics::Format::R32_UINT);
             mesh->indexView.subresourceDescriptor = device->GetDescriptorIndex(&mesh->buffer, mesh->indexView.subresourceIndex);
 
             Rect3 modelSpaceBounds = Transform(mesh->transform, mesh->bounds);
@@ -808,7 +810,6 @@ JOB_CALLBACK(AS_LoadAsset)
     }
     asset->status.store(AS_Status_Loaded);
     ScratchEnd(temp);
-    return 0;
 }
 
 // #if 0
@@ -874,7 +875,6 @@ internal AS_Asset *AS_GetAssetFromHandle(AS_Handle handle)
     return result;
 }
 
-// TODO: important this needs to be synchronized
 internal AS_Asset *AS_AllocAsset(const string inPath)
 {
     AS_CacheState *as_state = engine->GetAssetCacheState();
@@ -930,13 +930,14 @@ internal void AS_FreeAsset(AS_Handle handle)
     EndMutex(&as_state->lock);
 }
 
-internal AS_Handle AS_GetAsset_(const string inPath, const b32 inLoadIfNotFound = 1)
+internal AS_Handle AS_GetAsset(const string inPath, const b32 inLoadIfNotFound)
 {
     AS_CacheState *as_state = engine->GetAssetCacheState();
     AS_Handle result        = {};
     result.i32[0]           = -1;
 
     i32 hash = HashFromString(inPath);
+    BeginMutex(&as_state->lock);
     for (i32 i = as_state->fileHash.FirstInHash(hash); i != -1; i = as_state->fileHash.NextInHash(i))
     {
         if (as_state->assets[i]->path == inPath)
@@ -946,6 +947,7 @@ internal AS_Handle AS_GetAsset_(const string inPath, const b32 inLoadIfNotFound 
             break;
         }
     }
+    EndMutex(&as_state->lock);
 
     // Unloaded
     if (result.i32[0] == -1 && inLoadIfNotFound)
@@ -958,12 +960,6 @@ internal AS_Handle AS_GetAsset_(const string inPath, const b32 inLoadIfNotFound 
     }
     return result;
 }
-
-internal AS_Handle AS_GetAsset(const string inPath)
-{
-    return AS_GetAsset_(inPath, true);
-}
-
 internal Font *GetFont(AS_Handle handle)
 {
     AS_Asset *asset = AS_GetAssetFromHandle(handle);

@@ -24,6 +24,7 @@ VkFormat ConvertFormat(Format value)
         case Format::B8G8R8A8_UNORM: return VK_FORMAT_B8G8R8A8_UNORM;
         case Format::B8G8R8A8_SRGB: return VK_FORMAT_B8G8R8A8_SRGB;
 
+        case Format::R32_UINT: return VK_FORMAT_R32_UINT;
         case Format::R8G8B8A8_SRGB: return VK_FORMAT_R8G8B8A8_SRGB;
         case Format::R8G8B8A8_UNORM: return VK_FORMAT_R8G8B8A8_UNORM;
 
@@ -666,8 +667,9 @@ mkGraphicsVulkan::mkGraphicsVulkan(OS_Handle window, ValidationMode validationMo
             VkDescriptorType descriptorType;
             switch (type)
             {
-                case DescriptorType_CombinedSampler: descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; break;
+                case DescriptorType_SampledImage: descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE; break;
                 case DescriptorType_Storage: descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; break;
+                case DescriptorType_UniformTexel: descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER; break;
                 default: Assert(0);
             }
 
@@ -678,9 +680,13 @@ mkGraphicsVulkan::mkGraphicsVulkan(OS_Handle window, ValidationMode validationMo
             {
                 poolSize.descriptorCount = Min(10000, mDeviceProperties.properties.limits.maxDescriptorSetStorageBuffers / 4);
             }
-            else if (type == DescriptorType_CombinedSampler)
+            else if (type == DescriptorType_SampledImage)
             {
                 poolSize.descriptorCount = Min(10000, mDeviceProperties.properties.limits.maxDescriptorSetSampledImages / 4);
+            }
+            else if (type == DescriptorType_UniformTexel)
+            {
+                poolSize.descriptorCount = Min(10000, mDeviceProperties.properties.limits.maxDescriptorSetUniformBuffers / 4);
             }
             bindlessDescriptorPool.descriptorCount = poolSize.descriptorCount;
 
@@ -740,8 +746,9 @@ mkGraphicsVulkan::mkGraphicsVulkan(OS_Handle window, ValidationMode validationMo
             string typeName;
             switch (type)
             {
-                case DescriptorType_CombinedSampler: typeName = "Combined Sampler"; break;
+                case DescriptorType_SampledImage: typeName = "Sampled Image"; break;
                 case DescriptorType_Storage: typeName = "Storage Buffer"; break;
+                case DescriptorType_UniformTexel: typeName = "Uniform Texel Buffer"; break;
             }
             string name = PushStr8F(temp.arena, "Bindless Descriptor Set Layout: %S", typeName);
             SetName((u64)bindlessDescriptorPool.layout, GraphicsObjectType::DescriptorSetLayout, (const char *)name.str);
@@ -807,13 +814,24 @@ mkGraphicsVulkan::mkGraphicsVulkan(OS_Handle window, ValidationMode validationMo
         samplerCreate.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT; // VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
         samplerCreate.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT; // VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 
-        res = vkCreateSampler(mDevice, &samplerCreate, 0, &mLinearSampler);
+        immutableSamplers.emplace_back();
+        res = vkCreateSampler(mDevice, &samplerCreate, 0, &immutableSamplers.back());
         Assert(res == VK_SUCCESS);
 
         samplerCreate.minFilter  = VK_FILTER_NEAREST;
         samplerCreate.magFilter  = VK_FILTER_NEAREST;
         samplerCreate.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
-        res                      = vkCreateSampler(mDevice, &samplerCreate, 0, &mNearestSampler);
+        immutableSamplers.emplace_back();
+        res = vkCreateSampler(mDevice, &samplerCreate, 0, &immutableSamplers.back());
+        Assert(res == VK_SUCCESS);
+
+        samplerCreate.addressModeU  = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        samplerCreate.addressModeV  = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        samplerCreate.addressModeW  = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        samplerCreate.compareEnable = VK_TRUE;
+        samplerCreate.compareOp     = VK_COMPARE_OP_GREATER;
+        immutableSamplers.emplace_back();
+        res = vkCreateSampler(mDevice, &samplerCreate, 0, &immutableSamplers.back());
         Assert(res == VK_SUCCESS);
     }
 
@@ -1359,13 +1377,24 @@ void mkGraphicsVulkan::CreateShader(PipelineStateDesc *inDesc, PipelineState *ou
                     binding->descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
                     break;
                 case ResourceUsage::SampledTexture:
-                    binding->descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                    binding->descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
                     break;
                 default: Assert(0);
             }
             binding->stageFlags         = ConvertShaderStage(inputBinding->mStage);
             binding->descriptorCount    = inputBinding->mArraySize;
             binding->pImmutableSamplers = 0;
+        }
+
+        for (u32 i = 0; i < immutableSamplers.size(); i++)
+        {
+            ps->mLayoutBindings.emplace_back();
+            VkDescriptorSetLayoutBinding *binding = &ps->mLayoutBindings.back();
+            binding->binding                      = 100 + i;
+            binding->descriptorType               = VK_DESCRIPTOR_TYPE_SAMPLER;
+            binding->stageFlags                   = VK_SHADER_STAGE_FRAGMENT_BIT;
+            binding->descriptorCount              = 1;
+            binding->pImmutableSamplers           = &immutableSamplers[i];
         }
 
         VkDescriptorSetLayoutCreateInfo descriptorCreateInfo = {};
@@ -1519,6 +1548,10 @@ u64 mkGraphicsVulkan::GetMinAlignment(GPUBufferDesc *inDesc)
     {
         alignment = Max(alignment, mDeviceProperties.properties.limits.minUniformBufferOffsetAlignment);
     }
+    if (HasFlags(inDesc->mResourceUsage, ResourceUsage::UniformTexelBuffer))
+    {
+        alignment = Max(alignment, mDeviceProperties.properties.limits.minTexelBufferOffsetAlignment);
+    }
     if (HasFlags(inDesc->mResourceUsage, ResourceUsage::StorageBuffer))
     {
         alignment = Max(alignment, mDeviceProperties.properties.limits.minStorageBufferOffsetAlignment);
@@ -1559,6 +1592,10 @@ void mkGraphicsVulkan::CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDes
     if (HasFlags(inDesc.mResourceUsage, ResourceUsage::UniformBuffer))
     {
         createInfo.usage |= VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+    }
+    if (HasFlags(inDesc.mResourceUsage, ResourceUsage::UniformTexelBuffer))
+    {
+        createInfo.usage |= VK_BUFFER_USAGE_UNIFORM_TEXEL_BUFFER_BIT;
     }
     if (HasFlags(inDesc.mResourceUsage, ResourceUsage::StorageBuffer))
     {
@@ -1676,7 +1713,7 @@ void mkGraphicsVulkan::CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDes
         }
     }
 
-    if (HasFlags(inDesc.mResourceUsage, ResourceUsage::StorageBuffer) || HasFlags(inDesc.mResourceUsage, ResourceUsage::UniformBuffer))
+    if (HasFlags(inDesc.mResourceUsage, ResourceUsage::StorageBuffer) || HasFlags(inDesc.mResourceUsage, ResourceUsage::UniformBuffer) || HasFlags(inDesc.mResourceUsage, ResourceUsage::UniformTexelBuffer))
     {
         CreateSubresource(inBuffer, SubresourceType::SRV);
     }
@@ -1969,7 +2006,6 @@ i32 mkGraphicsVulkan::GetDescriptorIndex(Texture *resource, i32 subresourceIndex
     return descriptorIndex;
 }
 
-// TODO: split these :)
 i32 mkGraphicsVulkan::CreateSubresource(GPUBuffer *buffer, SubresourceType type, u64 offset, u64 size, Format format)
 {
     i32 subresourceIndex     = -1;
@@ -1980,50 +2016,107 @@ i32 mkGraphicsVulkan::CreateSubresource(GPUBuffer *buffer, SubresourceType type,
     GPUBufferVulkan::Subresource subresource;
 
     // Storage buffer
-    if (HasFlags(buffer->mDesc.mResourceUsage, ResourceUsage::StorageBuffer) && format == Format::Null)
+    if (format == Format::Null)
     {
-        BindlessDescriptorPool &pool   = bindlessDescriptorPools[DescriptorType_Storage];
-        i32 subresourceDescriptorIndex = pool.Allocate();
-
-        VkWriteDescriptorSet write = {};
-        write.sType                = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.dstSet               = pool.set;
-        write.dstBinding           = 0;
-        write.descriptorCount      = 1;
-        write.dstArrayElement      = subresourceDescriptorIndex;
-        write.descriptorType       = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        write.pTexelBufferView     = 0;
-
-        subresource.info.buffer = bufVulk->mBuffer;
-        subresource.info.offset = offset;
-        subresource.info.range  = size;
-
-        write.pBufferInfo = &subresource.info;
-
-        vkUpdateDescriptorSets(mDevice, 1, &write, 0, 0);
-
-        // TODO: remove this last minute decision making. this control path is only entered from one place.
-        if (!bufVulk->subresource.IsValid())
+        if (HasFlags(buffer->mDesc.mResourceUsage, ResourceUsage::StorageBuffer))
         {
-            subresource.descriptorIndex = subresourceDescriptorIndex;
-            bufVulk->subresource        = subresource;
+            BindlessDescriptorPool &pool   = bindlessDescriptorPools[DescriptorType_Storage];
+            i32 subresourceDescriptorIndex = pool.Allocate();
+
+            VkWriteDescriptorSet write = {};
+            write.sType                = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write.dstSet               = pool.set;
+            write.dstBinding           = 0;
+            write.descriptorCount      = 1;
+            write.dstArrayElement      = subresourceDescriptorIndex;
+            write.descriptorType       = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            write.pTexelBufferView     = 0;
+
+            subresource.info.buffer = bufVulk->mBuffer;
+            subresource.info.offset = offset;
+            subresource.info.range  = size;
+
+            write.pBufferInfo = &subresource.info;
+
+            vkUpdateDescriptorSets(mDevice, 1, &write, 0, 0);
+
+            if (!bufVulk->subresource.IsValid())
+            {
+                subresource.descriptorIndex = subresourceDescriptorIndex;
+                bufVulk->subresource        = subresource;
+            }
+            else
+            {
+                subresource.descriptorIndex = subresourceDescriptorIndex;
+                bufVulk->subresources.push_back(subresource);
+                i32 numSubresources = (i32)bufVulk->subresources.size();
+                subresourceIndex    = numSubresources - 1;
+            }
+        }
+        else if (HasFlags(buffer->mDesc.mResourceUsage, ResourceUsage::UniformBuffer) || HasFlags(buffer->mDesc.mResourceUsage, ResourceUsage::UniformTexelBuffer))
+        {
+            subresource.info.buffer = bufVulk->mBuffer;
+            subresource.info.offset = offset;
+            subresource.info.range  = size;
+
+            bufVulk->subresource = subresource;
         }
         else
         {
-            subresource.descriptorIndex = subresourceDescriptorIndex;
-            bufVulk->subresources.push_back(subresource);
-            i32 numSubresources = (i32)bufVulk->subresources.size();
-            subresourceIndex    = numSubresources - 1;
+            Assert(0);
         }
     }
-    // Texel buffers, not supported yet
-    else if (HasFlags(buffer->mDesc.mResourceUsage, ResourceUsage::UniformBuffer))
+    else
     {
-        subresource.info.buffer = bufVulk->mBuffer;
-        subresource.info.offset = offset;
-        subresource.info.range  = size;
+        if (HasFlags(buffer->mDesc.mResourceUsage, ResourceUsage::UniformTexelBuffer))
+        {
+            BindlessDescriptorPool &pool   = bindlessDescriptorPools[DescriptorType_UniformTexel];
+            i32 subresourceDescriptorIndex = pool.Allocate();
 
-        bufVulk->subresource = subresource;
+            VkBufferViewCreateInfo createView = {};
+            createView.sType                  = VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO;
+            createView.buffer                 = bufVulk->mBuffer;
+            createView.format                 = ConvertFormat(format);
+            createView.offset                 = offset;
+            createView.range                  = size;
+
+            VkResult res = vkCreateBufferView(mDevice, &createView, 0, &subresource.view);
+            Assert(res == VK_SUCCESS);
+
+            VkWriteDescriptorSet write = {};
+            write.sType                = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write.dstSet               = pool.set;
+            write.dstBinding           = 0;
+            write.descriptorCount      = 1;
+            write.dstArrayElement      = subresourceDescriptorIndex;
+            write.descriptorType       = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
+            write.pTexelBufferView     = &subresource.view;
+
+            subresource.info.buffer = bufVulk->mBuffer;
+            subresource.info.offset = offset;
+            subresource.info.range  = size;
+
+            write.pBufferInfo = &subresource.info;
+
+            vkUpdateDescriptorSets(mDevice, 1, &write, 0, 0);
+
+            if (!bufVulk->subresource.IsValid())
+            {
+                subresource.descriptorIndex = subresourceDescriptorIndex;
+                bufVulk->subresource        = subresource;
+            }
+            else
+            {
+                subresource.descriptorIndex = subresourceDescriptorIndex;
+                bufVulk->subresources.push_back(subresource);
+                i32 numSubresources = (i32)bufVulk->subresources.size();
+                subresourceIndex    = numSubresources - 1;
+            }
+        }
+        else
+        {
+            Assert(0);
+        }
     }
     return subresourceIndex;
 }
@@ -2099,23 +2192,10 @@ i32 mkGraphicsVulkan::CreateSubresource(Texture *texture, u32 baseLayer, u32 num
     if (HasFlags(texture->mDesc.mInitialUsage, ResourceUsage::SampledTexture) || HasFlags(texture->mDesc.mFutureUsages, ResourceUsage::SampledTexture))
     {
         // Adds to the bindless combined image samplers array
-        BindlessDescriptorPool &pool   = bindlessDescriptorPools[DescriptorType_CombinedSampler];
+        BindlessDescriptorPool &pool   = bindlessDescriptorPools[DescriptorType_SampledImage];
         i32 subresourceDescriptorIndex = pool.Allocate();
         subresource->descriptorIndex   = subresourceDescriptorIndex;
         VkDescriptorImageInfo info;
-        switch (texture->mDesc.mSampler)
-        {
-            case TextureDesc::DefaultSampler::Nearest:
-            {
-                info.sampler = mNearestSampler;
-            }
-            break;
-            case TextureDesc::DefaultSampler::Linear:
-            {
-                info.sampler = mLinearSampler;
-            }
-            break;
-        }
 
         info.imageView   = subresource->mImageView;
         info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -2126,7 +2206,7 @@ i32 mkGraphicsVulkan::CreateSubresource(Texture *texture, u32 baseLayer, u32 num
         writeSet.dstBinding           = 0;
         writeSet.descriptorCount      = 1;
         writeSet.dstArrayElement      = subresourceDescriptorIndex;
-        writeSet.descriptorType       = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        writeSet.descriptorType       = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
         writeSet.pImageInfo           = &info;
 
         vkUpdateDescriptorSets(mDevice, 1, &writeSet, 0, 0);
@@ -2175,6 +2255,10 @@ void mkGraphicsVulkan::UpdateDescriptorSet(CommandList cmd)
 
     for (auto &layoutBinding : pipelineVulkan->mLayoutBindings)
     {
+        if (layoutBinding.pImmutableSamplers != 0)
+        {
+            continue;
+        }
         for (u32 descriptorIndex = 0; descriptorIndex < layoutBinding.descriptorCount; descriptorIndex++)
         {
             descriptorWrites.emplace_back();
@@ -2213,12 +2297,11 @@ void mkGraphicsVulkan::UpdateDescriptorSet(CommandList cmd)
                     descriptorWrite.pBufferInfo = &bufferInfos.back();
                 }
                 break;
-                case VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:
+                case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
                 {
                     GPUResource &resource = command->mResourceTable[layoutBinding.binding];
 
                     VkImageView view;
-                    VkSampler sampler = mNullSampler;
                     if (!resource.IsValid() || !resource.IsTexture())
                     {
                         view = mNullImageView2D;
@@ -2228,23 +2311,9 @@ void mkGraphicsVulkan::UpdateDescriptorSet(CommandList cmd)
                         Texture *tex           = (Texture *)(&resource);
                         TextureVulkan *texture = ToInternal(tex);
                         view                   = texture->mSubresource.mImageView;
-                        switch (tex->mDesc.mSampler)
-                        {
-                            case TextureDesc::DefaultSampler::Nearest:
-                            {
-                                sampler = mNearestSampler;
-                            }
-                            break;
-                            case TextureDesc::DefaultSampler::Linear:
-                            {
-                                sampler = mLinearSampler;
-                            }
-                            break;
-                        }
                     }
                     imageInfos.emplace_back();
                     VkDescriptorImageInfo &imageInfo = imageInfos.back();
-                    imageInfo.sampler                = sampler;
                     imageInfo.imageView              = view;
                     imageInfo.imageLayout            = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
@@ -2336,7 +2405,7 @@ mkGraphicsVulkan::RingAllocation *mkGraphicsVulkan::RingAlloc(u64 size, VkFence 
                 RingAllocation *freeAllocation = &stagingRingAllocator.allocations.front();
                 if (vkGetFenceStatus(mDevice, freeAllocation->fence) == VK_SUCCESS || freeAllocation->freed)
                 {
-                    stagingRingAllocator.readPos        = freeAllocation->offset + (u32)freeAllocation->size;
+                    stagingRingAllocator.readPos = freeAllocation->offset + (u32)freeAllocation->size;
                     if (freeAllocation->cmd)
                     {
                         freeAllocation->cmd->ringAllocation = 0;
@@ -2370,9 +2439,10 @@ mkGraphicsVulkan::RingAllocation *mkGraphicsVulkan::RingAlloc(u64 size, VkFence 
 // NOTE: the problem with this is that the allocation being pointed to could be freed.
 void mkGraphicsVulkan::RingFree(RingAllocation *allocation)
 {
-    if (allocation)
+    // TODO: this might not be correct
+    TicketMutexScope(&stagingRingAllocator.lock)
     {
-        TicketMutexScope(&stagingRingAllocator.lock)
+        if (allocation)
         {
             allocation->freed = 1;
             allocation->cmd   = 0;

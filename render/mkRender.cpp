@@ -1284,9 +1284,9 @@ internal void Initialize()
     }
 
     // Initialize shaders
-    shaders[VS_TEST].mName      = "src/shaders/triangle_test_vert.spv";
-    shaders[FS_TEST].mName      = "src/shaders/triangle_test_frag.spv";
-    shaders[VS_SHADOWMAP].mName = "src/shaders/depth.spv";
+    shaders[VS_TEST].mName      = "src/shaders/mesh_vs.spv";
+    shaders[FS_TEST].mName      = "src/shaders/mesh_fs.spv";
+    shaders[VS_SHADOWMAP].mName = "src/shaders/depth_vs.spv";
 
     // Initialize pipelines
     {
@@ -1311,10 +1311,9 @@ internal void Initialize()
             DescriptorBinding(SHADOW_MAP_BIND, ResourceUsage::SampledTexture, ShaderStage::Fragment),
         };
         // desc.mInputLayouts.push_back(&inputLayouts[IL_Type_MeshVertex]);
-        desc.mRasterState                   = &rasterizers[RasterType_CCW_CullBack];
-        desc.mPushConstantRange.mOffset     = 0;
-        desc.mPushConstantRange.mSize       = sizeof(PushConstant);
-        desc.mPushConstantRange.mStageFlags = ShaderStage::Vertex;
+        desc.mRasterState               = &rasterizers[RasterType_CCW_CullBack];
+        desc.mPushConstantRange.mOffset = 0;
+        desc.mPushConstantRange.mSize   = sizeof(PushConstant);
         device->CreateShader(&desc, &pipelineState, "Main pass");
 
         // Shadows
@@ -1326,10 +1325,9 @@ internal void Initialize()
             DescriptorBinding(SKINNING_BIND, ResourceUsage::UniformBuffer, ShaderStage::Vertex),
         };
         // desc.mInputLayouts.push_back(&inputLayouts[IL_Type_MeshVertex]);
-        desc.mRasterState                   = &rasterizers[RasterType_CCW_CullNone];
-        desc.mPushConstantRange.mOffset     = 0;
-        desc.mPushConstantRange.mSize       = sizeof(ShadowPushConstant);
-        desc.mPushConstantRange.mStageFlags = ShaderStage::Vertex;
+        desc.mRasterState               = &rasterizers[RasterType_CCW_CullNone];
+        desc.mPushConstantRange.mOffset = 0;
+        desc.mPushConstantRange.mSize   = sizeof(PushConstant);
         device->CreateShader(&desc, &shadowMapPipeline, "Depth pass");
     }
 }
@@ -1357,7 +1355,7 @@ internal void Render()
         Ubo uniforms;
         for (u32 i = 0; i < g_state->mEntityCount; i++)
         {
-            ModelParams *modelParams     = &uniforms.params[i];
+            ModelParams *modelParams     = &uniforms.rParams[i];
             modelParams->transform       = renderState->transform * g_state->mTransforms[i];
             modelParams->modelViewMatrix = renderState->viewMatrix * g_state->mTransforms[i];
             modelParams->modelMatrix     = g_state->mTransforms[i];
@@ -1365,10 +1363,10 @@ internal void Render()
         ViewLight testLight = {};
         testLight.dir       = {0, .5, .5};
         testLight.dir       = Normalize(testLight.dir);
-        uniforms.lightDir   = MakeV4(testLight.dir, 1.0);
-        uniforms.viewPos    = MakeV4(renderState->camera.position, 1.0);
+        uniforms.rLightDir  = MakeV4(testLight.dir, 1.0);
+        uniforms.rViewPos   = MakeV4(renderState->camera.position, 1.0);
 
-        R_CascadedShadowMap(&testLight, uniforms.lightViewProjectionMatrices, uniforms.cascadeDistances.elements);
+        R_CascadedShadowMap(&testLight, uniforms.rLightViewProjectionMatrices, uniforms.rCascadeDistances.elements);
         device->FrameAllocate(&ubo, &uniforms, cmdList, sizeof(uniforms));
     }
 
@@ -1405,7 +1403,7 @@ internal void Render()
 
             device->SetScissor(cmdList, scissor);
 
-            ShadowPushConstant pc;
+            PushConstant pc;
             pc.cascadeNum = shadowSlice;
 
             for (u32 entityIndex = 0; entityIndex < g_state->mEntityCount; entityIndex++)
@@ -1420,9 +1418,6 @@ internal void Render()
                     Mesh *mesh = &model->meshes[meshIndex];
 
                     pc.vertexPos        = mesh->vertexPosView.subresourceDescriptor;
-                    pc.vertexNor        = mesh->vertexNorView.subresourceDescriptor;
-                    pc.vertexTan        = mesh->vertexTanView.subresourceDescriptor;
-                    pc.vertexUv         = mesh->vertexUvView.subresourceDescriptor;
                     pc.vertexBoneId     = mesh->vertexBoneIdView.subresourceDescriptor;
                     pc.vertexBoneWeight = mesh->vertexBoneWeightView.subresourceDescriptor;
 

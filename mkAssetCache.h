@@ -297,7 +297,8 @@ internal string AS_DequeueFile(Arena *arena);
 
 internal void AS_EntryPoint(void *p);
 internal void AS_HotloadEntryPoint(void *p);
-JOB_CALLBACK(AS_LoadAsset);
+// JOB_CALLBACK(AS_LoadAsset);
+internal void AS_LoadAsset(AS_Asset *asset);
 internal void AS_UnloadAsset(AS_Asset *asset);
 
 //////////////////////////////
@@ -316,7 +317,7 @@ global readonly Font fontNil;
 
 internal Font *GetFont(AS_Handle handle);
 internal AS_Asset *AS_GetAssetFromHandle(AS_Handle handle);
-internal AS_Handle AS_GetAsset(const string inPath);
+internal AS_Handle AS_GetAsset(const string inPath, const b32 inLoadIfNotFound = 1);
 internal LoadedSkeleton *GetSkeleton(AS_Handle handle);
 internal LoadedSkeleton *GetSkeletonFromModel(AS_Handle handle);
 internal KeyframedAnimation *GetAnim(AS_Handle handle);

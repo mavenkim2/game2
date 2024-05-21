@@ -31,6 +31,7 @@ template <typename Component>
 class ComponentManager
 {
 private:
+    TicketMutex mutex;
     list<Component> components;
     list<Entity> entities;
     HashIndex nameMap;
@@ -50,6 +51,7 @@ public:
         components.reserve(reserve);
         handleMap.Init();
         components.emplace_back(); // null
+        mutex = {};
     }
 
     Component &operator[](i32 index)
