@@ -13,8 +13,8 @@
 #include "mkFont.cpp"
 #include "mkAsset.cpp"
 #include "mkAssetCache.cpp"
-// #include "render/mkVertexCache.cpp"
 #include "render/mkRender.cpp"
+#include "mkShaderCompiler.cpp"
 #include "mkDebug.cpp"
 
 const f32 GRAVITY = 49.f;
@@ -210,7 +210,7 @@ G_INIT(G_Init)
             // scale                   = Scale(V3{1, 1, 1});
             g_state->mTransforms[1] = translate * rotate;
 
-            translate = Translate4(V3{0, 0, 0});
+            translate               = Translate4(V3{0, 0, 0});
             scale                   = Scale(V3{1, 1, 1});
             g_state->mTransforms[2] = translate * rotate;
 

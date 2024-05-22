@@ -21,7 +21,7 @@ internal void ThreadContextInitialize(ThreadContext *t, b32 isMainThread = 0)
 
 internal void ThreadContextRelease()
 {
-    ThreadContext *t = platform.ThreadContextGet();
+    ThreadContext *t = ThreadContextGet();
     for (u32 i = 0; i < ArrayLength(t->arenas); i++)
     {
         ArenaRelease(t->arenas[i]);
@@ -40,7 +40,7 @@ internal void ThreadContextSet(ThreadContext *tctx)
 
 internal Arena *ThreadContextScratch(Arena **conflicts, u32 count)
 {
-    ThreadContext *t = platform.ThreadContextGet();
+    ThreadContext *t = ThreadContextGet();
     Arena *result    = 0;
     for (u32 i = 0; i < ArrayLength(t->arenas); i++)
     {
@@ -66,7 +66,7 @@ internal Arena *ThreadContextScratch(Arena **conflicts, u32 count)
 
 internal void SetThreadName(string name)
 {
-    ThreadContext *context  = platform.ThreadContextGet();
+    ThreadContext *context  = ThreadContextGet();
     context->threadNameSize = Min(name.size, sizeof(context->threadName));
     MemoryCopy(context->threadName, name.str, context->threadNameSize);
     platform.SetThreadName(name);
@@ -74,21 +74,22 @@ internal void SetThreadName(string name)
 
 internal void SetThreadIndex(u32 index)
 {
-    ThreadContext *context = platform.ThreadContextGet();
+    ThreadContext *context = ThreadContextGet();
     context->index         = index;
 }
 
 internal u32 GetThreadIndex()
 {
-    ThreadContext *context = platform.ThreadContextGet();
+    ThreadContext *context = ThreadContextGet();
     u32 result             = context->index;
     return result;
 }
 
+// TODO: im stupid and the per thread scratch buffer is not per thread : )
 internal void BaseThreadEntry(OS_ThreadFunction *func, void *params)
 {
     ThreadContext tContext_ = {};
     ThreadContextInitialize(&tContext_);
-    func(params);
+    func(params, &tContext_);
     ThreadContextRelease();
 }

@@ -1192,6 +1192,7 @@ enum InputLayoutTypes
     IL_Type_Count,
 };
 
+Arena *arena;
 Swapchain swapchain;
 PipelineState pipelineState;
 
@@ -1214,6 +1215,7 @@ list<i32> shadowSlices;
 
 internal void Initialize()
 {
+    arena = ArenaAlloc();
     // Initialize swap chain
     {
         SwapchainDesc desc;
@@ -1284,9 +1286,30 @@ internal void Initialize()
     }
 
     // Initialize shaders
-    shaders[VS_TEST].mName      = "src/shaders/mesh_vs.spv";
-    shaders[FS_TEST].mName      = "src/shaders/mesh_fs.spv";
-    shaders[VS_SHADOWMAP].mName = "src/shaders/depth_vs.spv";
+    shaders[VS_MESH].mName      = "mesh_vs.hlsl";
+    shaders[VS_MESH].stage      = ShaderStage::Vertex;
+    shaders[FS_MESH].mName      = "mesh_fs.hlsl";
+    shaders[FS_MESH].stage      = ShaderStage::Fragment;
+    shaders[VS_SHADOWMAP].mName = "depth_vs.hlsl";
+    shaders[VS_SHADOWMAP].stage = ShaderStage::Vertex;
+
+    // Compile shaders
+    {
+        shadercompiler::InitShaderCompiler();
+        for (u32 i = 0; i < ShaderType_Count; i++)
+        {
+            shadercompiler::CompileInput input;
+            input.shaderName = shaders[i].mName;
+            input.stage      = shaders[i].stage;
+
+            shadercompiler::CompileOutput output;
+
+            u64 pos = ArenaPos(arena);
+            shadercompiler::CompileShader(arena, &input, &output);
+            device->CreateShader(&shaders[i], output.shaderData);
+            ArenaPopTo(arena, pos);
+        }
+    }
 
     // Initialize pipelines
     {
@@ -1300,35 +1323,20 @@ internal void Initialize()
         inputLayout.mRate    = InputRate::Vertex;
 
         // Main
-        PipelineStateDesc desc;
+        PipelineStateDesc desc = {};
         desc.mDepthStencilFormat    = Format::D32_SFLOAT_S8_UINT;
         desc.mColorAttachmentFormat = Format::R8G8B8A8_SRGB;
-        desc.mVS                    = &shaders[VS_TEST];
-        desc.mFS                    = &shaders[FS_TEST];
-        desc.mDescriptorBindings    = {
-            DescriptorBinding(MODEL_PARAMS_BIND, ResourceUsage::UniformBuffer, ShaderStage::Vertex | ShaderStage::Fragment),
-            DescriptorBinding(SKINNING_BIND, ResourceUsage::UniformBuffer, ShaderStage::Vertex | ShaderStage::Fragment),
-            DescriptorBinding(SHADOW_MAP_BIND, ResourceUsage::SampledTexture, ShaderStage::Fragment),
-        };
-        // desc.mInputLayouts.push_back(&inputLayouts[IL_Type_MeshVertex]);
-        desc.mRasterState               = &rasterizers[RasterType_CCW_CullBack];
-        desc.mPushConstantRange.mOffset = 0;
-        desc.mPushConstantRange.mSize   = sizeof(PushConstant);
-        device->CreateShader(&desc, &pipelineState, "Main pass");
+        desc.vs                     = &shaders[VS_MESH];
+        desc.fs                     = &shaders[FS_MESH];
+        desc.mRasterState           = &rasterizers[RasterType_CCW_CullBack];
+        device->CreatePipeline(&desc, &pipelineState, "Main pass");
 
         // Shadows
         desc                     = {};
         desc.mDepthStencilFormat = Format::D32_SFLOAT;
-        desc.mVS                 = &shaders[VS_SHADOWMAP];
-        desc.mDescriptorBindings = {
-            DescriptorBinding(MODEL_PARAMS_BIND, ResourceUsage::UniformBuffer, ShaderStage::Vertex),
-            DescriptorBinding(SKINNING_BIND, ResourceUsage::UniformBuffer, ShaderStage::Vertex),
-        };
-        // desc.mInputLayouts.push_back(&inputLayouts[IL_Type_MeshVertex]);
-        desc.mRasterState               = &rasterizers[RasterType_CCW_CullNone];
-        desc.mPushConstantRange.mOffset = 0;
-        desc.mPushConstantRange.mSize   = sizeof(PushConstant);
-        device->CreateShader(&desc, &shadowMapPipeline, "Depth pass");
+        desc.vs                  = &shaders[VS_SHADOWMAP];
+        desc.mRasterState        = &rasterizers[RasterType_CCW_CullNone];
+        device->CreatePipeline(&desc, &shadowMapPipeline, "Depth pass");
     }
 }
 
@@ -1511,106 +1519,6 @@ internal void Render()
         device->EndRenderPass(cmdList);
     }
     device->SubmitCommandLists();
-} // namespace render
-
-// void RenderMeshes()
-// {
-// }
+}
 
 } // namespace render
-
-// Constants
-
-// STEPS:
-// 1. extract
-// 2. prepare
-// 3. submit
-
-//////////////////////////////
-// UI
-//
-
-// internal void DrawRectangle(RenderState* renderState, V2 min, V2 max) {
-//     renderState->
-//         DrawRectangle(&renderState, V2(0, 0), V2(renderState.width / 10, renderState.height / 10));
-// }
-
-// internal void PushCube(RenderCommand* commands, V3 pos, V3 radius, V4 color)
-// {
-//     f32 minX = pos.x - radius.x;
-//     f32 maxX = pos.x + radius.x;
-//     f32 minY = pos.y - radius.y;
-//     f32 maxY = pos.y + radius.y;
-//     f32 minZ = pos.z - radius.z;
-//     f32 maxZ = pos.z + radius.z;
-//
-//     V3 p0 = {minX, minY, minZ};
-//     V3 p1 = {maxX, minY, minZ};
-//     V3 p2 = {maxX, maxY, minZ};
-//     V3 p3 = {minX, maxY, minZ};
-//     V3 p4 = {minX, minY, maxZ};
-//     V3 p5 = {maxX, minY, maxZ};
-//     V3 p6 = {maxX, maxY, maxZ};
-//     V3 p7 = {minX, maxY, maxZ};
-//
-//     Mesh mesh;
-//
-//     // NOTE: winding must be counterclockwise if it's a front face
-//     //  -X
-//     PushQuad(commands, p3, p0, p4, p7, V3{-1, 0, 0}, color);
-//     // +X
-//     PushQuad(commands, p1, p2, p6, p5, V3{1, 0, 0}, color);
-//     // -Y
-//     PushQuad(commands, p0, p1, p5, p4, V3{0, -1, 0}, color);
-//     // +Y
-//     PushQuad(commands, p2, p3, p7, p6, V3{0, 1, 0}, color);
-//     // -Z
-//     PushQuad(commands, p3, p2, p1, p0, V3{0, 0, -1}, color);
-//     // +Z
-//     PushQuad(commands, p4, p5, p6, p7, V3{0, 0, 1}, color);
-//
-// }
-//
-// internal void PushQuad(RenderCommand *commands, V3 p0, V3 p1, V3 p2, V3 p3, V3 n, V4 color)
-// {
-//     // NOTE: per quad there is 4 new vertices, 6 indices, but the 6 indices are
-//     // 4 different numbers.
-//     Mesh
-//     u32 vertexIndex = group->vertexCount;
-//     u32 indexIndex  = group->indexCount;
-//     group->vertexCount += 4;
-//     group->indexCount += 6;
-//     Assert(group->vertexCount <= group->maxVertexCount);
-//     Assert(group->indexCount <= group->maxIndexCount);
-//
-//     RenderVertex *vertex = group->vertexArray + vertexIndex;
-//     u16 *index           = group->indexArray + indexIndex;
-//
-//     vertex[0].p     = MakeV4(p0, 1.f);
-//     vertex[0].color = color.rgb;
-//     vertex[0].n     = n;
-//
-//     vertex[1].p     = MakeV4(p1, 1.f);
-//     vertex[1].color = color.rgb;
-//     vertex[1].n     = n;
-//
-//     vertex[2].p     = MakeV4(p2, 1.f);
-//     vertex[2].color = color.rgb;
-//     vertex[2].n     = n;
-//
-//     vertex[3].p     = MakeV4(p3, 1.f);
-//     vertex[3].color = color.rgb;
-//     vertex[3].n     = n;
-//
-//     // TODO: this will blow out the vertex count fast
-//     u16 baseIndex = (u16)vertexIndex;
-//     Assert((u32)baseIndex == vertexIndex);
-//     index[0] = baseIndex + 0;
-//     index[1] = baseIndex + 1;
-//     index[2] = baseIndex + 2;
-//     index[3] = baseIndex + 0;
-//     index[4] = baseIndex + 2;
-//     index[5] = baseIndex + 3;
-//
-//     group->quadCount += 1;
-// }

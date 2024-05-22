@@ -230,8 +230,9 @@ internal string AS_DequeueFile(Arena *arena)
 
 // TODO: this being multithreaded feels a bit awkward. maybe look at this later to figure if it can be
 // single-threaded, or if stuff can be timed so that it doesn't overlap somehow?
-internal void AS_EntryPoint(void *p)
+THREAD_ENTRY_POINT(AS_EntryPoint)
 {
+    ThreadContextSet(ctx);
     AS_CacheState *as_state = engine->GetAssetCacheState();
     SetThreadName(Str8Lit("[AS] Scanner"));
     for (; !gTerminateThreads;)

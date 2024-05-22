@@ -124,6 +124,9 @@ typedef OS_GET_THREAD_CONTEXT(os_get_thread_context);
 #define OS_SET_THREAD_AFFINITY(name) void name(OS_Handle input, u32 index)
 typedef OS_SET_THREAD_AFFINITY(os_set_thread_affinity);
 
+#define OS_LOAD_DLL(name) void name(OS_DLL *dll)
+typedef OS_LOAD_DLL(os_load_dll);
+
 struct PlatformApi
 {
     print_func *Printf;
@@ -157,8 +160,9 @@ struct PlatformApi
     os_toggle_cursor *ToggleCursor;
     os_get_center *GetCenter;
     os_set_mouse_pos *SetMousePos;
-    os_get_thread_context *ThreadContextGet;
     os_set_thread_affinity *SetThreadAffinity;
+    os_load_dll *LoadDLL;
+    os_load_dll *LoadDLLNoTemp;
 };
 extern PlatformApi platform;
 
@@ -196,8 +200,9 @@ inline PlatformApi GetPlatform()
     platform_.ToggleCursor       = OS_ToggleCursor;
     platform_.GetCenter          = OS_GetCenter;
     platform_.SetMousePos        = OS_SetMousePos;
-    platform_.ThreadContextGet   = ThreadContextGet;
     platform_.SetThreadAffinity  = SetThreadAffinity;
+    platform_.LoadDLL            = OS_LoadDLL;
+    platform_.LoadDLLNoTemp      = OS_LoadDLLNoTemp;
     return platform_;
 }
 
@@ -213,21 +218,21 @@ class PlatformRenderer
 
 struct ThreadContext;
 
-struct RenderPlatformMemory
-{
-    Shared *mShared;
-    PlatformRenderer *mRenderer;
-    PlatformApi mPlatform;
-    ThreadContext *mTctx;
-    b8 mIsHotloaded;
-    b8 mIsLoaded;
-};
-
-#define R_INIT(name) void name(RenderPlatformMemory *ioRenderMem, OS_Handle handle)
-typedef R_INIT(r_initialize);
-
-#define R_ENDFRAME(name) void name(RenderState *renderState)
-typedef R_ENDFRAME(r_end_frame);
+// struct RenderPlatformMemory
+// {
+//     Shared *mShared;
+//     PlatformRenderer *mRenderer;
+//     PlatformApi mPlatform;
+//     ThreadContext *mTctx;
+//     b8 mIsHotloaded;
+//     b8 mIsLoaded;
+// };
+//
+// #define R_INIT(name) void name(RenderPlatformMemory *ioRenderMem, OS_Handle handle)
+// typedef R_INIT(r_initialize);
+//
+// #define R_ENDFRAME(name) void name(RenderState *renderState)
+// typedef R_ENDFRAME(r_end_frame);
 
 //////////////////////////////
 // Game DLL

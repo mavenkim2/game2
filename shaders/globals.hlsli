@@ -1,4 +1,4 @@
-#include "../ShaderInterop.h"
+#include "ShaderInterop.h"
 
 static const uint BINDLESS_TEXTURE_SET = 1;
 static const uint BINDLESS_STORAGE_BUFFER_SET = 2;
@@ -13,9 +13,9 @@ static const uint BINDLESS_STORAGE_BUFFER_SET = 2;
 #error not supported
 #endif
 
-SamplerState sampleLinearWrap : register(s100);
-SamplerState sampleNearestWrap : register(s101);
-SamplerComparisonState sampleShadowMap : register(s102);
+SamplerState sampleLinearWrap : register(s50);
+SamplerState sampleNearestWrap : register(s51);
+SamplerComparisonState sampleShadowMap : register(s52);
 
 float2 GetFloat2(int descriptor, int vertexId)
 {

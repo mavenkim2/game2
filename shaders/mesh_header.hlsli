@@ -1,5 +1,5 @@
 #include "globals.hlsli"
-#include "../ShaderInterop_Mesh.h"
+#include "ShaderInterop_Mesh.h"
 
 #ifdef SHADOW_PASS
 #endif

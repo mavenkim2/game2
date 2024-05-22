@@ -6,7 +6,7 @@
 #endif
 
 global b32 volatile gTerminateJobThreads;
-internal void JobThreadEntryPoint(void *p);
+THREAD_ENTRY_POINT(JobThreadEntryPoint);
 
 //////////////////////////////
 // Job System initialization
@@ -207,7 +207,8 @@ internal b32 JS_PopJob(JS_Queue *queue, JS_Thread *thread)
         {
             AtomicDecrementU32(&counter->c);
         }
-    } else
+    }
+    else
     {
         EndMutex(&queue->lock);
         sleep = true;
@@ -215,10 +216,12 @@ internal b32 JS_PopJob(JS_Queue *queue, JS_Thread *thread)
     return sleep;
 }
 
-internal void JobThreadEntryPoint(void *p)
+THREAD_ENTRY_POINT(JobThreadEntryPoint)
 {
+    ThreadContextSet(ctx);
+
     JS_State *js_state = engine->GetJobState();
-    u64 threadIndex    = (u64)p;
+    u64 threadIndex    = (u64)ptr;
     JS_Thread *thread  = &js_state->threads[threadIndex];
 
     TempArena temp = ScratchStart(0, 0);

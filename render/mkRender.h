@@ -23,6 +23,7 @@
 #include "../shaders/ShaderInterop_Mesh.h"
 #include "../mkCrack.h"
 #ifdef LSP_INCLUDE
+#include "../mkShaderCompiler.h"
 #include "../mkCommon.h"
 #include "../mkString.h"
 #include "../mkMath.h"

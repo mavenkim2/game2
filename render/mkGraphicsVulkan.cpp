@@ -4,16 +4,30 @@
 #include "../mkList.h"
 #include "../mkPlatformInc.h"
 #include "mkGraphicsVulkan.h"
+#include "../mkShaderCompiler.h"
 #endif
 
 // #include "mkGraphicsVulkan.h"
 #include "../third_party/vulkan/volk.c"
+// #include "../third_party/spirv_reflect.h"
+
+namespace spirv_reflect
+{
+#define SPV_ENABLE_UTILITY_CODE
+#include "../third_party/spirv_reflect.cpp"
+} // namespace spirv_reflect
 
 // Namespace only used in this file
 namespace graphics
 {
+
 namespace vulkan
 {
+
+const i32 VK_BINDING_SHIFT_S      = 100;
+const i32 VK_BINDING_SHIFT_T      = 200;
+const i32 VK_BINDING_SHIFT_U      = 300;
+const i32 IMMUTABLE_SAMPLER_START = 50;
 
 VkFormat ConvertFormat(Format value)
 {
@@ -106,24 +120,14 @@ VkBool32 DebugUtilsMessengerCallback(VkDebugUtilsMessageSeverityFlagBitsEXT mess
 
 VkShaderStageFlags ConvertShaderStage(ShaderStage stage)
 {
-    VkShaderStageFlags flags = 0;
-    if (HasFlags(stage, ShaderStage::Vertex))
+    switch (stage)
     {
-        flags |= VK_SHADER_STAGE_VERTEX_BIT;
+        case ShaderStage::Vertex: return VK_SHADER_STAGE_VERTEX_BIT;
+        case ShaderStage::Fragment: return VK_SHADER_STAGE_FRAGMENT_BIT;
+        case ShaderStage::Geometry: return VK_SHADER_STAGE_GEOMETRY_BIT;
+        case ShaderStage::Compute: return VK_SHADER_STAGE_COMPUTE_BIT;
+        default: Assert(0); return VK_SHADER_STAGE_ALL;
     }
-    if (HasFlags(stage, ShaderStage::Fragment))
-    {
-        flags |= VK_SHADER_STAGE_FRAGMENT_BIT;
-    }
-    if (HasFlags(stage, ShaderStage::Geometry))
-    {
-        flags |= VK_SHADER_STAGE_GEOMETRY_BIT;
-    }
-    if (HasFlags(stage, ShaderStage::Compute))
-    {
-        flags |= VK_SHADER_STAGE_COMPUTE_BIT;
-    }
-    return flags;
 }
 
 VkAccessFlags2 ConvertResourceUsageToAccessFlag(ResourceUsage state)
@@ -875,7 +879,6 @@ mkGraphicsVulkan::mkGraphicsVulkan(OS_Handle window, ValidationMode validationMo
         Assert(res == VK_SUCCESS);
 
         // Transitions
-
         TransferCommand cmd = Stage(0);
 
         VkImageMemoryBarrier2 imageBarrier           = {};
@@ -924,16 +927,30 @@ mkGraphicsVulkan::mkGraphicsVulkan(OS_Handle window, ValidationMode validationMo
 
 b32 mkGraphicsVulkan::CreateSwapchain(Window window, SwapchainDesc *desc, Swapchain *inSwapchain)
 {
-    SwapchainVulkan *swapchain = ToInternal(inSwapchain);
-
-    if (swapchain == 0)
+    SwapchainVulkan *swapchain = 0;
+    if (inSwapchain->IsValid())
     {
-        swapchain = new SwapchainVulkan();
+        swapchain = ToInternal(inSwapchain);
+    }
+    else
+    {
+        MutexScope(&mArenaMutex)
+        {
+            swapchain = freeSwapchain;
+            if (swapchain)
+            {
+                StackPop(freeSwapchain);
+            }
+            else
+            {
+                swapchain = PushStruct(mArena, SwapchainVulkan);
+            }
+        }
     }
     inSwapchain->mDesc         = *desc;
     inSwapchain->internalState = swapchain;
     VkResult res;
-    // Create surface
+// Create surface
 #if WINDOWS
     VkWin32SurfaceCreateInfoKHR win32SurfaceCreateInfo = {};
     win32SurfaceCreateInfo.sType                       = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
@@ -1144,71 +1161,173 @@ b32 mkGraphicsVulkan::CreateSwapchain(Swapchain *inSwapchain)
     return true;
 }
 
-void mkGraphicsVulkan::CreateShader(PipelineStateDesc *inDesc, PipelineState *outPS, string name)
+void mkGraphicsVulkan::CreateShader(Shader *shader, string shaderData)
+{
+    ShaderVulkan *shaderVulkan = 0;
+    MutexScope(&mArenaMutex)
+    {
+        shaderVulkan = freeShader;
+        if (shaderVulkan)
+        {
+            StackPop(freeShader);
+        }
+        else
+        {
+            shaderVulkan = PushStruct(mArena, ShaderVulkan);
+        }
+    }
+
+    shader->internalState = shaderVulkan;
+
+    VkShaderModuleCreateInfo createInfo = {};
+    createInfo.sType                    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+    createInfo.pCode                    = (u32 *)shaderData.str;
+    createInfo.codeSize                 = shaderData.size;
+    VkResult res                        = vkCreateShaderModule(mDevice, &createInfo, 0, &shaderVulkan->module);
+    Assert(res == VK_SUCCESS);
+
+    VkPipelineShaderStageCreateInfo &pipelineStageInfo = shaderVulkan->pipelineStageInfo;
+    pipelineStageInfo.sType                            = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+    switch (shader->stage)
+    {
+        case ShaderStage::Vertex: pipelineStageInfo.stage = VK_SHADER_STAGE_VERTEX_BIT; break;
+        case ShaderStage::Fragment: pipelineStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT; break;
+        case ShaderStage::Compute: pipelineStageInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT; break;
+        default: Assert(0); break;
+    }
+    pipelineStageInfo.module = shaderVulkan->module;
+    pipelineStageInfo.pName  = "main";
+
+    {
+        spirv_reflect::SpvReflectShaderModule module = {};
+        spirv_reflect::SpvReflectResult result       = spvReflectCreateShaderModule(createInfo.codeSize, createInfo.pCode, &module);
+        Assert(result == spirv_reflect::SPV_REFLECT_RESULT_SUCCESS);
+
+        u32 bindingCount = 0;
+        result           = spirv_reflect::spvReflectEnumerateDescriptorBindings(&module, &bindingCount, 0);
+        Assert(result == spirv_reflect::SPV_REFLECT_RESULT_SUCCESS);
+
+        list<spirv_reflect::SpvReflectDescriptorBinding *> descriptorBindings;
+        descriptorBindings.resize(bindingCount);
+        result = spirv_reflect::spvReflectEnumerateDescriptorBindings(&module, &bindingCount, descriptorBindings.data());
+        Assert(result == spirv_reflect::SPV_REFLECT_RESULT_SUCCESS);
+
+        u32 pushConstantCount = 0;
+        result                = spirv_reflect::spvReflectEnumeratePushConstantBlocks(&module, &pushConstantCount, 0);
+        Assert(result == spirv_reflect::SPV_REFLECT_RESULT_SUCCESS);
+
+        list<spirv_reflect::SpvReflectBlockVariable *> pushConstants;
+        pushConstants.resize(pushConstantCount);
+        result = spirv_reflect::spvReflectEnumeratePushConstantBlocks(&module, &pushConstantCount, pushConstants.data());
+        Assert(result == spirv_reflect::SPV_REFLECT_RESULT_SUCCESS);
+
+        for (auto &binding : descriptorBindings)
+        {
+            b32 bindless = binding->set > 0;
+
+            if (bindless) continue;
+
+            VkDescriptorSetLayoutBinding b;
+            b.binding         = binding->binding;
+            b.stageFlags      = pipelineStageInfo.stage;
+            b.descriptorType  = (VkDescriptorType)binding->descriptor_type;
+            b.descriptorCount = binding->count;
+
+            // Immutable samplers start at register s50
+            if (binding->descriptor_type == spirv_reflect::SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLER &&
+                binding->binding >= VK_BINDING_SHIFT_S + IMMUTABLE_SAMPLER_START)
+            {
+                b.pImmutableSamplers = &immutableSamplers[binding->binding - VK_BINDING_SHIFT_S - IMMUTABLE_SAMPLER_START];
+            }
+
+            shaderVulkan->layoutBindings.push_back(b);
+        }
+
+        for (auto &pc : pushConstants)
+        {
+            VkPushConstantRange *range = &shaderVulkan->pushConstantRange;
+            range->offset              = pc->offset;
+            range->size                = pc->size;
+            range->stageFlags          = VK_SHADER_STAGE_ALL;
+        }
+
+        spvReflectDestroyShaderModule(&module);
+    }
+}
+
+void mkGraphicsVulkan::CreatePipeline(PipelineStateDesc *inDesc, PipelineState *outPS, string name)
 {
     VkResult res;
-    PipelineStateVulkan *ps = new PipelineStateVulkan();
-    outPS->internalState    = ps;
-    outPS->mDesc            = *inDesc;
-
-    string vert = {};
-    string frag = {};
-
-    if (inDesc->mVS)
+    PipelineStateVulkan *ps = 0;
+    MutexScope(&mArenaMutex)
     {
-        vert = platform.ReadEntireFile(mArena, inDesc->mVS->mName);
+        ps = freePipeline;
+        if (ps)
+        {
+            StackPop(freePipeline);
+        }
+        else
+        {
+            ps = PushStruct(mArena, PipelineStateVulkan);
+        }
     }
-    if (inDesc->mFS)
-    {
-        frag = platform.ReadEntireFile(mArena, inDesc->mFS->mName);
-    }
+    outPS->internalState = ps;
+    outPS->mDesc         = *inDesc;
 
     TempArena temp = ScratchStart(0, 0);
-    list<VkShaderModule> shaderModules;
 
     // Pipeline create shader stage info
     list<VkPipelineShaderStageCreateInfo> pipelineShaderStageInfo;
 
-    // Create shader modules and pipeline shader stages
-    if (inDesc->mVS)
+    // Add all the shader info
+    for (u32 stage = 0; stage < (u32)ShaderStage::Count; stage++)
     {
-        shaderModules.emplace_back();
+        if (inDesc->shaders[stage] != 0)
+        {
+            // Add the pipeline stage creation info
+            Shader *shader             = inDesc->shaders[stage];
+            ShaderVulkan *shaderVulkan = ToInternal(shader);
+            pipelineShaderStageInfo.push_back(shaderVulkan->pipelineStageInfo);
 
-        VkShaderModuleCreateInfo createInfo = {};
-        createInfo.sType                    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-        createInfo.codeSize                 = vert.size;
-        createInfo.pCode                    = (u32 *)vert.str;
-        res                                 = vkCreateShaderModule(mDevice, &createInfo, 0, &shaderModules.back());
-        Assert(res == VK_SUCCESS);
+            string stageName;
+            switch (shaderVulkan->pipelineStageInfo.stage)
+            {
+                case VK_SHADER_STAGE_VERTEX_BIT: stageName = "VS "; break;
+                case VK_SHADER_STAGE_FRAGMENT_BIT: stageName = "FS "; break;
+                case VK_SHADER_STAGE_COMPUTE_BIT: stageName = "Compute "; break;
+                default: Assert(0); break;
+            }
+            SetName((u64)shaderVulkan->module, GraphicsObjectType::Shader, (const char *)StrConcat(temp.arena, stageName, name).str);
 
-        pipelineShaderStageInfo.emplace_back();
-        VkPipelineShaderStageCreateInfo &shaderInfo = pipelineShaderStageInfo.back();
-        shaderInfo.sType                            = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        shaderInfo.stage                            = VK_SHADER_STAGE_VERTEX_BIT;
-        shaderInfo.module                           = shaderModules.back();
-        shaderInfo.pName                            = "main";
-
-        SetName((u64)shaderModules.back(), GraphicsObjectType::Shader, (const char *)StrConcat(temp.arena, "VS ", name).str);
+            // Add the descriptor bindings
+            for (auto &shaderBinding : shaderVulkan->layoutBindings)
+            {
+                b8 found = false;
+                for (auto &layoutBinding : ps->mLayoutBindings)
+                {
+                    if (shaderBinding.binding == layoutBinding.binding)
+                    {
+                        // No overlapping bindings allowed (e.g t0 and b0 isn't allowed)
+                        Assert(shaderBinding.descriptorCount == layoutBinding.descriptorCount);
+                        Assert(shaderBinding.descriptorType == layoutBinding.descriptorType);
+                        found = true;
+                        layoutBinding.stageFlags |= shaderBinding.stageFlags;
+                    }
+                }
+                if (!found)
+                {
+                    ps->mLayoutBindings.push_back(shaderBinding);
+                }
+            }
+            // Push constant range
+            VkPushConstantRange &pc       = ps->mPushConstantRange;
+            VkPushConstantRange &shaderPc = shaderVulkan->pushConstantRange;
+            pc.size                       = Max(pc.size, shaderPc.size);
+            pc.offset                     = Min(pc.size, shaderPc.offset);
+            pc.stageFlags |= shaderPc.stageFlags;
+        }
     }
-    if (inDesc->mFS)
-    {
-        shaderModules.emplace_back();
 
-        VkShaderModuleCreateInfo createInfo = {};
-        createInfo.sType                    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-        createInfo.codeSize                 = frag.size;
-        createInfo.pCode                    = (u32 *)frag.str;
-        res                                 = vkCreateShaderModule(mDevice, &createInfo, 0, &shaderModules.back());
-        Assert(res == VK_SUCCESS);
-
-        pipelineShaderStageInfo.emplace_back();
-        VkPipelineShaderStageCreateInfo &shaderInfo = pipelineShaderStageInfo.back();
-        shaderInfo.sType                            = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        shaderInfo.stage                            = VK_SHADER_STAGE_FRAGMENT_BIT;
-        shaderInfo.module                           = shaderModules.back();
-        shaderInfo.pName                            = "main";
-        SetName((u64)shaderModules.back(), GraphicsObjectType::Shader, (const char *)StrConcat(temp.arena, "FS ", name).str);
-    }
     ScratchEnd(temp);
     // Vertex inputs
 
@@ -1363,39 +1482,39 @@ void mkGraphicsVulkan::CreateShader(PipelineStateDesc *inDesc, PipelineState *ou
     // Descriptor sets
     VkDescriptorSetLayout descriptorLayout;
     {
-        ps->mLayoutBindings.resize(inDesc->mDescriptorBindings.size());
+        // ps->mLayoutBindings.resize(inDesc->mDescriptorBindings.size());
 
-        for (size_t i = 0; i < inDesc->mDescriptorBindings.size(); i++)
-        {
-            VkDescriptorSetLayoutBinding *binding = &ps->mLayoutBindings[i];
-            DescriptorBinding *inputBinding       = &inDesc->mDescriptorBindings[i];
+        // for (size_t i = 0; i < inDesc->mDescriptorBindings.size(); i++)
+        // {
+        //     VkDescriptorSetLayoutBinding *binding = &ps->mLayoutBindings[i];
+        //     DescriptorBinding *inputBinding       = &inDesc->mDescriptorBindings[i];
+        //
+        //     binding->binding = inputBinding->mBinding;
+        //     switch (inputBinding->mUsage)
+        //     {
+        //         case ResourceUsage::UniformBuffer:
+        //             binding->descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        //             break;
+        //         case ResourceUsage::SampledTexture:
+        //             binding->descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+        //             break;
+        //         default: Assert(0);
+        //     }
+        //     binding->stageFlags         = ConvertShaderStage(inputBinding->mStage);
+        //     binding->descriptorCount    = inputBinding->mArraySize;
+        //     binding->pImmutableSamplers = 0;
+        // }
 
-            binding->binding = inputBinding->mBinding;
-            switch (inputBinding->mUsage)
-            {
-                case ResourceUsage::UniformBuffer:
-                    binding->descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-                    break;
-                case ResourceUsage::SampledTexture:
-                    binding->descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-                    break;
-                default: Assert(0);
-            }
-            binding->stageFlags         = ConvertShaderStage(inputBinding->mStage);
-            binding->descriptorCount    = inputBinding->mArraySize;
-            binding->pImmutableSamplers = 0;
-        }
-
-        for (u32 i = 0; i < immutableSamplers.size(); i++)
-        {
-            ps->mLayoutBindings.emplace_back();
-            VkDescriptorSetLayoutBinding *binding = &ps->mLayoutBindings.back();
-            binding->binding                      = 100 + i;
-            binding->descriptorType               = VK_DESCRIPTOR_TYPE_SAMPLER;
-            binding->stageFlags                   = VK_SHADER_STAGE_FRAGMENT_BIT;
-            binding->descriptorCount              = 1;
-            binding->pImmutableSamplers           = &immutableSamplers[i];
-        }
+        // for (u32 i = 0; i < immutableSamplers.size(); i++)
+        // {
+        //     ps->mLayoutBindings.emplace_back();
+        //     VkDescriptorSetLayoutBinding *binding = &ps->mLayoutBindings.back();
+        //     binding->binding                      = 100 + i;
+        //     binding->descriptorType               = VK_DESCRIPTOR_TYPE_SAMPLER;
+        //     binding->stageFlags                   = VK_SHADER_STAGE_FRAGMENT_BIT;
+        //     binding->descriptorCount              = 1;
+        //     binding->pImmutableSamplers           = &immutableSamplers[i];
+        // }
 
         VkDescriptorSetLayoutCreateInfo descriptorCreateInfo = {};
 
@@ -1425,11 +1544,8 @@ void mkGraphicsVulkan::CreateShader(PipelineStateDesc *inDesc, PipelineState *ou
     pipelineLayoutInfo.pPushConstantRanges    = 0;
 
     VkPushConstantRange &range = ps->mPushConstantRange;
-    if (inDesc->mPushConstantRange.mSize > 0)
+    if (range.size > 0)
     {
-        range.size                                = inDesc->mPushConstantRange.mSize;
-        range.offset                              = inDesc->mPushConstantRange.mOffset;
-        range.stageFlags                          = VK_SHADER_STAGE_ALL;
         pipelineLayoutInfo.pushConstantRangeCount = 1;
         pipelineLayoutInfo.pPushConstantRanges    = &range;
     }
@@ -1562,12 +1678,19 @@ u64 mkGraphicsVulkan::GetMinAlignment(GPUBufferDesc *inDesc)
 void mkGraphicsVulkan::CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDesc, CopyFunction initCallback)
 {
     VkResult res;
-    GPUBufferVulkan *buffer = ToInternal(inBuffer);
-    Assert(!buffer);
 
+    GPUBufferVulkan *buffer = 0;
     MutexScope(&mArenaMutex)
     {
-        buffer = PushStruct(mArena, GPUBufferVulkan);
+        buffer = freeBuffer;
+        if (buffer)
+        {
+            StackPop(freeBuffer);
+        }
+        else
+        {
+            buffer = PushStruct(mArena, GPUBufferVulkan);
+        }
     }
 
     buffer->subresource.descriptorIndex = -1;
@@ -1724,7 +1847,15 @@ void mkGraphicsVulkan::CreateTexture(Texture *outTexture, TextureDesc desc, void
     TextureVulkan *texVulk = 0;
     MutexScope(&mArenaMutex)
     {
-        texVulk = PushStruct(mArena, TextureVulkan);
+        texVulk = freeTexture;
+        if (texVulk)
+        {
+            StackPop(freeTexture);
+        }
+        else
+        {
+            texVulk = PushStruct(mArena, TextureVulkan);
+        }
     }
 
     outTexture->internalState = texVulk;
@@ -1917,7 +2048,15 @@ void mkGraphicsVulkan::CreateSampler(Sampler *sampler, SamplerDesc desc)
     SamplerVulkan *samplerVulk = 0;
     MutexScope(&mArenaMutex)
     {
-        samplerVulk = PushStruct(mArena, SamplerVulkan);
+        samplerVulk = freeSampler;
+        if (samplerVulk)
+        {
+            StackPop(freeSampler);
+        }
+        else
+        {
+            samplerVulk = PushStruct(mArena, SamplerVulkan);
+        }
     }
 
     sampler->internalState = samplerVulk;
@@ -2219,7 +2358,7 @@ void mkGraphicsVulkan::UpdateDescriptorSet(CommandList cmd)
     CommandListVulkan *command = ToInternal(cmd);
     Assert(command);
 
-    const PipelineState *pipeline = command->mCurrentPipeline;
+    PipelineState *pipeline = command->mCurrentPipeline;
     Assert(pipeline);
     PipelineStateVulkan *pipelineVulkan = ToInternal(pipeline);
     Assert(pipelineVulkan);
@@ -3253,7 +3392,7 @@ void mkGraphicsVulkan::PushConstants(CommandList cmd, u32 size, void *data, u32 
     }
 }
 
-void mkGraphicsVulkan::BindPipeline(const PipelineState *ps, CommandList cmd)
+void mkGraphicsVulkan::BindPipeline(PipelineState *ps, CommandList cmd)
 {
     CommandListVulkan *command = ToInternal(cmd);
     if (command->mCurrentPipeline != ps)

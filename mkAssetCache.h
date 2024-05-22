@@ -295,7 +295,7 @@ internal u64 RingWrite(u8 *base, u64 ringSize, u64 writePos, void *src, u64 srcS
 internal b32 AS_EnqueueFile(string path);
 internal string AS_DequeueFile(Arena *arena);
 
-internal void AS_EntryPoint(void *p);
+THREAD_ENTRY_POINT(AS_EntryPoint);
 internal void AS_HotloadEntryPoint(void *p);
 // JOB_CALLBACK(AS_LoadAsset);
 internal void AS_LoadAsset(AS_Asset *asset);

@@ -6,6 +6,7 @@
 #include "mkPlatformInc.h"
 
 #include "render/mkGraphics.h"
+#include "mkShaderCompiler.h"
 #include "mkInput.h"
 #include "mkThreadContext.h"
 #include "mkJob.h"

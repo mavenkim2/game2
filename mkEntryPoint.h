@@ -10,6 +10,7 @@
 #include "render/mkRenderCore.h"
 #include "mkList.h"
 #include "render/mkGraphics.h"
+#include "mkShaderCompiler.h"
 
 #include "mkShared.h"
 

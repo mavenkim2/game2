@@ -1047,21 +1047,6 @@ OS_SLEEP(OS_Sleep)
 //////////////////////////////
 // DLL
 //
-struct OS_DLL
-{
-    OS_Handle mHandle;
-    string mSource;
-    string mLock;
-    string mTemp;
-
-    u64 mLastWriteTime;
-
-    void **mFunctions;
-    char **mFunctionNames;
-    u32 mFunctionCount;
-    b8 mValid;
-};
-
 void OS_LoadDLL(OS_DLL *dll)
 {
     WIN32_FILE_ATTRIBUTE_DATA ignored;
@@ -1089,6 +1074,32 @@ void OS_LoadDLL(OS_DLL *dll)
                     OS_UnloadDLL(dll);
                     return;
                 }
+            }
+        }
+    }
+}
+
+void OS_LoadDLLNoTemp(OS_DLL *dll)
+{
+    OS_Handle result    = {};
+    HMODULE gameCodeDLL = LoadLibraryA((char *)(dll->mSource.str));
+    dll->mHandle.handle = (u64)gameCodeDLL;
+    dll->mLastWriteTime = OS_GetLastWriteTime(dll->mSource);
+    dll->mValid         = true;
+
+    if (gameCodeDLL)
+    {
+        for (u32 i = 0; i < dll->mFunctionCount; i++)
+        {
+            void *func = (void *)GetProcAddress(gameCodeDLL, dll->mFunctionNames[i]);
+            if (func)
+            {
+                dll->mFunctions[i] = func;
+            }
+            else
+            {
+                OS_UnloadDLL(dll);
+                return;
             }
         }
     }

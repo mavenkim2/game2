@@ -52,7 +52,24 @@ struct OS_FileIter
     u8 memory[600];
 };
 
-typedef void OS_ThreadFunction(void *);
+struct ThreadContext;
+#define THREAD_ENTRY_POINT(name) void name(void *ptr, ThreadContext *ctx)
+typedef THREAD_ENTRY_POINT(OS_ThreadFunction);
+
+struct OS_DLL
+{
+    OS_Handle mHandle;
+    string mSource;
+    string mLock;
+    string mTemp;
+
+    u64 mLastWriteTime;
+
+    void **mFunctions;
+    char **mFunctionNames;
+    u32 mFunctionCount;
+    b8 mValid;
+};
 
 //////////////////////////////
 // I/O
@@ -280,5 +297,6 @@ void OS_ThreadJoin(OS_Handle handle);
 
 void OS_UnloadDLL(OS_DLL *dll);
 void OS_LoadDLL(OS_DLL *dll);
+void OS_LoadDLLNoTemp(OS_DLL *dll);
 
 #endif

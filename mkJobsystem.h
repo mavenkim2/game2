@@ -16,7 +16,7 @@ const i32 JOB_QUEUE_LENGTH = 256;
 
 using std::atomic;
 
-void JobThreadEntryPoint(void *p);
+THREAD_ENTRY_POINT(JobThreadEntryPoint);
 
 struct Counter
 {
@@ -168,7 +168,6 @@ b32 Pop(JobQueue &queue, u64 threadIndex)
         if (queue.commitReadPos.compare_exchange_strong(readPos, readPos + 1))
         {
             Job *readJob = &queue.jobs[(readPos) & (JOB_QUEUE_LENGTH - 1)];
-            Printf("Read pos: %u\n", readPos);
 
             Job job;
             job.groupJobStart = readJob->groupJobStart;
@@ -194,9 +193,10 @@ b32 Pop(JobQueue &queue, u64 threadIndex)
     return result;
 }
 
-void JobThreadEntryPoint(void *p)
+THREAD_ENTRY_POINT(JobThreadEntryPoint)
 {
-    u64 threadIndex = (u64)p;
+    ThreadContextSet(ctx);
+    u64 threadIndex = (u64)ptr;
     TempArena temp  = ScratchStart(0, 0);
     SetThreadName(PushStr8F(temp.arena, "[Jobsystem] Worker %u", threadIndex));
     ScratchEnd(temp);

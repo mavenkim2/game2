@@ -73,7 +73,7 @@ struct mkGraphicsVulkan : mkGraphics
         VkCommandBuffer mCommandBuffers[cNumBuffers][QueueType_Count] = {};
         u32 mCurrentQueue                                             = 0;
         u32 mCurrentBuffer                                            = 0;
-        const PipelineState *mCurrentPipeline                         = 0;
+        PipelineState *mCurrentPipeline                               = 0;
 
         list<VkImageMemoryBarrier2> mEndPassImageMemoryBarriers;
         list<Swapchain> mUpdateSwapchains;
@@ -87,8 +87,9 @@ struct mkGraphicsVulkan : mkGraphics
         u32 mCurrentSet = 0;
         // b32 mIsDirty[cNumBuffers][QueueType_Count] = {};
 
-        const VkCommandBuffer
-        GetCommandBuffer() const
+        CommandListVulkan *next;
+
+        const VkCommandBuffer GetCommandBuffer() const
         {
             return mCommandBuffers[mCurrentBuffer][mCurrentQueue];
         }
@@ -136,6 +137,8 @@ struct mkGraphicsVulkan : mkGraphics
 
         u32 mAcquireSemaphoreIndex = 0;
         u32 mImageIndex;
+
+        SwapchainVulkan *next;
     };
 
     //////////////////////////////
@@ -154,12 +157,23 @@ struct mkGraphicsVulkan : mkGraphics
     {
         VkPipeline mPipeline;
         list<VkDescriptorSetLayoutBinding> mLayoutBindings;
-        list<VkDescriptorSetLayout> mDescriptorSetLayouts; // TODO: this is just one
+        list<VkDescriptorSetLayout> mDescriptorSetLayouts; 
         list<VkDescriptorSet> mDescriptorSets;
         // u32 mCurrentSet = 0;
         VkPipelineLayout mPipelineLayout;
 
         VkPushConstantRange mPushConstantRange = {};
+        PipelineStateVulkan *next;
+    };
+
+    struct ShaderVulkan
+    {
+        VkShaderModule module;
+        VkPipelineShaderStageCreateInfo pipelineStageInfo;
+        list<VkDescriptorSetLayoutBinding> layoutBindings;
+        VkPushConstantRange pushConstantRange;
+
+        ShaderVulkan *next;
     };
 
     //////////////////////////////
@@ -183,6 +197,7 @@ struct mkGraphicsVulkan : mkGraphics
         };
         Subresource subresource;
         list<Subresource> subresources;
+        GPUBufferVulkan *next;
     };
 
     //////////////////////////////
@@ -203,11 +218,13 @@ struct mkGraphicsVulkan : mkGraphics
         };
         Subresource mSubresource;        // whole view
         list<Subresource> mSubresources; // sub views
+        TextureVulkan *next;
     };
 
     struct SamplerVulkan
     {
         VkSampler mSampler;
+        SamplerVulkan *next;
     };
 
     //////////////////////////////
@@ -245,35 +262,55 @@ struct mkGraphicsVulkan : mkGraphics
     //////////////////////////////
     // Functions
     //
+    SwapchainVulkan *freeSwapchain     = 0;
+    CommandListVulkan *freeCommandList = 0;
+    PipelineStateVulkan *freePipeline  = 0;
+    GPUBufferVulkan *freeBuffer        = 0;
+    TextureVulkan *freeTexture         = 0;
+    SamplerVulkan *freeSampler         = 0;
+    ShaderVulkan *freeShader           = 0;
+
     SwapchainVulkan *ToInternal(Swapchain *swapchain)
     {
+        Assert(swapchain->IsValid());
         return (SwapchainVulkan *)(swapchain->internalState);
     }
 
     CommandListVulkan *ToInternal(CommandList commandlist)
     {
+        Assert(commandlist.IsValid());
         return (CommandListVulkan *)(commandlist.internalState);
     }
 
-    PipelineStateVulkan *ToInternal(const PipelineState *ps)
+    PipelineStateVulkan *ToInternal(PipelineState *ps)
     {
+        Assert(ps->IsValid());
         return (PipelineStateVulkan *)(ps->internalState);
     }
 
     GPUBufferVulkan *ToInternal(GPUBuffer *gb)
     {
+        Assert(gb->IsValid());
         return (GPUBufferVulkan *)(gb->internalState);
     }
 
     TextureVulkan *ToInternal(Texture *texture)
     {
+        Assert(texture->IsValid());
         return (TextureVulkan *)(texture->internalState);
+    }
+
+    ShaderVulkan *ToInternal(Shader *shader)
+    {
+        Assert(shader->IsValid());
+        return (ShaderVulkan *)(shader->internalState);
     }
 
     mkGraphicsVulkan(OS_Handle window, ValidationMode validationMode, GPUDevicePreference preference);
     u64 GetMinAlignment(GPUBufferDesc *inDesc) override;
     b32 CreateSwapchain(Window window, SwapchainDesc *desc, Swapchain *swapchain) override;
-    void CreateShader(PipelineStateDesc *inDesc, PipelineState *outPS, string name) override;
+    void CreatePipeline(PipelineStateDesc *inDesc, PipelineState *outPS, string name) override;
+    void CreateShader(Shader *shader, string shaderData) override;
     void CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDesc, CopyFunction initCallback) override;
     void CopyBuffer(CommandList cmd, GPUBuffer *dest, GPUBuffer *src, u32 size) override;
     void DeleteBuffer(GPUBuffer *buffer) override;
@@ -297,7 +334,7 @@ struct mkGraphicsVulkan : mkGraphics
     void SetScissor(CommandList cmd, Rect2 scissor) override;
     void EndRenderPass(CommandList cmd) override;
     void SubmitCommandLists() override;
-    void BindPipeline(const PipelineState *ps, CommandList cmd) override;
+    void BindPipeline(PipelineState *ps, CommandList cmd) override;
     void PushConstants(CommandList cmd, u32 size, void *data, u32 offset = 0) override;
     void WaitForGPU() override;
 
