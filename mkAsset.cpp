@@ -1,9 +1,7 @@
 #include "mkCrack.h"
 #ifdef LSP_INCLUDE
-#include "asset.h"
-#include "asset_cache.h"
-#include "./render/opengl.cpp"
-#include "keepmovingforward.h"
+#include "mkMath.h"
+#include "mkAsset.h"
 #endif
 
 inline AnimationTransform MakeAnimTform(V3 position, Quat rotation, V3 scale)

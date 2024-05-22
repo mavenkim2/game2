@@ -1041,7 +1041,7 @@ int main(int argc, char *argv[])
                                 {
                                     const u32 positionKeyCount = channel.sampler->output->count;
                                     boneChannel.positions      = PushArrayNoZero(temp.arena, AnimationPosition, positionKeyCount);
-                                    b8 passThrough             = 1;
+                                    b8 allEqual                = 1;
                                     V3 firstPosition;
                                     f32 firstTime;
                                     Assert(cgltf_accessor_read_float(channel.sampler->input, 0, &firstTime, 1));
@@ -1049,28 +1049,47 @@ int main(int argc, char *argv[])
 
                                     boneChannel.positions[0].time     = firstTime - channel.sampler->input->min[0];
                                     boneChannel.positions[0].position = firstPosition;
+
+                                    // NOTE: have to loop over all of the elements first! :)
                                     for (u32 i = 1; i < positionKeyCount; i++)
                                     {
-                                        f32 time;
                                         V3 position;
-                                        Assert(cgltf_accessor_read_float(channel.sampler->input, i, &time, 1));
                                         Assert(cgltf_accessor_read_float(channel.sampler->output, i, position.elements, 3));
 
-                                        if (!passThrough || !AlmostEqual(position, firstPosition, epsilon))
+                                        if (!AlmostEqual(position, firstPosition, epsilon))
                                         {
-                                            passThrough                       = 0;
-                                            boneChannel.positions[i].time     = time - channel.sampler->input->min[0];
-                                            boneChannel.positions[i].position = position;
+                                            allEqual = 0;
+                                            break;
                                         }
                                     }
-                                    boneChannel.numPositionKeys = passThrough ? 1 : positionKeyCount;
+
+                                    if (!allEqual)
+                                    {
+                                        for (u32 i = 1; i < positionKeyCount; i++)
+                                        {
+                                            f32 time;
+                                            V3 position;
+                                            Assert(cgltf_accessor_read_float(channel.sampler->input, i, &time, 1));
+                                            Assert(cgltf_accessor_read_float(channel.sampler->output, i, position.elements, 3));
+                                            boneChannel.positions[i].time     = time - channel.sampler->input->min[0];
+                                            boneChannel.positions[i].position = position;
+
+                                            if (boneChannel.positions[i].time != boneChannel.positions[i].time ||
+                                                boneChannel.positions[i].position != boneChannel.positions[i].position)
+                                            {
+                                                Assert(0);
+                                            }
+                                        }
+                                    }
+
+                                    boneChannel.numPositionKeys = allEqual ? 1 : positionKeyCount;
                                 }
                                 break;
                                 case cgltf_animation_path_type_rotation:
                                 {
                                     u32 rotationKeyCount  = channel.sampler->output->count;
                                     boneChannel.rotations = PushArrayNoZero(temp.arena, CompressedAnimationRotation, rotationKeyCount);
-                                    b8 passThrough        = 1;
+                                    b8 allEqual           = 1;
 
                                     // First rotation/time
                                     V4 firstRotation;
@@ -1085,13 +1104,23 @@ int main(int argc, char *argv[])
 
                                     for (u32 i = 1; i < rotationKeyCount; i++)
                                     {
-                                        f32 time;
                                         V4 rotation;
-                                        Assert(cgltf_accessor_read_float(channel.sampler->input, i, &time, 1));
                                         Assert(cgltf_accessor_read_float(channel.sampler->output, i, rotation.elements, 4));
-                                        if (!passThrough || !AlmostEqual(rotation, firstRotation, epsilon))
+                                        if (!AlmostEqual(rotation, firstRotation, epsilon))
                                         {
-                                            passThrough                   = 0;
+                                            allEqual = 0;
+                                            break;
+                                        }
+                                    }
+
+                                    if (!allEqual)
+                                    {
+                                        for (u32 i = 1; i < rotationKeyCount; i++)
+                                        {
+                                            f32 time;
+                                            V4 rotation;
+                                            Assert(cgltf_accessor_read_float(channel.sampler->input, i, &time, 1));
+                                            Assert(cgltf_accessor_read_float(channel.sampler->output, i, rotation.elements, 4));
                                             boneChannel.rotations[i].time = time - channel.sampler->input->min[0];
                                             for (u32 rotIndex = 0; rotIndex < 4; rotIndex++)
                                             {
@@ -1099,7 +1128,7 @@ int main(int argc, char *argv[])
                                             }
                                         }
                                     }
-                                    boneChannel.numRotationKeys = passThrough ? 1 : rotationKeyCount;
+                                    boneChannel.numRotationKeys = allEqual ? 1 : rotationKeyCount;
                                 }
                                 break;
                                 case cgltf_animation_path_type_scale:
@@ -1107,7 +1136,7 @@ int main(int argc, char *argv[])
                                     u32 scaleKeyCount  = channel.sampler->output->count;
                                     boneChannel.scales = PushArrayNoZero(temp.arena, AnimationScale, scaleKeyCount);
 
-                                    b8 passThrough = 1;
+                                    b8 allEqual = 1;
                                     V3 firstScale;
                                     f32 firstTime;
                                     Assert(cgltf_accessor_read_float(channel.sampler->input, 0, &firstTime, 1));
@@ -1117,19 +1146,28 @@ int main(int argc, char *argv[])
 
                                     for (u32 i = 1; i < scaleKeyCount; i++)
                                     {
-                                        f32 time;
                                         V3 scale;
-                                        Assert(cgltf_accessor_read_float(channel.sampler->input, i, &time, 1));
                                         Assert(cgltf_accessor_read_float(channel.sampler->output, i, scale.elements, 3));
-
-                                        if (!passThrough || !AlmostEqual(scale, firstScale, epsilon))
+                                        if (!AlmostEqual(scale, firstScale, epsilon))
                                         {
-                                            passThrough                 = 0;
+                                            allEqual = 0;
+                                            break;
+                                        }
+                                    }
+
+                                    if (!allEqual)
+                                    {
+                                        for (u32 i = 1; i < scaleKeyCount; i++)
+                                        {
+                                            f32 time;
+                                            V3 scale;
+                                            Assert(cgltf_accessor_read_float(channel.sampler->input, i, &time, 1));
+                                            Assert(cgltf_accessor_read_float(channel.sampler->output, i, scale.elements, 3));
                                             boneChannel.scales[i].time  = time - channel.sampler->input->min[0];
                                             boneChannel.scales[i].scale = scale;
                                         }
                                     }
-                                    boneChannel.numScalingKeys = passThrough ? 1 : scaleKeyCount;
+                                    boneChannel.numScalingKeys = allEqual ? 1 : scaleKeyCount;
                                 }
                                 break;
                             }
@@ -1139,8 +1177,9 @@ int main(int argc, char *argv[])
                         animation->duration            = maxTime - minTime;
 
                         // Write animation to file
+                        TempArena temp2       = ScratchStart(&temp.arena, 1);
                         StringBuilder builder = {};
-                        builder.arena         = temp.arena;
+                        builder.arena         = temp2.arena;
                         u64 numNodes          = animationNodeIndexMap.size();
                         Assert(numNodes == channelCount);
 
@@ -1166,17 +1205,40 @@ int main(int argc, char *argv[])
                             Put(&builder, boneChannel->numScalingKeys);
                             AppendArray(&builder, boneChannel->scales, boneChannel->numScalingKeys);
 
+                            // for (u32 i = 0; i < boneChannel->numPositionKeys; i++)
+                            // {
+                            //     if (boneChannel->positions[i].time != boneChannel->positions[i].time)
+                            //     {
+                            //         Assert(0);
+                            //     }
+                            // }
+                            // for (u32 i = 0; i < boneChannel->numScalingKeys; i++)
+                            // {
+                            //     if (boneChannel->scales[i].time != boneChannel->scales[i].time)
+                            //     {
+                            //         Assert(0);
+                            //     }
+                            // }
+                            // for (u32 i = 0; i < boneChannel->numRotationKeys; i++)
+                            // {
+                            //     if (boneChannel->rotations[i].time != boneChannel->rotations[i].time)
+                            //     {
+                            //         Assert(0);
+                            //     }
+                            // }
+
                             Put(&builder, boneChannel->numRotationKeys);
                             AppendArray(&builder, boneChannel->rotations, boneChannel->numRotationKeys);
                         }
 
-                        string animationFilename = PushStr8F(temp.arena, "data\\animations\\%S.anim", Str8C(anim.name));
+                        string animationFilename = PushStr8F(temp2.arena, "data\\animations\\%S.anim", Str8C(anim.name));
                         b32 success              = WriteEntireFile(&builder, animationFilename);
                         if (!success)
                         {
                             Printf("Failed to write file %S\n", animationFilename);
                             Assert(0);
                         }
+                        ScratchEnd(temp2);
                         ScratchEnd(temp);
                     });
 
