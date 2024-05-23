@@ -102,11 +102,11 @@ float4 main(FragmentInput fragment) : SV_Target
     float3 normal = float3(1, 1, 1);
     if (push.albedo >= 0)
     {
-        albedo = bindlessTextures[push.albedo].Sample(sampleLinearWrap, fragment.uv).rgb;
+        albedo = bindlessTextures[push.albedo].Sample(samplerLinearWrap, fragment.uv).rgb;
     }
     if (push.normal >= 0)
     {
-        normal = normalize(bindlessTextures[push.normal].Sample(sampleLinearWrap, fragment.uv).rgb * 2 - 1);
+        normal = normalize(bindlessTextures[push.normal].Sample(samplerLinearWrap, fragment.uv).rgb * 2 - 1);
     }
     float viewZ = abs(fragment.viewFragPos.z);
 
@@ -143,7 +143,7 @@ float4 main(FragmentInput fragment) : SV_Target
         for (float y = -1.5f; y <= 1.5f; y += 1.f)
         {
             float2 shadowUV = lightSpacePos.xy + float2(x, y) * texelSize;
-            float depth = shadowMaps.SampleCmpLevelZero(sampleShadowMap, float3(shadowUV, shadowIndex), lightSpacePos.z - bias).r;
+            float depth = shadowMaps.SampleCmpLevelZero(samplerShadowMap, float3(shadowUV, shadowIndex), lightSpacePos.z - bias).r;
         }
     }
     shadow /= 16.f;

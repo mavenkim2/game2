@@ -34,7 +34,7 @@ struct mkGraphicsVulkan : mkGraphics
     // API State
     //
     VkInstance mInstance;
-    VkPhysicalDevice mPhysicalDevice;
+    VkPhysicalDevice physicalDevice;
     VkDevice mDevice;
     VkDebugUtilsMessengerEXT mDebugMessenger;
     list<VkQueueFamilyProperties2> mQueueFamilyProperties;
@@ -66,42 +66,45 @@ struct mkGraphicsVulkan : mkGraphics
 
     VkFence mFrameFences[cNumBuffers][QueueType_Count] = {};
 
-    // TODO: rethink this orientation?
     struct CommandListVulkan
     {
-        VkCommandPool mCommandPools[cNumBuffers][QueueType_Count]     = {};
-        VkCommandBuffer mCommandBuffers[cNumBuffers][QueueType_Count] = {};
-        u32 mCurrentQueue                                             = 0;
-        u32 mCurrentBuffer                                            = 0;
-        PipelineState *mCurrentPipeline                               = 0;
+        QueueType type;
+        VkCommandPool commandPools[cNumBuffers]     = {};
+        VkCommandBuffer commandBuffers[cNumBuffers] = {};
+        u32 currentBuffer                           = 0;
+        PipelineState *currentPipeline              = 0;
 
-        list<VkImageMemoryBarrier2> mEndPassImageMemoryBarriers;
-        list<Swapchain> mUpdateSwapchains;
+        list<VkImageMemoryBarrier2> endPassImageMemoryBarriers;
+        list<Swapchain> updateSwapchains;
 
         // Descriptor bindings
-        GPUResource mResourceTable[cMaxBindings];
+        GPUResource *srvTable[cMaxBindings] = {};
+        GPUResource *uavTable[cMaxBindings] = {};
 
         // Descriptor set
         // VkDescriptorSet mDescriptorSets[cNumBuffers][QueueType_Count];
-        list<VkDescriptorSet> mDescriptorSets[cNumBuffers];
-        u32 mCurrentSet = 0;
+        list<VkDescriptorSet> descriptorSets[cNumBuffers];
+        u32 currentSet = 0;
         // b32 mIsDirty[cNumBuffers][QueueType_Count] = {};
 
         CommandListVulkan *next;
 
         const VkCommandBuffer GetCommandBuffer() const
         {
-            return mCommandBuffers[mCurrentBuffer][mCurrentQueue];
+            return commandBuffers[currentBuffer];
         }
 
         const VkCommandPool GetCommandPool() const
         {
-            return mCommandPools[mCurrentBuffer][mCurrentQueue];
+            return commandPools[currentBuffer];
         }
     };
-    list<CommandListVulkan> mCommandLists;
+
+    u32 numGraphicsCommandLists = 0;
+    u32 numComputeCommandLists  = 0;
+    list<CommandListVulkan> graphicsCommandLists;
+    list<CommandListVulkan> computeCommandLists;
     TicketMutex mCommandMutex = {};
-    u32 mCmdCount             = 0;
 
     CommandListVulkan &GetCommandList(CommandList cmd)
     {
@@ -157,7 +160,7 @@ struct mkGraphicsVulkan : mkGraphics
     {
         VkPipeline mPipeline;
         list<VkDescriptorSetLayoutBinding> mLayoutBindings;
-        list<VkDescriptorSetLayout> mDescriptorSetLayouts; 
+        list<VkDescriptorSetLayout> mDescriptorSetLayouts;
         list<VkDescriptorSet> mDescriptorSets;
         // u32 mCurrentSet = 0;
         VkPipelineLayout mPipelineLayout;
@@ -215,6 +218,11 @@ struct mkGraphicsVulkan : mkGraphics
             u32 mBaseLayer;
             u32 mNumLayers;
             i32 descriptorIndex;
+
+            b32 IsValid()
+            {
+                return mImageView != VK_NULL_HANDLE;
+            }
         };
         Subresource mSubresource;        // whole view
         list<Subresource> mSubresources; // sub views
@@ -236,6 +244,7 @@ struct mkGraphicsVulkan : mkGraphics
     list<VkSemaphore> mCleanupSemaphores[cNumBuffers];
     list<VkSwapchainKHR> mCleanupSwapchains[cNumBuffers];
     list<VkImageView> mCleanupImageViews[cNumBuffers];
+    list<VkBufferView> cleanupBufferViews[cNumBuffers];
 
     struct CleanupBuffer
     {
@@ -243,6 +252,12 @@ struct mkGraphicsVulkan : mkGraphics
         VmaAllocation mAllocation;
     };
     list<CleanupBuffer> mCleanupBuffers[cNumBuffers];
+    struct CleanupTexture
+    {
+        VkImage image;
+        VmaAllocation allocation;
+    };
+    list<CleanupTexture> cleanupTextures[cNumBuffers];
     // list<VmaAllocation> mCleanupAllocations[cNumBuffers];
 
     void Cleanup();
@@ -310,16 +325,19 @@ struct mkGraphicsVulkan : mkGraphics
     u64 GetMinAlignment(GPUBufferDesc *inDesc) override;
     b32 CreateSwapchain(Window window, SwapchainDesc *desc, Swapchain *swapchain) override;
     void CreatePipeline(PipelineStateDesc *inDesc, PipelineState *outPS, string name) override;
+    void CreateComputePipeline(PipelineStateDesc *inDesc, PipelineState *outPS, string name) override;
     void CreateShader(Shader *shader, string shaderData) override;
     void CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDesc, CopyFunction initCallback) override;
     void CopyBuffer(CommandList cmd, GPUBuffer *dest, GPUBuffer *src, u32 size) override;
+    void CopyTexture(CommandList cmd, Texture *dst, Texture *src) override;
     void DeleteBuffer(GPUBuffer *buffer) override;
     void CreateTexture(Texture *outTexture, TextureDesc desc, void *inData) override;
+    void DeleteTexture(Texture *texture) override;
     void CreateSampler(Sampler *sampler, SamplerDesc desc) override;
-    void BindResource(GPUResource *resource, u32 slot, CommandList cmd) override;
+    void BindResource(GPUResource *resource, ResourceType type, u32 slot, CommandList cmd) override;
     i32 GetDescriptorIndex(Texture *resource, i32 subresourceIndex = -1) override;
     i32 GetDescriptorIndex(GPUBuffer *buffer, i32 subresourceIndex = -1) override;
-    i32 CreateSubresource(GPUBuffer *buffer, SubresourceType type, u64 offset = 0ull, u64 size = ~0ull, Format format = Format::Null) override;
+    i32 CreateSubresource(GPUBuffer *buffer, ResourceType type, u64 offset = 0ull, u64 size = ~0ull, Format format = Format::Null) override;
     i32 CreateSubresource(Texture *texture, u32 baseLayer = 0, u32 numLayers = ~0u) override;
     void UpdateDescriptorSet(CommandList cmd);
     CommandList BeginCommandList(QueueType queue) override;
@@ -330,11 +348,13 @@ struct mkGraphicsVulkan : mkGraphics
 
     void BindVertexBuffer(CommandList cmd, GPUBuffer **buffers, u32 count = 1, u32 *offsets = 0) override;
     void BindIndexBuffer(CommandList cmd, GPUBuffer *buffer, u64 offset = 0) override;
+    void Dispatch(CommandList cmd, u32 groupCountX, u32 groupCountY, u32 groupCountZ) override;
     void SetViewport(CommandList cmd, Viewport *viewport) override;
     void SetScissor(CommandList cmd, Rect2 scissor) override;
     void EndRenderPass(CommandList cmd) override;
     void SubmitCommandLists() override;
     void BindPipeline(PipelineState *ps, CommandList cmd) override;
+    void BindCompute(PipelineState *ps, CommandList cmd) override;
     void PushConstants(CommandList cmd, u32 size, void *data, u32 offset = 0) override;
     void WaitForGPU() override;
 
@@ -407,7 +427,7 @@ private:
         // DescriptorType_Uniform,
         DescriptorType_SampledImage,
         DescriptorType_UniformTexel,
-        DescriptorType_Storage,
+        DescriptorType_StorageBuffer,
         DescriptorType_Count,
     };
 

@@ -69,13 +69,13 @@ internal void StartAtomicWrite(AtomicRing *ring, u64 size)
 internal void EndAtomicRead(AtomicRing *ring) //, u64 size)
 {
     // ring->commitReadPos += size;
-    WriteBarrier();
+    std::atomic_thread_fence(std::memory_order_release);
     ring->readPos = ring->commitReadPos;
 }
 
 internal void EndAtomicWrite(AtomicRing *ring)
 {
-    WriteBarrier();
+    std::atomic_thread_fence(std::memory_order_release);
     ring->writePos = ring->commitWritePos;
 }
 

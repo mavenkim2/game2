@@ -468,4 +468,10 @@ struct RenderState
     f32 cascadeDistances[cNumSplits];
 };
 
+namespace render
+{
+void DeferBlockCompress(graphics::Texture input, graphics::Texture *output);
+void BlockCompressImage(graphics::Texture *input, graphics::Texture *output, graphics::CommandList cmd);
+} // namespace render
+
 #endif

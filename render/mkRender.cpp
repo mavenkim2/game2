@@ -1,4 +1,5 @@
 #include "../mkCrack.h"
+#include <atomic>
 
 #ifdef LSP_INCLUDE
 #include "../mkMath.h"
@@ -1195,8 +1196,8 @@ enum InputLayoutTypes
 Arena *arena;
 Swapchain swapchain;
 PipelineState pipelineState;
-
 PipelineState shadowMapPipeline;
+PipelineState blockCompressPipeline;
 
 graphics::GPUBuffer ubo;
 graphics::GPUBuffer vbo;
@@ -1212,6 +1213,16 @@ RasterizationState rasterizers[RasterType_Count];
 Texture depthBufferMain;
 Texture shadowDepthBuffer;
 list<i32> shadowSlices;
+
+struct DeferredBlockCompressCmd
+{
+    Texture in;
+    Texture *out;
+};
+DeferredBlockCompressCmd blockCompressRing[256];
+std::atomic<u64> volatile blockCompressWrite       = 0;
+std::atomic<u64> volatile blockCompressCommitWrite = 0;
+u64 blockCompressRead                              = 0;
 
 internal void Initialize()
 {
@@ -1263,7 +1274,7 @@ internal void Initialize()
         // Shadows
         desc.mWidth        = 1024;
         desc.mHeight       = 1024;
-        desc.mInitialUsage = ResourceUsage::SampledTexture; // TODO: this is weird.
+        desc.mInitialUsage = ResourceUsage::SampledImage; // TODO: this is weird.
         desc.mFutureUsages = ResourceUsage::DepthStencil;
         desc.mFormat       = Format::D32_SFLOAT;
         desc.mNumLayers    = cNumCascades;
@@ -1286,12 +1297,14 @@ internal void Initialize()
     }
 
     // Initialize shaders
-    shaders[VS_MESH].mName      = "mesh_vs.hlsl";
-    shaders[VS_MESH].stage      = ShaderStage::Vertex;
-    shaders[FS_MESH].mName      = "mesh_fs.hlsl";
-    shaders[FS_MESH].stage      = ShaderStage::Fragment;
-    shaders[VS_SHADOWMAP].mName = "depth_vs.hlsl";
-    shaders[VS_SHADOWMAP].stage = ShaderStage::Vertex;
+    shaders[ShaderType_Mesh_VS].mName      = "mesh_vs.hlsl";
+    shaders[ShaderType_Mesh_VS].stage      = ShaderStage::Vertex;
+    shaders[ShaderType_Mesh_FS].mName      = "mesh_fs.hlsl";
+    shaders[ShaderType_Mesh_FS].stage      = ShaderStage::Fragment;
+    shaders[ShaderType_ShadowMap_VS].mName = "depth_vs.hlsl";
+    shaders[ShaderType_ShadowMap_VS].stage = ShaderStage::Vertex;
+    shaders[ShaderType_BC1_CS].mName       = "blockcompress_cs.hlsl";
+    shaders[ShaderType_BC1_CS].stage       = ShaderStage::Compute;
 
     // Compile shaders
     {
@@ -1323,20 +1336,25 @@ internal void Initialize()
         inputLayout.mRate    = InputRate::Vertex;
 
         // Main
-        PipelineStateDesc desc = {};
+        PipelineStateDesc desc      = {};
         desc.mDepthStencilFormat    = Format::D32_SFLOAT_S8_UINT;
         desc.mColorAttachmentFormat = Format::R8G8B8A8_SRGB;
-        desc.vs                     = &shaders[VS_MESH];
-        desc.fs                     = &shaders[FS_MESH];
+        desc.vs                     = &shaders[ShaderType_Mesh_VS];
+        desc.fs                     = &shaders[ShaderType_Mesh_FS];
         desc.mRasterState           = &rasterizers[RasterType_CCW_CullBack];
         device->CreatePipeline(&desc, &pipelineState, "Main pass");
 
         // Shadows
         desc                     = {};
         desc.mDepthStencilFormat = Format::D32_SFLOAT;
-        desc.vs                  = &shaders[VS_SHADOWMAP];
+        desc.vs                  = &shaders[ShaderType_ShadowMap_VS];
         desc.mRasterState        = &rasterizers[RasterType_CCW_CullNone];
         device->CreatePipeline(&desc, &shadowMapPipeline, "Depth pass");
+
+        // Block compress compute
+        desc         = {};
+        desc.compute = &shaders[ShaderType_BC1_CS];
+        device->CreateComputePipeline(&desc, &blockCompressPipeline, "Block compress");
     }
 }
 
@@ -1351,7 +1369,7 @@ internal void Render()
     GPUBuffer *currentSkinBufUpload = &skinningBufferUpload[device->GetCurrentBuffer()];
     GPUBuffer *currentSkinBuf       = &skinningBuffer[device->GetCurrentBuffer()];
 
-    GPUBarrier barrier = CreateBarrier(currentSkinBufUpload, ResourceUsage::TransferSrc, ResourceUsage::None);
+    // GPUBarrier barrier = CreateBarrier(currentSkinBufUpload, ResourceUsage::TransferSrc, ResourceUsage::None);
     // device->Barrier(cmdList, &barrier, 1);
     if (g_state->mSkinningBufferSize)
     {
@@ -1378,11 +1396,10 @@ internal void Render()
         device->FrameAllocate(&ubo, &uniforms, cmdList, sizeof(uniforms));
     }
 
-    GPUBarrier barriers[] =
-        {
-            CreateBarrier(&ubo, ResourceUsage::TransferSrc, ResourceUsage::UniformBuffer),
-            CreateBarrier(currentSkinBuf, ResourceUsage::TransferDst, ResourceUsage::UniformBuffer),
-        };
+    GPUBarrier barriers[] = {
+        GPUBarrier::Buffer(&ubo, ResourceUsage::TransferSrc, ResourceUsage::UniformBuffer),
+        GPUBarrier::Buffer(currentSkinBuf, ResourceUsage::TransferDst, ResourceUsage::UniformBuffer),
+    };
     device->Barrier(cmdList, barriers, ArrayLength(barriers));
 
     // Shadow pass :)
@@ -1391,13 +1408,13 @@ internal void Render()
         {
             RenderPassImage images[] = {
                 RenderPassImage::DepthStencil(&shadowDepthBuffer,
-                                              ResourceUsage::SampledTexture, ResourceUsage::SampledTexture, shadowSlice),
+                                              ResourceUsage::SampledImage, ResourceUsage::SampledImage, shadowSlice),
             };
 
             device->BeginRenderPass(images, ArrayLength(images), cmdList);
             device->BindPipeline(&shadowMapPipeline, cmdList);
-            device->BindResource(&ubo, MODEL_PARAMS_BIND, cmdList);
-            device->BindResource(currentSkinBuf, SKINNING_BIND, cmdList);
+            device->BindResource(&ubo, ResourceType::SRV, MODEL_PARAMS_BIND, cmdList);
+            device->BindResource(currentSkinBuf, ResourceType::SRV, SKINNING_BIND, cmdList);
             device->UpdateDescriptorSet(cmdList);
 
             Viewport viewport;
@@ -1456,9 +1473,9 @@ internal void Render()
 
         device->BeginRenderPass(&swapchain, images, ArrayLength(images), cmdList);
         device->BindPipeline(&pipelineState, cmdList);
-        device->BindResource(&ubo, MODEL_PARAMS_BIND, cmdList);
-        device->BindResource(currentSkinBuf, SKINNING_BIND, cmdList);
-        device->BindResource(&shadowDepthBuffer, SHADOW_MAP_BIND, cmdList);
+        device->BindResource(&ubo, ResourceType::SRV, MODEL_PARAMS_BIND, cmdList);
+        device->BindResource(currentSkinBuf, ResourceType::SRV, SKINNING_BIND, cmdList);
+        device->BindResource(&shadowDepthBuffer, ResourceType::SRV, SHADOW_MAP_BIND, cmdList);
         device->UpdateDescriptorSet(cmdList);
 
         Viewport viewport;
@@ -1490,7 +1507,6 @@ internal void Render()
                     Mesh::MeshSubset *subset           = &mesh->subsets[subsetIndex];
                     scene::MaterialComponent &material = gameScene.materials[subset->materialIndex];
 
-                    // TODO IMPORTANT: when the descriptor index is -1 I need to render using a white texture
                     graphics::Texture *texture = GetTexture(material.textures[TextureType_Diffuse]);
                     i32 descriptorIndex        = device->GetDescriptorIndex(texture);
                     pc.albedo                  = descriptorIndex;
@@ -1518,7 +1534,113 @@ internal void Render()
         }
         device->EndRenderPass(cmdList);
     }
+
+    // Read through deferred block compress commands
+    u64 readPos     = blockCompressRead;
+    u64 endPos      = blockCompressCommitWrite.load();
+    const u64 size  = ArrayLength(blockCompressRing);
+    CommandList cmd = device->BeginCommandList(graphics::QueueType_Compute);
+    for (u64 i = readPos; i < endPos; i++)
+    {
+        DeferredBlockCompressCmd *deferCmd = &blockCompressRing[(i & (size - 1))];
+        BlockCompressImage(&deferCmd->in, deferCmd->out, cmd);
+        blockCompressRead++;
+    }
+    std::atomic_thread_fence(std::memory_order_release);
+
     device->SubmitCommandLists();
 }
+
+void DeferBlockCompress(graphics::Texture input, graphics::Texture *output)
+{
+    DeferredBlockCompressCmd cmd;
+    cmd.in  = input;
+    cmd.out = output;
+
+    u64 writePos   = blockCompressWrite.fetch_add(1);
+    const u64 size = ArrayLength(blockCompressRing);
+
+    for (;;)
+    {
+        u64 availableSpots = ArrayLength(blockCompressRing) - (writePos - blockCompressRead);
+        if (availableSpots >= 1)
+        {
+            blockCompressRing[writePos & (size - 1)] = cmd;
+            u64 testWritePos                         = writePos;
+            // NOTE: compare_exchange_weak replaces the expected value with the value of the atomic, which I don't want in this case
+            while (blockCompressCommitWrite.compare_exchange_weak(testWritePos, testWritePos + 1))
+            {
+                std::this_thread::yield();
+                testWritePos = writePos;
+            }
+            break;
+        }
+    }
+}
+
+void BlockCompressImage(graphics::Texture *input, graphics::Texture *output, CommandList cmd)
+{
+    // Texture reused
+    u32 blockSize = GetBlockSize(output->mDesc.mFormat);
+    static Texture bc1Uav;
+    TextureDesc desc;
+    desc.mWidth        = input->mDesc.mWidth / blockSize;
+    desc.mHeight       = input->mDesc.mHeight / blockSize;
+    desc.mFormat       = Format::R32G32_UINT;
+    desc.mInitialUsage = ResourceUsage::TransferSrc;
+    desc.mFutureUsages = ResourceUsage::StorageImage;
+    desc.mTextureType  = TextureDesc::TextureType::Texture2D;
+
+    if (!bc1Uav.IsValid() || bc1Uav.mDesc.mWidth < output->mDesc.mWidth || bc1Uav.mDesc.mHeight < output->mDesc.mHeight)
+    {
+        TextureDesc bcDesc = desc;
+        bcDesc.mWidth      = (u32)GetNextPowerOfTwo(output->mDesc.mWidth);
+        bcDesc.mHeight     = (u32)GetNextPowerOfTwo(output->mDesc.mHeight);
+
+        device->CreateTexture(&bc1Uav, desc, 0);
+    }
+
+    // Output block compression to intermediate texture
+    Shader *shader = &shaders[ShaderType_BC1_CS];
+    device->BindCompute(&blockCompressPipeline, cmd);
+    device->BindResource(&bc1Uav, ResourceType::UAV, 0, cmd);
+    device->BindResource(input, ResourceType::SRV, 0, cmd);
+
+    {
+        GPUBarrier barriers[] = {
+            GPUBarrier::Image(&bc1Uav, ResourceUsage::TransferSrc, ResourceUsage::StorageImage),
+            GPUBarrier::Image(output, ResourceUsage::None, ResourceUsage::SampledImage),
+        };
+        device->Barrier(cmd, barriers, ArrayLength(barriers));
+    }
+    device->UpdateDescriptorSet(cmd);
+    device->Dispatch(cmd, (bc1Uav.mDesc.mWidth + 7) / 8, (bc1Uav.mDesc.mHeight + 7) / 8, 1);
+
+    // Copy from uav to output
+    {
+        GPUBarrier barriers[] = {
+            GPUBarrier::Image(&bc1Uav, ResourceUsage::StorageImage, ResourceUsage::TransferSrc),
+            GPUBarrier::Image(output, ResourceUsage::SampledImage, ResourceUsage::TransferDst),
+        };
+        device->Barrier(cmd, barriers, ArrayLength(barriers));
+    }
+    device->CopyTexture(cmd, output, &bc1Uav);
+    device->DeleteTexture(input);
+
+    // Transfer the block compressed texture to its initial format
+    GPUBarrier barrier = GPUBarrier::Image(output, ResourceUsage::TransferDst, output->mDesc.mInitialUsage);
+    device->Barrier(cmd, &barrier, 1);
+
+    // things I need to do to get this to work, in no particular order
+    // - bind a uav (DONE)
+    // - bind the texture to read (DONE)
+    // - create the compute shader (DONE)
+    // - bind the compute shader pipeline (DONE)
+    // - something something barriers (DONE)
+    // - dispatch to the compute shader (DONE)
+    // - copy from the uav to the output texture (DONE) (TODO: can reinterpret it using a sparse texture somehow?)
+    // - free the input texture :) (DONE)
+    // - manage the ring buffer queue for the block compression requests
+} // namespace render
 
 } // namespace render

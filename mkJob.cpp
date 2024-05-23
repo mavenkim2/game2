@@ -44,7 +44,7 @@ internal void JS_Init()
 internal void JS_Flush()
 {
     gTerminateJobThreads = 1;
-    WriteBarrier();
+    std::atomic_thread_fence(std::memory_order_release);
     JS_State *js_state = engine->GetJobState();
     JS_Thread *thread  = &js_state->threads[0];
     while (!JS_PopJob(&js_state->highPriorityQueue, thread) || !JS_PopJob(&js_state->normalPriorityQueue, thread) ||

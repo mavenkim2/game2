@@ -76,18 +76,22 @@ internal void CompileShader(Arena *arena, CompileInput *input, CompileOutput *ou
     args.push_back(L"300");
     args.push_back(L"0");
 
+    args.push_back(L"-T");
     switch (input->stage)
     {
         case graphics::ShaderStage::Vertex:
         {
-            args.push_back(L"-T");
             args.push_back(L"vs_6_6");
         }
         break;
         case graphics::ShaderStage::Fragment:
         {
-            args.push_back(L"-T");
             args.push_back(L"ps_6_6");
+        }
+        break;
+        case graphics::ShaderStage::Compute:
+        {
+            args.push_back(L"cs_6_6");
         }
         break;
         default: Assert(0);

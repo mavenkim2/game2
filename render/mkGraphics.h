@@ -42,8 +42,8 @@ enum class GPUDevicePreference
 enum QueueType
 {
     QueueType_Graphics,
-    QueueType_Copy,
     QueueType_Compute,
+    QueueType_Copy,
 
     QueueType_Count,
 };
@@ -57,26 +57,32 @@ enum class Format
     B8G8R8A8_SRGB,
 
     R32_UINT,
+    R32G32_UINT,
+    R8G8_UNORM,
     R8G8B8A8_SRGB,
     R8G8B8A8_UNORM,
 
     R32G32_SFLOAT,
     R32G32B32_SFLOAT,
     R32G32B32A32_SFLOAT,
-
     R32G32B32A32_UINT,
 
     D32_SFLOAT_S8_UINT,
     D32_SFLOAT,
     D24_UNORM_S8_UINT,
 
+    BC1_RGB_UNORM,
+
     Count,
 };
 
-enum class SubresourceType
+enum class ResourceType
 {
+    // Used for resource bindings
     SRV, // shader resource view (read only)
     UAV, // unordered access view (write + read)
+    SAM, // sampler
+    CBV, // constant buffer view (read only)
 };
 
 //	https://www.justsoftwaresolutions.co.uk/cplusplus/using-enum-classes-as-bitfields.html
@@ -176,9 +182,10 @@ enum class ResourceUsage
     TransferSrc = 1 << 6,
     TransferDst = 1 << 7,
 
-    SampledTexture = 1 << 8,
+    SampledImage = 1 << 8,
+    StorageImage = 1 << 9,
 
-    DepthStencil = 1 << 9,
+    DepthStencil = 1 << 10,
 };
 
 // inline b32 HasFlags(ResourceUsage lhs, ResourceUsage rhs)
@@ -234,9 +241,10 @@ enum class ShaderStage
 
 enum ShaderType
 {
-    VS_MESH,
-    FS_MESH,
-    VS_SHADOWMAP,
+    ShaderType_Mesh_VS,
+    ShaderType_Mesh_FS,
+    ShaderType_ShadowMap_VS,
+    ShaderType_BC1_CS,
     ShaderType_Count,
 };
 
@@ -381,6 +389,38 @@ struct GPUBarrier
 
     ResourceUsage mBefore;
     ResourceUsage mAfter;
+
+    static GPUBarrier Buffer(GPUResource *resource, ResourceUsage before, ResourceUsage after)
+    {
+        GPUBarrier barrier;
+        Assert(resource->mResourceType == GPUResource::ResourceType::Buffer);
+        barrier.mType     = Type::Buffer;
+        barrier.mResource = resource;
+        barrier.mBefore   = before;
+        barrier.mAfter    = after;
+        return barrier;
+    }
+
+    static GPUBarrier Memory(ResourceUsage before, ResourceUsage after)
+    {
+        GPUBarrier barrier;
+        barrier.mType     = Type::Memory;
+        barrier.mResource = 0;
+        barrier.mBefore   = before;
+        barrier.mAfter    = after;
+        return barrier;
+    }
+
+    static GPUBarrier Image(GPUResource *resource, ResourceUsage before, ResourceUsage after)
+    {
+        GPUBarrier barrier;
+        Assert(resource->mResourceType == GPUResource::ResourceType::Image);
+        barrier.mType     = Type::Image;
+        barrier.mResource = resource;
+        barrier.mBefore   = before;
+        barrier.mAfter    = after;
+        return barrier;
+    }
 };
 
 struct TextureDesc
@@ -456,8 +496,7 @@ struct RenderPassImage
     }
 };
 
-inline u32
-GetFormatSize(Format format)
+inline u32 GetFormatSize(Format format)
 {
     switch (format)
     {
@@ -474,31 +513,14 @@ GetFormatSize(Format format)
     }
 }
 
-GPUBarrier CreateBarrier(GPUResource *resource, ResourceUsage before, ResourceUsage after)
+inline u32 GetBlockSize(Format format)
 {
-    GPUBarrier barrier;
-    switch (resource->mResourceType)
+    switch (format)
     {
-        case GPUResource::ResourceType::Buffer:
-        {
-            barrier.mType = GPUBarrier::Type::Buffer;
-        }
-        break;
-        default: Assert(0);
+        case Format::BC1_RGB_UNORM:
+            return 4;
+        default: return 1;
     }
-    barrier.mResource = resource;
-    barrier.mBefore   = before;
-    barrier.mAfter    = after;
-    return barrier;
-}
-GPUBarrier CreateBarrier(ResourceUsage before, ResourceUsage after)
-{
-    GPUBarrier barrier;
-    barrier.mType     = GPUBarrier::Type::Memory;
-    barrier.mResource = 0;
-    barrier.mBefore   = before;
-    barrier.mAfter    = after;
-    return barrier;
 }
 
 struct mkGraphics
@@ -511,6 +533,7 @@ struct mkGraphics
 
     virtual b32 CreateSwapchain(Window window, SwapchainDesc *desc, Swapchain *swapchain)               = 0;
     virtual void CreatePipeline(PipelineStateDesc *inDesc, PipelineState *outPS, string name)           = 0;
+    virtual void CreateComputePipeline(PipelineStateDesc *inDesc, PipelineState *outPS, string name)    = 0;
     virtual void CreateShader(Shader *shader, string shaderData)                                        = 0;
     virtual void CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDesc, CopyFunction initCallback) = 0;
 
@@ -527,31 +550,35 @@ struct mkGraphics
         }
     }
 
-    virtual void CopyBuffer(CommandList cmd, GPUBuffer *dest, GPUBuffer *source, u32 size)                                                    = 0;
-    virtual void DeleteBuffer(GPUBuffer *buffer)                                                                                              = 0;
-    virtual void CreateTexture(Texture *outTexture, TextureDesc desc, void *inData)                                                           = 0;
-    virtual void CreateSampler(Sampler *sampler, SamplerDesc desc)                                                                            = 0;
-    virtual void BindResource(GPUResource *resource, u32 slot, CommandList cmd)                                                               = 0;
-    virtual i32 GetDescriptorIndex(GPUBuffer *resource, i32 subresourceIndex = -1)                                                            = 0;
-    virtual i32 GetDescriptorIndex(Texture *resource, i32 subresourceIndex = -1)                                                              = 0;
-    virtual i32 CreateSubresource(GPUBuffer *buffer, SubresourceType type, u64 offset = 0ull, u64 size = ~0ull, Format format = Format::Null) = 0;
-    virtual i32 CreateSubresource(Texture *texture, u32 baseLayer = 0, u32 numLayers = ~0u)                                                   = 0;
-    virtual void UpdateDescriptorSet(CommandList cmd)                                                                                         = 0;
-    virtual CommandList BeginCommandList(QueueType queue)                                                                                     = 0;
-    virtual void BeginRenderPass(Swapchain *inSwapchain, RenderPassImage *images, u32 count, CommandList inCommandList)                       = 0;
-    virtual void BeginRenderPass(RenderPassImage *images, u32 count, CommandList cmd)                                                         = 0;
-    virtual void Draw(CommandList cmd, u32 vertexCount, u32 firstVertex)                                                                      = 0;
-    virtual void DrawIndexed(CommandList cmd, u32 indexCount, u32 firstVertex, u32 baseVertex)                                                = 0;
-    virtual void BindVertexBuffer(CommandList cmd, GPUBuffer **buffers, u32 count = 1, u32 *offsets = 0)                                      = 0;
-    virtual void BindIndexBuffer(CommandList cmd, GPUBuffer *buffer, u64 offset = 0)                                                          = 0;
-    virtual void SetViewport(CommandList cmd, Viewport *viewport)                                                                             = 0;
-    virtual void SetScissor(CommandList cmd, Rect2 scissor)                                                                                   = 0;
-    virtual void EndRenderPass(CommandList cmd)                                                                                               = 0;
-    virtual void SubmitCommandLists()                                                                                                         = 0;
-    virtual void BindPipeline(PipelineState *ps, CommandList cmd)                                                                             = 0;
-    virtual void PushConstants(CommandList cmd, u32 size, void *data, u32 offset = 0)                                                         = 0;
-    virtual void WaitForGPU()                                                                                                                 = 0;
-    virtual void Barrier(CommandList cmd, GPUBarrier *barriers, u32 count)                                                                    = 0;
+    virtual void CopyBuffer(CommandList cmd, GPUBuffer *dest, GPUBuffer *source, u32 size)                                                 = 0;
+    virtual void CopyTexture(CommandList cmd, Texture *dst, Texture *src)                                                                  = 0;
+    virtual void DeleteBuffer(GPUBuffer *buffer)                                                                                           = 0;
+    virtual void CreateTexture(Texture *outTexture, TextureDesc desc, void *inData)                                                        = 0;
+    virtual void DeleteTexture(Texture *texture)                                                                                           = 0;
+    virtual void CreateSampler(Sampler *sampler, SamplerDesc desc)                                                                         = 0;
+    virtual void BindResource(GPUResource *resource, ResourceType type, u32 slot, CommandList cmd)                                         = 0;
+    virtual i32 GetDescriptorIndex(GPUBuffer *resource, i32 subresourceIndex = -1)                                                         = 0;
+    virtual i32 GetDescriptorIndex(Texture *resource, i32 subresourceIndex = -1)                                                           = 0;
+    virtual i32 CreateSubresource(GPUBuffer *buffer, ResourceType type, u64 offset = 0ull, u64 size = ~0ull, Format format = Format::Null) = 0;
+    virtual i32 CreateSubresource(Texture *texture, u32 baseLayer = 0, u32 numLayers = ~0u)                                                = 0;
+    virtual void UpdateDescriptorSet(CommandList cmd)                                                                                      = 0;
+    virtual CommandList BeginCommandList(QueueType queue)                                                                                  = 0;
+    virtual void BeginRenderPass(Swapchain *inSwapchain, RenderPassImage *images, u32 count, CommandList inCommandList)                    = 0;
+    virtual void BeginRenderPass(RenderPassImage *images, u32 count, CommandList cmd)                                                      = 0;
+    virtual void Draw(CommandList cmd, u32 vertexCount, u32 firstVertex)                                                                   = 0;
+    virtual void DrawIndexed(CommandList cmd, u32 indexCount, u32 firstVertex, u32 baseVertex)                                             = 0;
+    virtual void BindVertexBuffer(CommandList cmd, GPUBuffer **buffers, u32 count = 1, u32 *offsets = 0)                                   = 0;
+    virtual void BindIndexBuffer(CommandList cmd, GPUBuffer *buffer, u64 offset = 0)                                                       = 0;
+    virtual void Dispatch(CommandList cmd, u32 groupCountX, u32 groupCountY, u32 groupCountZ)                                              = 0;
+    virtual void SetViewport(CommandList cmd, Viewport *viewport)                                                                          = 0;
+    virtual void SetScissor(CommandList cmd, Rect2 scissor)                                                                                = 0;
+    virtual void EndRenderPass(CommandList cmd)                                                                                            = 0;
+    virtual void SubmitCommandLists()                                                                                                      = 0;
+    virtual void BindPipeline(PipelineState *ps, CommandList cmd)                                                                          = 0;
+    virtual void BindCompute(PipelineState *ps, CommandList cmd)                                                                           = 0;
+    virtual void PushConstants(CommandList cmd, u32 size, void *data, u32 offset = 0)                                                      = 0;
+    virtual void WaitForGPU()                                                                                                              = 0;
+    virtual void Barrier(CommandList cmd, GPUBarrier *barriers, u32 count)                                                                 = 0;
 
     virtual void SetName(GPUResource *resource, const char *name)               = 0;
     virtual void SetName(u64 handle, GraphicsObjectType type, const char *name) = 0;

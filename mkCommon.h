@@ -5,6 +5,8 @@
 #include <emmintrin.h>
 #include <stdint.h>
 #include <type_traits>
+#include <atomic>
+#include <thread>
 
 #if _MSC_VER
 #define COMPILER_MSVC 1

@@ -13,9 +13,10 @@ static const uint BINDLESS_STORAGE_BUFFER_SET = 2;
 #error not supported
 #endif
 
-SamplerState sampleLinearWrap : register(s50);
-SamplerState sampleNearestWrap : register(s51);
-SamplerComparisonState sampleShadowMap : register(s52);
+SamplerState samplerLinearWrap : register(s50);
+SamplerState samplerNearestWrap : register(s51);
+SamplerState samplerLinearClamp : register(s52);
+SamplerComparisonState samplerShadowMap : register(s53);
 
 float2 GetFloat2(int descriptor, int vertexId)
 {
@@ -55,4 +56,9 @@ uint4 GetUint4(int descriptor, int vertexId)
         result = bindlessBuffersUint4[descriptor][vertexId];
     }
     return result;
+}
+
+float3 ApplySRGBCurve(float3 x)
+{
+    return select(x < 0.0031308, 12.92 * x, 1.055 * pow(x, 1.0 / 2.4) - 0.055);
 }

@@ -114,7 +114,7 @@ internal void AS_Init()
 internal void AS_Flush()
 {
     gTerminateThreads = 1;
-    WriteBarrier();
+    std::atomic_thread_fence(std::memory_order_release);
 
     AS_CacheState *as_state = engine->GetAssetCacheState();
     platform.ReleaseSemaphores(as_state->readSemaphore, as_state->threadCount);
@@ -658,33 +658,33 @@ internal void AS_LoadAsset(AS_Asset *asset)
             device->CreateBufferCopy(&mesh->buffer, desc, initCallback);
 
             Assert(mesh->positions);
-            mesh->vertexPosView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::SubresourceType::SRV, mesh->vertexPosView.offset, mesh->vertexPosView.size, graphics::Format::R32G32B32_SFLOAT);
+            mesh->vertexPosView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::ResourceType::SRV, mesh->vertexPosView.offset, mesh->vertexPosView.size, graphics::Format::R32G32B32_SFLOAT);
             mesh->vertexPosView.subresourceDescriptor = device->GetDescriptorIndex(&mesh->buffer, mesh->vertexPosView.subresourceIndex);
 
             Assert(mesh->normals);
-            mesh->vertexNorView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::SubresourceType::SRV, mesh->vertexNorView.offset, mesh->vertexNorView.size, graphics::Format::R32G32B32_SFLOAT);
+            mesh->vertexNorView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::ResourceType::SRV, mesh->vertexNorView.offset, mesh->vertexNorView.size, graphics::Format::R32G32B32_SFLOAT);
             mesh->vertexNorView.subresourceDescriptor = device->GetDescriptorIndex(&mesh->buffer, mesh->vertexNorView.subresourceIndex);
 
             Assert(mesh->tangents);
-            mesh->vertexTanView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::SubresourceType::SRV, mesh->vertexTanView.offset, mesh->vertexTanView.size, graphics::Format::R32G32B32_SFLOAT);
+            mesh->vertexTanView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::ResourceType::SRV, mesh->vertexTanView.offset, mesh->vertexTanView.size, graphics::Format::R32G32B32_SFLOAT);
             mesh->vertexTanView.subresourceDescriptor = device->GetDescriptorIndex(&mesh->buffer, mesh->vertexTanView.subresourceIndex);
 
             if (mesh->uvs)
             {
-                mesh->vertexUvView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::SubresourceType::SRV, mesh->vertexUvView.offset, mesh->vertexUvView.size, graphics::Format::R32G32_SFLOAT);
+                mesh->vertexUvView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::ResourceType::SRV, mesh->vertexUvView.offset, mesh->vertexUvView.size, graphics::Format::R32G32_SFLOAT);
                 mesh->vertexUvView.subresourceDescriptor = device->GetDescriptorIndex(&mesh->buffer, mesh->vertexUvView.subresourceIndex);
             }
             if (mesh->boneIds)
             {
-                mesh->vertexBoneIdView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::SubresourceType::SRV, mesh->vertexBoneIdView.offset, mesh->vertexBoneIdView.size, graphics::Format::R32G32B32A32_UINT);
+                mesh->vertexBoneIdView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::ResourceType::SRV, mesh->vertexBoneIdView.offset, mesh->vertexBoneIdView.size, graphics::Format::R32G32B32A32_UINT);
                 mesh->vertexBoneIdView.subresourceDescriptor = device->GetDescriptorIndex(&mesh->buffer, mesh->vertexBoneIdView.subresourceIndex);
 
                 Assert(mesh->boneWeights);
-                mesh->vertexBoneWeightView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::SubresourceType::SRV, mesh->vertexBoneWeightView.offset, mesh->vertexBoneWeightView.size, graphics::Format::R32G32B32A32_SFLOAT);
+                mesh->vertexBoneWeightView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::ResourceType::SRV, mesh->vertexBoneWeightView.offset, mesh->vertexBoneWeightView.size, graphics::Format::R32G32B32A32_SFLOAT);
                 mesh->vertexBoneWeightView.subresourceDescriptor = device->GetDescriptorIndex(&mesh->buffer, mesh->vertexBoneWeightView.subresourceIndex);
             }
 
-            mesh->indexView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::SubresourceType::SRV, mesh->indexView.offset, mesh->indexView.size, graphics::Format::R32_UINT);
+            mesh->indexView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::ResourceType::SRV, mesh->indexView.offset, mesh->indexView.size, graphics::Format::R32_UINT);
             mesh->indexView.subresourceDescriptor = device->GetDescriptorIndex(&mesh->buffer, mesh->indexView.subresourceIndex);
 
             Rect3 modelSpaceBounds = Transform(mesh->transform, mesh->bounds);
@@ -767,18 +767,19 @@ internal void AS_LoadAsset(AS_Asset *asset)
         }
         asset->type     = AS_Skeleton;
         asset->skeleton = skeleton;
-        WriteBarrier();
     }
     else if (extension == Str8Lit("png") || extension == Str8Lit("jpeg"))
     {
         asset->type = AS_Texture;
 
-        graphics::Format format = graphics::Format::R8G8B8A8_UNORM;
+        graphics::Format format   = graphics::Format::R8G8B8A8_UNORM;
+        graphics::Format bcFormat = graphics::Format::Null;
 
         if (FindSubstring(asset->path, Str8Lit("diffuse"), 0, MatchFlag_CaseInsensitive) != asset->path.size ||
             FindSubstring(asset->path, Str8Lit("basecolor"), 0, MatchFlag_CaseInsensitive) != asset->path.size)
         {
-            format = graphics::Format::R8G8B8A8_SRGB;
+            format   = graphics::Format::R8G8B8A8_SRGB;
+            bcFormat = graphics::Format::BC1_RGB_UNORM;
         }
         i32 width, height, nComponents;
         void *texData =
@@ -790,11 +791,30 @@ internal void AS_LoadAsset(AS_Asset *asset)
         desc.mWidth        = width;
         desc.mHeight       = height;
         desc.mFormat       = format;
-        desc.mInitialUsage = graphics::ResourceUsage::SampledTexture;
+        desc.mInitialUsage = graphics::ResourceUsage::SampledImage;
         desc.mTextureType  = graphics::TextureDesc::TextureType::Texture2D;
         desc.mSampler      = graphics::TextureDesc::DefaultSampler::Linear;
 
         device->CreateTexture(&asset->texture, desc, texData);
+
+        if (bcFormat != graphics::Format::Null)
+        {
+            u32 blockSize = graphics::GetBlockSize(bcFormat);
+            graphics::TextureDesc bcDesc;
+            // TODO: align?
+            Assert((desc.mWidth & (blockSize - 1)) == 0);
+            Assert((desc.mHeight & (blockSize - 1)) == 0);
+            bcDesc.mWidth        = desc.mWidth;
+            bcDesc.mHeight       = desc.mHeight;
+            bcDesc.mFormat       = bcFormat;
+            bcDesc.mInitialUsage = graphics::ResourceUsage::TransferDst;
+            bcDesc.mFutureUsages = graphics::ResourceUsage::SampledImage;
+            bcDesc.mSampler      = graphics::TextureDesc::DefaultSampler::Linear;
+
+            graphics::Texture uncompressed = asset->texture; // move?
+            device->CreateTexture(&asset->texture, bcDesc, 0);
+            render::DeferBlockCompress(uncompressed, &asset->texture);
+        }
 
         stbi_image_free(texData);
     }
