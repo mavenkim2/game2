@@ -73,6 +73,9 @@ struct mkGraphicsVulkan : mkGraphics
         VkCommandBuffer commandBuffers[cNumBuffers] = {};
         u32 currentBuffer                           = 0;
         PipelineState *currentPipeline              = 0;
+        VkSemaphore semaphore;
+        list<CommandList> waitForCmds;
+        std::atomic_bool waitedOn{false};
 
         list<VkImageMemoryBarrier2> endPassImageMemoryBarriers;
         list<Swapchain> updateSwapchains;
@@ -100,10 +103,10 @@ struct mkGraphicsVulkan : mkGraphics
         }
     };
 
-    u32 numGraphicsCommandLists = 0;
-    u32 numComputeCommandLists  = 0;
-    list<CommandListVulkan> graphicsCommandLists;
-    list<CommandListVulkan> computeCommandLists;
+    // u32 numGraphicsCommandLists = 0;
+    u32 numCommandLists = 0;
+    list<CommandListVulkan *> commandLists;
+    // list<CommandListVulkan *> computeCommandLists;
     TicketMutex mCommandMutex = {};
 
     CommandListVulkan &GetCommandList(CommandList cmd)
@@ -357,11 +360,11 @@ struct mkGraphicsVulkan : mkGraphics
     void BindCompute(PipelineState *ps, CommandList cmd) override;
     void PushConstants(CommandList cmd, u32 size, void *data, u32 offset = 0) override;
     void WaitForGPU() override;
+    void Wait(CommandList waitFor, CommandList cmd) override;
 
     void Barrier(CommandList cmd, GPUBarrier *barriers, u32 count) override;
 
     void SetName(GPUResource *resource, const char *name) override;
-    void SetName(u64 handle, GraphicsObjectType type, const char *name) override;
 
 private:
     const i32 cPoolSize = 64;
@@ -490,6 +493,16 @@ private:
 
     VkBuffer mNullBuffer;
     VmaAllocation mNullBufferAllocation;
+
+    //////////////////////////////
+    // Debug
+    //
+    void SetName(u64 handle, VkObjectType type, const char *name);
+    void SetName(VkDescriptorSetLayout handle, const char *name);
+    void SetName(VkDescriptorSet handle, const char *name);
+    void SetName(VkShaderModule handle, const char *name);
+    void SetName(VkPipeline handle, const char *name);
+    void SetName(VkQueue handle, const char *name);
 };
 
 } // namespace graphics

@@ -1364,8 +1364,24 @@ internal void Render()
     G_State *g_state         = engine->GetGameState();
     RenderState *renderState = engine->GetRenderState();
 
-    CommandList cmdList = device->BeginCommandList(QueueType_Graphics);
+    // Read through deferred block compress commands
+    CommandList cmd;
+    {
+        u64 readPos    = blockCompressRead;
+        u64 endPos     = blockCompressCommitWrite.load();
+        const u64 size = ArrayLength(blockCompressRing);
+        cmd            = device->BeginCommandList(graphics::QueueType_Compute);
+        for (u64 i = readPos; i < endPos; i++)
+        {
+            DeferredBlockCompressCmd *deferCmd = &blockCompressRing[(i & (size - 1))];
+            BlockCompressImage(&deferCmd->in, deferCmd->out, cmd);
+            blockCompressRead++;
+        }
+        std::atomic_thread_fence(std::memory_order_release);
+    }
 
+    CommandList cmdList = device->BeginCommandList(QueueType_Graphics);
+    device->Wait(cmd, cmdList);
     GPUBuffer *currentSkinBufUpload = &skinningBufferUpload[device->GetCurrentBuffer()];
     GPUBuffer *currentSkinBuf       = &skinningBuffer[device->GetCurrentBuffer()];
 
@@ -1534,20 +1550,6 @@ internal void Render()
         }
         device->EndRenderPass(cmdList);
     }
-
-    // Read through deferred block compress commands
-    u64 readPos     = blockCompressRead;
-    u64 endPos      = blockCompressCommitWrite.load();
-    const u64 size  = ArrayLength(blockCompressRing);
-    CommandList cmd = device->BeginCommandList(graphics::QueueType_Compute);
-    for (u64 i = readPos; i < endPos; i++)
-    {
-        DeferredBlockCompressCmd *deferCmd = &blockCompressRing[(i & (size - 1))];
-        BlockCompressImage(&deferCmd->in, deferCmd->out, cmd);
-        blockCompressRead++;
-    }
-    std::atomic_thread_fence(std::memory_order_release);
-
     device->SubmitCommandLists();
 }
 
@@ -1587,8 +1589,8 @@ void BlockCompressImage(graphics::Texture *input, graphics::Texture *output, Com
     desc.mWidth        = input->mDesc.mWidth / blockSize;
     desc.mHeight       = input->mDesc.mHeight / blockSize;
     desc.mFormat       = Format::R32G32_UINT;
-    desc.mInitialUsage = ResourceUsage::TransferSrc;
-    desc.mFutureUsages = ResourceUsage::StorageImage;
+    desc.mInitialUsage = ResourceUsage::StorageImage;
+    desc.mFutureUsages = ResourceUsage::TransferSrc;
     desc.mTextureType  = TextureDesc::TextureType::Texture2D;
 
     if (!bc1Uav.IsValid() || bc1Uav.mDesc.mWidth < output->mDesc.mWidth || bc1Uav.mDesc.mHeight < output->mDesc.mHeight)
@@ -1598,6 +1600,7 @@ void BlockCompressImage(graphics::Texture *input, graphics::Texture *output, Com
         bcDesc.mHeight     = (u32)GetNextPowerOfTwo(output->mDesc.mHeight);
 
         device->CreateTexture(&bc1Uav, desc, 0);
+        device->SetName(&bc1Uav, "BC1 Tex");
     }
 
     // Output block compression to intermediate texture
@@ -1606,13 +1609,6 @@ void BlockCompressImage(graphics::Texture *input, graphics::Texture *output, Com
     device->BindResource(&bc1Uav, ResourceType::UAV, 0, cmd);
     device->BindResource(input, ResourceType::SRV, 0, cmd);
 
-    {
-        GPUBarrier barriers[] = {
-            GPUBarrier::Image(&bc1Uav, ResourceUsage::TransferSrc, ResourceUsage::StorageImage),
-            GPUBarrier::Image(output, ResourceUsage::None, ResourceUsage::SampledImage),
-        };
-        device->Barrier(cmd, barriers, ArrayLength(barriers));
-    }
     device->UpdateDescriptorSet(cmd);
     device->Dispatch(cmd, (bc1Uav.mDesc.mWidth + 7) / 8, (bc1Uav.mDesc.mHeight + 7) / 8, 1);
 
@@ -1620,7 +1616,7 @@ void BlockCompressImage(graphics::Texture *input, graphics::Texture *output, Com
     {
         GPUBarrier barriers[] = {
             GPUBarrier::Image(&bc1Uav, ResourceUsage::StorageImage, ResourceUsage::TransferSrc),
-            GPUBarrier::Image(output, ResourceUsage::SampledImage, ResourceUsage::TransferDst),
+            // GPUBarrier::Image(output, ResourceUsage::SampledImage, ResourceUsage::TransferDst),
         };
         device->Barrier(cmd, barriers, ArrayLength(barriers));
     }
@@ -1628,19 +1624,13 @@ void BlockCompressImage(graphics::Texture *input, graphics::Texture *output, Com
     device->DeleteTexture(input);
 
     // Transfer the block compressed texture to its initial format
-    GPUBarrier barrier = GPUBarrier::Image(output, ResourceUsage::TransferDst, output->mDesc.mInitialUsage);
-    device->Barrier(cmd, &barrier, 1);
-
-    // things I need to do to get this to work, in no particular order
-    // - bind a uav (DONE)
-    // - bind the texture to read (DONE)
-    // - create the compute shader (DONE)
-    // - bind the compute shader pipeline (DONE)
-    // - something something barriers (DONE)
-    // - dispatch to the compute shader (DONE)
-    // - copy from the uav to the output texture (DONE) (TODO: can reinterpret it using a sparse texture somehow?)
-    // - free the input texture :) (DONE)
-    // - manage the ring buffer queue for the block compression requests
-} // namespace render
+    {
+        GPUBarrier barriers[] = {
+            GPUBarrier::Image(&bc1Uav, ResourceUsage::TransferSrc, ResourceUsage::StorageImage),
+            GPUBarrier::Image(output, ResourceUsage::TransferDst, ResourceUsage::SampledImage),
+        };
+        device->Barrier(cmd, barriers, ArrayLength(barriers));
+    }
+}
 
 } // namespace render

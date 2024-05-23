@@ -603,8 +603,8 @@ mkGraphicsVulkan::mkGraphicsVulkan(OS_Handle window, ValidationMode validationMo
     vkGetDeviceQueue(mDevice, mComputeFamily, 0, &mQueues[QueueType_Compute].mQueue);
     vkGetDeviceQueue(mDevice, mCopyFamily, 0, &mQueues[QueueType_Copy].mQueue);
 
-    SetName((u64)mQueues[QueueType_Graphics].mQueue, GraphicsObjectType::Queue, "Graphics Queue");
-    SetName((u64)mQueues[QueueType_Copy].mQueue, GraphicsObjectType::Queue, "Transfer Queue");
+    SetName(mQueues[QueueType_Graphics].mQueue, "Graphics Queue");
+    SetName(mQueues[QueueType_Copy].mQueue, "Transfer Queue");
 
     // TODO: unified memory access architectures
     mMemProperties       = {};
@@ -773,10 +773,10 @@ mkGraphicsVulkan::mkGraphicsVulkan(OS_Handle window, ValidationMode validationMo
                 case DescriptorType_UniformTexel: typeName = "Uniform Texel Buffer"; break;
             }
             string name = PushStr8F(temp.arena, "Bindless Descriptor Set Layout: %S", typeName);
-            SetName((u64)bindlessDescriptorPool.layout, GraphicsObjectType::DescriptorSetLayout, (const char *)name.str);
+            SetName(bindlessDescriptorPool.layout, (const char *)name.str);
 
             name = PushStr8F(temp.arena, "Bindless Descriptor Set: %S", typeName);
-            SetName((u64)bindlessDescriptorPool.set, GraphicsObjectType::DescriptorSet, (const char *)name.str);
+            SetName(bindlessDescriptorPool.set, (const char *)name.str);
             ScratchEnd(temp);
         }
     }
@@ -1326,7 +1326,7 @@ void mkGraphicsVulkan::CreatePipeline(PipelineStateDesc *inDesc, PipelineState *
                 case VK_SHADER_STAGE_COMPUTE_BIT: stageName = "Compute "; break;
                 default: Assert(0); break;
             }
-            SetName((u64)shaderVulkan->module, GraphicsObjectType::Shader, (const char *)StrConcat(temp.arena, stageName, name).str);
+            SetName(shaderVulkan->module, (const char *)StrConcat(temp.arena, stageName, name).str);
 
             // Add the descriptor bindings
             for (auto &shaderBinding : shaderVulkan->layoutBindings)
@@ -1590,7 +1590,7 @@ void mkGraphicsVulkan::CreatePipeline(PipelineStateDesc *inDesc, PipelineState *
 
     // VkPipelineRenderingCreateInfo
     res = vkCreateGraphicsPipelines(mDevice, VK_NULL_HANDLE, 1, &pipelineInfo, 0, &ps->mPipeline);
-    SetName((u64)(ps->mPipeline), GraphicsObjectType::Pipeline, (const char *)name.str);
+    SetName(ps->mPipeline, (const char *)name.str);
     Assert(res == VK_SUCCESS);
 }
 
@@ -1639,7 +1639,7 @@ void mkGraphicsVulkan::CreateComputePipeline(PipelineStateDesc *inDesc, Pipeline
     }
 
     TempArena temp = ScratchStart(0, 0);
-    SetName((u64)shaderVulkan->module, GraphicsObjectType::Shader, (const char *)StrConcat(temp.arena, "CS ", name).str);
+    SetName(shaderVulkan->module, (const char *)StrConcat(temp.arena, "CS ", name).str);
     ScratchEnd(temp);
 
     VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
@@ -1672,7 +1672,7 @@ void mkGraphicsVulkan::CreateComputePipeline(PipelineStateDesc *inDesc, Pipeline
     computePipelineInfo.basePipelineIndex           = 0;
 
     res = vkCreateComputePipelines(mDevice, VK_NULL_HANDLE, 1, &computePipelineInfo, 0, &ps->mPipeline);
-    SetName((u64)(ps->mPipeline), GraphicsObjectType::Pipeline, (const char *)name.str);
+    SetName(ps->mPipeline, (const char *)name.str);
     Assert(res == VK_SUCCESS);
 }
 
@@ -1943,11 +1943,6 @@ void mkGraphicsVulkan::CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDes
 
 void mkGraphicsVulkan::CreateTexture(Texture *outTexture, TextureDesc desc, void *inData)
 {
-    if (outTexture->IsValid())
-    {
-        DeleteTexture(outTexture);
-    }
-
     TextureVulkan *texVulk = 0;
     MutexScope(&mArenaMutex)
     {
@@ -3043,34 +3038,23 @@ CommandList mkGraphicsVulkan::BeginCommandList(QueueType queue)
     BeginTicketMutex(&mCommandMutex);
     u32 currentCmd;
     CommandList cmd;
-    switch (queue)
+    currentCmd = numCommandLists++;
+    if (currentCmd >= commandLists.size())
     {
-        case QueueType_Graphics:
+        MutexScope(&mArenaMutex)
         {
-            currentCmd = numGraphicsCommandLists++;
-            if (currentCmd >= graphicsCommandLists.size())
-            {
-                graphicsCommandLists.emplace_back();
-            }
-            cmd.internalState = &graphicsCommandLists[currentCmd];
+            CommandListVulkan *cmdVulkan = PushStruct(mArena, CommandListVulkan);
+            commandLists.push_back(cmdVulkan);
         }
-        break;
-        case QueueType_Compute:
-        {
-            currentCmd = numComputeCommandLists++;
-            if (currentCmd >= computeCommandLists.size())
-            {
-                computeCommandLists.emplace_back();
-            }
-            cmd.internalState = &computeCommandLists[currentCmd];
-        }
-        break;
     }
+    cmd.internalState = commandLists[currentCmd];
     EndTicketMutex(&mCommandMutex);
 
     CommandListVulkan &command = GetCommandList(cmd);
     command.currentBuffer      = GetCurrentBuffer();
     command.type               = queue;
+    command.waitedOn.store(0);
+    command.waitForCmds.clear();
 
     // Create new command pool
     if (command.GetCommandBuffer() == VK_NULL_HANDLE)
@@ -3106,6 +3090,11 @@ CommandList mkGraphicsVulkan::BeginCommandList(QueueType queue)
             bufferInfo.level                       = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 
             res = vkAllocateCommandBuffers(mDevice, &bufferInfo, &command.commandBuffers[buffer]);
+            Assert(res == VK_SUCCESS);
+
+            VkSemaphoreCreateInfo semaphoreInfo = {};
+            semaphoreInfo.sType                 = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+            res                                 = vkCreateSemaphore(mDevice, &semaphoreInfo, 0, &command.semaphore);
             Assert(res == VK_SUCCESS);
         }
     } // namespace graphics
@@ -3538,11 +3527,63 @@ void mkGraphicsVulkan::SubmitCommandLists()
     list<VkSwapchainKHR> presentSwapchains; // swapchains to present
     list<u32> swapchainImageIndices;        // swapchain image to present
 
-    // Graphics queue submit
     {
-        for (u32 i = 0; i < numGraphicsCommandLists; i++)
+        auto submitQueue = [&](QueueType type, VkFence fence) {
+            VkSubmitInfo2 submitInfo            = {};
+            submitInfo.sType                    = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+            submitInfo.waitSemaphoreInfoCount   = (u32)waitSemaphores.size();
+            submitInfo.pWaitSemaphoreInfos      = waitSemaphores.data();
+            submitInfo.signalSemaphoreInfoCount = (u32)signalSemaphores.size();
+            submitInfo.pSignalSemaphoreInfos    = signalSemaphores.data();
+            submitInfo.commandBufferInfoCount   = (u32)bufferSubmitInfo.size();
+            submitInfo.pCommandBufferInfos      = bufferSubmitInfo.data();
+
+            MutexScope(&mQueues[type].mLock)
+            {
+                vkQueueSubmit2(mQueues[type].mQueue, 1, &submitInfo, fence);
+            }
+            if (!presentSwapchains.empty())
+            {
+                VkPresentInfoKHR presentInfo   = {};
+                presentInfo.sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+                presentInfo.waitSemaphoreCount = (u32)submitSemaphores.size();
+                presentInfo.pWaitSemaphores    = submitSemaphores.data();
+                presentInfo.swapchainCount     = (u32)presentSwapchains.size();
+                presentInfo.pSwapchains        = presentSwapchains.data();
+                presentInfo.pImageIndices      = swapchainImageIndices.data();
+                res                            = vkQueuePresentKHR(mQueues[QueueType_Graphics].mQueue, &presentInfo);
+                Assert(res == VK_SUCCESS);
+
+                if (res != VK_SUCCESS)
+                {
+                    if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR)
+                    {
+                        for (auto &swapchain : previousSwapchains)
+                        {
+                            b32 result = CreateSwapchain(swapchain);
+                            Assert(result);
+                        }
+                    }
+                    else
+                    {
+                        Assert(0)
+                    }
+                }
+            }
+
+            bufferSubmitInfo.clear();
+            waitSemaphores.clear();
+            signalSemaphores.clear();
+
+            submitSemaphores.clear();
+            previousSwapchains.clear();
+            swapchainImageIndices.clear();
+            presentSwapchains.clear();
+        };
+
+        for (u32 i = 0; i < numCommandLists; i++)
         {
-            CommandListVulkan *commandList = &graphicsCommandLists[i];
+            CommandListVulkan *commandList = commandLists[i];
             vkEndCommandBuffer(commandList->GetCommandBuffer());
 
             bufferSubmitInfo.emplace_back();
@@ -3576,97 +3617,41 @@ void mkGraphicsVulkan::SubmitCommandLists()
                 presentSwapchains.push_back(swapchain->mSwapchain);
                 swapchainImageIndices.push_back(swapchain->mImageIndex);
             }
-
+            // Command lists to wait for before execution
+            if (!commandList->waitForCmds.empty() || commandList->waitedOn.load())
+            {
+                for (auto &cmd : commandList->waitForCmds)
+                {
+                    CommandListVulkan *commandListVulkan = ToInternal(cmd);
+                    waitSemaphores.emplace_back();
+                    VkSemaphoreSubmitInfo &waitSemaphore = waitSemaphores.back();
+                    waitSemaphore.sType                  = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+                    waitSemaphore.semaphore              = commandListVulkan->semaphore;
+                    waitSemaphore.value                  = 0;
+                    waitSemaphore.stageMask              = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+                }
+                if (commandList->waitedOn.load())
+                {
+                    signalSemaphores.emplace_back();
+                    VkSemaphoreSubmitInfo &signalSemaphore = signalSemaphores.back();
+                    signalSemaphore.sType                  = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+                    signalSemaphore.semaphore              = commandList->semaphore;
+                    signalSemaphore.value                  = 0;
+                    signalSemaphore.stageMask              = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+                }
+                submitQueue(commandList->type, VK_NULL_HANDLE);
+            }
             commandList->updateSwapchains.clear();
             commandList->currentSet = 0;
         }
-
-        // The queue submission call waits on the image to be available.
-        VkSubmitInfo2 submitInfo            = {};
-        submitInfo.sType                    = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
-        submitInfo.waitSemaphoreInfoCount   = (u32)waitSemaphores.size();
-        submitInfo.pWaitSemaphoreInfos      = waitSemaphores.data();
-        submitInfo.signalSemaphoreInfoCount = (u32)signalSemaphores.size();
-        submitInfo.pSignalSemaphoreInfos    = signalSemaphores.data();
-        submitInfo.commandBufferInfoCount   = (u32)bufferSubmitInfo.size();
-        submitInfo.pCommandBufferInfos      = bufferSubmitInfo.data();
-
-        // Submit the command buffers to the graphics queue
-        MutexScope(&mQueues[QueueType_Graphics].mLock)
-        {
-            vkQueueSubmit2(mQueues[QueueType_Graphics].mQueue, 1, &submitInfo, mFrameFences[GetCurrentBuffer()][QueueType_Graphics]);
-
-            // Present the swap chain image. This waits for the queue submission to finish.
-            {
-                VkPresentInfoKHR presentInfo   = {};
-                presentInfo.sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-                presentInfo.waitSemaphoreCount = (u32)submitSemaphores.size();
-                presentInfo.pWaitSemaphores    = submitSemaphores.data();
-                presentInfo.swapchainCount     = (u32)presentSwapchains.size();
-                presentInfo.pSwapchains        = presentSwapchains.data();
-                presentInfo.pImageIndices      = swapchainImageIndices.data();
-                res                            = vkQueuePresentKHR(mQueues[QueueType_Graphics].mQueue, &presentInfo);
-            }
-        }
-
-        // Handles swap chain invalidation.
-        {
-            if (res != VK_SUCCESS)
-            {
-                if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR)
-                {
-                    for (auto &swapchain : previousSwapchains)
-                    {
-                        b32 result = CreateSwapchain(swapchain);
-                        Assert(result);
-                    }
-                }
-                else
-                {
-                    Assert(0)
-                }
-            }
-        }
-    }
-
-    // Compute queue submit
-    {
-        bufferSubmitInfo.clear();
-        waitSemaphores.clear();
-        signalSemaphores.clear();
-
-        for (u32 i = 0; i < numComputeCommandLists; i++)
-        {
-            CommandListVulkan *commandList = &computeCommandLists[i];
-            vkEndCommandBuffer(commandList->GetCommandBuffer());
-
-            bufferSubmitInfo.emplace_back();
-            VkCommandBufferSubmitInfo &bufferInfo = bufferSubmitInfo.back();
-            bufferInfo.sType                      = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
-            bufferInfo.commandBuffer              = commandList->GetCommandBuffer();
-            commandList->currentSet               = 0;
-        }
-
-        VkSubmitInfo2 submitInfo            = {};
-        submitInfo.sType                    = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
-        submitInfo.waitSemaphoreInfoCount   = (u32)waitSemaphores.size();
-        submitInfo.pWaitSemaphoreInfos      = waitSemaphores.data();
-        submitInfo.signalSemaphoreInfoCount = (u32)signalSemaphores.size();
-        submitInfo.pSignalSemaphoreInfos    = signalSemaphores.data();
-        submitInfo.commandBufferInfoCount   = (u32)bufferSubmitInfo.size();
-        submitInfo.pCommandBufferInfos      = bufferSubmitInfo.data();
-
-        MutexScope(&mQueues[QueueType_Compute].mLock)
-        {
-            vkQueueSubmit2(mQueues[QueueType_Compute].mQueue, 1, &submitInfo, mFrameFences[GetCurrentBuffer()][QueueType_Compute]);
-        }
+        submitQueue(QueueType_Graphics, mFrameFences[GetCurrentBuffer()][QueueType_Graphics]);
+        submitQueue(QueueType_Compute, mFrameFences[GetCurrentBuffer()][QueueType_Compute]);
     }
 
     // Wait for the queue submission of the previous frame to resolve before continuing.
     {
         // Changes GetCurrentBuffer()
-        numGraphicsCommandLists = 0;
-        numComputeCommandLists  = 0;
+        numCommandLists = 0;
         mFrameCount++;
         // Waits for previous previous frame
         if (mFrameCount >= cNumBuffers)
@@ -3736,6 +3721,16 @@ void mkGraphicsVulkan::WaitForGPU()
     Assert(res == VK_SUCCESS);
 }
 
+// TODO: maybe explore render graphs in the future
+void mkGraphicsVulkan::Wait(CommandList waitFor, CommandList cmd)
+{
+    CommandListVulkan *waitForCmd = ToInternal(waitFor);
+    CommandListVulkan *command    = ToInternal(cmd);
+
+    waitForCmd->waitedOn.store(1);
+    command->waitForCmds.push_back(waitFor);
+}
+
 void mkGraphicsVulkan::SetName(GPUResource *resource, const char *name)
 {
     if (!mDebugUtils || resource == 0 || !resource->IsValid())
@@ -3763,7 +3758,7 @@ void mkGraphicsVulkan::SetName(GPUResource *resource, const char *name)
     Assert(res == VK_SUCCESS);
 }
 
-void mkGraphicsVulkan::SetName(u64 handle, GraphicsObjectType type, const char *name)
+void mkGraphicsVulkan::SetName(u64 handle, VkObjectType type, const char *name)
 {
     if (!mDebugUtils || handle == 0)
     {
@@ -3772,17 +3767,35 @@ void mkGraphicsVulkan::SetName(u64 handle, GraphicsObjectType type, const char *
     VkDebugUtilsObjectNameInfoEXT info = {};
     info.sType                         = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT;
     info.pObjectName                   = name;
-    switch (type)
-    {
-        case GraphicsObjectType::Queue: info.objectType = VK_OBJECT_TYPE_QUEUE; break;
-        case GraphicsObjectType::DescriptorSet: info.objectType = VK_OBJECT_TYPE_DESCRIPTOR_SET; break;
-        case GraphicsObjectType::DescriptorSetLayout: info.objectType = VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT; break;
-        case GraphicsObjectType::Pipeline: info.objectType = VK_OBJECT_TYPE_PIPELINE; break;
-        case GraphicsObjectType::Shader: info.objectType = VK_OBJECT_TYPE_SHADER_MODULE; break;
-    }
-    info.objectHandle = handle;
-    VkResult res      = vkSetDebugUtilsObjectNameEXT(mDevice, &info);
+    info.objectType                    = type;
+    info.objectHandle                  = handle;
+    VkResult res                       = vkSetDebugUtilsObjectNameEXT(mDevice, &info);
     Assert(res == VK_SUCCESS);
+}
+
+void mkGraphicsVulkan::SetName(VkDescriptorSetLayout handle, const char *name)
+{
+    SetName((u64)handle, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, name);
+}
+
+void mkGraphicsVulkan::SetName(VkDescriptorSet handle, const char *name)
+{
+    SetName((u64)handle, VK_OBJECT_TYPE_DESCRIPTOR_SET, name);
+}
+
+void mkGraphicsVulkan::SetName(VkShaderModule handle, const char *name)
+{
+    SetName((u64)handle, VK_OBJECT_TYPE_SHADER_MODULE, name);
+}
+
+void mkGraphicsVulkan::SetName(VkPipeline handle, const char *name)
+{
+    SetName((u64)handle, VK_OBJECT_TYPE_PIPELINE, name);
+}
+
+void mkGraphicsVulkan::SetName(VkQueue handle, const char *name)
+{
+    SetName((u64)handle, VK_OBJECT_TYPE_QUEUE, name);
 }
 
 // void mkGraphicsVulkan::BeginEvent()

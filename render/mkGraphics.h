@@ -17,15 +17,6 @@ typedef HINSTANCE Instance;
 #error not supported
 #endif
 
-enum class GraphicsObjectType
-{
-    Queue,
-    DescriptorSet,
-    DescriptorSetLayout,
-    Pipeline,
-    Shader,
-};
-
 enum class ValidationMode
 {
     Disabled,
@@ -578,10 +569,9 @@ struct mkGraphics
     virtual void BindCompute(PipelineState *ps, CommandList cmd)                                                                           = 0;
     virtual void PushConstants(CommandList cmd, u32 size, void *data, u32 offset = 0)                                                      = 0;
     virtual void WaitForGPU()                                                                                                              = 0;
+    virtual void Wait(CommandList waitFor, CommandList cmd)                                                                                = 0;
     virtual void Barrier(CommandList cmd, GPUBarrier *barriers, u32 count)                                                                 = 0;
-
-    virtual void SetName(GPUResource *resource, const char *name)               = 0;
-    virtual void SetName(u64 handle, GraphicsObjectType type, const char *name) = 0;
+    virtual void SetName(GPUResource *resource, const char *name)                                                                          = 0;
 
     virtual u32 GetCurrentBuffer() = 0;
 };

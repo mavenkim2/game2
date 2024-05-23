@@ -796,6 +796,7 @@ internal void AS_LoadAsset(AS_Asset *asset)
         desc.mSampler      = graphics::TextureDesc::DefaultSampler::Linear;
 
         device->CreateTexture(&asset->texture, desc, texData);
+        // device->SetName(&asset->texture, (const char *)asset->path.str);
 
         if (bcFormat != graphics::Format::Null)
         {
@@ -813,6 +814,8 @@ internal void AS_LoadAsset(AS_Asset *asset)
 
             graphics::Texture uncompressed = asset->texture; // move?
             device->CreateTexture(&asset->texture, bcDesc, 0);
+            device->SetName(&asset->texture, (const char *)asset->path.str);
+
             render::DeferBlockCompress(uncompressed, &asset->texture);
         }
 
