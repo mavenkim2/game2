@@ -213,6 +213,7 @@ struct mkGraphicsVulkan : mkGraphics
     struct TextureVulkan
     {
         VkImage mImage            = VK_NULL_HANDLE;
+        VkBuffer stagingBuffer    = VK_NULL_HANDLE;
         VmaAllocation mAllocation = VK_NULL_HANDLE;
 
         struct Subresource

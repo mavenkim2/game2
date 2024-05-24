@@ -89,6 +89,18 @@ OS_GET_LAST_WRITE_TIME(OS_GetLastWriteTime)
 //////////////////////////////
 // FILE I/O
 //
+OS_FILE_EXISTS(FileExists)
+{
+    b8 result = 0;
+    WIN32_FIND_DATAA findData;
+    HANDLE handle = FindFirstFileA((char *)path.str, &findData);
+
+    if (handle != INVALID_HANDLE_VALUE)
+    {
+        result = 1;
+    }
+    return result;
+}
 
 OS_OPEN_FILE(OS_OpenFile)
 {

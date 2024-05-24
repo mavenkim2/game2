@@ -470,8 +470,8 @@ struct RenderState
 
 namespace render
 {
-void DeferBlockCompress(graphics::Texture input, graphics::Texture *output);
-void BlockCompressImage(graphics::Texture *input, graphics::Texture *output, graphics::CommandList cmd);
+void DeferBlockCompress(graphics::Texture input, graphics::Texture *output, AS_Asset *asset = 0);
+void BlockCompressImage(graphics::Texture *input, graphics::Texture *output, graphics::CommandList cmd, AS_Asset *asset = 0);
 } // namespace render
 
 #endif

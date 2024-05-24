@@ -1890,47 +1890,6 @@ void mkGraphicsVulkan::CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDes
                 // Copy from the staging buffer to the allocated buffer
                 vkCmdCopyBuffer(cmd.mCmdBuffer, ToInternal(&stagingRingAllocator.transferRingBuffer)->mBuffer, buffer->mBuffer, 1, &bufferCopy);
             }
-
-            // Create a barrier on the graphics queue. Not needed on the transfer queue, since it doesn't
-            // ever use the data after copying.
-
-            // TODO: I think this barrier is useless, because the semaphore should signal the graphics queue
-            // when the staging buffer transfer is complete.
-            // I was right
-
-#if 0
-            VkBufferMemoryBarrier2 bufferBarrier = {};
-            bufferBarrier.sType                  = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
-            bufferBarrier.buffer                 = buffer->mBuffer;
-            bufferBarrier.offset                 = 0;
-            bufferBarrier.size                   = VK_WHOLE_SIZE;
-            bufferBarrier.srcStageMask           = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-            bufferBarrier.srcAccessMask          = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-            bufferBarrier.dstStageMask           = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-            bufferBarrier.dstAccessMask          = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
-            bufferBarrier.srcQueueFamilyIndex    = VK_QUEUE_FAMILY_IGNORED;
-            bufferBarrier.dstQueueFamilyIndex    = VK_QUEUE_FAMILY_IGNORED;
-
-            if (HasFlags(inBuffer->mDesc.mResourceUsage, ResourceUsage::VertexBuffer))
-            {
-                bufferBarrier.dstStageMask |= VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT;
-                bufferBarrier.dstAccessMask |= VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT;
-                // bufferBarrier.dstAccessMask
-            }
-            if (HasFlags(inBuffer->mDesc.mResourceUsage, ResourceUsage::IndexBuffer))
-            {
-                bufferBarrier.dstStageMask |= VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT;
-                bufferBarrier.dstAccessMask |= VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT;
-            }
-
-            VkDependencyInfo dependencyInfo         = {};
-            dependencyInfo.sType                    = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-            dependencyInfo.bufferMemoryBarrierCount = 1;
-            dependencyInfo.pBufferMemoryBarriers    = &bufferBarrier;
-
-            vkCmdPipelineBarrier2(cmd.mTransitionBuffer, &dependencyInfo);
-#endif
-
             Submit(cmd);
         }
     }
@@ -1943,6 +1902,7 @@ void mkGraphicsVulkan::CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDes
 
 void mkGraphicsVulkan::CreateTexture(Texture *outTexture, TextureDesc desc, void *inData)
 {
+    VkResult res;
     TextureVulkan *texVulk = 0;
     MutexScope(&mArenaMutex)
     {
@@ -2035,8 +1995,33 @@ void mkGraphicsVulkan::CreateTexture(Texture *outTexture, TextureDesc desc, void
     allocInfo.usage                   = VMA_MEMORY_USAGE_AUTO;
 
     VmaAllocationInfo info = {};
-    VkResult res           = vmaCreateImage(mAllocator, &imageInfo, &allocInfo, &texVulk->mImage, &texVulk->mAllocation, &info);
-    Assert(res == VK_SUCCESS);
+
+    if (desc.mUsage == MemoryUsage::GPU_TO_CPU)
+    {
+        allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+        u32 size                        = GetTextureSize(desc);
+        VkBufferCreateInfo bufferCreate = {};
+        bufferCreate.sType              = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+        bufferCreate.size               = size;
+        bufferCreate.usage              = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        res                             = vmaCreateBuffer(mAllocator, &bufferCreate, &allocInfo, &texVulk->stagingBuffer, &texVulk->mAllocation, &info);
+        Assert(res == VK_SUCCESS);
+
+        // TODO: support readback of multiple mips/layers/depth
+        Assert(desc.mDepth == 1 && desc.mNumMips == 1 && desc.mNumLayers == 1);
+
+        TextureMappedData data;
+        data.mappedData = texVulk->mAllocation->GetMappedData();
+        data.size       = size;
+
+        outTexture->mappedData.push_back(data);
+    }
+    else if (desc.mUsage == MemoryUsage::GPU_ONLY)
+    {
+        res = vmaCreateImage(mAllocator, &imageInfo, &allocInfo, &texVulk->mImage, &texVulk->mAllocation, &info);
+        Assert(res == VK_SUCCESS);
+    }
 
     // TODO: handle 3d texture creation
     if (inData)
@@ -2833,12 +2818,6 @@ mkGraphicsVulkan::TransferCommand mkGraphicsVulkan::Stage(u64 size)
             res = vkCreateSemaphore(mDevice, &semaphoreInfo, 0, &cmd.mSemaphores[i]);
             Assert(res == VK_SUCCESS);
         }
-
-        // GPUBufferDesc desc = {};
-        // desc.mSize         = GetNextPowerOfTwo(size);
-        // desc.mSize         = Max(desc.mSize, kilobytes(64));
-        // desc.mUsage        = MemoryUsage::CPU_TO_GPU;
-        // CreateBuffer(&cmd.mUploadBuffer, desc, 0);
     }
 
     res = vkResetCommandPool(mDevice, cmd.mCmdPool, 0);
@@ -3541,32 +3520,32 @@ void mkGraphicsVulkan::SubmitCommandLists()
             MutexScope(&mQueues[type].mLock)
             {
                 vkQueueSubmit2(mQueues[type].mQueue, 1, &submitInfo, fence);
-            }
-            if (!presentSwapchains.empty())
-            {
-                VkPresentInfoKHR presentInfo   = {};
-                presentInfo.sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
-                presentInfo.waitSemaphoreCount = (u32)submitSemaphores.size();
-                presentInfo.pWaitSemaphores    = submitSemaphores.data();
-                presentInfo.swapchainCount     = (u32)presentSwapchains.size();
-                presentInfo.pSwapchains        = presentSwapchains.data();
-                presentInfo.pImageIndices      = swapchainImageIndices.data();
-                res                            = vkQueuePresentKHR(mQueues[QueueType_Graphics].mQueue, &presentInfo);
-                Assert(res == VK_SUCCESS);
-
-                if (res != VK_SUCCESS)
+                if (!presentSwapchains.empty())
                 {
-                    if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR)
+                    VkPresentInfoKHR presentInfo   = {};
+                    presentInfo.sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+                    presentInfo.waitSemaphoreCount = (u32)submitSemaphores.size();
+                    presentInfo.pWaitSemaphores    = submitSemaphores.data();
+                    presentInfo.swapchainCount     = (u32)presentSwapchains.size();
+                    presentInfo.pSwapchains        = presentSwapchains.data();
+                    presentInfo.pImageIndices      = swapchainImageIndices.data();
+                    res                            = vkQueuePresentKHR(mQueues[QueueType_Graphics].mQueue, &presentInfo);
+                    Assert(res == VK_SUCCESS);
+
+                    if (res != VK_SUCCESS)
                     {
-                        for (auto &swapchain : previousSwapchains)
+                        if (res == VK_ERROR_OUT_OF_DATE_KHR || res == VK_SUBOPTIMAL_KHR)
                         {
-                            b32 result = CreateSwapchain(swapchain);
-                            Assert(result);
+                            for (auto &swapchain : previousSwapchains)
+                            {
+                                b32 result = CreateSwapchain(swapchain);
+                                Assert(result);
+                            }
                         }
-                    }
-                    else
-                    {
-                        Assert(0)
+                        else
+                        {
+                            Assert(0)
+                        }
                     }
                 }
             }

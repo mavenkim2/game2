@@ -209,6 +209,7 @@ OS_FileAttributes OS_AttributesFromFile(OS_Handle input);
 //
 
 OS_Handle OS_OpenFile(OS_AccessFlags flags, string path);
+b8 FileExists(string path);
 void OS_CloseFile(OS_Handle input);
 OS_FileAttributes OS_AtributesFromFile(OS_Handle input);
 u64 OS_ReadEntireFile(OS_Handle handle, void *out);

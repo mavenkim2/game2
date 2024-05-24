@@ -88,6 +88,9 @@ typedef OS_RELEASE_SEMAPHORES(os_release_semaphores);
 #define OS_SIGNAL_WAIT(name) b32 name(OS_Handle input)
 typedef OS_SIGNAL_WAIT(os_signal_wait);
 
+#define OS_FILE_EXISTS(name) b8 name(string path)
+typedef OS_FILE_EXISTS(os_file_exists);
+
 #define OS_OPEN_FILE(name) OS_Handle name(OS_AccessFlags flags, string path)
 typedef OS_OPEN_FILE(os_open_file);
 
@@ -163,6 +166,7 @@ struct PlatformApi
     os_set_thread_affinity *SetThreadAffinity;
     os_load_dll *LoadDLL;
     os_load_dll *LoadDLLNoTemp;
+    os_file_exists *FileExists;
 };
 extern PlatformApi platform;
 
@@ -203,6 +207,7 @@ inline PlatformApi GetPlatform()
     platform_.SetThreadAffinity  = SetThreadAffinity;
     platform_.LoadDLL            = OS_LoadDLL;
     platform_.LoadDLLNoTemp      = OS_LoadDLLNoTemp;
+    platform_.FileExists         = FileExists;
     return platform_;
 }
 

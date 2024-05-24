@@ -440,9 +440,16 @@ struct TextureDesc
     } mSampler = DefaultSampler::None;
 };
 
+struct TextureMappedData
+{
+    void *mappedData;
+    u32 size;
+};
+
 struct Texture : GPUResource
 {
     TextureDesc mDesc;
+    list<TextureMappedData> mappedData;
 };
 
 struct SamplerDesc
@@ -491,13 +498,30 @@ inline u32 GetFormatSize(Format format)
 {
     switch (format)
     {
+        case Format::BC1_RGB_UNORM:
+        case Format::R32G32_UINT:
         case Format::R32G32_SFLOAT:
+        case Format::D32_SFLOAT_S8_UINT:
             return 8;
         case Format::R32G32B32_SFLOAT:
             return 12;
         case Format::R32G32B32A32_SFLOAT:
         case Format::R32G32B32A32_UINT:
             return 16;
+        case Format::B8G8R8_UNORM:
+        case Format::B8G8R8_SRGB:
+            return 3;
+        case Format::R32_UINT:
+        case Format::B8G8R8A8_UNORM:
+        case Format::R8G8B8A8_UNORM:
+        case Format::B8G8R8A8_SRGB:
+        case Format::R8G8B8A8_SRGB:
+        case Format::D24_UNORM_S8_UINT:
+        case Format::D32_SFLOAT:
+            return 4;
+        case Format::R8G8_UNORM:
+            return 2;
+
         default:
             Assert(0);
             return 16;
@@ -512,6 +536,22 @@ inline u32 GetBlockSize(Format format)
             return 4;
         default: return 1;
     }
+}
+
+inline u32 GetTextureSize(TextureDesc desc)
+{
+    u32 size      = 0;
+    u32 blockSize = GetBlockSize(desc.mFormat);
+    u32 stride    = GetFormatSize(desc.mFormat);
+    const u32 x   = desc.mWidth / blockSize;
+    const u32 y   = desc.mHeight / blockSize;
+
+    Assert(desc.mNumMips == 1);
+    Assert(desc.mNumLayers == 1);
+    Assert(desc.mDepth == 1);
+    size += x * y * stride;
+
+    return size;
 }
 
 struct mkGraphics
