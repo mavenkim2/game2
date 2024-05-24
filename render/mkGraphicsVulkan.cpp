@@ -276,7 +276,7 @@ void mkGraphicsVulkan::Cleanup()
     }
 }
 
-mkGraphicsVulkan::mkGraphicsVulkan(OS_Handle window, ValidationMode validationMode, GPUDevicePreference preference)
+mkGraphicsVulkan::mkGraphicsVulkan(ValidationMode validationMode, GPUDevicePreference preference)
 {
     mArena          = ArenaAlloc();
     const i32 major = 0;
@@ -802,12 +802,16 @@ mkGraphicsVulkan::mkGraphicsVulkan(OS_Handle window, ValidationMode validationMo
         desc.mSize          = ringBufferSize;
         desc.mResourceUsage = ResourceUsage::TransferSrc;
 
-        CreateBuffer(&stagingRingAllocator.transferRingBuffer, desc, 0);
-        SetName(&stagingRingAllocator.transferRingBuffer, "Transfer Staging Buffer");
+        for (u32 i = 0; i < ArrayLength(stagingRingAllocators); i++)
+        {
+            RingAllocator &stagingRingAllocator = stagingRingAllocators[i];
+            CreateBuffer(&stagingRingAllocator.transferRingBuffer, desc, 0);
+            SetName(&stagingRingAllocator.transferRingBuffer, "Transfer Staging Buffer");
 
-        stagingRingAllocator.ringBufferSize = ringBufferSize;
-        stagingRingAllocator.writePos = stagingRingAllocator.readPos = 0;
-        stagingRingAllocator.lock                                    = {};
+            stagingRingAllocator.ringBufferSize = ringBufferSize;
+            stagingRingAllocator.writePos = stagingRingAllocator.readPos = 0;
+            stagingRingAllocator.lock                                    = {};
+        }
     }
 
     // Default samplers
@@ -1887,8 +1891,10 @@ void mkGraphicsVulkan::CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDes
                 bufferCopy.dstOffset    = 0;
                 bufferCopy.size         = inBuffer->mDesc.mSize;
 
+                RingAllocator *allocator = &stagingRingAllocators[cmd.ringAllocation->ringId];
+
                 // Copy from the staging buffer to the allocated buffer
-                vkCmdCopyBuffer(cmd.mCmdBuffer, ToInternal(&stagingRingAllocator.transferRingBuffer)->mBuffer, buffer->mBuffer, 1, &bufferCopy);
+                vkCmdCopyBuffer(cmd.mCmdBuffer, ToInternal(&allocator->transferRingBuffer)->mBuffer, buffer->mBuffer, 1, &bufferCopy);
             }
             Submit(cmd);
         }
@@ -2015,7 +2021,7 @@ void mkGraphicsVulkan::CreateTexture(Texture *outTexture, TextureDesc desc, void
         data.mappedData = texVulk->mAllocation->GetMappedData();
         data.size       = size;
 
-        outTexture->mappedData.push_back(data);
+        outTexture->mappedData = data; //.push_back(data);
     }
     else if (desc.mUsage == MemoryUsage::GPU_ONLY)
     {
@@ -2072,7 +2078,8 @@ void mkGraphicsVulkan::CreateTexture(Texture *outTexture, TextureDesc desc, void
             dependencyInfo.pImageMemoryBarriers    = &barrier;
             vkCmdPipelineBarrier2(cmd.mCmdBuffer, &dependencyInfo);
 
-            vkCmdCopyBufferToImage(cmd.mCmdBuffer, ToInternal(&stagingRingAllocator.transferRingBuffer)->mBuffer, texVulk->mImage,
+            RingAllocator *allocator = &stagingRingAllocators[cmd.ringAllocation->ringId];
+            vkCmdCopyBufferToImage(cmd.mCmdBuffer, ToInternal(&allocator->transferRingBuffer)->mBuffer, texVulk->mImage,
                                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &imageCopy);
 
             // Transition to layout used in pipeline
@@ -2132,7 +2139,10 @@ void mkGraphicsVulkan::CreateTexture(Texture *outTexture, TextureDesc desc, void
         Submit(cmd);
     }
 
-    CreateSubresource(outTexture);
+    if (desc.mUsage != MemoryUsage::GPU_TO_CPU)
+    {
+        CreateSubresource(outTexture);
+    }
 }
 
 void mkGraphicsVulkan::DeleteTexture(Texture *texture)
@@ -2144,23 +2154,33 @@ void mkGraphicsVulkan::DeleteTexture(Texture *texture)
 
     MutexScope(&mCleanupMutex)
     {
-        cleanupTextures[currentBuffer].emplace_back();
-        CleanupTexture &cleanup = cleanupTextures[currentBuffer].back();
-        cleanup.image           = textureVulkan->mImage;
-        cleanup.allocation      = textureVulkan->mAllocation;
-
-        BindlessDescriptorPool &pool = bindlessDescriptorPools[DescriptorType_SampledImage];
-
-        if (textureVulkan->mSubresource.IsValid())
+        if (textureVulkan->mImage != VK_NULL_HANDLE)
         {
-            mCleanupImageViews[currentBuffer].push_back(textureVulkan->mSubresource.mImageView);
-            pool.Free(textureVulkan->mSubresource.descriptorIndex);
+            cleanupTextures[currentBuffer].emplace_back();
+            CleanupTexture &cleanup = cleanupTextures[currentBuffer].back();
+            cleanup.image           = textureVulkan->mImage;
+            cleanup.allocation      = textureVulkan->mAllocation;
+
+            BindlessDescriptorPool &pool = bindlessDescriptorPools[DescriptorType_SampledImage];
+
+            if (textureVulkan->mSubresource.IsValid())
+            {
+                mCleanupImageViews[currentBuffer].push_back(textureVulkan->mSubresource.mImageView);
+                pool.Free(textureVulkan->mSubresource.descriptorIndex);
+            }
+
+            for (auto &subresource : textureVulkan->mSubresources)
+            {
+                mCleanupImageViews[currentBuffer].push_back(subresource.mImageView);
+                pool.Free(subresource.descriptorIndex);
+            }
         }
-
-        for (auto &subresource : textureVulkan->mSubresources)
+        else if (textureVulkan->stagingBuffer != VK_NULL_HANDLE)
         {
-            mCleanupImageViews[currentBuffer].push_back(subresource.mImageView);
-            pool.Free(subresource.descriptorIndex);
+            mCleanupBuffers[currentBuffer].emplace_back();
+            CleanupBuffer &cleanup = mCleanupBuffers[currentBuffer].back();
+            cleanup.mBuffer        = textureVulkan->stagingBuffer;
+            cleanup.mAllocation    = textureVulkan->mAllocation;
         }
     }
 
@@ -2665,96 +2685,101 @@ void mkGraphicsVulkan::FrameAllocate(GPUBuffer *inBuf, void *inData, CommandList
     vkCmdCopyBuffer(command->GetCommandBuffer(), ToInternal(&currentFrameData->mBuffer)->mBuffer, bufVulk->mBuffer, 1, &copy);
 }
 
+// NOTE: loops through 4 rings until one with space for the allocation is found.
 mkGraphicsVulkan::RingAllocation *mkGraphicsVulkan::RingAlloc(u64 size, VkFence fence)
 {
-    u64 ringBufferSize = stagingRingAllocator.ringBufferSize;
+    RingAllocation *result = 0;
+    const u32 arrayLength  = ArrayLength(stagingRingAllocators);
+    u32 id                 = 0;
+    while (result == 0)
+    {
+        id     = id & (arrayLength - 1);
+        result = RingAllocInternal(id, size, fence);
+        id++;
+    }
+    return result;
+}
 
-    size = AlignPow2(size, (u64)stagingRingAllocator.alignment);
+mkGraphicsVulkan::RingAllocation *mkGraphicsVulkan::RingAllocInternal(u32 id, u64 size, VkFence fence)
+{
+    RingAllocator *allocator = &stagingRingAllocators[id];
+    u64 ringBufferSize       = allocator->ringBufferSize;
+
+    size = AlignPow2(size, (u64)allocator->alignment);
     Assert(size <= ringBufferSize);
-    Assert(stagingRingAllocator.writePos <= ringBufferSize);
-    Assert(stagingRingAllocator.readPos <= ringBufferSize);
+    Assert(allocator->writePos <= ringBufferSize);
+    Assert(allocator->readPos <= ringBufferSize);
 
     RingAllocation *result = 0;
     i32 offset             = -1;
-    while (offset == -1)
+
+    TicketMutexScope(&allocator->lock);
     {
-        TicketMutexScope(&stagingRingAllocator.lock)
+        u32 writePos = allocator->writePos;
+        u32 readPos  = allocator->readPos;
+        if (writePos >= readPos)
         {
-            u32 writePos = stagingRingAllocator.writePos;
-            u32 readPos  = stagingRingAllocator.readPos;
-            if (writePos >= readPos)
+            // Normal default case: enough space for allocation b/t writePos and end of buffer
+            if (ringBufferSize - writePos >= size)
             {
-                // Normal default case: enough space for allocation b/t writePos and end of buffer
-                if (ringBufferSize - writePos >= size)
+                offset = writePos;
+                allocator->writePos += (u32)size;
+            }
+            // Not enough space, need to go back to the beginning of the buffer
+            else if (ringBufferSize - writePos < size)
+            {
+                if (readPos >= size)
                 {
-                    offset = writePos;
-                    stagingRingAllocator.writePos += (u32)size;
-                }
-                // Not enough space, need to go back to the beginning of the buffer
-                else if (ringBufferSize - writePos < size)
-                {
-                    if (readPos >= size)
-                    {
-                        offset                        = 0;
-                        stagingRingAllocator.writePos = (u32)size;
-                    }
+                    offset              = 0;
+                    allocator->writePos = (u32)size;
                 }
             }
-            else
+        }
+        else
+        {
+            // Normal default case: enough space for allocation b/t readPos
+            if (readPos - writePos >= size)
             {
-                // Normal default case: enough space for allocation b/t readPos
-                if (readPos - writePos >= size)
-                {
-                    offset = writePos;
-                    stagingRingAllocator.writePos += (u32)size;
-                }
+                offset = writePos;
+                allocator->writePos += (u32)size;
             }
+        }
 
-            while (!stagingRingAllocator.allocations.empty())
-            {
-                RingAllocation *freeAllocation = &stagingRingAllocator.allocations.front();
-                if (vkGetFenceStatus(mDevice, freeAllocation->fence) == VK_SUCCESS || freeAllocation->freed)
-                {
-                    stagingRingAllocator.readPos = freeAllocation->offset + (u32)freeAllocation->size;
-                    if (freeAllocation->cmd)
-                    {
-                        freeAllocation->cmd->ringAllocation = 0;
-                    }
-                    stagingRingAllocator.allocations.pop();
-                }
-                else
-                {
-                    break;
-                }
-            }
+        if (offset != -1)
+        {
+            RingAllocation allocation;
+            allocation.size       = size;
+            allocation.offset     = (u32)offset;
+            allocation.mappedData = (u8 *)allocator->transferRingBuffer.mMappedData + offset;
+            allocation.fence      = fence;
+            allocation.ringId     = id;
+            allocation.freed      = 0;
 
-            if (offset != -1)
-            {
-                RingAllocation allocation;
-                allocation.size       = size;
-                allocation.offset     = (u32)offset;
-                allocation.mappedData = (u8 *)stagingRingAllocator.transferRingBuffer.mMappedData + offset;
-                allocation.fence      = fence;
-
-                stagingRingAllocator.allocations.push(allocation);
-                result = &stagingRingAllocator.allocations.back();
-            }
+            allocator->allocations.push(allocation);
+            result = &allocator->allocations.back();
         }
     }
 
     return result;
 }
 
-// NOTE: the problem with this is that the allocation being pointed to could be freed.
 void mkGraphicsVulkan::RingFree(RingAllocation *allocation)
 {
-    // TODO: this might not be correct
-    TicketMutexScope(&stagingRingAllocator.lock)
+    RingAllocator *allocator = &stagingRingAllocators[allocation->ringId];
+    TicketMutexScope(&allocator->lock)
     {
-        if (allocation)
+        allocation->freed  = 1;
+        b8 freeAllocations = 1;
+        while (!allocator->allocations.empty() && freeAllocations)
         {
-            allocation->freed = 1;
-            allocation->cmd   = 0;
+            RingAllocation &potentiallyFreeAllocation = allocator->allocations.front();
+            if (!potentiallyFreeAllocation.freed)
+            {
+                freeAllocations = 0;
+                continue;
+            }
+            allocator->readPos = potentiallyFreeAllocation.offset + (u32)potentiallyFreeAllocation.size;
+            allocator->allocations.pop();
         }
     }
 }
@@ -2771,11 +2796,16 @@ mkGraphicsVulkan::TransferCommand mkGraphicsVulkan::Stage(u64 size)
         TransferCommand &testCmd = mTransferFreeList[i];
         if (vkGetFenceStatus(mDevice, mTransferFreeList[i].mFence) == VK_SUCCESS)
         {
-            RingFree(testCmd.ringAllocation);
-            cmd = testCmd;
+            // Only some cmds will have ring allocations
+            if (testCmd.ringAllocation)
+            {
+                RingFree(testCmd.ringAllocation);
+            }
+            cmd                = testCmd;
+            cmd.ringAllocation = 0;
+
             Swap(TransferCommand, mTransferFreeList[mTransferFreeList.size() - 1], mTransferFreeList[i]);
             mTransferFreeList.pop_back();
-            cmd.ringAllocation = 0;
             break;
         }
     }
@@ -2818,6 +2848,8 @@ mkGraphicsVulkan::TransferCommand mkGraphicsVulkan::Stage(u64 size)
             res = vkCreateSemaphore(mDevice, &semaphoreInfo, 0, &cmd.mSemaphores[i]);
             Assert(res == VK_SUCCESS);
         }
+
+        cmd.ringAllocation = 0;
     }
 
     res = vkResetCommandPool(mDevice, cmd.mCmdPool, 0);
@@ -2839,8 +2871,7 @@ mkGraphicsVulkan::TransferCommand mkGraphicsVulkan::Stage(u64 size)
 
     if (size != 0)
     {
-        cmd.ringAllocation      = RingAlloc(size, cmd.mFence);
-        cmd.ringAllocation->cmd = &cmd;
+        cmd.ringAllocation = RingAlloc(size, cmd.mFence);
     }
 
     return cmd;
@@ -2859,9 +2890,8 @@ void mkGraphicsVulkan::Submit(TransferCommand cmd)
     VkSemaphoreSubmitInfo waitSemInfo = {};
     waitSemInfo.sType                 = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
 
-    VkSemaphoreSubmitInfo submitSemInfo[2] = {};
-    submitSemInfo[0].sType                 = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-    submitSemInfo[1].sType                 = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+    VkSemaphoreSubmitInfo submitSemInfo = {};
+    submitSemInfo.sType                 = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
 
     VkSubmitInfo2 submitInfo = {};
     submitInfo.sType         = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
@@ -2870,15 +2900,15 @@ void mkGraphicsVulkan::Submit(TransferCommand cmd)
     {
         bufSubmitInfo.commandBuffer = cmd.mCmdBuffer;
 
-        submitSemInfo[0].semaphore = cmd.mSemaphores[0];
-        submitSemInfo[0].value     = 0;
-        submitSemInfo[0].stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        submitSemInfo.semaphore = cmd.mSemaphores[0];
+        submitSemInfo.value     = 0;
+        submitSemInfo.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 
         submitInfo.commandBufferInfoCount = 1;
         submitInfo.pCommandBufferInfos    = &bufSubmitInfo;
 
         submitInfo.signalSemaphoreInfoCount = 1;
-        submitInfo.pSignalSemaphoreInfos    = submitSemInfo;
+        submitInfo.pSignalSemaphoreInfos    = &submitSemInfo;
 
         MutexScope(&mQueues[QueueType_Copy].mLock)
         {
@@ -2894,16 +2924,39 @@ void mkGraphicsVulkan::Submit(TransferCommand cmd)
         waitSemInfo.value     = 0;
         waitSemInfo.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 
+        submitSemInfo.semaphore = cmd.mSemaphores[1];
+        submitSemInfo.value     = 0;
+        submitSemInfo.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+
         submitInfo.commandBufferInfoCount   = 1;
         submitInfo.pCommandBufferInfos      = &bufSubmitInfo;
+        submitInfo.waitSemaphoreInfoCount   = 1;
+        submitInfo.pWaitSemaphoreInfos      = &waitSemInfo;
+        submitInfo.signalSemaphoreInfoCount = 1;
+        submitInfo.pSignalSemaphoreInfos    = &submitSemInfo;
+
+        MutexScope(&mQueues[QueueType_Graphics].mLock)
+        {
+            res = vkQueueSubmit2(mQueues[QueueType_Graphics].mQueue, 1, &submitInfo, VK_NULL_HANDLE);
+            Assert(res == VK_SUCCESS);
+        }
+    }
+    // Execution dependency on compute queue
+    {
+        waitSemInfo.semaphore = cmd.mSemaphores[1];
+        waitSemInfo.value     = 0;
+        waitSemInfo.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+
+        submitInfo.commandBufferInfoCount   = 0;
+        submitInfo.pCommandBufferInfos      = 0;
         submitInfo.waitSemaphoreInfoCount   = 1;
         submitInfo.pWaitSemaphoreInfos      = &waitSemInfo;
         submitInfo.signalSemaphoreInfoCount = 0;
         submitInfo.pSignalSemaphoreInfos    = 0;
 
-        MutexScope(&mQueues[QueueType_Graphics].mLock)
+        MutexScope(&mQueues[QueueType_Compute].mLock)
         {
-            res = vkQueueSubmit2(mQueues[QueueType_Graphics].mQueue, 1, &submitInfo, cmd.mFence);
+            res = vkQueueSubmit2(mQueues[QueueType_Compute].mQueue, 1, &submitInfo, cmd.mFence);
             Assert(res == VK_SUCCESS);
         }
     }
@@ -2964,49 +3017,91 @@ void mkGraphicsVulkan::CopyBuffer(CommandList cmd, GPUBuffer *dst, GPUBuffer *sr
                     &copy);
 }
 
-void mkGraphicsVulkan::CopyTexture(CommandList cmd, Texture *dst, Texture *src)
+void mkGraphicsVulkan::CopyTexture(CommandList cmd, Texture *dst, Texture *src, Rect3U32 *rect)
 {
     CommandListVulkan *command = ToInternal(cmd);
 
     TextureVulkan *dstVulkan = ToInternal(dst);
     TextureVulkan *srcVulkan = ToInternal(src);
 
-    VkImageSubresourceLayers srcLayer = {};
-    srcLayer.aspectMask               = VK_IMAGE_ASPECT_COLOR_BIT;
-    srcLayer.mipLevel                 = 0;
-    srcLayer.baseArrayLayer           = 0;
-    srcLayer.layerCount               = 1;
+    u32 width, height, depth, offsetX, offsetY, offsetZ;
+    if (rect)
+    {
+        offsetX = rect->minX;
+        offsetY = rect->minY;
+        offsetZ = rect->minZ;
 
-    VkImageSubresourceLayers dstLayer = {};
-    dstLayer.aspectMask               = VK_IMAGE_ASPECT_COLOR_BIT;
-    dstLayer.mipLevel                 = 0;
-    dstLayer.baseArrayLayer           = 0;
-    dstLayer.layerCount               = 1;
+        width  = rect->maxX - rect->minX;
+        height = rect->maxY - rect->minY;
+        depth  = rect->maxZ - rect->minZ;
+    }
+    else
+    {
+        offsetX = offsetY = offsetZ = 0;
+        width                       = Min(src->mDesc.mWidth, dst->mDesc.mWidth);
+        height                      = Min(src->mDesc.mHeight, dst->mDesc.mHeight);
+        depth                       = Min(src->mDesc.mDepth, dst->mDesc.mDepth);
+    }
 
-    VkImageCopy2 imageCopyInfo   = {};
-    imageCopyInfo.sType          = VK_STRUCTURE_TYPE_IMAGE_COPY_2;
-    imageCopyInfo.srcSubresource = srcLayer;
-    imageCopyInfo.dstSubresource = dstLayer;
-    imageCopyInfo.srcOffset.x    = 0;
-    imageCopyInfo.srcOffset.y    = 0;
-    imageCopyInfo.srcOffset.z    = 0;
-    imageCopyInfo.dstOffset.x    = 0;
-    imageCopyInfo.dstOffset.y    = 0;
-    imageCopyInfo.dstOffset.z    = 0;
-    imageCopyInfo.extent.width   = Min(dst->mDesc.mWidth, src->mDesc.mWidth);
-    imageCopyInfo.extent.height  = Min(dst->mDesc.mHeight, src->mDesc.mHeight);
-    imageCopyInfo.extent.depth   = Min(dst->mDesc.mDepth, src->mDesc.mDepth);
+    if (dst->mDesc.mUsage == MemoryUsage::GPU_TO_CPU)
+    {
+        VkBufferImageCopy copy               = {};
+        copy.bufferOffset                    = 0;
+        copy.imageOffset.x                   = offsetX;
+        copy.imageOffset.y                   = offsetY;
+        copy.imageOffset.z                   = offsetZ;
+        copy.imageExtent.width               = width;
+        copy.imageExtent.height              = height;
+        copy.imageExtent.depth               = depth;
+        copy.imageSubresource.baseArrayLayer = 0;
+        copy.imageSubresource.layerCount     = 1;
+        copy.imageSubresource.mipLevel       = 0;
+        copy.imageSubresource.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
 
-    VkCopyImageInfo2 copyInfo = {};
-    copyInfo.sType            = VK_STRUCTURE_TYPE_COPY_IMAGE_INFO_2;
-    copyInfo.srcImage         = srcVulkan->mImage;
-    copyInfo.dstImage         = dstVulkan->mImage;
-    copyInfo.srcImageLayout   = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-    copyInfo.dstImageLayout   = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    copyInfo.regionCount      = 1;
-    copyInfo.pRegions         = &imageCopyInfo;
+        Assert(dst->mDesc.mNumMips == 1 && dst->mDesc.mNumLayers == 1 && dst->mDesc.mDepth == 1);
 
-    vkCmdCopyImage2(command->GetCommandBuffer(), &copyInfo);
+        vkCmdCopyImageToBuffer(command->GetCommandBuffer(), srcVulkan->mImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstVulkan->stagingBuffer, 1, &copy);
+    }
+    else
+    {
+
+        VkImageSubresourceLayers srcLayer = {};
+        srcLayer.aspectMask               = VK_IMAGE_ASPECT_COLOR_BIT;
+        srcLayer.mipLevel                 = 0;
+        srcLayer.baseArrayLayer           = 0;
+        srcLayer.layerCount               = 1;
+
+        VkImageSubresourceLayers dstLayer = {};
+        dstLayer.aspectMask               = VK_IMAGE_ASPECT_COLOR_BIT;
+        dstLayer.mipLevel                 = 0;
+        dstLayer.baseArrayLayer           = 0;
+        dstLayer.layerCount               = 1;
+
+        VkImageCopy2 imageCopyInfo   = {};
+        imageCopyInfo.sType          = VK_STRUCTURE_TYPE_IMAGE_COPY_2;
+        imageCopyInfo.srcSubresource = srcLayer;
+        imageCopyInfo.dstSubresource = dstLayer;
+        imageCopyInfo.srcOffset.x    = 0;
+        imageCopyInfo.srcOffset.y    = 0;
+        imageCopyInfo.srcOffset.z    = 0;
+        imageCopyInfo.dstOffset.x    = 0;
+        imageCopyInfo.dstOffset.y    = 0;
+        imageCopyInfo.dstOffset.z    = 0;
+        imageCopyInfo.extent.width   = Min(dst->mDesc.mWidth, src->mDesc.mWidth);
+        imageCopyInfo.extent.height  = Min(dst->mDesc.mHeight, src->mDesc.mHeight);
+        imageCopyInfo.extent.depth   = Min(dst->mDesc.mDepth, src->mDesc.mDepth);
+
+        VkCopyImageInfo2 copyInfo = {};
+        copyInfo.sType            = VK_STRUCTURE_TYPE_COPY_IMAGE_INFO_2;
+        copyInfo.srcImage         = srcVulkan->mImage;
+        copyInfo.dstImage         = dstVulkan->mImage;
+        copyInfo.srcImageLayout   = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        copyInfo.dstImageLayout   = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        copyInfo.regionCount      = 1;
+        copyInfo.pRegions         = &imageCopyInfo;
+
+        vkCmdCopyImage2(command->GetCommandBuffer(), &copyInfo);
+    }
 }
 
 // So from my understanding, the command list contains buffer * queue_type command pools, each with 1
@@ -3496,9 +3591,9 @@ void mkGraphicsVulkan::EndRenderPass(CommandList cmd)
 void mkGraphicsVulkan::SubmitCommandLists()
 {
     VkResult res;
-    list<VkCommandBufferSubmitInfo> bufferSubmitInfo;
-    list<VkSemaphoreSubmitInfo> waitSemaphores;
-    list<VkSemaphoreSubmitInfo> signalSemaphores;
+    list<VkCommandBufferSubmitInfo> bufferSubmitInfo[QueueType_Count - 1];
+    list<VkSemaphoreSubmitInfo> waitSemaphores[QueueType_Count - 1];
+    list<VkSemaphoreSubmitInfo> signalSemaphores[QueueType_Count - 1];
 
     // Passed to vkQueuePresent
     list<VkSemaphore> submitSemaphores; // signaled when cmd list is submitted to queue
@@ -3510,12 +3605,12 @@ void mkGraphicsVulkan::SubmitCommandLists()
         auto submitQueue = [&](QueueType type, VkFence fence) {
             VkSubmitInfo2 submitInfo            = {};
             submitInfo.sType                    = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
-            submitInfo.waitSemaphoreInfoCount   = (u32)waitSemaphores.size();
-            submitInfo.pWaitSemaphoreInfos      = waitSemaphores.data();
-            submitInfo.signalSemaphoreInfoCount = (u32)signalSemaphores.size();
-            submitInfo.pSignalSemaphoreInfos    = signalSemaphores.data();
-            submitInfo.commandBufferInfoCount   = (u32)bufferSubmitInfo.size();
-            submitInfo.pCommandBufferInfos      = bufferSubmitInfo.data();
+            submitInfo.waitSemaphoreInfoCount   = (u32)waitSemaphores[type].size();
+            submitInfo.pWaitSemaphoreInfos      = waitSemaphores[type].data();
+            submitInfo.signalSemaphoreInfoCount = (u32)signalSemaphores[type].size();
+            submitInfo.pSignalSemaphoreInfos    = signalSemaphores[type].data();
+            submitInfo.commandBufferInfoCount   = (u32)bufferSubmitInfo[type].size();
+            submitInfo.pCommandBufferInfos      = bufferSubmitInfo[type].data();
 
             MutexScope(&mQueues[type].mLock)
             {
@@ -3550,9 +3645,9 @@ void mkGraphicsVulkan::SubmitCommandLists()
                 }
             }
 
-            bufferSubmitInfo.clear();
-            waitSemaphores.clear();
-            signalSemaphores.clear();
+            bufferSubmitInfo[type].clear();
+            waitSemaphores[type].clear();
+            signalSemaphores[type].clear();
 
             submitSemaphores.clear();
             previousSwapchains.clear();
@@ -3564,9 +3659,10 @@ void mkGraphicsVulkan::SubmitCommandLists()
         {
             CommandListVulkan *commandList = commandLists[i];
             vkEndCommandBuffer(commandList->GetCommandBuffer());
+            QueueType type = commandList->type;
 
-            bufferSubmitInfo.emplace_back();
-            VkCommandBufferSubmitInfo &bufferInfo = bufferSubmitInfo.back();
+            bufferSubmitInfo[type].emplace_back();
+            VkCommandBufferSubmitInfo &bufferInfo = bufferSubmitInfo[type].back();
             bufferInfo.sType                      = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
             bufferInfo.commandBuffer              = commandList->GetCommandBuffer();
 
@@ -3582,14 +3678,14 @@ void mkGraphicsVulkan::SubmitCommandLists()
                 waitSemaphore.semaphore             = swapchain->mAcquireSemaphores[swapchain->mAcquireSemaphoreIndex];
                 waitSemaphore.value                 = 0;
                 waitSemaphore.stageMask             = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-                waitSemaphores.push_back(waitSemaphore);
+                waitSemaphores[type].push_back(waitSemaphore);
 
                 VkSemaphoreSubmitInfo signalSemaphore = {};
                 signalSemaphore.sType                 = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
                 signalSemaphore.semaphore             = swapchain->mReleaseSemaphore;
                 signalSemaphore.value                 = 0;
                 signalSemaphore.stageMask             = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-                signalSemaphores.push_back(signalSemaphore);
+                signalSemaphores[type].push_back(signalSemaphore);
 
                 submitSemaphores.push_back(swapchain->mReleaseSemaphore);
 
@@ -3602,8 +3698,8 @@ void mkGraphicsVulkan::SubmitCommandLists()
                 for (auto &cmd : commandList->waitForCmds)
                 {
                     CommandListVulkan *commandListVulkan = ToInternal(cmd);
-                    waitSemaphores.emplace_back();
-                    VkSemaphoreSubmitInfo &waitSemaphore = waitSemaphores.back();
+                    waitSemaphores[type].emplace_back();
+                    VkSemaphoreSubmitInfo &waitSemaphore = waitSemaphores[type].back();
                     waitSemaphore.sType                  = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
                     waitSemaphore.semaphore              = commandListVulkan->semaphore;
                     waitSemaphore.value                  = 0;
@@ -3611,14 +3707,14 @@ void mkGraphicsVulkan::SubmitCommandLists()
                 }
                 if (commandList->waitedOn.load())
                 {
-                    signalSemaphores.emplace_back();
-                    VkSemaphoreSubmitInfo &signalSemaphore = signalSemaphores.back();
+                    signalSemaphores[type].emplace_back();
+                    VkSemaphoreSubmitInfo &signalSemaphore = signalSemaphores[type].back();
                     signalSemaphore.sType                  = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
                     signalSemaphore.semaphore              = commandList->semaphore;
                     signalSemaphore.value                  = 0;
                     signalSemaphore.stageMask              = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
                 }
-                submitQueue(commandList->type, VK_NULL_HANDLE);
+                submitQueue(type, VK_NULL_HANDLE);
             }
             commandList->updateSwapchains.clear();
             commandList->currentSet = 0;

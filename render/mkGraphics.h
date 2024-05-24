@@ -449,7 +449,7 @@ struct TextureMappedData
 struct Texture : GPUResource
 {
     TextureDesc mDesc;
-    list<TextureMappedData> mappedData;
+    TextureMappedData mappedData;
 };
 
 struct SamplerDesc
@@ -582,7 +582,7 @@ struct mkGraphics
     }
 
     virtual void CopyBuffer(CommandList cmd, GPUBuffer *dest, GPUBuffer *source, u32 size)                                                 = 0;
-    virtual void CopyTexture(CommandList cmd, Texture *dst, Texture *src)                                                                  = 0;
+    virtual void CopyTexture(CommandList cmd, Texture *dst, Texture *src, Rect3U32 *rect = 0)                                              = 0;
     virtual void DeleteBuffer(GPUBuffer *buffer)                                                                                           = 0;
     virtual void CreateTexture(Texture *outTexture, TextureDesc desc, void *inData)                                                        = 0;
     virtual void DeleteTexture(Texture *texture)                                                                                           = 0;

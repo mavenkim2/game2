@@ -9,6 +9,7 @@
 #include "../mkCamera.h"
 #include "mkGraphics.h"
 #include "../mkGame.h"
+#include "../mkJobsystem.h"
 #endif
 
 using namespace graphics;
@@ -1216,9 +1217,8 @@ list<i32> shadowSlices;
 
 struct DeferredBlockCompressCmd
 {
-    AS_Asset *asset;
     Texture in;
-    Texture *out;
+    Texture out;
 };
 DeferredBlockCompressCmd blockCompressRing[256];
 std::atomic<u64> volatile blockCompressWrite       = 0;
@@ -1375,7 +1375,7 @@ internal void Render()
         for (u64 i = readPos; i < endPos; i++)
         {
             DeferredBlockCompressCmd *deferCmd = &blockCompressRing[(i & (size - 1))];
-            BlockCompressImage(&deferCmd->in, deferCmd->out, cmd, deferCmd->asset);
+            BlockCompressImage(&deferCmd->in, &deferCmd->out, cmd);
             blockCompressRead++;
         }
         std::atomic_thread_fence(std::memory_order_release);
@@ -1554,12 +1554,11 @@ internal void Render()
     device->SubmitCommandLists();
 }
 
-void DeferBlockCompress(graphics::Texture input, graphics::Texture *output, AS_Asset *asset)
+void DeferBlockCompress(graphics::Texture input, graphics::Texture output)
 {
     DeferredBlockCompressCmd cmd;
-    cmd.in    = input;
-    cmd.out   = output;
-    cmd.asset = asset;
+    cmd.in  = input;
+    cmd.out = output;
 
     u64 writePos   = blockCompressWrite.fetch_add(1);
     const u64 size = ArrayLength(blockCompressRing);
@@ -1582,11 +1581,11 @@ void DeferBlockCompress(graphics::Texture input, graphics::Texture *output, AS_A
     }
 }
 
-void BlockCompressImage(graphics::Texture *input, graphics::Texture *output, CommandList cmd, AS_Asset *asset)
+void BlockCompressImage(graphics::Texture *input, graphics::Texture *output, CommandList cmd)
 {
     // Texture reused
     u32 blockSize = GetBlockSize(output->mDesc.mFormat);
-    static Texture bc1Uav;
+    static thread_global Texture bc1Uav;
     TextureDesc desc;
     desc.mWidth        = input->mDesc.mWidth / blockSize;
     desc.mHeight       = input->mDesc.mHeight / blockSize;
@@ -1595,14 +1594,14 @@ void BlockCompressImage(graphics::Texture *input, graphics::Texture *output, Com
     desc.mFutureUsages = ResourceUsage::TransferSrc;
     desc.mTextureType  = TextureDesc::TextureType::Texture2D;
 
-    if (!bc1Uav.IsValid() || bc1Uav.mDesc.mWidth < output->mDesc.mWidth || bc1Uav.mDesc.mHeight < output->mDesc.mHeight)
+    if (!bc1Uav.IsValid() || bc1Uav.mDesc.mWidth < desc.mWidth || bc1Uav.mDesc.mHeight < desc.mHeight)
     {
         TextureDesc bcDesc = desc;
-        bcDesc.mWidth      = (u32)GetNextPowerOfTwo(output->mDesc.mWidth);
-        bcDesc.mHeight     = (u32)GetNextPowerOfTwo(output->mDesc.mHeight);
+        bcDesc.mWidth      = (u32)GetNextPowerOfTwo(desc.mWidth);
+        bcDesc.mHeight     = (u32)GetNextPowerOfTwo(desc.mHeight);
 
-        device->CreateTexture(&bc1Uav, desc, 0);
-        device->SetName(&bc1Uav, "BC1 Tex");
+        device->CreateTexture(&bc1Uav, bcDesc, 0);
+        device->SetName(&bc1Uav, "BC1 UAV");
     }
 
     // Output block compression to intermediate texture
@@ -1612,13 +1611,12 @@ void BlockCompressImage(graphics::Texture *input, graphics::Texture *output, Com
     device->BindResource(input, ResourceType::SRV, 0, cmd);
 
     device->UpdateDescriptorSet(cmd);
-    device->Dispatch(cmd, (bc1Uav.mDesc.mWidth + 7) / 8, (bc1Uav.mDesc.mHeight + 7) / 8, 1);
+    device->Dispatch(cmd, (desc.mWidth + 7) / 8, (desc.mHeight + 7) / 8, 1);
 
     // Copy from uav to output
     {
         GPUBarrier barriers[] = {
             GPUBarrier::Image(&bc1Uav, ResourceUsage::StorageImage, ResourceUsage::TransferSrc),
-            // GPUBarrier::Image(output, ResourceUsage::SampledImage, ResourceUsage::TransferDst),
         };
         device->Barrier(cmd, barriers, ArrayLength(barriers));
     }
@@ -1632,22 +1630,6 @@ void BlockCompressImage(graphics::Texture *input, graphics::Texture *output, Com
             GPUBarrier::Image(output, ResourceUsage::TransferDst, ResourceUsage::SampledImage),
         };
         device->Barrier(cmd, barriers, ArrayLength(barriers));
-    }
-
-    // need a readback texture to use in the write :)
-    if (asset)
-    {
-        Texture readBackTexture;
-        TextureDesc readBackDesc;
-        readBackDesc.mWidth        = desc.mWidth;
-        readBackDesc.mHeight       = desc.mHeight;
-        readBackDesc.mFormat       = output->mDesc.mFormat;
-        readBackDesc.mInitialUsage = ResourceUsage::TransferDst;
-        readBackDesc.mUsage        = MemoryUsage::GPU_TO_CPU;
-        device->CreateTexture(&readBackTexture, readBackDesc, 0);
-        device->CopyTexture(cmd, &readBackTexture, &bc1Uav);
-        WriteImageToDDS(&readBackTexture, asset->path);
-        device->DeleteTexture(&readBackTexture);
     }
 }
 

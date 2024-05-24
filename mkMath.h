@@ -140,6 +140,19 @@ union V2
     f32 elements[2];
 };
 
+union V2U32
+{
+    struct
+    {
+        u32 x, y;
+    };
+    struct
+    {
+        u32 u, v;
+    };
+    u32 elements[2];
+};
+
 union V2I32
 {
     struct
@@ -180,6 +193,38 @@ union V3
         return elements[index];
     }
     f32 &operator[](const i32 index)
+    {
+        return elements[index];
+    }
+};
+
+union V3U32
+{
+    struct
+    {
+        u32 x, y, z;
+    };
+    struct
+    {
+        u32 r, g, b;
+    };
+    struct
+    {
+        V2U32 xy;
+        u32 _z;
+    };
+    struct
+    {
+        u32 _x;
+        V2U32 yz;
+    };
+    u32 elements[3];
+
+    u32 operator[](const i32 index) const
+    {
+        return elements[index];
+    }
+    u32 &operator[](const i32 index)
     {
         return elements[index];
     }
@@ -357,6 +402,38 @@ union Rect2I32
     };
 };
 
+union Rect3U32
+{
+    struct
+    {
+        V3U32 minP;
+        V3U32 maxP;
+    };
+    struct
+    {
+        u32 minX;
+        u32 minY;
+        u32 minZ;
+
+        u32 maxX;
+        u32 maxY;
+        u32 maxZ;
+    };
+    V3U32 elements[2];
+
+    Rect3U32() {}
+    Rect3U32(V3U32 min, V3U32 max)
+    {
+        elements[0] = min;
+        elements[1] = max;
+    }
+
+    V3U32 operator[](const i32 index)
+    {
+        return elements[index];
+    }
+};
+
 union Rect3
 {
     struct
@@ -376,21 +453,18 @@ union Rect3
     };
     V3 elements[2];
 
-    Rect3();
-    Rect3(V3 min, V3 max);
+    Rect3() {}
+    Rect3(V3 min, V3 max)
+    {
+        elements[0] = min;
+        elements[1] = max;
+    }
 
     V3 operator[](const i32 index)
     {
         return elements[index];
     }
 };
-
-Rect3::Rect3() {}
-Rect3::Rect3(V3 min, V3 max)
-{
-    elements[0] = min;
-    elements[1] = max;
-}
 
 union Quat
 {

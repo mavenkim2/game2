@@ -36,6 +36,16 @@ struct ShaderCompiler
     {
         DxcCreateInstanceProc DxcCreateInstance;
     } functions;
+
+    void Destroy()
+    {
+        dxcCompiler->Release();
+        info->Release();
+        dxcUtils->Release();
+        defaultIncludeHandler->Release();
+    }
+
+    ~ShaderCompiler() {}
 };
 
 struct CompileInput

@@ -49,7 +49,7 @@ MAIN()
 
     string binaryDirectory = OS_GetBinaryDirectory();
 #if VULKAN
-    mkGraphicsVulkan graphics(shared->windowHandle, ValidationMode::Verbose, GPUDevicePreference::Discrete);
+    mkGraphicsVulkan graphics(ValidationMode::Verbose, GPUDevicePreference::Discrete);
 #else
 #error
 #endif
@@ -82,44 +82,6 @@ MAIN()
     }
     OS_LoadDLL(&gameDLL);
 
-#if 0
-    struct RendererFunctionTable
-    {
-        RendererApi api;
-        // r_allocate_texture_2D *R_AllocateTexture;
-        // r_initialize_buffer *R_InitializeBuffer;
-        // r_map_gpu_buffer *R_MapGPUBuffer;
-        // r_unmap_gpu_buffer *R_UnmapGPUBuffer;
-        // r_update_buffer *R_UpdateBuffer;
-        r_initialize *R_Initialize;
-        r_end_frame *R_EndFrame;
-    } rendererFunctions;
-
-    OS_DLL renderDLL = {};
-    {
-        char *renderFuncTableNames[] = {"R_AllocateTextureInArray", "R_InitializeBuffer", "R_MapGPUBuffer", "R_UnmapGPUBuffer", "R_UpdateBuffer", "R_Init", "R_EndFrame"};
-        renderDLL.mFunctionNames     = renderFuncTableNames;
-        renderDLL.mFunctionCount     = ArrayLength(renderFuncTableNames);
-        renderDLL.mSource            = StrConcat(arena, OS_GetBinaryDirectory(), "/render.dll");
-        renderDLL.mTemp              = StrConcat(arena, OS_GetBinaryDirectory(), "/render_temp.dll");
-        renderDLL.mLock              = StrConcat(arena, OS_GetBinaryDirectory(), "/render_lock.dll");
-        renderDLL.mFunctions         = (void **)&rendererFunctions;
-    }
-    OS_LoadDLL(&renderDLL);
-
-    RenderPlatformMemory renderMem;
-    renderMem.mIsLoaded    = 0;
-    renderMem.mIsHotloaded = 0;
-    renderMem.mPlatform    = platform;
-    renderMem.mRenderer    = 0;
-    renderMem.mShared      = shared;
-    renderMem.mTctx        = tctx;
-    if (renderDLL.mValid)
-    {
-        rendererFunctions.R_Initialize(&renderMem, shared->windowHandle);
-    }
-#endif
-
     Engine engineLocal;
     engine = &engineLocal;
     GamePlatformMemory gameMem;
@@ -144,26 +106,6 @@ MAIN()
 
     for (; shared->running == 1;)
     {
-#if 0
-        u64 renderDLLWriteTime = OS_GetLastWriteTime(renderDLL.mSource);
-        if (renderDLL.mLastWriteTime != renderDLLWriteTime)
-        {
-            OS_UnloadDLL(&renderDLL);
-            OS_LoadDLL(&renderDLL);
-            gameMem.mRenderer      = rendererFunctions.api;
-            renderMem.mIsHotloaded = 1;
-            // REINITIALIZATION
-            if (gameDLL.mValid)
-            {
-                gameFunctions.G_Initialize(&gameMem);
-            }
-
-            if (renderDLL.mValid)
-            {
-                rendererFunctions.R_Initialize(&renderMem, shared->windowHandle);
-            }
-        }
-#endif
         // TODO: even when a file hasn't changed at all it recompiles
         u64 gameDLLWriteTime = OS_GetLastWriteTime(gameDLL.mSource);
         if (gameDLL.mLastWriteTime != gameDLLWriteTime)
@@ -182,14 +124,6 @@ MAIN()
         {
             gameFunctions.G_Update(frameDt * multiplier);
         }
-
-        // TODO: on another thread
-#if 0
-        if (renderDLL.mValid)
-        {
-            rendererFunctions.R_EndFrame(gameMem.mEngine->GetRenderState());
-        }
-#endif
 
         // Wait until new update
         f32 endWorkFrameTime = OS_NowSeconds();

@@ -10,6 +10,7 @@
 #include "mkInput.h"
 #include "mkThreadContext.h"
 #include "mkJob.h"
+#include "mkJobsystem.h"
 
 #include "mkPhysics.h"
 #include "mkCamera.h"

@@ -325,7 +325,7 @@ struct mkGraphicsVulkan : mkGraphics
         return (ShaderVulkan *)(shader->internalState);
     }
 
-    mkGraphicsVulkan(OS_Handle window, ValidationMode validationMode, GPUDevicePreference preference);
+    mkGraphicsVulkan(ValidationMode validationMode, GPUDevicePreference preference);
     u64 GetMinAlignment(GPUBufferDesc *inDesc) override;
     b32 CreateSwapchain(Window window, SwapchainDesc *desc, Swapchain *swapchain) override;
     void CreatePipeline(PipelineStateDesc *inDesc, PipelineState *outPS, string name) override;
@@ -333,7 +333,7 @@ struct mkGraphicsVulkan : mkGraphics
     void CreateShader(Shader *shader, string shaderData) override;
     void CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDesc, CopyFunction initCallback) override;
     void CopyBuffer(CommandList cmd, GPUBuffer *dest, GPUBuffer *src, u32 size) override;
-    void CopyTexture(CommandList cmd, Texture *dst, Texture *src) override;
+    void CopyTexture(CommandList cmd, Texture *dst, Texture *src, Rect3U32 *rect = 0) override;
     void DeleteBuffer(GPUBuffer *buffer) override;
     void CreateTexture(Texture *outTexture, TextureDesc desc, void *inData) override;
     void DeleteTexture(Texture *texture) override;
@@ -374,15 +374,14 @@ private:
     //////////////////////////////
     // Dedicated transfer queue
     //
-    struct TransferCommand;
     struct RingAllocation
     {
         void *mappedData;
         u64 size;
         u32 offset;
         VkFence fence;
-        TransferCommand *cmd;
-        b8 freed = 0;
+        u32 ringId;
+        b8 freed;
     };
     Mutex mTransferMutex = {};
     struct TransferCommand
@@ -416,11 +415,12 @@ private:
         u32 alignment = 16;
         std::queue<RingAllocation> allocations;
 
-    } stagingRingAllocator;
+    } stagingRingAllocators[4];
 
     // NOTE: there is a potential case where the allocation has transferred, but the fence isn't signaled (when command buffer
     // is being reused). current solution is to just not care, since it doesn't impact anything yet.
     RingAllocation *RingAlloc(u64 size, VkFence fence);
+    RingAllocation *RingAllocInternal(u32 ringId, u64 size, VkFence fence);
     void RingFree(RingAllocation *allocation);
 
     //////////////////////////////

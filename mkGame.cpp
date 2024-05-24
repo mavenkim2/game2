@@ -3,6 +3,7 @@
 #include "mkInput.cpp"
 #include "mkThreadContext.cpp"
 
+#include "mkJobsystem.cpp"
 #include "mkPhysics.cpp"
 #include "mkMemory.cpp"
 #include "mkString.cpp"
@@ -12,8 +13,8 @@
 #include "mkJob.cpp"
 #include "mkFont.cpp"
 #include "mkAsset.cpp"
-#include "render/mkRender.cpp"
 #include "mkAssetCache.cpp"
+#include "render/mkRender.cpp"
 #include "mkShaderCompiler.cpp"
 #include "mkDebug.cpp"
 
@@ -154,8 +155,10 @@ internal Manifold NarrowPhaseAABBCollision(const Rect3 a, const Rect3 b)
 // simply waits for all threads to finish executing
 G_FLUSH(G_Flush)
 {
-    JS_Flush();
+    // JS_Flush();
+    shadercompiler::compiler.Destroy();
     AS_Flush();
+    jobsystem::EndJobsystem();
 }
 
 G_INIT(G_Init)
@@ -173,7 +176,7 @@ G_INIT(G_Init)
     if (ioPlatformMemory->mIsHotloaded)
     {
         // restart terminated threads
-        JS_Restart();
+        jobsystem::InitializeJobsystem();
         AS_Restart();
         ioPlatformMemory->mIsHotloaded = 0;
     }
@@ -181,7 +184,7 @@ G_INIT(G_Init)
     {
         ioPlatformMemory->mIsLoaded = 1;
 
-        JS_Init();
+        jobsystem::InitializeJobsystem();
         AS_Init();
         // F_Init();
         D_Init();

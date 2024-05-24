@@ -174,4 +174,5 @@ internal void CompileShader(Arena *arena, CompileInput *input, CompileOutput *ou
         MemoryCopy(output->shaderData.str, shader->GetBufferPointer(), output->shaderData.size);
     }
 }
+
 } // namespace shadercompiler

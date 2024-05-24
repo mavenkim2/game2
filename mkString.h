@@ -72,6 +72,7 @@ internal u64 FindSubstring(string haystack, string needle, u64 startPos, MatchFl
 //////////////////////////////
 // File Path Helpers
 //
+internal string PathSkipLastSlash(string str);
 internal string GetFileExtension(string path);
 internal string Str8PathChopPastLastSlash(string string);
 internal string Str8PathChopLastSlash(string string);

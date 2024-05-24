@@ -30,6 +30,7 @@ global const string skeletonDirectory  = "data/skeletons/";
 global const string modelDirectory     = "data/models/";
 global const string materialDirectory  = "data/materials/";
 global const string textureDirectory   = "data/textures/";
+global const string ddsDirectory       = "data/textures/dds/";
 global const string animationDirectory = "data/animations/";
 
 global volatile b32 gTerminateThreads;
@@ -252,10 +253,6 @@ THREAD_ENTRY_POINT(AS_EntryPoint)
             {
                 continue;
             }
-
-            // u64 hash = HashFromString(path);
-            // as_state->fileHash.
-
             AS_Asset *asset = 0;
 
             i32 hash = HashFromString(path);
@@ -280,10 +277,6 @@ THREAD_ENTRY_POINT(AS_EntryPoint)
             // Freed/new assets have a "lastModified" timestamp of 0. Assets to be hotloaded have a timestamp != 0.
             if (asset->lastModified != 0)
             {
-                // If the model is reloaded while it's still in the process of loading, cancel the request. (the
-                // hotload)
-                // AtomicCompareExchangeU32(&asset->status, AS_Status_Unloaded, AS_Status_Loaded) != AS_Status_Loaded)
-
                 u32 loaded = AS_Status_Loaded;
                 if (!asset->status.compare_exchange_strong(loaded, AS_Status_Unloaded))
                 {
@@ -294,56 +287,7 @@ THREAD_ENTRY_POINT(AS_EntryPoint)
                 Printf("Asset freed");
             }
             asset->lastModified = attributes.lastModified;
-
-            // #if 0
-            //         u64 readCursor = 0;
-            //         struct AssetFileHeader
-            //         {
-            //             AssetFileSectionHeader headers[4];
-            //         };
-            //         AssetFileHeader header;
-            //
-            //         // TODO: do I have to manually keep track of the offset?
-            //         readCursor += platform.OS_ReadFile(handle, &header, readCursor, sizeof(header));
-            //
-            //         // TODO: maybe it would just be better to have a temporary buffer hold the contents of the entire file
-            //         // instead of issuing multiple os read calls, but I feel like worrying about this is a waste of time.
-            //         for (i32 i = 0; i < ArrayLength(header.headers); i++)
-            //         {
-            //             AssetFileSectionHeader *sectionHeader = header.headers + i;
-            //             if (sectionHeader->size > 0)
-            //             {
-            //                 string tag = Str8((u8 *)sectionHeader->tag, 4);
-            //                 // temporary memory
-            //                 if (tag == Str8Lit("GPU ") || tag == Str8Lit("TEMP") || tag == Str8Lit("DBG"))
-            //                 {
-            //                     // TODO: temporary block allocator or something? or allocating a piece of memory from the
-            //                     // renderer (i.e. the renderer owns the memory instead of the asset system?)
-            //
-            //                     u8 *memory = (u8 *)malloc(sectionHeader->size);
-            //                     Assert(sectionHeader->offset == readCursor);
-            //                     readCursor += platform.OS_ReadFile(handle, memory, readCursor, sectionHeader->size);
-            //                 }
-            //                 else if (tag == Str8Lit("MAIN"))
-            //                 {
-            //                     // TODO: this unfortunately has to be locked.
-            //                     BeginTicketMutex(&as_state->allocator.ticketMutex);
-            //                     asset->memoryBlock = AS_Alloc((i32)attributes.size);
-            //                     EndTicketMutex(&as_state->allocator.ticketMutex);
-            //
-            //                     asset->size =
-            //                         platform.OS_ReadFile(handle, AS_GetMemory(asset->memoryBlock), readCursor, sectionHeader->size);
-            //                     Assert(asset->size == attributes.size);
-            //                     readCursor += asset->size;
-            //                 }
-            //                 else
-            //                 {
-            //                     Assert(!"Invalid tag");
-            //                 }
-            //             }
-            // #endif
-
-            asset->memoryBlock = AS_Alloc((i32)attributes.size);
+            asset->memoryBlock  = AS_Alloc((i32)attributes.size);
 
             asset->size = platform.ReadFileHandle(handle, AS_GetMemory(asset));
             platform.CloseFile(handle);
@@ -772,8 +716,17 @@ internal void AS_LoadAsset(AS_Asset *asset)
     {
         asset->type = AS_Texture;
 
-        if (platform.FileExists(asset->path))
+        string ddsPath = PushStr8F(temp.arena, "%S%S.dds", ddsDirectory, PathSkipLastSlash(RemoveFileExtension(asset->path)));
+        if (platform.FileExists(ddsPath))
         {
+            AS_Free(asset);
+
+            OS_Handle handle             = platform.OpenFile(OS_AccessFlag_Read | OS_AccessFlag_ShareRead, ddsPath);
+            OS_FileAttributes attributes = platform.AttributesFromFile(handle);
+            asset->memoryBlock           = AS_Alloc((i32)attributes.size);
+            asset->size                  = platform.ReadFileHandle(handle, AS_GetMemory(asset));
+            platform.CloseFile(handle);
+
             LoadDDS(asset);
         }
         else
@@ -802,29 +755,28 @@ internal void AS_LoadAsset(AS_Asset *asset)
             desc.mSampler      = graphics::TextureDesc::DefaultSampler::Linear;
 
             device->CreateTexture(&asset->texture, desc, texData);
-            // device->SetName(&asset->texture, (const char *)asset->path.str);
+            device->SetName(&asset->texture, (const char *)asset->path.str);
 
-            if (bcFormat != graphics::Format::Null)
-            {
-                u32 blockSize = graphics::GetBlockSize(bcFormat);
-                graphics::TextureDesc bcDesc;
-                // TODO: align?
-                Assert((desc.mWidth & (blockSize - 1)) == 0);
-                Assert((desc.mHeight & (blockSize - 1)) == 0);
-                bcDesc.mWidth        = desc.mWidth;
-                bcDesc.mHeight       = desc.mHeight;
-                bcDesc.mFormat       = bcFormat;
-                bcDesc.mInitialUsage = graphics::ResourceUsage::TransferDst;
-                bcDesc.mFutureUsages = graphics::ResourceUsage::SampledImage;
-                // TODO: I'm pretty sure this is unused
-                bcDesc.mSampler = graphics::TextureDesc::DefaultSampler::Linear;
-
-                graphics::Texture uncompressed = asset->texture; // move?
-                device->CreateTexture(&asset->texture, bcDesc, 0);
-                device->SetName(&asset->texture, (const char *)asset->path.str);
-
-                render::DeferBlockCompress(uncompressed, &asset->texture);
-            }
+            // Creates the block compressed asset
+            // if (bcFormat != graphics::Format::Null)
+            // {
+            //     u32 blockSize = graphics::GetBlockSize(bcFormat);
+            //     graphics::TextureDesc bcDesc;
+            //     Assert((desc.mWidth & (blockSize - 1)) == 0);
+            //     Assert((desc.mHeight & (blockSize - 1)) == 0);
+            //     bcDesc.mWidth        = desc.mWidth;
+            //     bcDesc.mHeight       = desc.mHeight;
+            //     bcDesc.mFormat       = bcFormat;
+            //     bcDesc.mInitialUsage = graphics::ResourceUsage::TransferDst;
+            //     bcDesc.mFutureUsages = graphics::ResourceUsage::SampledImage;
+            //     bcDesc.mSampler      = graphics::TextureDesc::DefaultSampler::Linear;
+            //
+            //     graphics::Texture uncompressed = asset->texture; // move?
+            //     graphics::Texture compressed;
+            //     device->CreateTexture(&compressed, bcDesc, 0);
+            //
+            //     // render::DeferBlockCompress(uncompressed, compressed);
+            // }
 
             stbi_image_free(texData);
         }
@@ -853,48 +805,6 @@ internal void AS_LoadAsset(AS_Asset *asset)
 // DDS loading
 //
 
-// TODO: name expected to not have extension
-internal void WriteImageToDDS(graphics::Texture *input, string name)
-{
-    TempArena temp = ScratchStart(0, 0);
-    StringBuilder builder;
-    builder.arena = temp.arena;
-
-    // Write the header
-    DDSFile file = {};
-    file.magic   = MakeFourCC('D', 'D', 'S', ' ');
-
-    file.header.size              = GetTextureSize(input->mDesc);
-    file.header.width             = input->mDesc.mWidth;
-    file.header.height            = input->mDesc.mHeight;
-    file.header.mipMapCount       = input->mDesc.mNumMips;
-    file.header.depth             = input->mDesc.mDepth;
-    file.header.pitchOrLinearSize = 0; // unused
-    file.header.flags             = HeaderFlagBits_Caps | HeaderFlagBits_Width | HeaderFlagBits_Height | HeaderFlagBits_PixelFormat;
-
-    switch (input->mDesc.mFormat)
-    {
-        case Format::BC1_RGB_UNORM:
-        {
-            file.header.format.flags |= PixelFormatFlagBits_FourCC;
-            file.header.format.fourCC = MakeFourCC('D', 'X', 'T', '1');
-        }
-        break;
-        default: Assert(0);
-    }
-
-    PutPointerValue(&builder, &file);
-
-    // Write the file contents
-    for (auto &data : input->mappedData)
-    {
-        Put(&builder, data.mappedData, data.size);
-    }
-
-    WriteEntireFile(&builder, PushStr8F(temp.arena, "%S%S.dds", textureDirectory, RemoveFileExtension(name)));
-    ScratchEnd(temp);
-}
-
 internal void LoadDDS(AS_Asset *asset)
 {
     graphics::Format format = graphics::Format::Null;
@@ -922,9 +832,17 @@ internal void LoadDDS(AS_Asset *asset)
         {
             format = graphics::Format::BC1_RGB_UNORM;
         }
+        else
+        {
+            Assert(0);
+        }
+    }
+    else
+    {
+        Assert(0);
     }
 
-    void *data = memory + offset;
+    u8 *data = memory + offset;
 
     graphics::TextureDesc bcDesc;
     bcDesc.mWidth        = file->header.width;
@@ -933,6 +851,7 @@ internal void LoadDDS(AS_Asset *asset)
     bcDesc.mFormat       = format;
     bcDesc.mInitialUsage = graphics::ResourceUsage::SampledImage;
     device->CreateTexture(&asset->texture, bcDesc, data);
+    device->SetName(&asset->texture, (const char *)asset->path.str);
 }
 
 internal void AS_UnloadAsset(AS_Asset *asset)
@@ -1204,10 +1123,9 @@ internal AS_BTreeNode *AS_AddNode(AS_MemoryBlockNode *memNode)
 {
     AS_CacheState *as_state = engine->GetAssetCacheState();
     AS_BTree *tree          = &as_state->allocator.bTree;
-    // Assert(memNode->size < as_state->allocator.baseBlockSize);
-    AS_BTreeNode *newNode = 0;
+    AS_BTreeNode *newNode   = 0;
 
-    Assert(memNode->size < as_state->allocator.baseBlockSize);
+    // Assert(memNode->size < as_state->allocator.baseBlockSize);
 
     // If the root is null, allocate
     if (tree->root == 0)

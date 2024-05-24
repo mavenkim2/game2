@@ -4,10 +4,15 @@
 #include "../mkThreadContext.cpp"
 #include "../mkMemory.cpp"
 #include "../mkString.cpp"
-#include "../mkJobsystem.h"
+#include "../mkJobsystem.cpp"
+#include "../render/mkGraphicsVulkan.cpp"
+#include "../mkShaderCompiler.cpp"
 
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "../third_party/stb_truetype.h"
+
+#define STB_IMAGE_IMPLEMENTATION
+#include "third_party/stb_image.h"
 
 #define CGLTF_IMPLEMENTATION
 #include "../third_party/cgltf.h"
@@ -19,8 +24,70 @@ Engine *engine;
 //////////////////////////////
 // Globals
 //
-global i32 skeletonVersionNumber = 1;
-global i32 animationFileVersion  = 1;
+global i32 skeletonVersionNumber     = 1;
+global i32 animationFileVersion      = 1;
+global const string textureDirectory = "data/textures/";
+global const string ddsDirectory     = "data/textures/dds/";
+
+//////////////////////////////
+// DDS
+//
+using namespace graphics;
+
+struct ReadbackTexture
+{
+    Texture texture;
+    string name;
+};
+
+internal void WriteImageToDDS(Texture *input, string name)
+{
+    TempArena temp        = ScratchStart(0, 0);
+    StringBuilder builder = {};
+    builder.arena         = temp.arena;
+
+    // Write the header
+    DDSFile file = {};
+    file.magic   = MakeFourCC('D', 'D', 'S', ' ');
+
+    file.header.size              = sizeof(DDSHeader);
+    file.header.width             = input->mDesc.mWidth;
+    file.header.height            = input->mDesc.mHeight;
+    file.header.mipMapCount       = input->mDesc.mNumMips;
+    file.header.depth             = input->mDesc.mDepth;
+    file.header.pitchOrLinearSize = 0; // unused
+    file.header.flags             = HeaderFlagBits_Caps | HeaderFlagBits_Width | HeaderFlagBits_Height | HeaderFlagBits_PixelFormat;
+    file.header.caps              = DDSCaps_Texture;
+
+    switch (input->mDesc.mFormat)
+    {
+        case Format::BC1_RGB_UNORM:
+        {
+            file.header.format.flags |= PixelFormatFlagBits_FourCC;
+            file.header.format.fourCC = MakeFourCC('D', 'X', 'T', '1');
+            file.header.flags |= HeaderFlagBits_LinearSize;
+            file.header.pitchOrLinearSize = Max(1, ((file.header.width + 3) / 4) * 8);
+        }
+        break;
+        default: Assert(0);
+    }
+
+    PutPointerValue(&builder, &file);
+
+    // Write the file contents
+    // for (auto &data : input->mappedData)
+    // {
+    TextureMappedData *data = &input->mappedData;
+    Put(&builder, data->mappedData, data->size);
+    // }
+
+    string outpath = PushStr8F(temp.arena, "%S%S.dds", ddsDirectory, RemoveFileExtension(name));
+    if (!WriteEntireFile(&builder, outpath))
+    {
+        Printf("Could not print to location: %S\n", outpath);
+    }
+    ScratchEnd(temp);
+}
 
 //////////////////////////////
 // Optimization
@@ -508,6 +575,36 @@ int main(int argc, char *argv[])
     OS_Init();
     jobsystem::InitializeJobsystem();
 
+    // Initialize compute shaders
+    mkGraphicsVulkan device(ValidationMode::Verbose, GPUDevicePreference::Discrete);
+    Shader bc1;
+    bc1.mName = "blockcompress_cs.hlsl";
+    bc1.stage = ShaderStage::Compute;
+
+    PipelineState bc1Pipeline;
+    PipelineStateDesc desc;
+
+    TempArena scratch = ScratchStart(0, 0);
+
+    // Compile shaders
+    {
+        shadercompiler::InitShaderCompiler();
+        shadercompiler::CompileInput input;
+        input.shaderName = bc1.mName;
+        input.stage      = bc1.stage;
+
+        shadercompiler::CompileOutput output;
+
+        u64 pos = ArenaPos(scratch.arena);
+        shadercompiler::CompileShader(scratch.arena, &input, &output);
+        device.CreateShader(&bc1, output.shaderData);
+        ArenaPopTo(scratch.arena, pos);
+
+        desc         = {};
+        desc.compute = &bc1;
+        device.CreateComputePipeline(&desc, &bc1Pipeline, "Block compress");
+    }
+
     // JS_Init();
     // TODO: these are the steps
     // Load model using assimp, get the per vertex info, all of the animation data, etc.
@@ -515,7 +612,6 @@ int main(int argc, char *argv[])
     // could recursively go through every directory, loading all gltfs and writing them to the same
     // directory
 
-    TempArena scratch = ScratchStart(0, 0);
     // Max asset size
     Arena *arena = ArenaAlloc(megabytes(4));
     // JS_Counter counter = {};
@@ -554,9 +650,15 @@ int main(int argc, char *argv[])
                     LoadState state = LoadNodes(data);
 
                     // Get all of the materials
-                    jobsystem::KickJob(&counter, [data, folderName](jobsystem::JobArgs args) {
+                    // TODO: MULTITHREAD
+                    jobsystem::KickJob(&counter, [&, data, folderName](jobsystem::JobArgs args) {
                         TempArena temp           = ScratchStart(0, 0);
+                        CommandList cmd          = device.BeginCommandList(QueueType_Compute);
                         InputMaterial *materials = PushArray(temp.arena, InputMaterial, data->materials_count);
+
+                        ReadbackTexture *readbackTextures = PushArrayNoZero(temp.arena, ReadbackTexture, data->materials_count);
+                        u32 numReadbackTextures           = 0;
+                        Texture uav;
                         for (size_t i = 0; i < data->materials_count; i++)
                         {
                             InputMaterial &material      = materials[i];
@@ -598,6 +700,106 @@ int main(int argc, char *argv[])
                             }
 
                             FindUri(gltfMaterial.normal_texture, TextureType_Normal);
+
+                            if (material.texture[TextureType_Diffuse].size != 0)
+                            {
+                                string textureName = material.texture[TextureType_Diffuse];
+                                string textureData = platform.ReadEntireFile(temp.arena, PushStr8F(temp.arena, "data/textures/%S", textureName));
+                                i32 width, height, nComponents;
+                                void *texData =
+                                    stbi_load_from_memory(textureData.str, textureData.size, &width, &height, &nComponents, 4);
+
+                                Format format   = Format::R8G8B8A8_SRGB;
+                                Format bcFormat = Format::BC1_RGB_UNORM;
+
+                                // Source uncompressed tex
+                                Assert(IsPow2(width) && IsPow2(height));
+                                Texture src;
+                                {
+                                    TextureDesc srcDesc;
+                                    srcDesc.mWidth        = width;
+                                    srcDesc.mHeight       = height;
+                                    srcDesc.mFormat       = format;
+                                    srcDesc.mInitialUsage = ResourceUsage::SampledImage;
+                                    device.CreateTexture(&src, srcDesc, texData);
+                                    device.SetName(&src, "src");
+                                }
+
+                                // Destination uav
+                                u32 blockSize = GetBlockSize(bcFormat);
+                                {
+                                    TextureDesc dstDesc;
+                                    dstDesc.mWidth        = src.mDesc.mWidth / blockSize;
+                                    dstDesc.mHeight       = src.mDesc.mHeight / blockSize;
+                                    dstDesc.mFormat       = Format::R32G32_UINT;
+                                    dstDesc.mInitialUsage = ResourceUsage::StorageImage;
+                                    dstDesc.mFutureUsages = ResourceUsage::TransferSrc;
+
+                                    if (!uav.IsValid() || uav.mDesc.mWidth < dstDesc.mWidth || uav.mDesc.mHeight < dstDesc.mHeight)
+                                    {
+                                        TextureDesc bcDesc = dstDesc;
+                                        bcDesc.mWidth      = (u32)GetNextPowerOfTwo(dstDesc.mWidth);
+                                        bcDesc.mHeight     = (u32)GetNextPowerOfTwo(dstDesc.mHeight);
+
+                                        device.CreateTexture(&uav, bcDesc, 0);
+                                        device.SetName(&uav, "UAV");
+                                    }
+                                }
+
+                                // Readback texture
+                                Texture *readback                          = &readbackTextures[numReadbackTextures].texture;
+                                readbackTextures[numReadbackTextures].name = textureName;
+                                numReadbackTextures++;
+                                {
+                                    TextureDesc readBackDesc;
+                                    readBackDesc.mWidth  = width;
+                                    readBackDesc.mHeight = height;
+                                    readBackDesc.mFormat = bcFormat;
+                                    readBackDesc.mUsage  = MemoryUsage::GPU_TO_CPU;
+
+                                    device.CreateTexture(readback, readBackDesc, 0);
+                                    device.SetName(readback, "Readback");
+                                }
+
+                                // Output block compression to intermediate texture
+                                device.BindCompute(&bc1Pipeline, cmd);
+                                device.BindResource(&uav, ResourceType::UAV, 0, cmd);
+                                device.BindResource(&src, ResourceType::SRV, 0, cmd);
+
+                                device.UpdateDescriptorSet(cmd);
+                                device.Dispatch(cmd, (src.mDesc.mWidth + 7) / 8, (src.mDesc.mHeight + 7) / 8, 1);
+                                device.DeleteTexture(&src);
+
+                                // Copy from uav to output
+                                {
+                                    GPUBarrier barrier = GPUBarrier::Image(&uav, ResourceUsage::StorageImage, ResourceUsage::TransferSrc);
+                                    device.Barrier(cmd, &barrier, 1);
+                                }
+
+                                Rect3U32 rect;
+                                rect.minX = 0;
+                                rect.minY = 0;
+                                rect.minZ = 0;
+                                rect.maxP = {src.mDesc.mWidth / blockSize, src.mDesc.mHeight / blockSize, src.mDesc.mDepth};
+
+                                device.CopyTexture(cmd, readback, &uav, &rect);
+
+                                // Transfer the block compressed texture to its initial format
+                                {
+                                    GPUBarrier barrier = GPUBarrier::Image(&uav, ResourceUsage::TransferSrc, ResourceUsage::StorageImage);
+                                    device.Barrier(cmd, &barrier, 1);
+                                }
+                            }
+                        }
+
+                        device.SubmitCommandLists();
+
+                        // Write the DDS files
+                        for (size_t i = 0; i < numReadbackTextures; i++)
+                        {
+                            ReadbackTexture *readback = &readbackTextures[i];
+                            WriteImageToDDS(&readback->texture, readback->name);
+                            device.DeleteTexture(&readback->texture);
                         }
 
                         // Build material file
@@ -1204,28 +1406,6 @@ int main(int argc, char *argv[])
 
                             Put(&builder, boneChannel->numScalingKeys);
                             AppendArray(&builder, boneChannel->scales, boneChannel->numScalingKeys);
-
-                            // for (u32 i = 0; i < boneChannel->numPositionKeys; i++)
-                            // {
-                            //     if (boneChannel->positions[i].time != boneChannel->positions[i].time)
-                            //     {
-                            //         Assert(0);
-                            //     }
-                            // }
-                            // for (u32 i = 0; i < boneChannel->numScalingKeys; i++)
-                            // {
-                            //     if (boneChannel->scales[i].time != boneChannel->scales[i].time)
-                            //     {
-                            //         Assert(0);
-                            //     }
-                            // }
-                            // for (u32 i = 0; i < boneChannel->numRotationKeys; i++)
-                            // {
-                            //     if (boneChannel->rotations[i].time != boneChannel->rotations[i].time)
-                            //     {
-                            //         Assert(0);
-                            //     }
-                            // }
 
                             Put(&builder, boneChannel->numRotationKeys);
                             AppendArray(&builder, boneChannel->rotations, boneChannel->numRotationKeys);
