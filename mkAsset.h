@@ -528,7 +528,6 @@ enum DDSCaps
     DDSCaps_Texture = 0x1000, // required
 };
 
-#pragma pack(push, 1)
 struct PixelFormat
 {
     u32 size;
@@ -572,7 +571,6 @@ struct DDSFile
     u32 magic;
     DDSHeader header;
 };
-#pragma pack(pop)
 
 #define MakeFourCC(a, b, c, d) (((d) << 24) | ((c) << 16) | ((b) << 8) | ((a) << 0))
 

@@ -396,8 +396,17 @@ internal void AS_LoadAsset(AS_Asset *asset)
             b32 result = Advance(&materialTokenizer, "\tDiffuse: ");
             if (result)
             {
-                line                                    = ReadLine(&materialTokenizer);
-                component.textures[TextureType_Diffuse] = AS_GetAsset(StrConcat(temp.arena, textureDirectory, line));
+                line           = ReadLine(&materialTokenizer);
+                string ddsPath = PushStr8F(temp.arena, "%S%S.dds", ddsDirectory, PathSkipLastSlash(RemoveFileExtension(line)));
+
+                if (platform.FileExists(ddsPath))
+                {
+                    component.textures[TextureType_Diffuse] = AS_GetAsset(ddsPath);
+                }
+                else
+                {
+                    component.textures[TextureType_Diffuse] = AS_GetAsset(StrConcat(temp.arena, textureDirectory, line));
+                }
             }
             result = Advance(&materialTokenizer, "\tColor: ");
             if (result)
@@ -716,70 +725,55 @@ internal void AS_LoadAsset(AS_Asset *asset)
     {
         asset->type = AS_Texture;
 
-        string ddsPath = PushStr8F(temp.arena, "%S%S.dds", ddsDirectory, PathSkipLastSlash(RemoveFileExtension(asset->path)));
-        if (platform.FileExists(ddsPath))
+        graphics::Format format   = graphics::Format::R8G8B8A8_UNORM;
+        graphics::Format bcFormat = graphics::Format::Null;
+
+        if (FindSubstring(asset->path, Str8Lit("diffuse"), 0, MatchFlag_CaseInsensitive) != asset->path.size ||
+            FindSubstring(asset->path, Str8Lit("basecolor"), 0, MatchFlag_CaseInsensitive) != asset->path.size)
         {
-            AS_Free(asset);
-
-            OS_Handle handle             = platform.OpenFile(OS_AccessFlag_Read | OS_AccessFlag_ShareRead, ddsPath);
-            OS_FileAttributes attributes = platform.AttributesFromFile(handle);
-            asset->memoryBlock           = AS_Alloc((i32)attributes.size);
-            asset->size                  = platform.ReadFileHandle(handle, AS_GetMemory(asset));
-            platform.CloseFile(handle);
-
-            LoadDDS(asset);
+            format   = graphics::Format::R8G8B8A8_SRGB;
+            bcFormat = graphics::Format::BC1_RGB_UNORM;
         }
-        else
-        {
-            graphics::Format format   = graphics::Format::R8G8B8A8_UNORM;
-            graphics::Format bcFormat = graphics::Format::Null;
+        i32 width, height, nComponents;
+        void *texData =
+            stbi_load_from_memory(AS_GetMemory(asset), (i32)asset->size, &width, &height, &nComponents, 4);
 
-            if (FindSubstring(asset->path, Str8Lit("diffuse"), 0, MatchFlag_CaseInsensitive) != asset->path.size ||
-                FindSubstring(asset->path, Str8Lit("basecolor"), 0, MatchFlag_CaseInsensitive) != asset->path.size)
-            {
-                format   = graphics::Format::R8G8B8A8_SRGB;
-                bcFormat = graphics::Format::BC1_RGB_UNORM;
-            }
-            i32 width, height, nComponents;
-            void *texData =
-                stbi_load_from_memory(AS_GetMemory(asset), (i32)asset->size, &width, &height, &nComponents, 4);
+        Assert(nComponents >= 1);
 
-            Assert(nComponents >= 1);
+        graphics::TextureDesc desc;
+        desc.mWidth        = width;
+        desc.mHeight       = height;
+        desc.mFormat       = format;
+        desc.mInitialUsage = graphics::ResourceUsage::SampledImage;
+        desc.mTextureType  = graphics::TextureDesc::TextureType::Texture2D;
+        desc.mSampler      = graphics::TextureDesc::DefaultSampler::Linear;
 
-            graphics::TextureDesc desc;
-            desc.mWidth        = width;
-            desc.mHeight       = height;
-            desc.mFormat       = format;
-            desc.mInitialUsage = graphics::ResourceUsage::SampledImage;
-            desc.mTextureType  = graphics::TextureDesc::TextureType::Texture2D;
-            desc.mSampler      = graphics::TextureDesc::DefaultSampler::Linear;
+        // TODO: the data isn't being sent to the graphics card appropriately from the dds file :(
+        device->CreateTexture(&asset->texture, desc, texData);
+        device->SetName(&asset->texture, (const char *)asset->path.str);
 
-            device->CreateTexture(&asset->texture, desc, texData);
-            device->SetName(&asset->texture, (const char *)asset->path.str);
+        // Creates the block compressed asset
+        // if (bcFormat != graphics::Format::Null)
+        // {
+        //     u32 blockSize = graphics::GetBlockSize(bcFormat);
+        //     graphics::TextureDesc bcDesc;
+        //     Assert((desc.mWidth & (blockSize - 1)) == 0);
+        //     Assert((desc.mHeight & (blockSize - 1)) == 0);
+        //     bcDesc.mWidth        = desc.mWidth;
+        //     bcDesc.mHeight       = desc.mHeight;
+        //     bcDesc.mFormat       = bcFormat;
+        //     bcDesc.mInitialUsage = graphics::ResourceUsage::TransferDst;
+        //     bcDesc.mFutureUsages = graphics::ResourceUsage::SampledImage;
+        //     bcDesc.mSampler      = graphics::TextureDesc::DefaultSampler::Linear;
+        //
+        //     graphics::Texture uncompressed = asset->texture; // move?
+        //     graphics::Texture compressed;
+        //     device->CreateTexture(&compressed, bcDesc, 0);
+        //
+        //     // render::DeferBlockCompress(uncompressed, compressed);
+        // }
 
-            // Creates the block compressed asset
-            // if (bcFormat != graphics::Format::Null)
-            // {
-            //     u32 blockSize = graphics::GetBlockSize(bcFormat);
-            //     graphics::TextureDesc bcDesc;
-            //     Assert((desc.mWidth & (blockSize - 1)) == 0);
-            //     Assert((desc.mHeight & (blockSize - 1)) == 0);
-            //     bcDesc.mWidth        = desc.mWidth;
-            //     bcDesc.mHeight       = desc.mHeight;
-            //     bcDesc.mFormat       = bcFormat;
-            //     bcDesc.mInitialUsage = graphics::ResourceUsage::TransferDst;
-            //     bcDesc.mFutureUsages = graphics::ResourceUsage::SampledImage;
-            //     bcDesc.mSampler      = graphics::TextureDesc::DefaultSampler::Linear;
-            //
-            //     graphics::Texture uncompressed = asset->texture; // move?
-            //     graphics::Texture compressed;
-            //     device->CreateTexture(&compressed, bcDesc, 0);
-            //
-            //     // render::DeferBlockCompress(uncompressed, compressed);
-            // }
-
-            stbi_image_free(texData);
-        }
+        stbi_image_free(texData);
     }
     else if (extension == Str8Lit("dds"))
     {
@@ -823,7 +817,7 @@ internal void LoadDDS(AS_Asset *asset)
     Assert(!usesDXT10Header);
     Assert(file->header.mipMapCount == 1);
 
-    u32 offset = sizeof(DDSFile) + usesDXT10Header ? sizeof(DDSHeaderDXT10) : 0;
+    u64 offset = sizeof(DDSFile) + (usesDXT10Header ? sizeof(DDSHeaderDXT10) : 0);
 
     // Find the format
     if (file->header.format.flags & PixelFormatFlagBits_FourCC)

@@ -75,11 +75,8 @@ internal void WriteImageToDDS(Texture *input, string name)
     PutPointerValue(&builder, &file);
 
     // Write the file contents
-    // for (auto &data : input->mappedData)
-    // {
     TextureMappedData *data = &input->mappedData;
     Put(&builder, data->mappedData, data->size);
-    // }
 
     string outpath = PushStr8F(temp.arena, "%S%S.dds", ddsDirectory, RemoveFileExtension(name));
     if (!WriteEntireFile(&builder, outpath))

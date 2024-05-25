@@ -2019,7 +2019,7 @@ void mkGraphicsVulkan::CreateTexture(Texture *outTexture, TextureDesc desc, void
 
         TextureMappedData data;
         data.mappedData = texVulk->mAllocation->GetMappedData();
-        data.size       = size;
+        data.size       = (u32)texVulk->mAllocation->GetSize();
 
         outTexture->mappedData = data; //.push_back(data);
     }
@@ -2038,6 +2038,22 @@ void mkGraphicsVulkan::CreateTexture(Texture *outTexture, TextureDesc desc, void
         cmd              = Stage(texSize);
         mappedData       = cmd.ringAllocation->mappedData;
 
+#if 0
+        u32 numBlocks       = GetBlockSize(desc.mFormat);
+        u32 numBlocksWidth  = Max(1, imageInfo.extent.width / numBlocks);
+        u32 numBlocksHeight = Max(1, imageInfo.extent.height / numBlocks);
+
+        u32 dstRowPitch = GetFormatSize(desc.mFormat) * numBlocksWidth;
+        u32 srcRowPitch = GetFormatSize(desc.mFormat) * numBlocksWidth;
+
+        u8 *dest = (u8 *)mappedData;
+        u8 *src  = (u8 *)inData;
+
+        for (u32 h = 0; h < numBlocksHeight; h++)
+        {
+            MemoryCopy(dest + h * dstRowPitch, src + h * srcRowPitch, dstRowPitch);
+        }
+#endif
         MemoryCopy(mappedData, inData, texSize);
 
         if (cmd.IsValid())
