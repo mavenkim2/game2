@@ -11,10 +11,9 @@ void main(uint3 DTid : SV_DispatchThreadID)
     uint length;
     Buffer<float4> posBuffer = bindlessBuffersFloat4[push.vertexPos];
     posBuffer.GetDimensions(length);
-    length /= sizeof(float4);
     
     [branch]
-    if (vertexID >= length)
+    if (vertexID >= length) // TODO: is this necessary?
     {
         return;
     }
@@ -42,6 +41,6 @@ void main(uint3 DTid : SV_DispatchThreadID)
     tan = normalize(mul((float3x3)boneTransform, tan));
 
     outPos.Store<float3>(vertexID * sizeof(float3), pos);
-    outPos.Store<float3>(vertexID * sizeof(float3), nor);
-    outPos.Store<float3>(vertexID * sizeof(float3), tan);
+    outNor.Store<float3>(vertexID * sizeof(float3), nor);
+    outTan.Store<float3>(vertexID * sizeof(float3), tan);
 }
