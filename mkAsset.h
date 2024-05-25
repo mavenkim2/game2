@@ -32,17 +32,6 @@ enum
     MeshFlags_Uvs     = 1 << 1,
 };
 
-#if 0
-struct Texture
-{
-    R_Handle handle;
-    i32 width;
-    i32 height;
-    TextureType type;
-    b32 loaded;
-};
-#endif
-
 struct Heightmap
 {
     VC_Handle vertexHandle;
@@ -191,55 +180,8 @@ struct AnimationPlayer
     b8 loaded;
 };
 
-// struct Material
-// {
-//     AS_Handle textureHandles[TextureType_Count];
-// };
-#if 0
-struct Material
-{
-    string name;
-    AS_Handle textureHandles[TextureType_Count];
-
-    f32 metallicFactor  = 0.f;
-    f32 roughnessFactor = 1.f;
-    V4 baseColor        = {1, 1, 1, 1};
-};
-#endif
-
-// TODO: choose one please maven kim
-// 1. separate different types of asset allocation. static cpu memory, static gpu memory, dynamic cpu memory
-//      a. temporary ring buffer for data destined to the gpu. once the gpu is done, delete
-//      b. make things simpler by having a single thread entry point that reads files from disk. it then dispatches
-//      to other systems to do something with the data
-// 2. entities. loop over entities, add to render ring buffer render state (add frustum culling later),
-//      a. for now only one thread will be reading and writing to this ring buffer, so only need memory ordering
-//
-//
-//
-//
-// 3. have the asset cache just be loading files n stuff and allocating. based on the file it then dispatches to a
-// separate entry point to load a texture / model / skeleton / animation. the as cache will also load dependencies
-// as necessary
-// 4. need to actually differentiate hotloading / deleting an asset
-
-// struct TriangleSurface
-// {
-//     // VC_Handle vertexBuffer;
-//     // VC_Handle indexBuffer;
-//     graphics::GPUBuffer mVertexBuffer;
-//     graphics::GPUBuffer mIndexBuffer;
-//
-//     MeshVertex *vertices;
-//     u32 *indices;
-//     Rect3 bounds;
-//     u32 vertexCount;
-//     u32 indexCount;
-// };
-
 struct Mesh
 {
-    // TriangleSurface surface;
     V3 *positions;
     V3 *normals;
     V3 *tangents;
@@ -264,12 +206,15 @@ struct Mesh
     u32 indexCount;
 
     graphics::GPUBuffer buffer;
+    graphics::GPUBuffer streamBuffer; // for skinning
     struct BufferView
     {
-        u64 offset                = ~0ull;
-        u64 size                  = 0ull;
-        i32 subresourceIndex      = -1;
-        i32 subresourceDescriptor = -1;
+        u64 offset        = ~0ull;
+        u64 size          = 0ull;
+        i32 srvIndex      = -1;
+        i32 srvDescriptor = -1;
+        i32 uavIndex      = -1;
+        i32 uavDescriptor = -1;
 
         b32 IsValid()
         {
@@ -283,6 +228,9 @@ struct Mesh
     BufferView vertexUvView;
     BufferView vertexBoneIdView;
     BufferView vertexBoneWeightView;
+    BufferView soPosView;
+    BufferView soNorView;
+    BufferView soTanView;
 };
 
 // TODO: split the model into submeshes, which each have a single surface with bounds

@@ -690,15 +690,16 @@ mkGraphicsVulkan::mkGraphicsVulkan(ValidationMode validationMode, GPUDevicePrefe
             switch (type)
             {
                 case DescriptorType_SampledImage: descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE; break;
-                case DescriptorType_StorageBuffer: descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; break;
                 case DescriptorType_UniformTexel: descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER; break;
+                case DescriptorType_StorageBuffer: descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER; break;
+                case DescriptorType_StorageTexelBuffer: descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER; break;
                 default: Assert(0);
             }
 
             BindlessDescriptorPool &bindlessDescriptorPool = bindlessDescriptorPools[type];
             VkDescriptorPoolSize poolSize                  = {};
             poolSize.type                                  = descriptorType;
-            if (type == DescriptorType_StorageBuffer)
+            if (type == DescriptorType_StorageBuffer || type == DescriptorType_StorageTexelBuffer)
             {
                 poolSize.descriptorCount = Min(10000, mDeviceProperties.properties.limits.maxDescriptorSetStorageBuffers / 4);
             }
@@ -732,7 +733,6 @@ mkGraphicsVulkan::mkGraphicsVulkan(ValidationMode validationMode, GPUDevicePrefe
             VkDescriptorBindingFlags bindingFlags =
                 VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_UNUSED_WHILE_PENDING_BIT |
                 VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT;
-            // this flag just ruined my life I guess? | VK_DESCRIPTOR_BINDING_VARIABLE_DESCRIPTOR_COUNT_BIT;
             VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsCreate = {};
             bindingFlagsCreate.sType                                       = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO;
             bindingFlagsCreate.bindingCount                                = 1;
@@ -771,6 +771,7 @@ mkGraphicsVulkan::mkGraphicsVulkan(ValidationMode validationMode, GPUDevicePrefe
                 case DescriptorType_SampledImage: typeName = "Sampled Image"; break;
                 case DescriptorType_StorageBuffer: typeName = "Storage Buffer"; break;
                 case DescriptorType_UniformTexel: typeName = "Uniform Texel Buffer"; break;
+                case DescriptorType_StorageTexelBuffer: typeName = "Storage Texel Buffer"; break;
             }
             string name = PushStr8F(temp.arena, "Bindless Descriptor Set Layout: %S", typeName);
             SetName(bindlessDescriptorPool.layout, (const char *)name.str);
@@ -786,7 +787,7 @@ mkGraphicsVulkan::mkGraphicsVulkan(ValidationMode validationMode, GPUDevicePrefe
         GPUBufferDesc desc;
         desc.mUsage         = MemoryUsage::CPU_TO_GPU;
         desc.mSize          = megabytes(32);
-        desc.mResourceUsage = ResourceUsage::VertexBuffer | ResourceUsage::IndexBuffer | ResourceUsage::UniformBuffer;
+        desc.mResourceUsage = ResourceUsage::NotBindless; // | ResourceUsage::VertexBuffer | ResourceUsage::IndexBuffer | ResourceUsage::UniformBuffer |
         for (u32 i = 0; i < cNumBuffers; i++)
         {
             CreateBuffer(&mFrameAllocator[i].mBuffer, desc, 0);
@@ -1658,12 +1659,7 @@ void mkGraphicsVulkan::CreateComputePipeline(PipelineStateDesc *inDesc, Pipeline
         pipelineLayoutInfo.pPushConstantRanges    = &shaderVulkan->pushConstantRange;
     }
 
-    VkPushConstantRange &range = ps->mPushConstantRange;
-    if (range.size > 0)
-    {
-        pipelineLayoutInfo.pushConstantRangeCount = 1;
-        pipelineLayoutInfo.pPushConstantRanges    = &range;
-    }
+    ps->mPushConstantRange = shaderVulkan->pushConstantRange;
 
     res = vkCreatePipelineLayout(mDevice, &pipelineLayoutInfo, 0, &ps->mPipelineLayout);
     Assert(res == VK_SUCCESS);
@@ -1767,11 +1763,11 @@ u64 mkGraphicsVulkan::GetMinAlignment(GPUBufferDesc *inDesc)
     {
         alignment = Max(alignment, mDeviceProperties.properties.limits.minUniformBufferOffsetAlignment);
     }
-    if (HasFlags(inDesc->mResourceUsage, ResourceUsage::UniformTexelBuffer))
+    if (HasFlags(inDesc->mResourceUsage, ResourceUsage::UniformTexelBuffer) || HasFlags(inDesc->mResourceUsage, ResourceUsage::StorageTexelBuffer))
     {
         alignment = Max(alignment, mDeviceProperties.properties.limits.minTexelBufferOffsetAlignment);
     }
-    if (HasFlags(inDesc->mResourceUsage, ResourceUsage::StorageBuffer))
+    if (HasFlags(inDesc->mResourceUsage, ResourceUsage::StorageBuffer) || HasFlags(inDesc->mResourceUsage, ResourceUsage::StorageTexelBuffer))
     {
         alignment = Max(alignment, mDeviceProperties.properties.limits.minStorageBufferOffsetAlignment);
     }
@@ -1796,8 +1792,8 @@ void mkGraphicsVulkan::CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDes
         }
     }
 
-    buffer->subresource.descriptorIndex = -1;
-
+    buffer->subresourceSrv  = -1;
+    buffer->subresourceUav  = -1;
     inBuffer->internalState = buffer;
     inBuffer->mDesc         = inDesc;
     inBuffer->mMappedData   = 0;
@@ -1818,6 +1814,7 @@ void mkGraphicsVulkan::CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDes
     if (HasFlags(inDesc.mResourceUsage, ResourceUsage::UniformBuffer))
     {
         createInfo.usage |= VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+        createInfo.usage |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
     }
     if (HasFlags(inDesc.mResourceUsage, ResourceUsage::UniformTexelBuffer))
     {
@@ -1826,6 +1823,10 @@ void mkGraphicsVulkan::CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDes
     if (HasFlags(inDesc.mResourceUsage, ResourceUsage::StorageBuffer))
     {
         createInfo.usage |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+    }
+    if (HasFlags(inDesc.mResourceUsage, ResourceUsage::StorageTexelBuffer))
+    {
+        createInfo.usage |= VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT;
     }
 
     // Sharing
@@ -1900,9 +1901,33 @@ void mkGraphicsVulkan::CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDes
         }
     }
 
-    if (HasFlags(inDesc.mResourceUsage, ResourceUsage::StorageBuffer) || HasFlags(inDesc.mResourceUsage, ResourceUsage::UniformBuffer) || HasFlags(inDesc.mResourceUsage, ResourceUsage::UniformTexelBuffer))
+    // resource bound using traditional binding method
+    if (HasFlags(inDesc.mResourceUsage, ResourceUsage::NotBindless))
     {
-        CreateSubresource(inBuffer, ResourceType::SRV);
+        GPUBufferVulkan::Subresource subresource;
+        subresource.info.buffer = buffer->mBuffer;
+        subresource.info.offset = 0;
+        subresource.info.range  = VK_WHOLE_SIZE;
+        buffer->subresources.push_back(subresource);
+
+        Assert(!HasFlags(inDesc.mResourceUsage, ResourceUsage::UniformTexelBuffer));
+        Assert(!HasFlags(inDesc.mResourceUsage, ResourceUsage::StorageBuffer));
+
+        buffer->subresourceSrv = 0;
+    }
+    else if (!HasFlags(inDesc.mResourceUsage, ResourceUsage::MegaBuffer))
+    {
+        i32 subresourceIndex = -1;
+        if (HasFlags(inDesc.mResourceUsage, ResourceUsage::StorageTexelBuffer) || HasFlags(inDesc.mResourceUsage, ResourceUsage::StorageBuffer))
+        {
+            subresourceIndex       = CreateSubresource(inBuffer, ResourceType::UAV);
+            buffer->subresourceUav = subresourceIndex;
+        }
+        if (HasFlags(inDesc.mResourceUsage, ResourceUsage::UniformTexelBuffer) || HasFlags(inDesc.mResourceUsage, ResourceUsage::UniformBuffer))
+        {
+            subresourceIndex       = CreateSubresource(inBuffer, ResourceType::SRV);
+            buffer->subresourceSrv = subresourceIndex;
+        }
     }
 }
 
@@ -2251,7 +2276,7 @@ void mkGraphicsVulkan::CreateSampler(Sampler *sampler, SamplerDesc desc)
     Assert(res == VK_SUCCESS);
 }
 
-void mkGraphicsVulkan::BindResource(GPUResource *resource, ResourceType type, u32 slot, CommandList cmd)
+void mkGraphicsVulkan::BindResource(GPUResource *resource, ResourceType type, u32 slot, CommandList cmd, i32 subresource)
 {
     CommandListVulkan *command = ToInternal(cmd);
     Assert(command);
@@ -2259,182 +2284,146 @@ void mkGraphicsVulkan::BindResource(GPUResource *resource, ResourceType type, u3
 
     if (resource)
     {
+        BindedResource *bindedResource = 0;
         switch (type)
         {
-            case ResourceType::SRV:
-            {
-                if (command->srvTable[slot] == 0 || command->srvTable[slot]->internalState != resource->internalState)
-                {
-                    command->srvTable[slot] = resource;
+            case ResourceType::SRV: bindedResource = &command->srvTable[slot]; break;
+            case ResourceType::UAV: bindedResource = &command->uavTable[slot]; break;
+            default: Assert(0);
+        }
 
-                    // for (u32 i = 0; i < cNumBuffers; i++)
-                    // {
-                    //     command->mIsDirty[i][QueueType_Graphics] = true;
-                    // }
+        if (bindedResource->resource == 0 || bindedResource->resource != resource || bindedResource->subresourceIndex != subresource)
+        {
+            bindedResource->resource         = resource;
+            bindedResource->subresourceIndex = subresource;
+        }
+    }
+}
+
+i32 mkGraphicsVulkan::GetDescriptorIndex(GPUResource *resource, ResourceType type, i32 subresourceIndex)
+{
+    i32 descriptorIndex = -1;
+    if (resource)
+    {
+        switch (resource->mResourceType)
+        {
+            case GPUResource::ResourceType::Buffer:
+            {
+                GPUBufferVulkan *buffer = ToInternal((GPUBuffer *)resource);
+                if (subresourceIndex != -1)
+                {
+                    descriptorIndex = buffer->subresources[subresourceIndex].descriptorIndex;
+                }
+                else
+                {
+                    switch (type)
+                    {
+                        case ResourceType::SRV:
+                        {
+                            Assert(buffer->subresourceSrv != -1);
+                            descriptorIndex = buffer->subresources[buffer->subresourceSrv].descriptorIndex;
+                        }
+                        break;
+                        case ResourceType::UAV:
+                        {
+                            Assert(buffer->subresourceUav != -1);
+                            descriptorIndex = buffer->subresources[buffer->subresourceUav].descriptorIndex;
+                        }
+                        break;
+                    }
                 }
             }
             break;
-            case ResourceType::UAV:
+            case GPUResource::ResourceType::Image:
             {
-                if (command->uavTable[slot] == 0 || command->uavTable[slot]->internalState != resource->internalState)
+                TextureVulkan *texture = ToInternal((Texture *)resource);
+                // TODO
+                Assert(type == ResourceType::SRV);
+                if (subresourceIndex != -1)
                 {
-                    command->uavTable[slot] = resource;
+                    descriptorIndex = texture->mSubresources[subresourceIndex].descriptorIndex;
+                }
+                else
+                {
+                    descriptorIndex = texture->mSubresource.descriptorIndex;
                 }
             }
             break;
             default: Assert(0);
         }
     }
-}
-
-i32 mkGraphicsVulkan::GetDescriptorIndex(GPUBuffer *resource, i32 subresourceIndex)
-{
-    i32 descriptorIndex = -1;
-    if (resource)
-    {
-        GPUBufferVulkan *buffer = ToInternal((GPUBuffer *)resource);
-        if (subresourceIndex == -1)
-        {
-            descriptorIndex = buffer->subresource.descriptorIndex;
-        }
-        else
-        {
-            descriptorIndex = buffer->subresources[subresourceIndex].descriptorIndex;
-        }
-    }
     return descriptorIndex;
 }
 
-i32 mkGraphicsVulkan::GetDescriptorIndex(Texture *resource, i32 subresourceIndex)
-{
-    i32 descriptorIndex = -1;
-    if (resource)
-    {
-        TextureVulkan *texture = ToInternal((Texture *)resource);
-        if (subresourceIndex == -1)
-        {
-            descriptorIndex = texture->mSubresource.descriptorIndex;
-        }
-        else
-        {
-            descriptorIndex = texture->mSubresources[subresourceIndex].descriptorIndex;
-        }
-    }
-    return descriptorIndex;
-}
-
+// Only used to create bindless subresources
 i32 mkGraphicsVulkan::CreateSubresource(GPUBuffer *buffer, ResourceType type, u64 offset, u64 size, Format format)
 {
     i32 subresourceIndex     = -1;
     GPUBufferVulkan *bufVulk = ToInternal(buffer);
 
-    Assert(type == ResourceType::SRV);
-
-    GPUBufferVulkan::Subresource subresource;
-
-    // Storage buffer
-    if (format == Format::Null)
+    DescriptorType descriptorType;
+    VkDescriptorType vkDescriptorType;
+    if (format == Format::Null && (type == ResourceType::SRV || type == ResourceType::UAV))
     {
-        if (HasFlags(buffer->mDesc.mResourceUsage, ResourceUsage::StorageBuffer))
-        {
-            BindlessDescriptorPool &pool   = bindlessDescriptorPools[DescriptorType_StorageBuffer];
-            i32 subresourceDescriptorIndex = pool.Allocate();
-
-            VkWriteDescriptorSet write = {};
-            write.sType                = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write.dstSet               = pool.set;
-            write.dstBinding           = 0;
-            write.descriptorCount      = 1;
-            write.dstArrayElement      = subresourceDescriptorIndex;
-            write.descriptorType       = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-            write.pTexelBufferView     = 0;
-
-            subresource.info.buffer = bufVulk->mBuffer;
-            subresource.info.offset = offset;
-            subresource.info.range  = size;
-
-            write.pBufferInfo = &subresource.info;
-
-            vkUpdateDescriptorSets(mDevice, 1, &write, 0, 0);
-
-            if (!bufVulk->subresource.IsValid())
-            {
-                subresource.descriptorIndex = subresourceDescriptorIndex;
-                bufVulk->subresource        = subresource;
-            }
-            else
-            {
-                subresource.descriptorIndex = subresourceDescriptorIndex;
-                bufVulk->subresources.push_back(subresource);
-                i32 numSubresources = (i32)bufVulk->subresources.size();
-                subresourceIndex    = numSubresources - 1;
-            }
-        }
-        else if (HasFlags(buffer->mDesc.mResourceUsage, ResourceUsage::UniformBuffer) || HasFlags(buffer->mDesc.mResourceUsage, ResourceUsage::UniformTexelBuffer))
-        {
-            subresource.info.buffer = bufVulk->mBuffer;
-            subresource.info.offset = offset;
-            subresource.info.range  = size;
-
-            bufVulk->subresource = subresource;
-        }
-        else
-        {
-            Assert(0);
-        }
+        descriptorType   = DescriptorType_StorageBuffer;
+        vkDescriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    }
+    else if (format != Format::Null && type == ResourceType::SRV)
+    {
+        descriptorType   = DescriptorType_UniformTexel;
+        vkDescriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
+    }
+    else if (format != Format::Null && type == ResourceType::UAV)
+    {
+        descriptorType   = DescriptorType_StorageTexelBuffer;
+        vkDescriptorType = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
     }
     else
     {
-        if (HasFlags(buffer->mDesc.mResourceUsage, ResourceUsage::UniformTexelBuffer))
-        {
-            BindlessDescriptorPool &pool   = bindlessDescriptorPools[DescriptorType_UniformTexel];
-            i32 subresourceDescriptorIndex = pool.Allocate();
-
-            VkBufferViewCreateInfo createView = {};
-            createView.sType                  = VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO;
-            createView.buffer                 = bufVulk->mBuffer;
-            createView.format                 = ConvertFormat(format);
-            createView.offset                 = offset;
-            createView.range                  = size;
-
-            VkResult res = vkCreateBufferView(mDevice, &createView, 0, &subresource.view);
-            Assert(res == VK_SUCCESS);
-
-            VkWriteDescriptorSet write = {};
-            write.sType                = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write.dstSet               = pool.set;
-            write.dstBinding           = 0;
-            write.descriptorCount      = 1;
-            write.dstArrayElement      = subresourceDescriptorIndex;
-            write.descriptorType       = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
-            write.pTexelBufferView     = &subresource.view;
-
-            subresource.info.buffer = bufVulk->mBuffer;
-            subresource.info.offset = offset;
-            subresource.info.range  = size;
-
-            write.pBufferInfo = &subresource.info;
-
-            vkUpdateDescriptorSets(mDevice, 1, &write, 0, 0);
-
-            if (!bufVulk->subresource.IsValid())
-            {
-                subresource.descriptorIndex = subresourceDescriptorIndex;
-                bufVulk->subresource        = subresource;
-            }
-            else
-            {
-                subresource.descriptorIndex = subresourceDescriptorIndex;
-                bufVulk->subresources.push_back(subresource);
-                i32 numSubresources = (i32)bufVulk->subresources.size();
-                subresourceIndex    = numSubresources - 1;
-            }
-        }
-        else
-        {
-            Assert(0);
-        }
+        Assert(0);
     }
+
+    GPUBufferVulkan::Subresource subresource;
+    if (format != Format::Null)
+    {
+        VkBufferViewCreateInfo createView = {};
+        createView.sType                  = VK_STRUCTURE_TYPE_BUFFER_VIEW_CREATE_INFO;
+        createView.buffer                 = bufVulk->mBuffer;
+        createView.format                 = ConvertFormat(format);
+        createView.offset                 = offset;
+        createView.range                  = size;
+
+        VkResult res = vkCreateBufferView(mDevice, &createView, 0, &subresource.view);
+        Assert(res == VK_SUCCESS);
+    }
+
+    BindlessDescriptorPool &pool   = bindlessDescriptorPools[descriptorType];
+    i32 subresourceDescriptorIndex = pool.Allocate();
+
+    VkWriteDescriptorSet write = {};
+    write.sType                = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    write.dstSet               = pool.set;
+    write.dstBinding           = 0;
+    write.descriptorCount      = 1;
+    write.dstArrayElement      = subresourceDescriptorIndex;
+    write.descriptorType       = vkDescriptorType;
+
+    subresource.info.buffer = bufVulk->mBuffer;
+    subresource.info.offset = offset;
+    subresource.info.range  = size;
+    write.pBufferInfo       = &subresource.info;
+
+    if (format != Format::Null)
+    {
+        write.pTexelBufferView = &subresource.view;
+    }
+
+    vkUpdateDescriptorSets(mDevice, 1, &write, 0, 0);
+
+    subresource.descriptorIndex = subresourceDescriptorIndex;
+    bufVulk->subresources.push_back(subresource);
+    i32 numSubresources = (i32)bufVulk->subresources.size();
+    subresourceIndex    = numSubresources - 1;
     return subresourceIndex;
 }
 
@@ -2595,10 +2584,11 @@ void mkGraphicsVulkan::UpdateDescriptorSet(CommandList cmd)
                 {
                     u32 mappedBinding = layoutBinding.binding;
                     Assert(mappedBinding < cMaxBindings);
-                    GPUResource *resource = command->srvTable[mappedBinding];
+                    BindedResource *bindedResource = &command->srvTable[mappedBinding];
+                    GPUResource *resource          = bindedResource->resource;
 
                     bufferInfos.emplace_back();
-                    if (!resource || !resource->IsValid() || !resource->IsBuffer())
+                    if (!bindedResource->IsValid() || !resource->IsBuffer())
                     {
                         VkDescriptorBufferInfo &info = bufferInfos.back();
                         info.buffer                  = mNullBuffer;
@@ -2608,7 +2598,9 @@ void mkGraphicsVulkan::UpdateDescriptorSet(CommandList cmd)
                     else
                     {
                         GPUBufferVulkan *bufferVulkan = ToInternal((GPUBuffer *)resource);
-                        bufferInfos.back()            = bufferVulkan->subresource.info;
+                        i32 subresourceIndex          = bindedResource->subresourceIndex == -1 ? bufferVulkan->subresourceSrv : bindedResource->subresourceIndex;
+                        Assert(subresourceIndex != -1);
+                        bufferInfos.back() = bufferVulkan->subresources[subresourceIndex].info;
                     }
 
                     descriptorWrite.pBufferInfo = &bufferInfos.back();
@@ -2618,10 +2610,12 @@ void mkGraphicsVulkan::UpdateDescriptorSet(CommandList cmd)
                 {
                     u32 mappedBinding = layoutBinding.binding - VK_BINDING_SHIFT_T;
                     Assert(mappedBinding < cMaxBindings);
-                    GPUResource *resource = command->srvTable[layoutBinding.binding - VK_BINDING_SHIFT_T];
+
+                    BindedResource *bindedResource = &command->srvTable[layoutBinding.binding - VK_BINDING_SHIFT_T];
+                    GPUResource *resource          = bindedResource->resource;
 
                     VkImageView view;
-                    if (!resource || !resource->IsValid() || !resource->IsTexture())
+                    if (!bindedResource->IsValid() || !resource->IsTexture())
                     {
                         view = mNullImageView2D;
                     }
@@ -2644,9 +2638,10 @@ void mkGraphicsVulkan::UpdateDescriptorSet(CommandList cmd)
                     u32 mappedBinding = layoutBinding.binding - VK_BINDING_SHIFT_U;
                     Assert(mappedBinding < cMaxBindings);
 
-                    GPUResource *resource = command->uavTable[layoutBinding.binding - VK_BINDING_SHIFT_U];
+                    BindedResource *bindedResource = &command->uavTable[layoutBinding.binding - VK_BINDING_SHIFT_U];
+                    GPUResource *resource          = bindedResource->resource;
                     VkImageView view;
-                    if (!resource || !resource->IsValid() || !resource->IsTexture())
+                    if (!bindedResource->IsValid() || !resource->IsTexture())
                     {
                         view = mNullImageView2D;
                     }
@@ -2685,7 +2680,7 @@ void mkGraphicsVulkan::FrameAllocate(GPUBuffer *inBuf, void *inData, CommandList
 
     GPUBufferVulkan *bufVulk = ToInternal(inBuf);
     // Is power of 2
-    Assert((currentFrameData->mAlignment & (currentFrameData->mAlignment - 1)) == 0);
+    Assert(IsPow2(currentFrameData->mAlignment));
 
     u64 size        = Min(inSize, inBuf->mDesc.mSize);
     u64 alignedSize = AlignPow2(size, (u64)currentFrameData->mAlignment);
@@ -2998,12 +2993,6 @@ void mkGraphicsVulkan::DeleteBuffer(GPUBuffer *buffer)
         cleanup.mAllocation    = bufferVulkan->mAllocation;
 
         BindlessDescriptorPool &pool = bindlessDescriptorPools[DescriptorType_UniformTexel];
-        if (bufferVulkan->subresource.IsValid())
-        {
-            cleanupBufferViews[currentBuffer].push_back(bufferVulkan->subresource.view);
-            pool.Free(bufferVulkan->subresource.descriptorIndex);
-        }
-
         for (auto &subresource : bufferVulkan->subresources)
         {
             cleanupBufferViews[currentBuffer].push_back(subresource.view);
@@ -3779,31 +3768,22 @@ void mkGraphicsVulkan::PushConstants(CommandList cmd, u32 size, void *data, u32 
 void mkGraphicsVulkan::BindPipeline(PipelineState *ps, CommandList cmd)
 {
     CommandListVulkan *command = ToInternal(cmd);
-    if (command->currentPipeline != ps)
-    {
-        command->currentPipeline = ps;
-
-        PipelineStateVulkan *psVulkan = ToInternal(ps);
-        vkCmdBindPipeline(command->GetCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS, psVulkan->mPipeline);
-
-        // Bind bindless
-        vkCmdBindDescriptorSets(command->GetCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS, psVulkan->mPipelineLayout,
-                                1, (u32)bindlessDescriptorSets.size(), bindlessDescriptorSets.data(), 0, 0);
-    }
+    command->currentPipeline   = ps;
+    PipelineStateVulkan *psVulkan = ToInternal(ps);
+    vkCmdBindPipeline(command->GetCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS, psVulkan->mPipeline);
+    vkCmdBindDescriptorSets(command->GetCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS, psVulkan->mPipelineLayout,
+                            1, (u32)bindlessDescriptorSets.size(), bindlessDescriptorSets.data(), 0, 0);
 }
 
 void mkGraphicsVulkan::BindCompute(PipelineState *ps, CommandList cmd)
 {
     Assert(ps->mDesc.compute);
-    PipelineStateVulkan *pipelineVulkan = ToInternal(ps);
     CommandListVulkan *command          = ToInternal(cmd);
-    if (command->currentPipeline != ps)
-    {
-        command->currentPipeline = ps;
-        vkCmdBindDescriptorSets(command->GetCommandBuffer(), VK_PIPELINE_BIND_POINT_COMPUTE, pipelineVulkan->mPipelineLayout,
-                                1, (u32)bindlessDescriptorSets.size(), bindlessDescriptorSets.data(), 0, 0);
-    }
+    command->currentPipeline            = ps;
+    PipelineStateVulkan *pipelineVulkan = ToInternal(ps);
     vkCmdBindPipeline(command->GetCommandBuffer(), VK_PIPELINE_BIND_POINT_COMPUTE, pipelineVulkan->mPipeline);
+    vkCmdBindDescriptorSets(command->GetCommandBuffer(), VK_PIPELINE_BIND_POINT_COMPUTE, pipelineVulkan->mPipelineLayout,
+                            1, (u32)bindlessDescriptorSets.size(), bindlessDescriptorSets.data(), 0, 0);
 }
 
 void mkGraphicsVulkan::WaitForGPU()

@@ -81,8 +81,9 @@ struct mkGraphicsVulkan : mkGraphics
         list<Swapchain> updateSwapchains;
 
         // Descriptor bindings
-        GPUResource *srvTable[cMaxBindings] = {};
-        GPUResource *uavTable[cMaxBindings] = {};
+
+        BindedResource srvTable[cMaxBindings] = {};
+        BindedResource uavTable[cMaxBindings] = {};
 
         // Descriptor set
         // VkDescriptorSet mDescriptorSets[cNumBuffers][QueueType_Count];
@@ -103,7 +104,7 @@ struct mkGraphicsVulkan : mkGraphics
         }
     };
 
-    // u32 numGraphicsCommandLists = 0;
+    // TODO: consider using buckets?
     u32 numCommandLists = 0;
     list<CommandListVulkan *> commandLists;
     // list<CommandListVulkan *> computeCommandLists;
@@ -201,7 +202,8 @@ struct mkGraphicsVulkan : mkGraphics
                 return descriptorIndex != -1;
             }
         };
-        Subresource subresource;
+        i32 subresourceSrv;
+        i32 subresourceUav;
         list<Subresource> subresources;
         GPUBufferVulkan *next;
     };
@@ -338,9 +340,8 @@ struct mkGraphicsVulkan : mkGraphics
     void CreateTexture(Texture *outTexture, TextureDesc desc, void *inData) override;
     void DeleteTexture(Texture *texture) override;
     void CreateSampler(Sampler *sampler, SamplerDesc desc) override;
-    void BindResource(GPUResource *resource, ResourceType type, u32 slot, CommandList cmd) override;
-    i32 GetDescriptorIndex(Texture *resource, i32 subresourceIndex = -1) override;
-    i32 GetDescriptorIndex(GPUBuffer *buffer, i32 subresourceIndex = -1) override;
+    void BindResource(GPUResource *resource, ResourceType type, u32 slot, CommandList cmd, i32 subresource = -1) override;
+    i32 GetDescriptorIndex(GPUResource *resource, ResourceType type, i32 subresourceIndex = -1) override;
     i32 CreateSubresource(GPUBuffer *buffer, ResourceType type, u64 offset = 0ull, u64 size = ~0ull, Format format = Format::Null) override;
     i32 CreateSubresource(Texture *texture, u32 baseLayer = 0, u32 numLayers = ~0u) override;
     void UpdateDescriptorSet(CommandList cmd);
@@ -428,10 +429,10 @@ private:
     //
     enum DescriptorType
     {
-        // DescriptorType_Uniform,
         DescriptorType_SampledImage,
         DescriptorType_UniformTexel,
         DescriptorType_StorageBuffer,
+        DescriptorType_StorageTexelBuffer,
         DescriptorType_Count,
     };
 

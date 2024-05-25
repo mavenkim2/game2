@@ -109,32 +109,7 @@ internal void D_Init()
                         {-point, point, point},
                     };
 
-                    u32 cubeIndices[] = {
-                        3,
-                        0,
-                        0,
-                        4,
-                        4,
-                        7,
-                        7,
-                        3,
-                        1,
-                        2,
-                        2,
-                        6,
-                        6,
-                        5,
-                        5,
-                        1,
-                        0,
-                        1,
-                        2,
-                        3,
-                        4,
-                        5,
-                        6,
-                        7,
-                    };
+                    u32 cubeIndices[]       = {3, 0, 0, 4, 4, 7, 7, 3, 1, 2, 2, 6, 6, 5, 5, 1, 0, 1, 2, 3, 4, 5, 6, 7};
                     u32 vertexCount         = ArrayLength(cubeVertices);
                     u32 indexCount          = ArrayLength(cubeIndices);
                     R_Batch3DParams *params = &group->params;
@@ -1199,6 +1174,7 @@ Swapchain swapchain;
 PipelineState pipelineState;
 PipelineState shadowMapPipeline;
 PipelineState blockCompressPipeline;
+PipelineState skinPipeline;
 
 graphics::GPUBuffer ubo;
 graphics::GPUBuffer vbo;
@@ -1242,23 +1218,28 @@ internal void Initialize()
     {
         GPUBufferDesc desc;
         desc.mSize          = kilobytes(64);
-        desc.mResourceUsage = ResourceUsage::UniformBuffer;
+        desc.mResourceUsage = ResourceUsage::UniformBuffer | ResourceUsage::NotBindless;
         device->CreateBuffer(&ubo, desc, 0);
 
         // Skinning
+        desc                = {};
         desc.mSize          = kilobytes(4);
         desc.mUsage         = MemoryUsage::CPU_TO_GPU;
         desc.mResourceUsage = ResourceUsage::TransferSrc;
         for (u32 i = 0; i < ArrayLength(skinningBufferUpload); i++)
         {
             device->CreateBuffer(&skinningBufferUpload[i], desc, 0);
+            device->SetName(&skinningBufferUpload[i], "Skinning upload buffer");
         }
 
+        desc                = {};
+        desc.mSize          = kilobytes(4);
         desc.mUsage         = MemoryUsage::GPU_ONLY;
         desc.mResourceUsage = ResourceUsage::UniformBuffer;
         for (u32 i = 0; i < ArrayLength(skinningBuffer); i++)
         {
             device->CreateBuffer(&skinningBuffer[i], desc, 0);
+            device->SetName(&skinningBuffer[i], "Skinning buffer");
         }
     }
 
@@ -1298,14 +1279,18 @@ internal void Initialize()
     }
 
     // Initialize shaders
-    shaders[ShaderType_Mesh_VS].mName      = "mesh_vs.hlsl";
-    shaders[ShaderType_Mesh_VS].stage      = ShaderStage::Vertex;
-    shaders[ShaderType_Mesh_FS].mName      = "mesh_fs.hlsl";
-    shaders[ShaderType_Mesh_FS].stage      = ShaderStage::Fragment;
-    shaders[ShaderType_ShadowMap_VS].mName = "depth_vs.hlsl";
-    shaders[ShaderType_ShadowMap_VS].stage = ShaderStage::Vertex;
-    shaders[ShaderType_BC1_CS].mName       = "blockcompress_cs.hlsl";
-    shaders[ShaderType_BC1_CS].stage       = ShaderStage::Compute;
+    {
+        shaders[ShaderType_Mesh_VS].mName      = "mesh_vs.hlsl";
+        shaders[ShaderType_Mesh_VS].stage      = ShaderStage::Vertex;
+        shaders[ShaderType_Mesh_FS].mName      = "mesh_fs.hlsl";
+        shaders[ShaderType_Mesh_FS].stage      = ShaderStage::Fragment;
+        shaders[ShaderType_ShadowMap_VS].mName = "depth_vs.hlsl";
+        shaders[ShaderType_ShadowMap_VS].stage = ShaderStage::Vertex;
+        shaders[ShaderType_BC1_CS].mName       = "blockcompress_cs.hlsl";
+        shaders[ShaderType_BC1_CS].stage       = ShaderStage::Compute;
+        shaders[ShaderType_Skin_CS].mName      = "skinning_cs.hlsl";
+        shaders[ShaderType_Skin_CS].stage      = ShaderStage::Compute;
+    }
 
     // Compile shaders
     {
@@ -1356,14 +1341,19 @@ internal void Initialize()
         desc         = {};
         desc.compute = &shaders[ShaderType_BC1_CS];
         device->CreateComputePipeline(&desc, &blockCompressPipeline, "Block compress");
+
+        desc.compute = &shaders[ShaderType_Skin_CS];
+        device->CreateComputePipeline(&desc, &skinPipeline, "Skinning compute");
     }
 }
 
 internal void Render()
 {
     // TODO: eventually, this should not be accessed from here
-    G_State *g_state         = engine->GetGameState();
-    RenderState *renderState = engine->GetRenderState();
+    G_State *g_state                = engine->GetGameState();
+    RenderState *renderState        = engine->GetRenderState();
+    GPUBuffer *currentSkinBufUpload = &skinningBufferUpload[device->GetCurrentBuffer()];
+    GPUBuffer *currentSkinBuf       = &skinningBuffer[device->GetCurrentBuffer()];
 
     // Read through deferred block compress commands
     CommandList cmd;
@@ -1381,10 +1371,42 @@ internal void Render()
         std::atomic_thread_fence(std::memory_order_release);
     }
 
+    // Compute skinning
+    {
+        device->BindCompute(&skinPipeline, cmd);
+        SkinningPushConstants pc;
+        pc.skinningBuffer = device->GetDescriptorIndex(currentSkinBuf, ResourceType::SRV);
+        for (u32 entityIndex = 0; entityIndex < g_state->mEntityCount; entityIndex++)
+        {
+            game::Entity *entity = &g_state->mEntities[entityIndex];
+            if (entity->mSkinningOffset != -1)
+            {
+                LoadedModel *model = GetModel(entity->mAssetHandle);
+                pc.skinningOffset  = entity->mSkinningOffset;
+
+                for (u32 meshIndex = 0; meshIndex < model->numMeshes; meshIndex++)
+                {
+                    Mesh *mesh = &model->meshes[meshIndex];
+
+                    pc.vertexPos        = mesh->vertexPosView.srvDescriptor;
+                    pc.vertexNor        = mesh->vertexNorView.srvDescriptor;
+                    pc.vertexTan        = mesh->vertexTanView.srvDescriptor;
+                    pc.vertexBoneId     = mesh->vertexBoneIdView.srvDescriptor;
+                    pc.vertexBoneWeight = mesh->vertexBoneWeightView.srvDescriptor;
+
+                    pc.soPos = mesh->soPosView.uavDescriptor;
+                    pc.soNor = mesh->soNorView.uavDescriptor;
+                    pc.soTan = mesh->soTanView.uavDescriptor;
+
+                    device->PushConstants(cmd, sizeof(pc), &pc);
+                    device->Dispatch(cmd, (mesh->vertexCount + 63) / 64, 1, 1);
+                }
+            }
+        }
+    }
+
     CommandList cmdList = device->BeginCommandList(QueueType_Graphics);
     device->Wait(cmd, cmdList);
-    GPUBuffer *currentSkinBufUpload = &skinningBufferUpload[device->GetCurrentBuffer()];
-    GPUBuffer *currentSkinBuf       = &skinningBuffer[device->GetCurrentBuffer()];
 
     // GPUBarrier barrier = CreateBarrier(currentSkinBufUpload, ResourceUsage::TransferSrc, ResourceUsage::None);
     // device->Barrier(cmdList, &barrier, 1);
@@ -1431,7 +1453,6 @@ internal void Render()
             device->BeginRenderPass(images, ArrayLength(images), cmdList);
             device->BindPipeline(&shadowMapPipeline, cmdList);
             device->BindResource(&ubo, ResourceType::SRV, MODEL_PARAMS_BIND, cmdList);
-            device->BindResource(currentSkinBuf, ResourceType::SRV, SKINNING_BIND, cmdList);
             device->UpdateDescriptorSet(cmdList);
 
             Viewport viewport;
@@ -1459,9 +1480,16 @@ internal void Render()
                 {
                     Mesh *mesh = &model->meshes[meshIndex];
 
-                    pc.vertexPos        = mesh->vertexPosView.subresourceDescriptor;
-                    pc.vertexBoneId     = mesh->vertexBoneIdView.subresourceDescriptor;
-                    pc.vertexBoneWeight = mesh->vertexBoneWeightView.subresourceDescriptor;
+                    if (mesh->soPosView.IsValid())
+                    {
+                        pc.vertexPos = mesh->soPosView.srvDescriptor;
+                    }
+                    else
+                    {
+                        pc.vertexPos = mesh->vertexPosView.srvDescriptor;
+                    }
+                    pc.vertexBoneId     = mesh->vertexBoneIdView.srvDescriptor;
+                    pc.vertexBoneWeight = mesh->vertexBoneWeightView.srvDescriptor;
 
                     device->PushConstants(cmdList, sizeof(pc), &pc);
                     device->BindIndexBuffer(cmdList, &mesh->buffer, mesh->indexView.offset);
@@ -1491,7 +1519,6 @@ internal void Render()
         device->BeginRenderPass(&swapchain, images, ArrayLength(images), cmdList);
         device->BindPipeline(&pipelineState, cmdList);
         device->BindResource(&ubo, ResourceType::SRV, MODEL_PARAMS_BIND, cmdList);
-        device->BindResource(currentSkinBuf, ResourceType::SRV, SKINNING_BIND, cmdList);
         device->BindResource(&shadowDepthBuffer, ResourceType::SRV, SHADOW_MAP_BIND, cmdList);
         device->UpdateDescriptorSet(cmdList);
 
@@ -1525,19 +1552,40 @@ internal void Render()
                     scene::MaterialComponent &material = gameScene.materials[subset->materialIndex];
 
                     graphics::Texture *texture = GetTexture(material.textures[TextureType_Diffuse]);
-                    i32 descriptorIndex        = device->GetDescriptorIndex(texture);
+                    i32 descriptorIndex        = device->GetDescriptorIndex(texture, ResourceType::SRV);
                     pc.albedo                  = descriptorIndex;
 
                     texture         = GetTexture(material.textures[TextureType_Normal]);
-                    descriptorIndex = device->GetDescriptorIndex(texture);
+                    descriptorIndex = device->GetDescriptorIndex(texture, ResourceType::SRV);
                     pc.normal       = descriptorIndex;
 
-                    pc.vertexPos        = mesh->vertexPosView.subresourceDescriptor;
-                    pc.vertexNor        = mesh->vertexNorView.subresourceDescriptor;
-                    pc.vertexTan        = mesh->vertexTanView.subresourceDescriptor;
-                    pc.vertexUv         = mesh->vertexUvView.subresourceDescriptor;
-                    pc.vertexBoneId     = mesh->vertexBoneIdView.subresourceDescriptor;
-                    pc.vertexBoneWeight = mesh->vertexBoneWeightView.subresourceDescriptor;
+                    if (mesh->soPosView.IsValid())
+                    {
+                        pc.vertexPos = mesh->soPosView.srvDescriptor;
+                    }
+                    else
+                    {
+                        pc.vertexPos = mesh->vertexPosView.srvDescriptor;
+                    }
+                    if (mesh->soNorView.IsValid())
+                    {
+                        pc.vertexNor = mesh->soNorView.srvDescriptor;
+                    }
+                    else
+                    {
+                        pc.vertexNor = mesh->vertexNorView.srvDescriptor;
+                    }
+                    if (mesh->soTanView.IsValid())
+                    {
+                        pc.vertexTan = mesh->soTanView.srvDescriptor;
+                    }
+                    else
+                    {
+                        pc.vertexTan = mesh->vertexTanView.srvDescriptor;
+                    }
+                    pc.vertexUv         = mesh->vertexUvView.srvDescriptor;
+                    pc.vertexBoneId     = mesh->vertexBoneIdView.srvDescriptor;
+                    pc.vertexBoneWeight = mesh->vertexBoneWeightView.srvDescriptor;
                     pc.meshTransform    = mesh->transform;
 
                     device->PushConstants(cmdList, sizeof(pc), &pc);

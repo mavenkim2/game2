@@ -73,34 +73,6 @@ internal void AS_Init()
     {
         as_state->threads[i].handle = platform.ThreadStart(AS_EntryPoint, (void *)i);
     }
-    // #if 0
-    //     as_state->hotloadThread = OS_ThreadStart(AS_HotloadEntryPoint, 0);
-    // #endif
-    //
-    // #if 0
-    //     // Block allocator
-    //     // 64 2 megabyte blocks
-    //     // SEPARATE linked list of headers that point to spot in memory,
-    //
-    //     as_state->numBlocks           = 128;
-    //     as_state->blockSize           = megabytes(1);
-    //     as_state->blockBackingBuffer  = PushArray(arena, u8, as_state->numBlocks * as_state->blockSize);
-    //     as_state->memoryHeaderNodes   = PushArray(arena, AS_MemoryHeaderNode, as_state->numBlocks);
-    //     AS_MemoryHeaderNode *sentinel = &as_state->freeBlockSentinel;
-    //     sentinel->next                = sentinel;
-    //     sentinel->prev                = sentinel;
-    //     for (u32 i = 0; i < as_state->numBlocks; i++)
-    //     {
-    //         AS_MemoryHeaderNode *headerNode = &as_state->memoryHeaderNodes[i];
-    //         AS_MemoryHeader *header         = &headerNode->header;
-    //         header->buffer                  = as_state->blockBackingBuffer + as_state->blockSize * i;
-    //
-    //         headerNode->next       = sentinel;
-    //         headerNode->prev       = sentinel->prev;
-    //         headerNode->next->prev = headerNode;
-    //         headerNode->prev->next = headerNode;
-    //     }
-    // #endif
 
     // Asset tag trees
     as_state->tagMap.maxSlots = AS_TagKey_Count;
@@ -344,6 +316,7 @@ internal void AS_HotloadEntryPoint(void *p)
 
 // JOB_CALLBACK(AS_LoadAsset)
 
+using namespace graphics;
 internal void AS_LoadAsset(AS_Asset *asset)
 {
     TempArena temp          = ScratchStart(0, 0);
@@ -540,8 +513,8 @@ internal void AS_LoadAsset(AS_Asset *asset)
             u32 vertexCount = mesh->vertexCount;
             u32 indexCount  = mesh->indexCount;
 
-            graphics::GPUBufferDesc desc;
-            desc.mResourceUsage = graphics::ResourceUsage::UniformTexelBuffer | graphics::ResourceUsage::IndexBuffer;
+            GPUBufferDesc desc;
+            desc.mResourceUsage = ResourceUsage::MegaBuffer | ResourceUsage::UniformTexelBuffer | ResourceUsage::IndexBuffer;
             u64 alignment       = device->GetMinAlignment(&desc);
 
             Assert(IsPow2(alignment));
@@ -607,38 +580,79 @@ internal void AS_LoadAsset(AS_Asset *asset)
                 currentOffset += AlignPow2(mesh->indexView.size, alignment);
             };
 
-            // device->CreateBuffer(&mesh->buffer, desc, mesh->surface.vertices);
             device->CreateBufferCopy(&mesh->buffer, desc, initCallback);
+            device->SetName(&mesh->buffer, "Mesh buffer");
 
             Assert(mesh->positions);
-            mesh->vertexPosView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::ResourceType::SRV, mesh->vertexPosView.offset, mesh->vertexPosView.size, graphics::Format::R32G32B32_SFLOAT);
-            mesh->vertexPosView.subresourceDescriptor = device->GetDescriptorIndex(&mesh->buffer, mesh->vertexPosView.subresourceIndex);
+            mesh->vertexPosView.srvIndex      = device->CreateSubresource(&mesh->buffer, ResourceType::SRV, mesh->vertexPosView.offset, mesh->vertexPosView.size, Format::R32G32B32_SFLOAT);
+            mesh->vertexPosView.srvDescriptor = device->GetDescriptorIndex(&mesh->buffer, ResourceType::SRV, mesh->vertexPosView.srvIndex);
 
             Assert(mesh->normals);
-            mesh->vertexNorView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::ResourceType::SRV, mesh->vertexNorView.offset, mesh->vertexNorView.size, graphics::Format::R32G32B32_SFLOAT);
-            mesh->vertexNorView.subresourceDescriptor = device->GetDescriptorIndex(&mesh->buffer, mesh->vertexNorView.subresourceIndex);
+            mesh->vertexNorView.srvIndex      = device->CreateSubresource(&mesh->buffer, ResourceType::SRV, mesh->vertexNorView.offset, mesh->vertexNorView.size, Format::R32G32B32_SFLOAT);
+            mesh->vertexNorView.srvDescriptor = device->GetDescriptorIndex(&mesh->buffer, ResourceType::SRV, mesh->vertexNorView.srvIndex);
 
             Assert(mesh->tangents);
-            mesh->vertexTanView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::ResourceType::SRV, mesh->vertexTanView.offset, mesh->vertexTanView.size, graphics::Format::R32G32B32_SFLOAT);
-            mesh->vertexTanView.subresourceDescriptor = device->GetDescriptorIndex(&mesh->buffer, mesh->vertexTanView.subresourceIndex);
+            mesh->vertexTanView.srvIndex      = device->CreateSubresource(&mesh->buffer, ResourceType::SRV, mesh->vertexTanView.offset, mesh->vertexTanView.size, Format::R32G32B32_SFLOAT);
+            mesh->vertexTanView.srvDescriptor = device->GetDescriptorIndex(&mesh->buffer, ResourceType::SRV, mesh->vertexTanView.srvIndex);
 
             if (mesh->uvs)
             {
-                mesh->vertexUvView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::ResourceType::SRV, mesh->vertexUvView.offset, mesh->vertexUvView.size, graphics::Format::R32G32_SFLOAT);
-                mesh->vertexUvView.subresourceDescriptor = device->GetDescriptorIndex(&mesh->buffer, mesh->vertexUvView.subresourceIndex);
+                mesh->vertexUvView.srvIndex      = device->CreateSubresource(&mesh->buffer, ResourceType::SRV, mesh->vertexUvView.offset, mesh->vertexUvView.size, Format::R32G32_SFLOAT);
+                mesh->vertexUvView.srvDescriptor = device->GetDescriptorIndex(&mesh->buffer, ResourceType::SRV, mesh->vertexUvView.srvIndex);
             }
             if (mesh->boneIds)
             {
-                mesh->vertexBoneIdView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::ResourceType::SRV, mesh->vertexBoneIdView.offset, mesh->vertexBoneIdView.size, graphics::Format::R32G32B32A32_UINT);
-                mesh->vertexBoneIdView.subresourceDescriptor = device->GetDescriptorIndex(&mesh->buffer, mesh->vertexBoneIdView.subresourceIndex);
+                mesh->vertexBoneIdView.srvIndex      = device->CreateSubresource(&mesh->buffer, ResourceType::SRV, mesh->vertexBoneIdView.offset, mesh->vertexBoneIdView.size, Format::R32G32B32A32_UINT);
+                mesh->vertexBoneIdView.srvDescriptor = device->GetDescriptorIndex(&mesh->buffer, ResourceType::SRV, mesh->vertexBoneIdView.srvIndex);
 
                 Assert(mesh->boneWeights);
-                mesh->vertexBoneWeightView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::ResourceType::SRV, mesh->vertexBoneWeightView.offset, mesh->vertexBoneWeightView.size, graphics::Format::R32G32B32A32_SFLOAT);
-                mesh->vertexBoneWeightView.subresourceDescriptor = device->GetDescriptorIndex(&mesh->buffer, mesh->vertexBoneWeightView.subresourceIndex);
+                mesh->vertexBoneWeightView.srvIndex      = device->CreateSubresource(&mesh->buffer, ResourceType::SRV, mesh->vertexBoneWeightView.offset, mesh->vertexBoneWeightView.size, Format::R32G32B32A32_SFLOAT);
+                mesh->vertexBoneWeightView.srvDescriptor = device->GetDescriptorIndex(&mesh->buffer, ResourceType::SRV, mesh->vertexBoneWeightView.srvIndex);
             }
 
-            mesh->indexView.subresourceIndex      = device->CreateSubresource(&mesh->buffer, graphics::ResourceType::SRV, mesh->indexView.offset, mesh->indexView.size, graphics::Format::R32_UINT);
-            mesh->indexView.subresourceDescriptor = device->GetDescriptorIndex(&mesh->buffer, mesh->indexView.subresourceIndex);
+            mesh->indexView.srvIndex      = device->CreateSubresource(&mesh->buffer, ResourceType::SRV, mesh->indexView.offset, mesh->indexView.size, Format::R32_UINT);
+            mesh->indexView.srvDescriptor = device->GetDescriptorIndex(&mesh->buffer, ResourceType::SRV, mesh->indexView.srvIndex);
+
+            // Create skinning uavs
+            if (mesh->boneIds)
+            {
+                GPUBufferDesc streamDesc;
+                desc.mResourceUsage = ResourceUsage::MegaBuffer | ResourceUsage::StorageBuffer | ResourceUsage::UniformTexelBuffer;
+
+                alignment = device->GetMinAlignment(&streamDesc);
+                Assert(IsPow2(alignment));
+
+                mesh->soPosView.offset = 0;
+                mesh->soPosView.size   = sizeof(mesh->positions[0]) * vertexCount;
+                desc.mSize             = AlignPow2(mesh->soPosView.size, alignment);
+
+                mesh->soNorView.offset = desc.mSize;
+                mesh->soNorView.size   = sizeof(mesh->normals[0]) * vertexCount;
+                desc.mSize += AlignPow2(mesh->soNorView.size, alignment);
+
+                mesh->soTanView.offset = desc.mSize;
+                mesh->soTanView.size   = sizeof(mesh->tangents[0]) * vertexCount;
+                desc.mSize += AlignPow2(mesh->soTanView.size, alignment);
+
+                // Load positions
+                device->CreateBuffer(&mesh->streamBuffer, desc, 0);
+                device->SetName(&mesh->streamBuffer, "Mesh stream buffer");
+
+                mesh->soPosView.srvIndex      = device->CreateSubresource(&mesh->streamBuffer, ResourceType::SRV, mesh->soPosView.offset, mesh->soPosView.size, Format::R32G32B32_SFLOAT);
+                mesh->soPosView.srvDescriptor = device->GetDescriptorIndex(&mesh->streamBuffer, ResourceType::SRV, mesh->soPosView.srvIndex);
+                mesh->soPosView.uavIndex      = device->CreateSubresource(&mesh->streamBuffer, ResourceType::UAV, mesh->soPosView.offset, mesh->soPosView.size);
+                mesh->soPosView.uavDescriptor = device->GetDescriptorIndex(&mesh->streamBuffer, ResourceType::UAV, mesh->soPosView.uavIndex);
+
+                mesh->soNorView.srvIndex      = device->CreateSubresource(&mesh->streamBuffer, ResourceType::SRV, mesh->soNorView.offset, mesh->soNorView.size, Format::R32G32B32_SFLOAT);
+                mesh->soNorView.srvDescriptor = device->GetDescriptorIndex(&mesh->streamBuffer, ResourceType::SRV, mesh->soNorView.srvIndex);
+                mesh->soNorView.uavIndex      = device->CreateSubresource(&mesh->streamBuffer, ResourceType::UAV, mesh->soNorView.offset, mesh->soNorView.size);
+                mesh->soNorView.uavDescriptor = device->GetDescriptorIndex(&mesh->streamBuffer, ResourceType::UAV, mesh->soNorView.uavIndex);
+
+                mesh->soTanView.srvIndex      = device->CreateSubresource(&mesh->streamBuffer, ResourceType::SRV, mesh->soTanView.offset, mesh->soTanView.size, Format::R32G32B32_SFLOAT);
+                mesh->soTanView.srvDescriptor = device->GetDescriptorIndex(&mesh->streamBuffer, ResourceType::SRV, mesh->soTanView.srvIndex);
+                mesh->soTanView.uavIndex      = device->CreateSubresource(&mesh->streamBuffer, ResourceType::UAV, mesh->soTanView.offset, mesh->soTanView.size);
+                mesh->soTanView.uavDescriptor = device->GetDescriptorIndex(&mesh->streamBuffer, ResourceType::UAV, mesh->soTanView.uavIndex);
+            }
 
             Rect3 modelSpaceBounds = Transform(mesh->transform, mesh->bounds);
             AddBounds(model->bounds, modelSpaceBounds);
@@ -725,14 +739,14 @@ internal void AS_LoadAsset(AS_Asset *asset)
     {
         asset->type = AS_Texture;
 
-        graphics::Format format   = graphics::Format::R8G8B8A8_UNORM;
-        graphics::Format bcFormat = graphics::Format::Null;
+        Format format   = Format::R8G8B8A8_UNORM;
+        Format bcFormat = Format::Null;
 
         if (FindSubstring(asset->path, Str8Lit("diffuse"), 0, MatchFlag_CaseInsensitive) != asset->path.size ||
             FindSubstring(asset->path, Str8Lit("basecolor"), 0, MatchFlag_CaseInsensitive) != asset->path.size)
         {
-            format   = graphics::Format::R8G8B8A8_SRGB;
-            bcFormat = graphics::Format::BC1_RGB_UNORM;
+            format   = Format::R8G8B8A8_SRGB;
+            bcFormat = Format::BC1_RGB_UNORM;
         }
         i32 width, height, nComponents;
         void *texData =
@@ -740,34 +754,34 @@ internal void AS_LoadAsset(AS_Asset *asset)
 
         Assert(nComponents >= 1);
 
-        graphics::TextureDesc desc;
+        TextureDesc desc;
         desc.mWidth        = width;
         desc.mHeight       = height;
         desc.mFormat       = format;
-        desc.mInitialUsage = graphics::ResourceUsage::SampledImage;
-        desc.mTextureType  = graphics::TextureDesc::TextureType::Texture2D;
-        desc.mSampler      = graphics::TextureDesc::DefaultSampler::Linear;
+        desc.mInitialUsage = ResourceUsage::SampledImage;
+        desc.mTextureType  = TextureDesc::TextureType::Texture2D;
+        desc.mSampler      = TextureDesc::DefaultSampler::Linear;
 
         // TODO: the data isn't being sent to the graphics card appropriately from the dds file :(
         device->CreateTexture(&asset->texture, desc, texData);
         device->SetName(&asset->texture, (const char *)asset->path.str);
 
         // Creates the block compressed asset
-        // if (bcFormat != graphics::Format::Null)
+        // if (bcFormat != Format::Null)
         // {
-        //     u32 blockSize = graphics::GetBlockSize(bcFormat);
-        //     graphics::TextureDesc bcDesc;
+        //     u32 blockSize = GetBlockSize(bcFormat);
+        //     TextureDesc bcDesc;
         //     Assert((desc.mWidth & (blockSize - 1)) == 0);
         //     Assert((desc.mHeight & (blockSize - 1)) == 0);
         //     bcDesc.mWidth        = desc.mWidth;
         //     bcDesc.mHeight       = desc.mHeight;
         //     bcDesc.mFormat       = bcFormat;
-        //     bcDesc.mInitialUsage = graphics::ResourceUsage::TransferDst;
-        //     bcDesc.mFutureUsages = graphics::ResourceUsage::SampledImage;
-        //     bcDesc.mSampler      = graphics::TextureDesc::DefaultSampler::Linear;
+        //     bcDesc.mInitialUsage = ResourceUsage::TransferDst;
+        //     bcDesc.mFutureUsages = ResourceUsage::SampledImage;
+        //     bcDesc.mSampler      = TextureDesc::DefaultSampler::Linear;
         //
-        //     graphics::Texture uncompressed = asset->texture; // move?
-        //     graphics::Texture compressed;
+        //     Texture uncompressed = asset->texture; // move?
+        //     Texture compressed;
         //     device->CreateTexture(&compressed, bcDesc, 0);
         //
         //     // render::DeferBlockCompress(uncompressed, compressed);
@@ -801,7 +815,7 @@ internal void AS_LoadAsset(AS_Asset *asset)
 
 internal void LoadDDS(AS_Asset *asset)
 {
-    graphics::Format format = graphics::Format::Null;
+    Format format = Format::Null;
 
     u8 *memory    = AS_GetMemory(asset);
     DDSFile *file = (DDSFile *)memory;
@@ -824,7 +838,7 @@ internal void LoadDDS(AS_Asset *asset)
     {
         if (file->header.format.fourCC == MakeFourCC('D', 'X', 'T', '1'))
         {
-            format = graphics::Format::BC1_RGB_UNORM;
+            format = Format::BC1_RGB_UNORM;
         }
         else
         {
@@ -838,12 +852,12 @@ internal void LoadDDS(AS_Asset *asset)
 
     u8 *data = memory + offset;
 
-    graphics::TextureDesc bcDesc;
+    TextureDesc bcDesc;
     bcDesc.mWidth        = file->header.width;
     bcDesc.mHeight       = file->header.height;
     bcDesc.mDepth        = file->header.depth;
     bcDesc.mFormat       = format;
-    bcDesc.mInitialUsage = graphics::ResourceUsage::SampledImage;
+    bcDesc.mInitialUsage = ResourceUsage::SampledImage;
     device->CreateTexture(&asset->texture, bcDesc, data);
     device->SetName(&asset->texture, (const char *)asset->path.str);
 }
@@ -993,10 +1007,10 @@ internal LoadedSkeleton *GetSkeleton(AS_Handle handle)
     return result;
 }
 
-internal graphics::Texture *GetTexture(AS_Handle handle)
+internal Texture *GetTexture(AS_Handle handle)
 {
-    AS_Asset *asset           = AS_GetAssetFromHandle(handle);
-    graphics::Texture *result = 0;
+    AS_Asset *asset = AS_GetAssetFromHandle(handle);
+    Texture *result = 0;
     if (asset)
     {
         Assert(asset->type == AS_Texture);
@@ -1037,7 +1051,7 @@ internal KeyframedAnimation *GetAnim(AS_Handle handle)
 
 // internal R_Handle GetTextureRenderHandle(AS_Handle input)
 // {
-//     graphics::Texture *texture = GetTexture(input);
+//     Texture *texture = GetTexture(input);
 //     R_Handle handle            = texture->handle;
 //     return handle;
 // }

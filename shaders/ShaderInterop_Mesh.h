@@ -4,8 +4,7 @@
 #include "ShaderInterop.h"
 
 #define MODEL_PARAMS_BIND 0
-#define SKINNING_BIND     1
-#define SHADOW_MAP_BIND   2
+#define SHADOW_MAP_BIND   1
 
 struct ModelParams
 {
@@ -41,18 +40,20 @@ struct PushConstant
     int normal;
 };
 
-// struct ShadowPushConstant
-// {
-//     int modelIndex;
-//     int skinningOffset;
-//     int cascadeNum;
-//
-//     int vertexPos;
-//     int vertexNor;
-//     int vertexTan;
-//     int vertexUv;
-//     int vertexBoneId;
-//     int vertexBoneWeight;
-// };
+struct SkinningPushConstants
+{
+    int vertexPos;
+    int vertexNor;
+    int vertexTan;
+    int vertexBoneId;
+    int vertexBoneWeight;
+
+    int soPos;
+    int soNor;
+    int soTan;
+
+    int skinningOffset;
+    int skinningBuffer;
+};
 
 #endif

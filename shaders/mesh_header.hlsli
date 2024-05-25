@@ -26,11 +26,6 @@ struct FragmentInput
 #endif
 };
 
-UNIFORM(skinning, SKINNING_BIND)
-{
-    float4x4 skinningTransforms[1024];
-}
-
 #ifdef COMPILE_VS
 // Vertex shader
 FragmentInput main(VertexInput input)
@@ -38,36 +33,15 @@ FragmentInput main(VertexInput input)
     FragmentInput output;
 
     float3 pos = GetFloat3(push.vertexPos, input.vertexID);
-    uint4 boneIds = GetUint4(push.vertexBoneId, input.vertexID);
-    float4 boneWeights = GetFloat4(push.vertexBoneWeight, input.vertexID);
 
 #ifdef MESH_PASS
     float2 uv = GetFloat2(push.vertexUv, input.vertexID);
     float3 n = GetFloat3(push.vertexNor, input.vertexID);
     float3 tangent = GetFloat3(push.vertexTan, input.vertexID);
 #endif
-
     float4x4 modelToWorldMatrix = rParams[push.modelIndex].modelMatrix;
     float4 modelSpacePos;
-    if (push.skinningOffset != -1)
-    {
-        float4x4 boneTransform = skinningTransforms[push.skinningOffset + boneIds[0]] * boneWeights[0];
-        boneTransform += skinningTransforms[push.skinningOffset + boneIds[1]] * boneWeights[1];
-        boneTransform += skinningTransforms[push.skinningOffset + boneIds[2]] * boneWeights[2];
-        boneTransform += skinningTransforms[push.skinningOffset + boneIds[3]] * boneWeights[3];
-
-        modelSpacePos = mul(boneTransform, float4(pos, 1.0));
-        // TODO: append the light vp to the model matrix in cpu code
-
-#ifdef MESH_PASS
-        modelToWorldMatrix = modelToWorldMatrix * boneTransform;
-#endif
-
-    }
-    else 
-    {
-        modelSpacePos = float4(pos, 1.0);
-    }
+    modelSpacePos = float4(pos, 1.0);
 #ifdef MESH_PASS
     output.pos = mul(rParams[push.modelIndex].transform, modelSpacePos);
 #endif

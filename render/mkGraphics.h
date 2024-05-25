@@ -166,17 +166,21 @@ enum class ResourceUsage
     UniformBuffer      = 1 << 1,
     UniformTexelBuffer = 1 << 2,
     StorageBuffer      = 1 << 3,
+    StorageTexelBuffer = 1 << 4,
 
-    VertexBuffer = 1 << 4,
-    IndexBuffer  = 1 << 5,
+    VertexBuffer = 1 << 5,
+    IndexBuffer  = 1 << 6,
 
-    TransferSrc = 1 << 6,
-    TransferDst = 1 << 7,
+    TransferSrc = 1 << 7,
+    TransferDst = 1 << 8,
 
-    SampledImage = 1 << 8,
-    StorageImage = 1 << 9,
+    SampledImage = 1 << 9,
+    StorageImage = 1 << 10,
 
-    DepthStencil = 1 << 10,
+    DepthStencil = 1 << 11,
+
+    MegaBuffer  = 1 << 12, // e.g. subviews contain meaningful data, not the whole buffer itself
+    NotBindless = 1 << 13,
 };
 
 // inline b32 HasFlags(ResourceUsage lhs, ResourceUsage rhs)
@@ -236,6 +240,7 @@ enum ShaderType
     ShaderType_Mesh_FS,
     ShaderType_ShadowMap_VS,
     ShaderType_BC1_CS,
+    ShaderType_Skin_CS,
     ShaderType_Count,
 };
 
@@ -261,6 +266,7 @@ struct GPUResource : GraphicsObject
 {
     enum class ResourceType
     {
+        Null,
         Buffer,
         Image,
     } mResourceType;
@@ -273,6 +279,17 @@ struct GPUResource : GraphicsObject
     inline b32 IsBuffer()
     {
         return mResourceType == ResourceType::Buffer;
+    }
+};
+
+struct BindedResource
+{
+    GPUResource *resource = 0;
+    i32 subresourceIndex  = 0;
+
+    b8 IsValid()
+    {
+        return (resource && resource->IsValid());
     }
 };
 
@@ -587,9 +604,8 @@ struct mkGraphics
     virtual void CreateTexture(Texture *outTexture, TextureDesc desc, void *inData)                                                        = 0;
     virtual void DeleteTexture(Texture *texture)                                                                                           = 0;
     virtual void CreateSampler(Sampler *sampler, SamplerDesc desc)                                                                         = 0;
-    virtual void BindResource(GPUResource *resource, ResourceType type, u32 slot, CommandList cmd)                                         = 0;
-    virtual i32 GetDescriptorIndex(GPUBuffer *resource, i32 subresourceIndex = -1)                                                         = 0;
-    virtual i32 GetDescriptorIndex(Texture *resource, i32 subresourceIndex = -1)                                                           = 0;
+    virtual void BindResource(GPUResource *resource, ResourceType type, u32 slot, CommandList cmd, i32 subresource = -1)                   = 0;
+    virtual i32 GetDescriptorIndex(GPUResource *resource, ResourceType type, i32 subresourceIndex = -1)                                    = 0;
     virtual i32 CreateSubresource(GPUBuffer *buffer, ResourceType type, u64 offset = 0ull, u64 size = ~0ull, Format format = Format::Null) = 0;
     virtual i32 CreateSubresource(Texture *texture, u32 baseLayer = 0, u32 numLayers = ~0u)                                                = 0;
     virtual void UpdateDescriptorSet(CommandList cmd)                                                                                      = 0;

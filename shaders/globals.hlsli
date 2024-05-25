@@ -1,14 +1,24 @@
 #include "ShaderInterop.h"
 
 static const uint BINDLESS_TEXTURE_SET = 1;
-static const uint BINDLESS_STORAGE_BUFFER_SET = 2;
+static const uint BINDLESS_UNIFORM_TEXEL_SET = 2;
+static const uint BINDLESS_STORAGE_BUFFER_SET = 3;
+static const uint BINDLESS_STORAGE_TEXEL_BUFFER_SET = 4;
 
 #ifdef __spirv__
 [[vk::binding(0, BINDLESS_TEXTURE_SET)]] Texture2D bindlessTextures[];
-[[vk::binding(0, BINDLESS_STORAGE_BUFFER_SET)]] Buffer<float> bindlessBuffers[];
-[[vk::binding(0, BINDLESS_STORAGE_BUFFER_SET)]] Buffer<float2> bindlessBuffersFloat2[];
-[[vk::binding(0, BINDLESS_STORAGE_BUFFER_SET)]] Buffer<float4> bindlessBuffersFloat4[];
-[[vk::binding(0, BINDLESS_STORAGE_BUFFER_SET)]] Buffer<uint4> bindlessBuffersUint4[];
+
+[[vk::binding(0, BINDLESS_UNIFORM_TEXEL_SET)]] Buffer<float> bindlessBuffersFloat[];
+[[vk::binding(0, BINDLESS_UNIFORM_TEXEL_SET)]] Buffer<float2> bindlessBuffersFloat2[];
+[[vk::binding(0, BINDLESS_UNIFORM_TEXEL_SET)]] Buffer<float4> bindlessBuffersFloat4[];
+[[vk::binding(0, BINDLESS_UNIFORM_TEXEL_SET)]] Buffer<uint4> bindlessBuffersUint4[];
+
+[[vk::binding(0, BINDLESS_STORAGE_TEXEL_BUFFER_SET)]] RWBuffer<float> bindlessStorageBuffersFloat[];
+[[vk::binding(0, BINDLESS_STORAGE_TEXEL_BUFFER_SET)]] RWBuffer<float2> bindlessStorageBuffersFloat2[];
+[[vk::binding(0, BINDLESS_STORAGE_TEXEL_BUFFER_SET)]] RWBuffer<float4> bindlessStorageBuffersFloat4[];
+
+[[vk::binding(0, BINDLESS_STORAGE_BUFFER_SET)]] ByteAddressBuffer bindlessBuffers[];
+[[vk::binding(0, BINDLESS_STORAGE_BUFFER_SET)]] RWByteAddressBuffer bindlessStorageBuffers[];
 #else
 #error not supported
 #endif
