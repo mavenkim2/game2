@@ -59,119 +59,152 @@ public:
         return components[index];
     }
 
-    Component &Create(string name)
+    Component *Create(string name)
     {
-        i32 hash = nameMap.Hash(name);
-        nameMap.AddInHash(hash, (i32)components.size());
-
-        components.emplace_back();
-        components.back().name = name;
-        for (u32 i = 0; i < ArrayLength(components.back().textures); i++)
+        Component *component = 0;
+        TicketMutexScope(&mutex)
         {
-            components.back().textures[i] = {};
+            i32 hash = nameMap.Hash(name);
+            nameMap.AddInHash(hash, (i32)components.size());
+
+            components.emplace_back();
+            components.back().name = name;
+            for (u32 i = 0; i < ArrayLength(components.back().textures); i++)
+            {
+                components.back().textures[i] = {};
+            }
+            component = &components.back();
         }
-        return components.back();
+        return component;
     }
 
-    Component &Create(Entity entity, string name)
+    Component *Create(Entity entity, string name)
     {
         Assert(entity <= ENTITY_MASK);
 
-        i32 storedValue = ((i32)(components.size() & MATERIAL_MASK) << MATERIAL_SHIFT) |
-                          ((i32)(entity & ENTITY_MASK));
-        handleMap.AddInHash(entity, storedValue);
-        i32 hash = nameMap.Hash(name);
-        nameMap.AddInHash(hash, (i32)components.size());
-
-        components.emplace_back();
-        entities.push_back(entity);
-        return components.back();
+        Component *component = 0;
+        TicketMutexScope(&mutex)
+        {
+            i32 storedValue = ((i32)(components.size() & MATERIAL_MASK) << MATERIAL_SHIFT) |
+                              ((i32)(entity & ENTITY_MASK));
+            handleMap.AddInHash(entity, storedValue);
+            i32 hash = nameMap.Hash(name);
+            nameMap.AddInHash(hash, (i32)components.size());
+            components.emplace_back();
+            entities.push_back(entity);
+            component = &components.back();
+        }
+        return component;
     }
 
     Component *Link(Entity entity, string name)
     {
-        i32 index = GetComponentIndex(name);
+        Component *component = 0;
+        i32 index            = GetComponentIndex(name);
+
         if (index != -1)
         {
-            // TODO: I did not think this through :)
-            i32 storedValue = ((i32)(index & MATERIAL_MASK) << MATERIAL_SHIFT) |
-                              ((i32)(entity & ENTITY_MASK));
-            handleMap.AddInHash(entity, index, storedValue);
-            return &components[index];
+            TicketMutexScope(&mutex)
+            {
+                i32 storedValue = ((i32)(index & MATERIAL_MASK) << MATERIAL_SHIFT) |
+                                  ((i32)(entity & ENTITY_MASK));
+                handleMap.AddInHash(entity, index, storedValue);
+                component = &components[index];
+            }
         }
-        return 0;
+        return component;
     }
 
     b32 Remove(Entity entity)
     {
         b32 result = 0;
-        for (i32 i = handleMap.FirstInHash(entity); i != -1;)
+        TicketMutexScope(&mutex)
         {
-            u32 storedEntity   = i & ENTITY_MASK;
-            u32 storedMaterial = (i >> MATERIAL_SHIFT) & MATERIAL_MASK;
-
-            if (storedEntity == entity)
+            for (i32 i = handleMap.FirstInHash(entity); i != -1;)
             {
-                // Remove from entity lookup table
-                handleMap.indexChain[i] = handleMap.indexChain[storedMaterial];
+                u32 storedEntity   = i & ENTITY_MASK;
+                u32 storedMaterial = (i >> MATERIAL_SHIFT) & MATERIAL_MASK;
 
-                // Remove from name lookup table
-                i32 hash = nameMap.Hash(components[storedMaterial].name);
-                nameMap.RemoveFromHash(hash, (i32)storedMaterial);
+                if (storedEntity == entity)
+                {
+                    // Remove from entity lookup table
+                    handleMap.indexChain[i] = handleMap.indexChain[storedMaterial];
 
-                // Swap with end of list then pop
-                components[storedMaterial] = std::move(components.back()); // move instead of copy
-                entities[storedMaterial]   = entities.back();
-                components.pop_back();
-                entities.pop_back();
-                result = 1;
-                break;
+                    // Remove from name lookup table
+                    i32 hash = nameMap.Hash(components[storedMaterial].name);
+                    nameMap.RemoveFromHash(hash, (i32)storedMaterial);
+
+                    // Swap with end of list then pop
+                    components[storedMaterial] = std::move(components.back()); // move instead of copy
+                    entities[storedMaterial]   = entities.back();
+                    components.pop_back();
+                    entities.pop_back();
+                    result = 1;
+                    break;
+                }
+                i = handleMap.NextInHash(storedMaterial);
             }
-            i = handleMap.NextInHash(storedMaterial);
         }
         return result;
     }
 
     Component *GetComponent(Entity entity)
     {
-        for (i32 i = handleMap.FirstInHash(entity); i != -1;)
+        Component *component = 0;
+        TicketMutexScope(&mutex)
         {
-            u32 storedEntity   = i & ENTITY_MASK;
-            u32 storedMaterial = (i >> MATERIAL_SHIFT) & MATERIAL_MASK;
-            if (storedEntity == entity)
+            for (i32 i = handleMap.FirstInHash(entity); i != -1;)
             {
-                return &components[storedMaterial];
-            }
+                u32 storedEntity   = i & ENTITY_MASK;
+                u32 storedMaterial = (i >> MATERIAL_SHIFT) & MATERIAL_MASK;
+                if (storedEntity == entity)
+                {
+                    component = &components[storedMaterial];
+                    break;
+                }
 
-            i = handleMap.NextInHash(storedMaterial);
+                i = handleMap.NextInHash(storedMaterial);
+            }
         }
-        return 0;
+        return component;
     }
 
     i32 GetComponentIndex(string name)
     {
         i32 hash = nameMap.Hash(name);
-        for (i32 i = nameMap.FirstInHash(hash); i != -1; i = nameMap.NextInHash(i))
+
+        i32 index = -1;
+        TicketMutexScope(&mutex)
         {
-            if (components[i].name == name)
+            for (i32 i = nameMap.FirstInHash(hash); i != -1; i = nameMap.NextInHash(i))
             {
-                return i;
+                if (components[i].name == name)
+                {
+                    index = i;
+                    break;
+                }
             }
         }
-        return -1;
+        return index;
     }
 
     Component *GetComponent(string name)
     {
-        i32 hash = nameMap.Hash(name);
-        for (i32 i = nameMap.FirstInHash(hash); i != -1; i = nameMap.NextInHash(i))
+        i32 hash             = nameMap.Hash(name);
+        Component *component = 0;
+
+        TicketMutexScope(&mutex)
         {
-            if (components[i].name == name)
+            for (i32 i = nameMap.FirstInHash(hash); i != -1; i = nameMap.NextInHash(i))
             {
-                return &components[i];
+                if (components[i].name == name)
+                {
+                    component = &components[i];
+                    break;
+                }
             }
         }
-        return 0;
+        return component;
     }
 
     // ComponentHandle CreateComponent()

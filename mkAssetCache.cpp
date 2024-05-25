@@ -264,11 +264,12 @@ THREAD_ENTRY_POINT(AS_EntryPoint)
             asset->size = platform.ReadFileHandle(handle, AS_GetMemory(asset));
             platform.CloseFile(handle);
 
-            // TODO IMPORTANT: virtual protect the memory so it can only be read
-
             // Process the raw asset data
             // JS_Kick(AS_LoadAsset, asset, 0, Priority_Low);
-            AS_LoadAsset(asset);
+            // AS_LoadAsset(asset);
+            jobsystem::KickJob(0, [asset](jobsystem::JobArgs args) {
+                AS_LoadAsset(asset);
+            });
             ScratchEnd(scratch);
         }
         else
@@ -342,7 +343,6 @@ internal void AS_LoadAsset(AS_Asset *asset)
         GetPointerValue(&tokenizer, &model->numMeshes);
         model->meshes = (Mesh *)AS_Alloc(sizeof(Mesh) * model->numMeshes);
 
-        // Load the associated material file. TODO: these should probably just be combined if it's a scene
         string materialFilename = PushStr8F(temp.arena, "%S%S.mtr", materialDirectory, RemoveFileExtension(filename));
         string materialData     = platform.ReadEntireFile(temp.arena, materialFilename);
 
@@ -362,8 +362,8 @@ internal void AS_LoadAsset(AS_Asset *asset)
             string line = ReadLine(&materialTokenizer);
 
             SkipToNextLine(&materialTokenizer);
-            scene::MaterialComponent &component = gameScene.materials.Create(line);
-            component.name                      = line;
+            scene::MaterialComponent *component = gameScene.materials.Create(line);
+            component->name                     = line;
 
             // Read the diffuse texture if there is one
             b32 result = Advance(&materialTokenizer, "\tDiffuse: ");
@@ -374,42 +374,42 @@ internal void AS_LoadAsset(AS_Asset *asset)
 
                 if (platform.FileExists(ddsPath))
                 {
-                    component.textures[TextureType_Diffuse] = AS_GetAsset(ddsPath);
+                    component->textures[TextureType_Diffuse] = AS_GetAsset(ddsPath);
                 }
                 else
                 {
-                    component.textures[TextureType_Diffuse] = AS_GetAsset(StrConcat(temp.arena, textureDirectory, line));
+                    component->textures[TextureType_Diffuse] = AS_GetAsset(StrConcat(temp.arena, textureDirectory, line));
                 }
             }
             result = Advance(&materialTokenizer, "\tColor: ");
             if (result)
             {
-                component.baseColor.x = ReadFloat(&materialTokenizer);
-                component.baseColor.y = ReadFloat(&materialTokenizer);
-                component.baseColor.z = ReadFloat(&materialTokenizer);
-                component.baseColor.w = ReadFloat(&materialTokenizer);
+                component->baseColor.x = ReadFloat(&materialTokenizer);
+                component->baseColor.y = ReadFloat(&materialTokenizer);
+                component->baseColor.z = ReadFloat(&materialTokenizer);
+                component->baseColor.w = ReadFloat(&materialTokenizer);
             }
             result = Advance(&materialTokenizer, "\tNormal: ");
             if (result)
             {
-                line                                   = ReadLine(&materialTokenizer);
-                component.textures[TextureType_Normal] = AS_GetAsset(StrConcat(temp.arena, textureDirectory, line));
+                line                                    = ReadLine(&materialTokenizer);
+                component->textures[TextureType_Normal] = AS_GetAsset(StrConcat(temp.arena, textureDirectory, line));
             }
             result = Advance(&materialTokenizer, "\tMR Map: ");
             if (result)
             {
-                line                               = ReadLine(&materialTokenizer);
-                component.textures[TextureType_MR] = AS_GetAsset(StrConcat(temp.arena, textureDirectory, line));
+                line                                = ReadLine(&materialTokenizer);
+                component->textures[TextureType_MR] = AS_GetAsset(StrConcat(temp.arena, textureDirectory, line));
             }
             result = Advance(&materialTokenizer, "\tMetallic Factor: ");
             if (result)
             {
-                component.metallicFactor = ReadFloat(&materialTokenizer);
+                component->metallicFactor = ReadFloat(&materialTokenizer);
             }
             result = Advance(&materialTokenizer, "\tRoughness Factor: ");
             if (result)
             {
-                component.roughnessFactor = ReadFloat(&materialTokenizer);
+                component->roughnessFactor = ReadFloat(&materialTokenizer);
             }
             SkipToNextLine(&materialTokenizer); // final closing bracket }
         }
@@ -617,25 +617,25 @@ internal void AS_LoadAsset(AS_Asset *asset)
             if (mesh->boneIds)
             {
                 GPUBufferDesc streamDesc;
-                desc.mResourceUsage = ResourceUsage::MegaBuffer | ResourceUsage::StorageBuffer | ResourceUsage::UniformTexelBuffer;
+                streamDesc.mResourceUsage = ResourceUsage::MegaBuffer | ResourceUsage::StorageBuffer | ResourceUsage::UniformTexelBuffer;
 
                 alignment = device->GetMinAlignment(&streamDesc);
                 Assert(IsPow2(alignment));
 
                 mesh->soPosView.offset = 0;
                 mesh->soPosView.size   = sizeof(mesh->positions[0]) * vertexCount;
-                desc.mSize             = AlignPow2(mesh->soPosView.size, alignment);
+                streamDesc.mSize       = AlignPow2(mesh->soPosView.size, alignment);
 
-                mesh->soNorView.offset = desc.mSize;
+                mesh->soNorView.offset = streamDesc.mSize;
                 mesh->soNorView.size   = sizeof(mesh->normals[0]) * vertexCount;
-                desc.mSize += AlignPow2(mesh->soNorView.size, alignment);
+                streamDesc.mSize += AlignPow2(mesh->soNorView.size, alignment);
 
-                mesh->soTanView.offset = desc.mSize;
+                mesh->soTanView.offset = streamDesc.mSize;
                 mesh->soTanView.size   = sizeof(mesh->tangents[0]) * vertexCount;
-                desc.mSize += AlignPow2(mesh->soTanView.size, alignment);
+                streamDesc.mSize += AlignPow2(mesh->soTanView.size, alignment);
 
                 // Load positions
-                device->CreateBuffer(&mesh->streamBuffer, desc, 0);
+                device->CreateBuffer(&mesh->streamBuffer, streamDesc, 0);
                 device->SetName(&mesh->streamBuffer, "Mesh stream buffer");
 
                 mesh->soPosView.srvIndex      = device->CreateSubresource(&mesh->streamBuffer, ResourceType::SRV, mesh->soPosView.offset, mesh->soPosView.size, Format::R32G32B32_SFLOAT);

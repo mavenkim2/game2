@@ -1426,7 +1426,7 @@ internal void Render()
             modelParams->modelMatrix     = g_state->mTransforms[i];
         }
         ViewLight testLight = {};
-        testLight.dir       = {0, .5, .5};
+        testLight.dir       = {0, 0, 1};
         testLight.dir       = Normalize(testLight.dir);
         uniforms.rLightDir  = MakeV4(testLight.dir, 1.0);
         uniforms.rViewPos   = MakeV4(renderState->camera.position, 1.0);
