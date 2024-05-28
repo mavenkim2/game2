@@ -570,44 +570,71 @@ DLL G_UPDATE(G_Update)
     renderState->camera = g_state->camera;
     // Update
     u32 totalMatrixCount = 0;
+    u32 totalMeshCount   = 0;
+    gameScene.aabbCount  = 0;
 
     for (u32 i = 0; i < g_state->mEntityCount; i++)
     {
-        u32 offset = totalMatrixCount;
-        u32 count  = GetSkeletonFromModel(g_state->mEntities[i].mAssetHandle)->count;
+        // Skinning
+        game::Entity *entity = &g_state->mEntities[i];
+        u32 offset           = totalMatrixCount;
+        u32 count            = GetSkeletonFromModel(g_state->mEntities[i].mAssetHandle)->count;
         if (count == 0)
         {
-            g_state->mEntities[i].mSkinningOffset = -1;
+            entity->mSkinningOffset = -1;
         }
         else
         {
-            g_state->mEntities[i].mSkinningOffset = totalMatrixCount;
-            totalMatrixCount += GetSkeletonFromModel(g_state->mEntities[i].mAssetHandle)->count;
+            entity->mSkinningOffset = totalMatrixCount;
+            totalMatrixCount += GetSkeletonFromModel(entity->mAssetHandle)->count;
+        }
+
+        // AABB update
+        LoadedModel *model = GetModel(entity->mAssetHandle);
+        for (u32 meshIndex = 0; meshIndex < model->numMeshes; meshIndex++)
+        {
+            Mesh *mesh      = &model->meshes[meshIndex];
+            mesh->aabbIndex = gameScene.aabbCount++;
+            mesh->meshIndex = totalMeshCount;
+
+            gameScene.aabbs[mesh->aabbIndex] = Transform(gameScene.transforms[mesh->transformIndex], mesh->bounds);
+            totalMeshCount++;
         }
     }
-    u32 totalSkinningSize = totalMatrixCount * sizeof(Mat4);
+
+    u32 totalSkinningSize   = totalMatrixCount * sizeof(Mat4);
+    u32 totalMeshParamsSize = totalMeshCount * sizeof(MeshParams);
 
     GPUBuffer *skinningBufferUpload = &render::skinningBufferUpload[device->GetCurrentBuffer()];
-    GPUBuffer *skinningBuffer       = &render::skinningBuffer[device->GetCurrentBuffer()];
+    GPUBuffer *skinningBuffer       = &render::skinningBuffer;
+
+    GPUBuffer *meshParamsUpload = &render::meshParamsBufferUpload[device->GetCurrentBuffer()];
+    GPUBuffer *meshParamsBuffer = &render::meshParamsBuffer;
 
     // Resize
     if (totalSkinningSize > skinningBufferUpload->mDesc.mSize)
     {
-        GPUBufferDesc desc = skinningBufferUpload->mDesc;
-        desc.mSize         = totalSkinningSize * 2;
-        device->DeleteBuffer(skinningBufferUpload);
-        device->CreateBuffer(skinningBufferUpload, desc, 0);
-
-        desc       = skinningBuffer->mDesc;
-        desc.mSize = totalSkinningSize * 2;
-        device->DeleteBuffer(skinningBuffer);
-        device->CreateBuffer(skinningBuffer, desc, 0);
+        for (u32 frame = 0; frame < device->cNumBuffers; frame++)
+        {
+            device->ResizeBuffer(&render::skinningBufferUpload[frame], totalSkinningSize * 2);
+        }
+        device->ResizeBuffer(skinningBuffer, totalSkinningSize * 2);
     }
-    g_state->mSkinningBufferSize = totalSkinningSize;
+    if (totalMeshParamsSize > meshParamsUpload->mDesc.mSize)
+    {
+        for (u32 frame = 0; frame < device->cNumBuffers; frame++)
+        {
+            device->ResizeBuffer(&render::meshParamsBufferUpload[frame], totalMeshParamsSize * 2);
+        }
+        device->ResizeBuffer(meshParamsBuffer, totalMeshParamsSize * 2);
+    }
 
-    Mat4 *skinningMappedData = (Mat4 *)skinningBufferUpload->mMappedData;
+    g_state->skinningBufferSize = totalSkinningSize;
+    g_state->meshParamsSize     = totalMeshParamsSize;
 
-    // Model 1
+    Mat4 *skinningMappedData         = (Mat4 *)skinningBufferUpload->mMappedData;
+    MeshParams *meshParamsMappedData = (MeshParams *)meshParamsUpload->mMappedData;
+
     for (u32 i = 0; i < g_state->mEntityCount; i++)
     {
         game::Entity *entity = &g_state->mEntities[i];
@@ -618,6 +645,17 @@ DLL G_UPDATE(G_Update)
             PlayCurrentAnimation(g_state->permanentArena, &g_state->mAnimPlayers[i], dt, tforms);
             SkinModelToAnimation(&g_state->mAnimPlayers[i], entity->mAssetHandle, tforms,
                                  skinningMappedData + entity->mSkinningOffset);
+        }
+        LoadedModel *model = GetModel(entity->mAssetHandle);
+        for (u32 meshIndex = 0; meshIndex < model->numMeshes; meshIndex++)
+        {
+            Mesh *mesh     = &model->meshes[meshIndex];
+            Mat4 transform = gameScene.transforms[mesh->transformIndex];
+
+            MeshParams *meshParams      = &meshParamsMappedData[mesh->meshIndex];
+            meshParams->transform       = renderState->transform * g_state->mTransforms[i] * transform;
+            meshParams->modelViewMatrix = renderState->viewMatrix * g_state->mTransforms[i] * transform;
+            meshParams->modelMatrix     = g_state->mTransforms[i] * transform;
         }
     }
 

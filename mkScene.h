@@ -229,10 +229,33 @@ struct Scene
 
     ComponentManager<MaterialComponent> materials;
 
+    TicketMutex transformMutex = {};
+    Mat4 transforms[256];
+    u32 transformCount = 0;
+
+    TicketMutex aabbMutex = {};
+    Rect3 aabbs[256];
+    u32 aabbCount = 0;
+
+    // TODO: meshes need to be flat in here as well, instead of bunched in entities
+
     Entity CreateEntity()
     {
         static std::atomic<u32> entityGen = NULL_HANDLE + 1;
         return entityGen.fetch_add(1);
+    }
+
+    i32 CreateTransform(Mat4 transform)
+    {
+        i32 result = -1;
+        TicketMutexScope(&transformMutex)
+        {
+            Assert(transformCount < ArrayLength(transforms));
+            transforms[transformCount] = transform;
+            result                     = transformCount;
+            transformCount++;
+        }
+        return result;
     }
     // Occlusion results
     // struct OcclusionResult

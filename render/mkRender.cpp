@@ -237,38 +237,6 @@ internal void D_BeginFrame()
     }
 }
 
-#if 0
-internal void D_EndFrame()
-{
-    RenderState *renderState = engine->GetRenderState();
-    R_PassMesh *pass         = R_GetPassFromKind(R_PassType_Mesh)->passMesh;
-
-    // TODO: these need to go somewhere else
-    {
-        R_SetupViewFrustum();
-        for (ViewLight *light = pass->viewLight; light != 0; light = light->next)
-        {
-            R_CullModelsToLight(light);
-            if (light->type == LightType_Directional)
-            {
-                R_CascadedShadowMap(light, renderState->shadowMapMatrices, renderState->cascadeDistances);
-            }
-        }
-
-        renderState->drawParams = D_PrepareMeshes(pass->list.first, pass->list.mTotalSurfaceCount);
-
-        // for each light, prepare the meshes that are ONLY SHADOWS for that light. in the future, will
-        // need to consider models that cast shadows into the view frustum from multiple lights.
-        for (ViewLight *light = pass->viewLight; light != 0; light = light->next)
-        {
-            light->drawParams = D_PrepareMeshes(light->modelNodes, light->mNumShadowSurfaces);
-        }
-    }
-    renderState->vertexCache.VC_BeginGPUSubmit();
-    R_SwapFrameData();
-}
-#endif
-
 global Rect3 BoundsUnitCube      = {{-1, -1, -1}, {1, 1, 1}};
 global Rect3 BoundsZeroToOneCube = {{-1, -1, 0}, {1, 1, 0}};
 
@@ -362,151 +330,6 @@ internal void D_PushHeightmap(Heightmap heightmap)
 // threaded, similar to what we have now. right now the way the renderer works is that there's a permanent render
 // state global, and each frame the simulation/game sends data to the render pass to use, etc etc
 // yadda yadda.
-#if 0
-internal void D_PushModel(VC_Handle vertexBuffer, VC_Handle indexBuffer, Mat4 transform)
-{
-    D_State *d_state       = engine->GetDrawState();
-    R_PassMesh *pass       = R_GetPassFromKind(R_PassType_Mesh)->passMesh;
-    R_MeshParamsNode *node = PushStruct(d_state->arena, R_MeshParamsNode);
-
-    pass->list.mTotalSurfaceCount += 1;
-
-    node->val.numSurfaces = 1;
-    D_Surface *surface    = (D_Surface *)R_FrameAlloc(sizeof(*surface));
-    node->val.surfaces    = surface;
-
-    surface->vertexBuffer = vertexBuffer;
-    surface->indexBuffer  = indexBuffer;
-
-    node->val.transform = transform;
-    QueuePush(pass->list.first, pass->list.last, node);
-}
-
-internal void D_PushModel(AS_Handle loadedModel, Mat4 transform, Mat4 &mvp, Mat4 *skinningMatrices = 0,
-                          u32 skinningMatricesCount = 0)
-{
-    D_State *d_state         = engine->GetDrawState();
-    RenderState *renderState = engine->GetRenderState();
-    if (!IsModelHandleNil(loadedModel))
-    {
-        LoadedModel *model = GetModel(loadedModel);
-
-        Rect3 bounds = model->bounds;
-        bounds.minP  = transform * bounds.minP;
-        bounds.maxP  = transform * bounds.maxP;
-
-        if (bounds.minP.x > bounds.maxP.x)
-        {
-            Swap(f32, bounds.minP.x, bounds.maxP.x);
-        }
-        if (bounds.minP.y > bounds.maxP.y)
-        {
-            Swap(f32, bounds.minP.y, bounds.maxP.y);
-        }
-        if (bounds.minP.z > bounds.maxP.z)
-        {
-            Swap(f32, bounds.minP.z, bounds.maxP.z);
-        }
-        DrawBox(bounds, {1, 0, 0, 1});
-
-        R_PassMesh *pass       = R_GetPassFromKind(R_PassType_Mesh)->passMesh;
-        R_MeshParamsNode *node = PushStruct(d_state->arena, R_MeshParamsNode);
-
-        node->val.mIsDirectlyVisible = D_IsInBounds(model->bounds, mvp);
-        node->val.mBounds            = bounds;
-        pass->list.mTotalSurfaceCount += model->numMeshes;
-
-        node->val.numSurfaces = model->numMeshes;
-        D_Surface *surfaces   = (D_Surface *)R_FrameAlloc(node->val.numSurfaces * sizeof(*surfaces));
-        node->val.surfaces    = surfaces;
-
-        for (u32 i = 0; i < model->numMeshes; i++)
-        {
-            Mesh *mesh         = &model->meshes[i];
-            D_Surface *surface = &surfaces[i];
-
-            surface->vertexBuffer = mesh->surface.mVertexBuffer;
-            surface->indexBuffer  = mesh->surface.mIndexBuffer;
-
-            // TODO: ptr or copy?
-            surface->material = &mesh->material;
-        }
-
-        node->val.transform = transform;
-
-        if (skinningMatricesCount)
-        {
-            node->val.jointHandle = renderState->vertexCache.VC_AllocateBuffer(BufferType_Uniform, BufferUsage_Dynamic, skinningMatrices,
-                                                                               sizeof(skinningMatrices[0]), skinningMatricesCount);
-        }
-        QueuePush(pass->list.first, pass->list.last, node);
-    }
-}
-
-// prepare to submit to gpu
-internal R_MeshPreparedDrawParams *D_PrepareMeshes(R_MeshParamsNode *head, i32 inCount)
-{
-    RenderState *renderState = engine->GetRenderState();
-    // R_PassMesh *pass         = renderState->passes[R_PassType_Mesh].passMesh;
-
-    // Per mesh
-    i32 drawCount                        = 0;
-    R_MeshPreparedDrawParams *drawParams = (R_MeshPreparedDrawParams *)R_FrameAlloc(sizeof(R_MeshPreparedDrawParams));
-    drawParams->mIndirectBuffers         = (R_IndirectCmd *)R_FrameAlloc(sizeof(R_IndirectCmd) * inCount);
-    drawParams->mPerMeshDrawParams       = (R_MeshPerDrawParams *)R_FrameAlloc(sizeof(R_MeshPerDrawParams) * inCount);
-    for (R_MeshParamsNode *node = head; node != 0; node = node->next)
-    {
-        R_MeshParams *params = &node->val;
-
-        i32 jointOffset = -1;
-        if (params->jointHandle != 0)
-        {
-            if (!renderState->vertexCache.CheckCurrent(params->jointHandle))
-            {
-                continue;
-            }
-            jointOffset = (i32)(renderState->vertexCache.GetOffset(params->jointHandle) / sizeof(Mat4));
-        }
-
-        // Per material
-        for (u32 surfaceCount = 0; surfaceCount < params->numSurfaces; surfaceCount++)
-        {
-            R_IndirectCmd *indirectBuffer     = &drawParams->mIndirectBuffers[drawCount];
-            R_MeshPerDrawParams *perMeshParam = &drawParams->mPerMeshDrawParams[drawCount];
-            D_Surface *surface                = &params->surfaces[surfaceCount];
-
-            perMeshParam->mTransform   = params->transform;
-            perMeshParam->mJointOffset = jointOffset;
-            perMeshParam->mIsPBR       = true;
-
-            indirectBuffer->mCount         = (u32)(renderState->vertexCache.GetSize(surface->indexBuffer) / sizeof(u32));
-            indirectBuffer->mInstanceCount = 1;
-            indirectBuffer->mFirstIndex    = (u32)(renderState->vertexCache.GetOffset(surface->indexBuffer) / sizeof(u32));
-            // TODO: this could change
-            indirectBuffer->mBaseVertex   = (u32)(renderState->vertexCache.GetOffset(surface->vertexBuffer) / sizeof(MeshVertex));
-            indirectBuffer->mBaseInstance = 0;
-
-            drawCount++;
-            if (!surface->material)
-            {
-                continue;
-            }
-            for (i32 textureIndex = 0; textureIndex < TextureType_Count; textureIndex++)
-            {
-                R_Handle textureHandle = GetTextureRenderHandle(surface->material->textureHandles[textureIndex]);
-                if (textureIndex == TextureType_MR && textureHandle.u64[0] == 0)
-                {
-                    perMeshParam->mIsPBR = false;
-                }
-                perMeshParam->mIndex[textureIndex] = (u64)textureHandle.u32[0];
-                // TODO: change the shader to reflect that this is a float :)
-                perMeshParam->mSlice[textureIndex] = textureHandle.u32[1];
-            }
-        }
-    }
-    return drawParams;
-}
-#endif
 
 internal void R_SetupViewFrustum()
 {
@@ -945,37 +768,6 @@ internal void R_CullModelsToLight(ViewLight *light)
     }
 }
 
-internal void R_ShadowMapFrusta(i32 splits, f32 splitWeight, Mat4 *outMatrices, f32 *outSplits)
-{
-    RenderState *renderState = engine->GetRenderState();
-    f32 nearZStart           = renderState->nearZ;
-    f32 farZEnd              = renderState->farZ;
-    f32 nearZ                = nearZStart;
-    f32 farZ                 = farZEnd;
-    f32 lambda               = splitWeight;
-    f32 ratio                = farZEnd / nearZStart;
-
-    for (i32 i = 0; i < splits + 1; i++)
-    {
-        f32 si = (i + 1) / (f32)(splits + 1);
-        if (i > 0)
-        {
-            nearZ = farZ - (farZ * 0.005f);
-        }
-        // NOTE: ???
-        farZ = 1.005f * lambda * (nearZStart * Powf(ratio, si)) +
-               (1 - lambda) * (nearZStart + (farZEnd - nearZStart) * si);
-
-        Mat4 matrix    = Perspective4(renderState->fov, renderState->aspectRatio, nearZ, farZ);
-        Mat4 result    = matrix * renderState->viewMatrix;
-        outMatrices[i] = Inverse(result);
-        if (i <= splits)
-        {
-            outSplits[i] = farZ;
-        }
-    }
-}
-
 // TODO: frustum culling cuts out fragments that cast shadows. use the light's frustum to cull
 // also restrict the bounds to more tightly enclose the bounds of the objects (for better quality shadows)
 internal void R_CascadedShadowMap(const ViewLight *inLight, Mat4 *outLightViewProjectionMatrices,
@@ -1079,85 +871,7 @@ internal void R_CascadedShadowMap(const ViewLight *inLight, Mat4 *outLightViewPr
         outLightViewProjectionMatrices[cascadeIndex] =
             // Orthographic4(aabb.minX, aabb.maxX, aabb.minY, aabb.maxY, aabb.minZ, aabb.maxZ) * lightView; // aabb.minZ, aabb.maxZ) * lightView;
             Orthographic4(-extents.x, extents.x, -extents.y, extents.y, 0, zRange) * updatedLightView;
-        //
-        // Increase the resolution by bounding to the frustum
-        // Rect2 bounds;
-        // bounds.minP = {FLT_MAX, FLT_MAX};
-        // bounds.maxP = {-FLT_MAX, -FLT_MAX};
-        // for (i32 i = 0; i < ArrayLength(frustumVertices); i++)
-        // {
-        //     V4 ndc = outLightViewProjectionMatrices[cascadeIndex] * MakeV4(frustumVertices[i], 1.0);
-        //     // Assert(ndc.x >= -ndc.w && ndc.x <= ndc.w);
-        //     // Assert(ndc.y >= -ndc.w && ndc.y <= ndc.w);
-        //     // Assert(ndc.z >= -ndc.w && ndc.z <= ndc.w);
-        //     ndc.xyz /= ndc.w;
-        //     bounds.minX = Min(bounds.minX, ndc.x);
-        //     bounds.minY = Min(bounds.minY, ndc.y);
-        //
-        //     bounds.maxX = Max(bounds.maxX, ndc.x);
-        //     bounds.maxY = Max(bounds.maxX, ndc.y);
-        // }
-        // V2 boundCenter  = (bounds.minP + bounds.maxP) / 2.f;
-        // V2 boundExtents = bounds.maxP - bounds.minP;
-        // Mat4 grow       = Scale(MakeV3(1.f / boundExtents.x, 1.f / boundExtents.y, 1.f)) * Translate4(-MakeV3(boundCenter, 0.f));
-        //
-        // outLightViewProjectionMatrices[cascadeIndex] = grow * outLightViewProjectionMatrices[cascadeIndex];
     }
-
-    // V3 frustumVertices[cNumCascades][8];
-    // for (i32 cascadeIndex = 0; cascadeIndex < cNumCascades; cascadeIndex++)
-    // {
-    //     R_GetFrustumCorners(mvpMatrices[cascadeIndex], BoundsZeroToOneCube, frustumVertices[cascadeIndex]);
-    // }
-    //
-    // // Step 2. Find light world to view matrix (first get center point of frusta)
-    //
-    // V3 centers[cNumCascades];
-    // // Light direction is specified from surface->light origin
-    // V3 worldUp = renderState->camera.right;
-    // Mat4 lightViewMatrices[cNumCascades];
-    // for (i32 cascadeIndex = 0; cascadeIndex < cNumCascades; cascadeIndex++)
-    // {
-    //     for (i32 i = 0; i < 8; i++)
-    //     {
-    //         centers[cascadeIndex] += frustumVertices[cascadeIndex][i];
-    //     }
-    //     centers[cascadeIndex] /= 8;
-    //     lightViewMatrices[cascadeIndex] = LookAt4(centers[cascadeIndex] + inLight->dir, centers[cascadeIndex], worldUp);
-    // }
-    //
-    // Rect3 bounds[cNumCascades];
-    // for (i32 cascadeIndex = 0; cascadeIndex < cNumCascades; cascadeIndex++)
-    // {
-    //     Init(&bounds[cascadeIndex]);
-    //     // Loop over each corner of each frusta
-    //     for (i32 i = 0; i < 8; i++)
-    //     {
-    //         V4 result = Transform(lightViewMatrices[cascadeIndex], frustumVertices[cascadeIndex][i]);
-    //         AddBounds(bounds[cascadeIndex], result.xyz);
-    //     }
-    // }
-    //
-    // // TODO: instead of tightly fitting the frusta, the light's box could be tighter
-    //
-    // for (i32 i = 0; i < cNumCascades; i++)
-    // {
-    //     // When viewing down the -z axis, the max is the near plane and the min is the far plane.
-    //     Rect3 *currentBounds = &bounds[i];
-    //     // The orthographic projection expects 0 < n < f
-    //
-    //     // TODO: use the bounds of the light instead
-    //     f32 zNear = -currentBounds->maxZ - 50;
-    //     f32 zFar  = -currentBounds->minZ;
-    //
-    //     f32 extent = zFar - zNear;
-    //
-    //     V3 shadowCameraPos = centers[i] - inLight->dir * zNear;
-    //     Mat4 fixedLookAt   = LookAt4(shadowCameraPos, centers[i], worldUp);
-    //
-    //     outLightViewProjectionMatrices[i] = Orthographic4(currentBounds->minX, currentBounds->maxX, currentBounds->minY, currentBounds->maxY, 0, extent) * fixedLookAt;
-    //     outCascadeDistances[i]            = cascadeDistances[i];
-    // }
 }
 
 using namespace graphics;
@@ -1176,11 +890,10 @@ PipelineState shadowMapPipeline;
 PipelineState blockCompressPipeline;
 PipelineState skinPipeline;
 
-graphics::GPUBuffer ubo;
-graphics::GPUBuffer vbo;
-graphics::GPUBuffer ibo;
-
-graphics::GPUBuffer skinningBuffer[device->cNumBuffers];
+graphics::GPUBuffer cascadeParamsBuffer;
+graphics::GPUBuffer meshParamsBuffer;
+graphics::GPUBuffer meshParamsBufferUpload[device->cNumBuffers];
+graphics::GPUBuffer skinningBuffer;
 graphics::GPUBuffer skinningBufferUpload[device->cNumBuffers];
 
 InputLayout inputLayouts[IL_Type_Count];
@@ -1196,6 +909,7 @@ struct DeferredBlockCompressCmd
     Texture in;
     Texture out;
 };
+
 DeferredBlockCompressCmd blockCompressRing[256];
 std::atomic<u64> volatile blockCompressWrite       = 0;
 std::atomic<u64> volatile blockCompressCommitWrite = 0;
@@ -1219,7 +933,7 @@ internal void Initialize()
         GPUBufferDesc desc;
         desc.mSize          = kilobytes(64);
         desc.mResourceUsage = ResourceUsage::UniformBuffer | ResourceUsage::NotBindless;
-        device->CreateBuffer(&ubo, desc, 0);
+        device->CreateBuffer(&cascadeParamsBuffer, desc, 0);
 
         // Skinning
         desc                = {};
@@ -1236,11 +950,26 @@ internal void Initialize()
         desc.mSize          = kilobytes(4);
         desc.mUsage         = MemoryUsage::GPU_ONLY;
         desc.mResourceUsage = ResourceUsage::UniformBuffer;
-        for (u32 i = 0; i < ArrayLength(skinningBuffer); i++)
+        device->CreateBuffer(&skinningBuffer, desc, 0);
+        device->SetName(&skinningBuffer, "Skinning buffer");
+
+        // Mesh transforms
+        desc                = {};
+        desc.mSize          = kilobytes(4);
+        desc.mUsage         = MemoryUsage::CPU_TO_GPU;
+        desc.mResourceUsage = ResourceUsage::UniformBuffer;
+        for (u32 i = 0; i < ArrayLength(meshParamsBufferUpload); i++)
         {
-            device->CreateBuffer(&skinningBuffer[i], desc, 0);
-            device->SetName(&skinningBuffer[i], "Skinning buffer");
+            device->CreateBuffer(&meshParamsBufferUpload[i], desc, 0);
+            device->SetName(&meshParamsBufferUpload[i], "Mesh params upload buffer");
         }
+
+        desc                = {};
+        desc.mSize          = kilobytes(4);
+        desc.mUsage         = MemoryUsage::GPU_ONLY;
+        desc.mResourceUsage = ResourceUsage::UniformBuffer;
+        device->CreateBuffer(&meshParamsBuffer, desc, 0);
+        device->SetName(&meshParamsBuffer, "Mesh params buffer");
     }
 
     // Initialize render targets/depth buffers
@@ -1350,10 +1079,10 @@ internal void Initialize()
 internal void Render()
 {
     // TODO: eventually, this should not be accessed from here
-    G_State *g_state                = engine->GetGameState();
-    RenderState *renderState        = engine->GetRenderState();
-    GPUBuffer *currentSkinBufUpload = &skinningBufferUpload[device->GetCurrentBuffer()];
-    GPUBuffer *currentSkinBuf       = &skinningBuffer[device->GetCurrentBuffer()];
+    G_State *g_state                  = engine->GetGameState();
+    RenderState *renderState          = engine->GetRenderState();
+    GPUBuffer *currentSkinBufUpload   = &skinningBufferUpload[device->GetCurrentBuffer()];
+    GPUBuffer *currentMeshParamUpload = &meshParamsBufferUpload[device->GetCurrentBuffer()];
 
     // Read through deferred block compress commands
     CommandList cmd;
@@ -1375,7 +1104,7 @@ internal void Render()
     {
         device->BindCompute(&skinPipeline, cmd);
         SkinningPushConstants pc;
-        pc.skinningBuffer = device->GetDescriptorIndex(currentSkinBuf, ResourceType::SRV);
+        pc.skinningBuffer = device->GetDescriptorIndex(&skinningBuffer, ResourceType::SRV);
         for (u32 entityIndex = 0; entityIndex < g_state->mEntityCount; entityIndex++)
         {
             game::Entity *entity = &g_state->mEntities[entityIndex];
@@ -1410,39 +1139,52 @@ internal void Render()
 
     // GPUBarrier barrier = CreateBarrier(currentSkinBufUpload, ResourceUsage::TransferSrc, ResourceUsage::None);
     // device->Barrier(cmdList, &barrier, 1);
-    if (g_state->mSkinningBufferSize)
     {
-        device->CopyBuffer(cmdList, currentSkinBuf, currentSkinBufUpload, g_state->mSkinningBufferSize);
+        GPUBarrier barriers[] = {
+            GPUBarrier::Buffer(&skinningBuffer, ResourceUsage::UniformBuffer, ResourceUsage::TransferDst),
+            GPUBarrier::Buffer(&meshParamsBuffer, ResourceUsage::UniformBuffer, ResourceUsage::TransferDst),
+            // TODO: shouldn't this be transferdst?
+            GPUBarrier::Buffer(&cascadeParamsBuffer, ResourceUsage::TransferSrc, ResourceUsage::UniformBuffer),
+        };
+        device->Barrier(cmdList, barriers, ArrayLength(barriers));
     }
 
-    // Setup uniform buffer
+    u32 skinningBufferSize = g_state->skinningBufferSize;
+    if (skinningBufferSize)
     {
-        Ubo uniforms;
-        for (u32 i = 0; i < g_state->mEntityCount; i++)
-        {
-            ModelParams *modelParams     = &uniforms.rParams[i];
-            modelParams->transform       = renderState->transform * g_state->mTransforms[i];
-            modelParams->modelViewMatrix = renderState->viewMatrix * g_state->mTransforms[i];
-            modelParams->modelMatrix     = g_state->mTransforms[i];
-        }
-        ViewLight testLight = {};
-        testLight.dir       = {0, 0, 1};
-        testLight.dir       = Normalize(testLight.dir);
-        uniforms.rLightDir  = MakeV4(testLight.dir, 1.0);
-        uniforms.rViewPos   = MakeV4(renderState->camera.position, 1.0);
-
-        R_CascadedShadowMap(&testLight, uniforms.rLightViewProjectionMatrices, uniforms.rCascadeDistances.elements);
-        device->FrameAllocate(&ubo, &uniforms, cmdList, sizeof(uniforms));
+        device->CopyBuffer(cmdList, &skinningBuffer, currentSkinBufUpload, skinningBufferSize);
+    }
+    u32 meshParamsSize = g_state->meshParamsSize;
+    if (meshParamsSize)
+    {
+        device->CopyBuffer(cmdList, &meshParamsBuffer, currentMeshParamUpload, meshParamsSize);
     }
 
-    GPUBarrier barriers[] = {
-        GPUBarrier::Buffer(&ubo, ResourceUsage::TransferSrc, ResourceUsage::UniformBuffer),
-        GPUBarrier::Buffer(currentSkinBuf, ResourceUsage::TransferDst, ResourceUsage::UniformBuffer),
-    };
-    device->Barrier(cmdList, barriers, ArrayLength(barriers));
+    // Setup cascaded shadowmaps
+    {
+        CascadeParams cascadeParams;
+        ViewLight testLight     = {};
+        testLight.dir           = {0, 0, 1};
+        testLight.dir           = Normalize(testLight.dir);
+        cascadeParams.rLightDir = MakeV4(testLight.dir, 1.0);
+        cascadeParams.rViewPos  = MakeV4(renderState->camera.position, 1.0);
+
+        R_CascadedShadowMap(&testLight, cascadeParams.rLightViewProjectionMatrices, cascadeParams.rCascadeDistances.elements);
+        device->FrameAllocate(&cascadeParamsBuffer, &cascadeParams, cmdList, sizeof(cascadeParams));
+    }
+
+    {
+        GPUBarrier barriers[] = {
+            GPUBarrier::Buffer(&skinningBuffer, ResourceUsage::TransferDst, ResourceUsage::UniformBuffer),
+            GPUBarrier::Buffer(&meshParamsBuffer, ResourceUsage::TransferDst, ResourceUsage::UniformBuffer),
+        };
+        device->Barrier(cmdList, barriers, ArrayLength(barriers));
+    }
 
     // Shadow pass :)
     {
+        PushConstant pc;
+        pc.meshParamsBuffer = device->GetDescriptorIndex(&meshParamsBuffer, ResourceType::SRV);
         for (u32 shadowSlice = 0; shadowSlice < shadowDepthBuffer.mDesc.mNumLayers; shadowSlice++)
         {
             RenderPassImage images[] = {
@@ -1452,7 +1194,7 @@ internal void Render()
 
             device->BeginRenderPass(images, ArrayLength(images), cmdList);
             device->BindPipeline(&shadowMapPipeline, cmdList);
-            device->BindResource(&ubo, ResourceType::SRV, MODEL_PARAMS_BIND, cmdList);
+            device->BindResource(&cascadeParamsBuffer, ResourceType::SRV, CASCADE_PARAMS_BIND, cmdList);
             device->UpdateDescriptorSet(cmdList);
 
             Viewport viewport;
@@ -1466,20 +1208,19 @@ internal void Render()
 
             device->SetScissor(cmdList, scissor);
 
-            PushConstant pc;
             pc.cascadeNum = shadowSlice;
 
+            // TODO: pull this out into a function
             for (u32 entityIndex = 0; entityIndex < g_state->mEntityCount; entityIndex++)
             {
                 game::Entity *entity = &g_state->mEntities[entityIndex];
                 LoadedModel *model   = GetModel(entity->mAssetHandle);
-                pc.skinningOffset    = entity->mSkinningOffset;
-                pc.modelIndex        = entityIndex;
 
                 for (u32 meshIndex = 0; meshIndex < model->numMeshes; meshIndex++)
                 {
                     Mesh *mesh = &model->meshes[meshIndex];
 
+                    pc.meshIndex = mesh->meshIndex;
                     if (mesh->soPosView.IsValid())
                     {
                         pc.vertexPos = mesh->soPosView.srvDescriptor;
@@ -1491,10 +1232,16 @@ internal void Render()
                     pc.vertexBoneId     = mesh->vertexBoneIdView.srvDescriptor;
                     pc.vertexBoneWeight = mesh->vertexBoneWeightView.srvDescriptor;
 
-                    device->PushConstants(cmdList, sizeof(pc), &pc);
-                    device->BindIndexBuffer(cmdList, &mesh->buffer, mesh->indexView.offset);
+                    u32 baseVertex = 0;
+                    for (u32 subsetIndex = 0; subsetIndex < mesh->numSubsets; subsetIndex++)
+                    {
+                        Mesh::MeshSubset *subset = &mesh->subsets[subsetIndex];
 
-                    device->DrawIndexed(cmdList, mesh->indexCount, 0, 0);
+                        device->PushConstants(cmdList, sizeof(pc), &pc);
+                        device->BindIndexBuffer(cmdList, &mesh->buffer, mesh->indexView.offset);
+                        device->DrawIndexed(cmdList, subset->indexCount, subset->indexStart, 0);
+                        baseVertex += subset->indexCount;
+                    }
                 }
             }
             device->EndRenderPass(cmdList);
@@ -1518,7 +1265,7 @@ internal void Render()
 
         device->BeginRenderPass(&swapchain, images, ArrayLength(images), cmdList);
         device->BindPipeline(&pipelineState, cmdList);
-        device->BindResource(&ubo, ResourceType::SRV, MODEL_PARAMS_BIND, cmdList);
+        device->BindResource(&cascadeParamsBuffer, ResourceType::SRV, CASCADE_PARAMS_BIND, cmdList);
         device->BindResource(&shadowDepthBuffer, ResourceType::SRV, SHADOW_MAP_BIND, cmdList);
         device->UpdateDescriptorSet(cmdList);
 
@@ -1533,19 +1280,46 @@ internal void Render()
 
         device->SetScissor(cmdList, scissor);
 
+        PushConstant pc;
+        pc.meshParamsBuffer = device->GetDescriptorIndex(&meshParamsBuffer, ResourceType::SRV);
+
         for (u32 entityIndex = 0; entityIndex < g_state->mEntityCount; entityIndex++)
         {
             game::Entity *entity = &g_state->mEntities[entityIndex];
             LoadedModel *model   = GetModel(entity->mAssetHandle);
-            PushConstant pc;
-            pc.modelIndex     = entityIndex;
-            pc.skinningOffset = entity->mSkinningOffset;
 
             for (u32 meshIndex = 0; meshIndex < model->numMeshes; meshIndex++)
             {
-                Mesh *mesh = &model->meshes[meshIndex];
-                // TODO: multi draw indirect somehow
-                u32 baseVertex = 0;
+                Mesh *mesh   = &model->meshes[meshIndex];
+                pc.meshIndex = mesh->meshIndex;
+                if (mesh->soPosView.IsValid())
+                {
+                    pc.vertexPos = mesh->soPosView.srvDescriptor;
+                }
+                else
+                {
+                    pc.vertexPos = mesh->vertexPosView.srvDescriptor;
+                }
+                if (mesh->soNorView.IsValid())
+                {
+                    pc.vertexNor = mesh->soNorView.srvDescriptor;
+                }
+                else
+                {
+                    pc.vertexNor = mesh->vertexNorView.srvDescriptor;
+                }
+                if (mesh->soTanView.IsValid())
+                {
+                    pc.vertexTan = mesh->soTanView.srvDescriptor;
+                }
+                else
+                {
+                    pc.vertexTan = mesh->vertexTanView.srvDescriptor;
+                }
+                pc.vertexUv         = mesh->vertexUvView.srvDescriptor;
+                pc.vertexBoneId     = mesh->vertexBoneIdView.srvDescriptor;
+                pc.vertexBoneWeight = mesh->vertexBoneWeightView.srvDescriptor;
+                u32 baseVertex      = 0;
                 for (u32 subsetIndex = 0; subsetIndex < mesh->numSubsets; subsetIndex++)
                 {
                     Mesh::MeshSubset *subset           = &mesh->subsets[subsetIndex];
@@ -1558,35 +1332,6 @@ internal void Render()
                     texture         = GetTexture(material.textures[TextureType_Normal]);
                     descriptorIndex = device->GetDescriptorIndex(texture, ResourceType::SRV);
                     pc.normal       = descriptorIndex;
-
-                    if (mesh->soPosView.IsValid())
-                    {
-                        pc.vertexPos = mesh->soPosView.srvDescriptor;
-                    }
-                    else
-                    {
-                        pc.vertexPos = mesh->vertexPosView.srvDescriptor;
-                    }
-                    if (mesh->soNorView.IsValid())
-                    {
-                        pc.vertexNor = mesh->soNorView.srvDescriptor;
-                    }
-                    else
-                    {
-                        pc.vertexNor = mesh->vertexNorView.srvDescriptor;
-                    }
-                    if (mesh->soTanView.IsValid())
-                    {
-                        pc.vertexTan = mesh->soTanView.srvDescriptor;
-                    }
-                    else
-                    {
-                        pc.vertexTan = mesh->vertexTanView.srvDescriptor;
-                    }
-                    pc.vertexUv         = mesh->vertexUvView.srvDescriptor;
-                    pc.vertexBoneId     = mesh->vertexBoneIdView.srvDescriptor;
-                    pc.vertexBoneWeight = mesh->vertexBoneWeightView.srvDescriptor;
-                    pc.meshTransform    = mesh->transform;
 
                     device->PushConstants(cmdList, sizeof(pc), &pc);
 

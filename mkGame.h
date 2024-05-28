@@ -174,13 +174,17 @@ struct G_State
     Camera camera;
 
     // DebugBmpResult bmpTest;
-    u32 mSkinningBufferSize;
+    u32 skinningBufferSize;
+    u32 meshParamsSize;
 
     CameraMode cameraMode;
 
     game::Entity mEntities[4];
     AnimationPlayer mAnimPlayers[4];
+
     Mat4 mTransforms[4];
+    u32 transformCount;
+
     u32 mEntityCount = 0;
 
     // AS_Handle model;

@@ -413,7 +413,6 @@ internal void AS_LoadAsset(AS_Asset *asset)
             }
             SkipToNextLine(&materialTokenizer); // final closing bracket }
         }
-        WriteBarrier();
 
         for (u32 i = 0; i < model->numMeshes; i++)
         {
@@ -480,7 +479,14 @@ internal void AS_LoadAsset(AS_Asset *asset)
             Advance(&tokenizer, sizeof(mesh->indices[0]) * indexCount);
 
             GetPointerValue(&tokenizer, &mesh->bounds);
-            GetPointerValue(&tokenizer, &mesh->transform);
+
+            Mat4 transform;
+            GetPointerValue(&tokenizer, &transform);
+            if (flags & MeshFlags_Skinned)
+            {
+                transform = MakeMat4(1.f);
+            }
+            mesh->transformIndex = gameScene.CreateTransform(transform);
         }
 
         // Skeleton
@@ -654,7 +660,8 @@ internal void AS_LoadAsset(AS_Asset *asset)
                 mesh->soTanView.uavDescriptor = device->GetDescriptorIndex(&mesh->streamBuffer, ResourceType::UAV, mesh->soTanView.uavIndex);
             }
 
-            Rect3 modelSpaceBounds = Transform(mesh->transform, mesh->bounds);
+            Mat4 transform         = gameScene.transforms[mesh->transformIndex];
+            Rect3 modelSpaceBounds = Transform(transform, mesh->bounds);
             AddBounds(model->bounds, modelSpaceBounds);
         }
     }

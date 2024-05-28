@@ -193,11 +193,12 @@ struct mkGraphicsVulkan : mkGraphics
 
         struct Subresource
         {
+            DescriptorType type;
             VkDescriptorBufferInfo info;
-            VkBufferView view;
+            VkBufferView view   = VK_NULL_HANDLE;
             i32 descriptorIndex = -1;
 
-            b32 IsValid()
+            b32 IsBindless()
             {
                 return descriptorIndex != -1;
             }
@@ -427,15 +428,6 @@ private:
     //////////////////////////////
     // Bindless resources
     //
-    enum DescriptorType
-    {
-        DescriptorType_SampledImage,
-        DescriptorType_UniformTexel,
-        DescriptorType_StorageBuffer,
-        DescriptorType_StorageTexelBuffer,
-        DescriptorType_Count,
-    };
-
     struct BindlessDescriptorPool
     {
         VkDescriptorPool pool        = VK_NULL_HANDLE;

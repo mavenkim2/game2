@@ -1,4 +1,5 @@
 #include "ShaderInterop.h"
+#include "ShaderInterop_Mesh.h"
 
 static const uint BINDLESS_TEXTURE_SET = 1;
 static const uint BINDLESS_UNIFORM_TEXEL_SET = 2;
@@ -19,6 +20,7 @@ static const uint BINDLESS_STORAGE_TEXEL_BUFFER_SET = 4;
 
 [[vk::binding(0, BINDLESS_STORAGE_BUFFER_SET)]] ByteAddressBuffer bindlessBuffers[];
 [[vk::binding(0, BINDLESS_STORAGE_BUFFER_SET)]] RWByteAddressBuffer bindlessStorageBuffers[];
+[[vk::binding(0, BINDLESS_STORAGE_BUFFER_SET)]] StructuredBuffer<MeshParams> bindlessMeshParams[];
 #else
 #error not supported
 #endif

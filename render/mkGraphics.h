@@ -252,6 +252,15 @@ enum RasterType
     RasterType_Count,
 };
 
+enum DescriptorType
+{
+    DescriptorType_SampledImage,
+    DescriptorType_UniformTexel,
+    DescriptorType_StorageBuffer,
+    DescriptorType_StorageTexelBuffer,
+    DescriptorType_Count,
+};
+
 struct GraphicsObject
 {
     void *internalState = 0;
@@ -596,6 +605,14 @@ struct mkGraphics
             CopyFunction func = [&](void *dest) { MemoryCopy(dest, inData, inDesc.mSize); };
             CreateBufferCopy(inBuffer, inDesc, func);
         }
+    }
+
+    void ResizeBuffer(GPUBuffer *buffer, u32 newSize)
+    {
+        GPUBufferDesc desc = buffer->mDesc;
+        desc.mSize         = newSize;
+        DeleteBuffer(buffer);
+        CreateBuffer(buffer, desc, 0);
     }
 
     virtual void CopyBuffer(CommandList cmd, GPUBuffer *dest, GPUBuffer *source, u32 size)                                                 = 0;

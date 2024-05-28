@@ -3,19 +3,18 @@
 
 #include "ShaderInterop.h"
 
-#define MODEL_PARAMS_BIND 0
-#define SHADOW_MAP_BIND   1
+#define CASCADE_PARAMS_BIND 0
+#define SHADOW_MAP_BIND     1
 
-struct ModelParams
+struct MeshParams
 {
     float4x4 transform;
     float4x4 modelViewMatrix;
     float4x4 modelMatrix;
 };
 
-UNIFORM(Ubo, MODEL_PARAMS_BIND)
+UNIFORM(CascadeParams, CASCADE_PARAMS_BIND)
 {
-    ModelParams rParams[8];
     float4x4 rLightViewProjectionMatrices[8];
     float4 rCascadeDistances;
     float4 rLightDir;
@@ -24,9 +23,10 @@ UNIFORM(Ubo, MODEL_PARAMS_BIND)
 
 struct PushConstant
 {
-    float4x4 meshTransform;
-    int modelIndex;
-    int skinningOffset;
+    // float4x4 meshTransform;
+    int meshIndex;
+    int meshParamsBuffer;
+
     int cascadeNum;
 
     int vertexPos;

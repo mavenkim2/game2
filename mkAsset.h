@@ -200,7 +200,9 @@ struct Mesh
     u32 numSubsets;
 
     Rect3 bounds;
-    Mat4 transform;
+    i32 transformIndex;
+    i32 aabbIndex; // valid for one frame only
+    i32 meshIndex;
 
     u32 vertexCount;
     u32 indexCount;

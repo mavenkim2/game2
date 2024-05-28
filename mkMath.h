@@ -645,6 +645,30 @@ inline V3 MakeV3(f32 x, V2 yz)
     return result;
 }
 
+inline V3 VectorMin(V3 a, V3 b)
+{
+    // #ifdef SSE42
+    //     __m128 packedA = _mm_load_ps((f32 *)(a.elements));
+    //     __m128 packedB = _mm_load_ps((f32 *)(b.elements));
+    //     __m128 result  = _mm_min_ps(packedA, packedB);
+    //     return _mm_min_ps(
+    // #endif
+    V3 result;
+    result.x = a.x < b.x ? a.x : b.x;
+    result.y = a.y < b.y ? a.y : b.y;
+    result.z = a.z < b.z ? a.z : b.z;
+    return result;
+}
+
+inline V3 VectorMax(V3 a, V3 b)
+{
+    V3 result;
+    result.x = a.x > b.x ? a.x : b.x;
+    result.y = a.y > b.y ? a.y : b.y;
+    result.z = a.z > b.z ? a.z : b.z;
+    return result;
+}
+
 inline V3 operator+(V3 a, V3 b)
 {
     V3 result;
@@ -1530,26 +1554,6 @@ inline V4 GetRow(Mat4 &mat, i32 idx)
     return row;
 }
 
-inline Rect3 Transform(Mat4 &transform, Rect3 bounds)
-{
-    bounds.minP = transform * bounds.minP;
-    bounds.maxP = transform * bounds.maxP;
-
-    if (bounds.minP.x > bounds.maxP.x)
-    {
-        Swap(f32, bounds.minP.x, bounds.maxP.x);
-    }
-    if (bounds.minP.y > bounds.maxP.y)
-    {
-        Swap(f32, bounds.minP.y, bounds.maxP.y);
-    }
-    if (bounds.minP.z > bounds.maxP.z)
-    {
-        Swap(f32, bounds.minP.z, bounds.maxP.z);
-    }
-    return bounds;
-}
-
 // Returns a basis from a direction vector
 //     z    y
 //     |   /
@@ -1768,6 +1772,14 @@ inline V2 GetRectCenter(Rect2 a)
 /*
  * RECTANGLE 3
  */
+inline Rect3 MakeRect3(V3 minP, V3 maxP)
+{
+    Rect3 result;
+    result.minP = minP;
+    result.maxP = maxP;
+    return result;
+}
+
 inline void Init(Rect3 *a)
 {
     a->minP.x = a->minP.y = a->minP.z = FLT_MAX;
@@ -1853,6 +1865,31 @@ inline void AddBounds(Rect3 &a, V3 p)
     a.maxX = a[1][0] > p.x ? a[1][0] : p.x;
     a.maxY = a[1][1] > p.y ? a[1][1] : p.y;
     a.maxZ = a[1][2] > p.z ? a[1][2] : p.z;
+}
+
+inline Rect3 Transform(Mat4 &m, Rect3 &r)
+{
+    V3 corners[8] = {
+        m * MakeV3(r.minX, r.minY, r.minZ),
+        m * MakeV3(r.maxX, r.minY, r.minZ),
+        m * MakeV3(r.maxX, r.maxY, r.minZ),
+        m * MakeV3(r.minX, r.maxY, r.minZ),
+        m * MakeV3(r.minX, r.minY, r.maxZ),
+        m * MakeV3(r.maxX, r.minY, r.maxZ),
+        m * MakeV3(r.maxX, r.maxY, r.maxZ),
+        m * MakeV3(r.minX, r.maxY, r.maxZ),
+    };
+
+    V3 vMin = corners[0];
+    V3 vMax = corners[0];
+
+    for (u32 i = 1; i < 8; i++)
+    {
+        vMin = VectorMin(vMin, corners[i]);
+        vMax = VectorMax(vMax, corners[i]);
+    }
+    Rect3 result = MakeRect3(vMin, vMax);
+    return result;
 }
 
 struct Ray

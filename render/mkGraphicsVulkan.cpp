@@ -2421,6 +2421,7 @@ i32 mkGraphicsVulkan::CreateSubresource(GPUBuffer *buffer, ResourceType type, u6
     vkUpdateDescriptorSets(mDevice, 1, &write, 0, 0);
 
     subresource.descriptorIndex = subresourceDescriptorIndex;
+    subresource.type            = descriptorType;
     bufVulk->subresources.push_back(subresource);
     i32 numSubresources = (i32)bufVulk->subresources.size();
     subresourceIndex    = numSubresources - 1;
@@ -2784,6 +2785,9 @@ void mkGraphicsVulkan::RingFree(RingAllocation *allocation)
         while (!allocator->allocations.empty() && freeAllocations)
         {
             RingAllocation &potentiallyFreeAllocation = allocator->allocations.front();
+            // TODO: on one occassion, the loop somehow got here but ring alloc was freed? idk how that was possible,
+            // since this is the only place where things are removed, and it's mutexed, and interlockedincrement on windows
+            // generates a full memory barrier...
             if (!potentiallyFreeAllocation.freed)
             {
                 freeAllocations = 0;
@@ -2992,11 +2996,17 @@ void mkGraphicsVulkan::DeleteBuffer(GPUBuffer *buffer)
         cleanup.mBuffer        = bufferVulkan->mBuffer;
         cleanup.mAllocation    = bufferVulkan->mAllocation;
 
-        BindlessDescriptorPool &pool = bindlessDescriptorPools[DescriptorType_UniformTexel];
         for (auto &subresource : bufferVulkan->subresources)
         {
-            cleanupBufferViews[currentBuffer].push_back(subresource.view);
-            pool.Free(subresource.descriptorIndex);
+            BindlessDescriptorPool &pool = bindlessDescriptorPools[subresource.type];
+            if (subresource.view != VK_NULL_HANDLE)
+            {
+                cleanupBufferViews[currentBuffer].push_back(subresource.view);
+            }
+            if (subresource.IsBindless())
+            {
+                pool.Free(subresource.descriptorIndex);
+            }
         }
     }
 
@@ -3630,7 +3640,6 @@ void mkGraphicsVulkan::SubmitCommandLists()
                     presentInfo.pSwapchains        = presentSwapchains.data();
                     presentInfo.pImageIndices      = swapchainImageIndices.data();
                     res                            = vkQueuePresentKHR(mQueues[QueueType_Graphics].mQueue, &presentInfo);
-                    Assert(res == VK_SUCCESS);
 
                     if (res != VK_SUCCESS)
                     {
@@ -3767,8 +3776,8 @@ void mkGraphicsVulkan::PushConstants(CommandList cmd, u32 size, void *data, u32 
 
 void mkGraphicsVulkan::BindPipeline(PipelineState *ps, CommandList cmd)
 {
-    CommandListVulkan *command = ToInternal(cmd);
-    command->currentPipeline   = ps;
+    CommandListVulkan *command    = ToInternal(cmd);
+    command->currentPipeline      = ps;
     PipelineStateVulkan *psVulkan = ToInternal(ps);
     vkCmdBindPipeline(command->GetCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS, psVulkan->mPipeline);
     vkCmdBindDescriptorSets(command->GetCommandBuffer(), VK_PIPELINE_BIND_POINT_GRAPHICS, psVulkan->mPipelineLayout,
