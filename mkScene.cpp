@@ -7,82 +7,68 @@
 namespace scene
 {
 //////////////////////////////
-// Component request ring
+// Small memory allocator
 //
-void *ComponentRequestRing::Alloc(u64 size)
+void SmallMemoryAllocator::Init()
 {
-    void *result = 0;
-    for (;;)
+    arena = ArenaAlloc();
+
+    i32 start = 16;
+    for (u32 i = 0; i < ArrayLength(pools); i++)
     {
-        u64 alignedSize = size + sizeof(u64);
+        SmallMemoryPool *pool = &pools[i];
+        pool->size            = start;
+        start *= 2;
+        pool->freeList = PushArray(arena, SmallMemoryNode *, platform.NumProcessors());
+    }
+}
 
-        u64 loadedCommitWritePos = commitWritePos.load();
-        u64 loadedReadPos        = readPos.load();
+void *SmallMemoryAllocator::Alloc(i32 size)
+{
+    i32 id = Max(0, GetHighestBit(size) - 3);
 
-        u64 remainder = totalSize - (loadedCommitWritePos & (totalSize - 1));
-        if (remainder > alignedSize)
+    Assert(id < ArrayLength(pools));
+
+    SmallMemoryPool *pool = &pools[id];
+    Assert(pool->allocatedSize + pool->size < pool->totalSize);
+
+    i32 threadIndex           = GetThreadIndex();
+    SmallMemoryNode *freeList = pool->freeList[threadIndex];
+
+    if (freeList)
+    {
+        MutexScope(&mutex)
         {
-            alignedSize += remainder;
-        }
-        alignedSize        = AlignPow2(alignedSize, 8);
-        u64 availableSpace = totalSize - (loadedCommitWritePos - loadedReadPos);
-        if (availableSpace >= alignedSize)
-        {
-            if (commitWritePos.compare_exchange_weak(loadedCommitWritePos, loadedCommitWritePos + alignedSize))
+            u8 *memory        = PushArray(arena, u8, pool->totalSize);
+            i32 incrementSize = sizeof(SmallMemoryNode) + pool->size;
+
+            for (u8 *cursor = memory; cursor < memory + pool->totalSize; cursor += incrementSize)
             {
-                u64 offset   = loadedCommitWritePos & (totalSize - 1);
-                u64 *tagSpot = (u64 *)(ringBuffer + offset);
-                *tagSpot     = writeTag.fetch_add(1);
-                result       = ringBuffer + offset + sizeof(u64);
-                break;
+                SmallMemoryNode *node = (SmallMemoryNode *)cursor;
+                node->id              = id;
+                StackPush(freeList, node);
             }
         }
     }
+
+    SmallMemoryNode *node = freeList;
+    StackPop(pool->freeList[threadIndex]);
+
+    void *result = (node + 1);
     return result;
 }
 
-void ComponentRequestRing::EndAlloc(void *mem)
+void SmallMemoryAllocator::Free(void *memory)
 {
-    for (;;)
-    {
-        u64 *tag = (u64 *)mem - 1;
-        if (*tag == readTag.load())
-        {
-            readTag.fetch_add(1);
-            writePos.exchange(commitWritePos.load());
-        }
-    }
-}
+    SmallMemoryNode *node = (SmallMemoryNode *)memory - 1;
 
-//////////////////////////////
-// Scene
-//
+    i32 id = node->id;
+    Assert(id >= 0 && id < ArrayLength(pools));
 
-Scene::Scene() : materials(this), meshes(this)
-{
-    sma.Init();
-}
+    SmallMemoryPool *pool = &pools[id];
 
-Entity Scene::CreateEntity()
-{
-    static std::atomic<u32> entityGen = NULL_HANDLE + 1;
-    return entityGen.fetch_add(1);
-}
-
-i32 Scene::CreateTransform(Mat4 transform, i32 parent)
-{
-    i32 transformIndex = -1;
-
-    Assert(transformCount.load() < ArrayLength(transforms));
-
-    transformIndex             = transformCount.fetch_add(1);
-    transforms[transformIndex] = transform;
-
-    i32 hierarchyIndex                       = hierarchyWritePos.fetch_add(1);
-    hierarchy[hierarchyIndex].transformIndex = transformIndex;
-    hierarchy[hierarchyIndex].parentId       = parent;
-
-    return transformIndex;
+    i32 threadIndex = GetThreadIndex();
+    StackPush(pool->freeList[threadIndex], node);
 }
 
 //////////////////////////////
@@ -213,6 +199,16 @@ MaterialHandle MaterialManager::GetFreePosition(MaterialChunkNode **chunkNode, u
     *localIndex = resultLocalIndex;
     return handle;
 }
+
+struct MaterialScope
+{
+    MaterialCreateRequest *request;
+    MaterialManager *manager;
+    ~MaterialScope()
+    {
+        manager->parentScene->componentRequestRing.EndAlloc(request);
+    }
+};
 
 MaterialComponent *MaterialManager::Create(string name, Entity entity)
 {
@@ -617,67 +613,134 @@ inline Mesh *MeshManager::Get(MeshIter *iter)
 }
 
 //////////////////////////////
-// Small memory allocator
+// Component request ring
 //
-void SmallMemoryAllocator::Init()
+void *ComponentRequestRing::Alloc(u64 size)
 {
-    arena = ArenaAlloc();
-
-    i32 start = 16;
-    for (u32 i = 0; i < ArrayLength(pools); i++)
+    void *result = 0;
+    u64 align    = alignment;
+    for (;;)
     {
-        SmallMemoryPool *pool = &pools[i];
-        pool->size            = start;
-        start *= 2;
-        pool->freeList = PushArray(arena, SmallMemoryNode *, platform.NumProcessors());
-    }
-}
+        u64 alignedSize = size + sizeof(u64);
+        alignedSize     = AlignPow2(alignedSize, align);
 
-void *SmallMemoryAllocator::Alloc(i32 size)
-{
-    i32 id = Max(0, GetHighestBit(size) - 3);
+        u64 loadedCommitWritePos = commitWritePos.load();
+        u64 loadedReadPos        = readPos;
 
-    Assert(id < ArrayLength(pools));
+        u64 ringCommitWritePos = loadedCommitWritePos & (totalSize - 1);
 
-    SmallMemoryPool *pool = &pools[id];
-    Assert(pool->allocatedSize + pool->size < pool->totalSize);
-
-    i32 threadIndex           = GetThreadIndex();
-    SmallMemoryNode *freeList = pool->freeList[threadIndex];
-
-    if (freeList)
-    {
-        MutexScope(&mutex)
+        u64 remainder = totalSize - ringCommitWritePos;
+        if (remainder >= alignedSize)
         {
-            u8 *memory        = PushArray(arena, u8, pool->totalSize);
-            i32 incrementSize = sizeof(SmallMemoryNode) + pool->size;
+            remainder = 0;
+        }
 
-            for (u8 *cursor = memory; cursor < memory + pool->totalSize; cursor += incrementSize)
+        u64 totalAllocSize = remainder + alignedSize;
+
+        u64 availableSpace = totalSize - (loadedCommitWritePos - loadedReadPos);
+        if (availableSpace >= totalAllocSize)
+        {
+            if (commitWritePos.compare_exchange_weak(loadedCommitWritePos, loadedCommitWritePos + totalAllocSize))
             {
-                SmallMemoryNode *node = (SmallMemoryNode *)cursor;
-                node->id              = id;
-                StackPush(freeList, node);
+                u64 offset = loadedCommitWritePos & (totalSize - 1);
+                if (remainder != 0)
+                {
+                    MemoryZero(ringBuffer + offset, remainder);
+                    offset = 0;
+                }
+                u64 *tagSpot = (u64 *)(ringBuffer + offset);
+                *tagSpot     = writeTag.fetch_add(1);
+                result       = ringBuffer + offset + sizeof(u64);
+                break;
             }
         }
     }
-
-    SmallMemoryNode *node = freeList;
-    StackPop(pool->freeList[threadIndex]);
-
-    void *result = (node + 1);
     return result;
 }
 
-void SmallMemoryAllocator::Free(void *memory)
+void ComponentRequestRing::EndAlloc(void *mem)
 {
-    SmallMemoryNode *node = (SmallMemoryNode *)memory - 1;
-
-    i32 id = node->id;
-    Assert(id >= 0 && id < ArrayLength(pools));
-
-    SmallMemoryPool *pool = &pools[id];
-
-    i32 threadIndex = GetThreadIndex();
-    StackPush(pool->freeList[threadIndex], node);
+    for (;;)
+    {
+        u64 *tag = (u64 *)mem - 1;
+        if (*tag == readTag.load())
+        {
+            readTag.fetch_add(1);
+            writePos.exchange(commitWritePos.load());
+        }
+    }
 }
+
+//////////////////////////////
+// Scene
+//
+
+Scene::Scene() : materials(this), meshes(this)
+{
+    sma.Init();
+}
+
+Entity Scene::CreateEntity()
+{
+    static std::atomic<u32> entityGen = NULL_HANDLE + 1;
+    return entityGen.fetch_add(1);
+}
+
+i32 Scene::CreateTransform(Mat4 transform, i32 parent)
+{
+    i32 transformIndex = -1;
+
+    Assert(transformCount.load() < ArrayLength(transforms));
+
+    transformIndex             = transformCount.fetch_add(1);
+    transforms[transformIndex] = transform;
+
+    i32 hierarchyIndex                       = hierarchyWritePos.fetch_add(1);
+    hierarchy[hierarchyIndex].transformIndex = transformIndex;
+    hierarchy[hierarchyIndex].parentId       = parent;
+
+    return transformIndex;
+}
+
+void Scene::ProcessRequests()
+{
+    u64 writePos = componentRequestRing.writePos.load();
+
+    const u32 ringTotalSize = componentRequestRing.totalSize;
+    const u32 ringMask      = ringTotalSize - 1;
+    const u64 alignment     = componentRequestRing.alignment;
+    while (componentRequestRing.readPos < writePos)
+    {
+        u64 ringReadPos           = componentRequestRing.readPos & ringMask;
+        ComponentRequest *request = (ComponentRequest *)(componentRequestRing.ringBuffer + ringReadPos + sizeof(u64));
+
+        u64 advance = 0;
+        switch (request->type)
+        {
+            case ComponentRequestType_Null:
+            {
+                advance = ringTotalSize - ringReadPos;
+                Assert(((componentRequestRing.readPos + advance) & ringMask) == 0);
+            }
+            break;
+            case ComponentRequestType_CreateMaterial:
+            {
+                MaterialCreateRequest *materialCreateRequest = (MaterialCreateRequest *)request;
+                materials.CreateInternal(materialCreateRequest);
+                advance = AlignPow2(sizeof(*materialCreateRequest), alignment);
+            }
+            break;
+            case ComponentRequestType_CreateMesh:
+            {
+                MeshCreateRequest *meshCreateRequest = (MeshCreateRequest *)request;
+                meshes.CreateInternal(meshCreateRequest);
+                advance = AlignPow2(sizeof(*meshCreateRequest), alignment);
+            }
+            break;
+            default: Assert(0);
+        }
+        componentRequestRing.readPos += advance;
+    }
+}
+
 } // namespace scene

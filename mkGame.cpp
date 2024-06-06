@@ -477,6 +477,9 @@ DLL G_UPDATE(G_Update)
     u32 totalMeshCount   = 0;
     gameScene.aabbCount  = 0;
 
+    // Process component system requests
+    gameScene.ProcessRequests();
+
     for (u32 i = 0; i < g_state->mEntityCount; i++)
     {
         // Skinning
@@ -567,7 +570,7 @@ DLL G_UPDATE(G_Update)
         }
     }
 
-    // TODO IMPORTANT: update the transforms. skeleton manager. manage the aabbs somehow. renderable for meshes needs to be fixed.
+    // TODO IMPORTANT: update the transforms. skeleton manager. manage the aabbs somehow.
     // g_state->mTransforms[i];
 
     for (MeshIter iter = gameScene.meshes.BeginIter(); !gameScene.meshes.EndIter(&iter); gameScene.meshes.Next(&iter))

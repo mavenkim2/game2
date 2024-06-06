@@ -229,12 +229,13 @@ struct ComponentRequestRing
 {
     std::atomic<u64> writePos;
     std::atomic<u64> commitWritePos;
-    std::atomic<u64> readPos;
+    u64 readPos;
     std::atomic<u64> writeTag;
     std::atomic<u64> readTag;
 
     u8 *ringBuffer;
     static const u32 totalSize = kilobytes(16);
+    u32 alignment              = 8;
 
     void *Alloc(u64 size);
     void EndAlloc(void *mem);
@@ -242,6 +243,7 @@ struct ComponentRequestRing
 
 enum ComponentRequestType
 {
+    ComponentRequestType_Null,
     ComponentRequestType_CreateMaterial,
     ComponentRequestType_CreateMesh,
 };
@@ -299,6 +301,7 @@ struct Scene
     //
 
     ComponentRequestRing componentRequestRing;
+    void ProcessRequests();
 
     //////////////////////////////
     // Hierarchy

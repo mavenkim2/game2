@@ -2,6 +2,7 @@
 #ifdef LSP_INCLUDE
 #include "mkMath.h"
 #include "mkAsset.h"
+#include "mkScene.h"
 #endif
 
 inline AnimationTransform MakeAnimTform(V3 position, Quat rotation, V3 scale)
@@ -375,15 +376,25 @@ inline b32 Mesh::IsValid()
     return result;
 }
 
+using namespace scene;
 inline b32 Mesh::IsRenderable()
 {
-    b32 result = !!(IsValid()) & device->IsLoaded(&buffer);
-    for (u32 i = 0; i < numSubsets; i++)
+    if (!IsValid() || !device->IsLoaded(&buffer)) return 0;
+
+    for (u32 subsetIndex = 0; subsetIndex < numSubsets; subsetIndex++)
     {
-        MeshSubset *subset = &subsets[i];
-        // subset->materialIndex
+        MeshSubset *subset          = &subsets[subsetIndex];
+        MaterialComponent *material = gameScene.materials.GetFromHandle(subset->materialHandle);
+        for (u32 textureIndex = 0; textureIndex < ArrayLength(material->textures); textureIndex++)
+        {
+            graphics::Texture *texture = GetTexture(material->textures[textureIndex]);
+            if (texture && !device->IsLoaded(texture))
+            {
+                return 0;
+            }
+        }
     }
-    return result;
+    return 1;
 }
 
 #if 0
