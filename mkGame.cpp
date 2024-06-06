@@ -8,8 +8,6 @@
 #include "mkMemory.cpp"
 #include "mkString.cpp"
 #include "mkCamera.cpp"
-#include "mkEntity.cpp"
-#include "mkLevel.cpp"
 #include "mkJob.cpp"
 #include "mkFont.cpp"
 #include "mkAsset.cpp"
@@ -17,69 +15,7 @@
 #include "render/mkRender.cpp"
 #include "mkShaderCompiler.cpp"
 #include "mkDebug.cpp"
-
-const f32 GRAVITY = 49.f;
-
-internal void InitializePlayer(G_State *gameState)
-{
-    Entity *player = &gameState->player;
-
-    player->pos.x = 6.f;
-    player->pos.y = 6.f;
-    player->pos.z = 5.f;
-
-    player->size.x = TILE_METER_SIZE;
-    player->size.y = TILE_METER_SIZE;
-    player->size.z = TILE_METER_SIZE * 2;
-
-    player->color.r = 0.5f;
-    player->color.g = 0.f;
-    player->color.b = 0.5f;
-    player->color.a = 1.f;
-
-    AddFlag(player, Entity_Valid | Entity_Collidable | Entity_Airborne | Entity_Swappable);
-}
-
-#if 0
-internal void G_EntryPoint(void *p)
-{
-    SetThreadName(Str8Lit("[G] Thread"));
-
-    f32 frameDt    = 1.f / 144.f;
-    f32 multiplier = 1.f;
-
-    f32 frameTime = NowSeconds();
-
-    for (; shared->running == 1;)
-    {
-        frameTime = NowSeconds();
-
-        // TODO: dll this and the endframe
-        G_Update(frameDt * multiplier);
-
-        // TODO: on another thread
-        R_EndFrame();
-
-        // Wait until new update
-        f32 endWorkFrameTime = NowSeconds();
-        f32 timeElapsed      = endWorkFrameTime - frameTime;
-
-        if (timeElapsed < frameDt)
-        {
-            u32 msTimeToSleep = (u32)(1000.f * (frameDt - timeElapsed));
-            if (msTimeToSleep > 0)
-            {
-                Sleep(msTimeToSleep);
-            }
-        }
-
-        while (timeElapsed < frameDt)
-        {
-            timeElapsed = NowSeconds() - frameTime;
-        }
-    }
-}
-#endif
+#include "mkScene.cpp"
 
 internal Manifold NarrowPhaseAABBCollision(const Rect3 a, const Rect3 b)
 {
@@ -237,29 +173,10 @@ G_INIT(G_Init)
         // AS_Handle anim = LoadAssetFile(Str8Lit("data/dragon/Qishilong_attack02.anim"));
         // g_state->font = AS_GetAsset(Str8Lit("data/liberation_mono.ttf"));
 
-        g_state->level           = PushStruct(g_state->permanentArena, Level);
-        g_state->camera.position = g_state->player.pos - V3{0, 10, 0};
+        g_state->camera.position = V3{0, -10, 0};
         g_state->camera.pitch    = 0; //-PI / 4;
         g_state->camera.yaw      = PI / 2;
         g_state->cameraMode      = CameraMode_Debug;
-
-        Entity *nilEntity = CreateEntity(g_state, g_state->level);
-
-        GenerateLevel(g_state, 40, 24);
-
-        InitializePlayer(g_state);
-
-        Entity *swap  = CreateEntity(g_state, g_state->level);
-        *swap         = {};
-        swap->pos.x   = 8.f;
-        swap->pos.y   = 8.f;
-        swap->size.x  = TILE_METER_SIZE;
-        swap->size.y  = TILE_METER_SIZE;
-        swap->color.r = 0.f;
-        swap->color.g = 1.f;
-        swap->color.b = 1.f;
-        swap->color.a = 1.f;
-        AddFlag(swap, Entity_Valid | Entity_Collidable | Entity_Swappable);
 
         // Initialize input
         g_state->bindings.bindings[I_Button_Up]         = OS_Key_W;
@@ -310,6 +227,7 @@ internal OS_Event *GetEventType(OS_Events *events, OS_EventType type)
 }
 
 using namespace graphics;
+using namespace scene;
 // using namespace render;
 
 DLL G_UPDATE(G_Update)
@@ -372,32 +290,22 @@ DLL G_UPDATE(G_Update)
 
     // RenderState *renderState = PushStruct(g_state->frameArena, RenderState);
 
-    Level *level = g_state->level;
-
-    // Physics
-
-    Entity *player = GetPlayer(g_state);
-    Entity *swap   = {};
-
-    V3 *acceleration = &player->acceleration;
-    *acceleration    = {};
-
-    if (playerController->swap.keyDown)
-    {
-        if (playerController->swap.halfTransitionCount > 0)
-        {
-            if (g_state->cameraMode == CameraMode_Player)
-            {
-                g_state->cameraMode = CameraMode_Debug;
-                platform.ToggleCursor(1);
-            }
-            else
-            {
-                g_state->cameraMode = CameraMode_Player;
-                platform.ToggleCursor(0);
-            }
-        }
-    }
+    // if (playerController->swap.keyDown)
+    // {
+    //     if (playerController->swap.halfTransitionCount > 0)
+    //     {
+    //         if (g_state->cameraMode == CameraMode_Player)
+    //         {
+    //             g_state->cameraMode = CameraMode_Debug;
+    //             platform.ToggleCursor(1);
+    //         }
+    //         else
+    //         {
+    //             g_state->cameraMode = CameraMode_Player;
+    //             platform.ToggleCursor(0);
+    //         }
+    //     }
+    // }
 
     D_BeginFrame();
 
@@ -406,73 +314,69 @@ DLL G_UPDATE(G_Update)
     {
         // TODO: when you alt tab, the game still tracks your mouse. probably need to switch to raw input,
         // and only use deltas when the game is capturing your mouse
-        case CameraMode_Player:
-        {
-            // TODO: hide mouse, move camera about player
-            V2 center = platform.GetCenter(shared->windowHandle, 1);
-            // V2 mousePos = OS_GetMousePos(shared->windowHandle);
-            V2 dMouseP = playerController->mousePos - center;
-
-            center = platform.GetCenter(shared->windowHandle, 0);
-            platform.SetMousePos(shared->windowHandle, center);
-
-            Camera *camera   = &g_state->camera;
-            f32 cameraOffset = 10.f;
-            f32 speed        = 3.f;
-            if (playerController->shift.keyDown)
-            {
-                speed = 10.f;
-            }
-            f32 rotationSpeed = 0.0005f * PI;
-            RotateCamera(camera, dMouseP, rotationSpeed);
-
-            Mat4 rotation = MakeMat4(1.f);
-
-            V3 worldUp = {0, 0, 1};
-
-            camera->forward.x = Cos(camera->yaw) * Cos(camera->pitch);
-            camera->forward.y = Sin(camera->yaw) * Cos(camera->pitch);
-            camera->forward.z = Sin(camera->pitch);
-            camera->forward   = Normalize(camera->forward);
-            // camera->right = Normalize(Cross(camera->forward, worldUp));
-            camera->position  = player->pos - cameraOffset * camera->forward;
-            Mat4 cameraMatrix = LookAt4(camera->position, player->pos, worldUp);
-
-            V3 forward = {Cos(camera->yaw), Sin(camera->yaw), 0};
-            forward    = Normalize(forward);
-            V3 right   = {Sin(camera->yaw), -Cos(camera->yaw), 0};
-            right      = Normalize(right);
-
-            if (playerController->right.keyDown)
-            {
-                *acceleration = right;
-            }
-            if (playerController->left.keyDown)
-            {
-                *acceleration = -right;
-            }
-            if (playerController->up.keyDown)
-            {
-                *acceleration = forward;
-            }
-            if (playerController->down.keyDown)
-            {
-                *acceleration = -forward;
-            }
-            Mat4 projection =
-                Perspective4(renderState->fov, renderState->aspectRatio, renderState->nearZ, renderState->farZ);
-
-            Mat4 transform = projection * cameraMatrix;
-
-            renderState->viewMatrix = cameraMatrix;
-            renderState->transform  = transform;
-            renderState->projection = projection;
-            break;
-        }
-        // TODO: get back to parity
-        // features needed: lock mouse invisible to middle of screen
-        // debug right click moving
-        // im pretty sure that was it
+        // case CameraMode_Player:
+        // {
+        //     // TODO: hide mouse, move camera about player
+        //     V2 center = platform.GetCenter(shared->windowHandle, 1);
+        //     // V2 mousePos = OS_GetMousePos(shared->windowHandle);
+        //     V2 dMouseP = playerController->mousePos - center;
+        //
+        //     center = platform.GetCenter(shared->windowHandle, 0);
+        //     platform.SetMousePos(shared->windowHandle, center);
+        //
+        //     Camera *camera   = &g_state->camera;
+        //     f32 cameraOffset = 10.f;
+        //     f32 speed        = 3.f;
+        //     if (playerController->shift.keyDown)
+        //     {
+        //         speed = 10.f;
+        //     }
+        //     f32 rotationSpeed = 0.0005f * PI;
+        //     RotateCamera(camera, dMouseP, rotationSpeed);
+        //
+        //     Mat4 rotation = MakeMat4(1.f);
+        //
+        //     V3 worldUp = {0, 0, 1};
+        //
+        //     camera->forward.x = Cos(camera->yaw) * Cos(camera->pitch);
+        //     camera->forward.y = Sin(camera->yaw) * Cos(camera->pitch);
+        //     camera->forward.z = Sin(camera->pitch);
+        //     camera->forward   = Normalize(camera->forward);
+        //     // camera->right = Normalize(Cross(camera->forward, worldUp));
+        //     camera->position  = player->pos - cameraOffset * camera->forward;
+        //     Mat4 cameraMatrix = LookAt4(camera->position, player->pos, worldUp);
+        //
+        //     V3 forward = {Cos(camera->yaw), Sin(camera->yaw), 0};
+        //     forward    = Normalize(forward);
+        //     V3 right   = {Sin(camera->yaw), -Cos(camera->yaw), 0};
+        //     right      = Normalize(right);
+        //
+        //     if (playerController->right.keyDown)
+        //     {
+        //         *acceleration = right;
+        //     }
+        //     if (playerController->left.keyDown)
+        //     {
+        //         *acceleration = -right;
+        //     }
+        //     if (playerController->up.keyDown)
+        //     {
+        //         *acceleration = forward;
+        //     }
+        //     if (playerController->down.keyDown)
+        //     {
+        //         *acceleration = -forward;
+        //     }
+        //     Mat4 projection =
+        //         Perspective4(renderState->fov, renderState->aspectRatio, renderState->nearZ, renderState->farZ);
+        //
+        //     Mat4 transform = projection * cameraMatrix;
+        //
+        //     renderState->viewMatrix = cameraMatrix;
+        //     renderState->transform  = transform;
+        //     renderState->projection = projection;
+        //     break;
+        // }
         case CameraMode_Debug:
         {
             V2 dMouseP = playerController->mousePos - playerController->lastMousePos;
@@ -588,18 +492,33 @@ DLL G_UPDATE(G_Update)
             entity->mSkinningOffset = totalMatrixCount;
             totalMatrixCount += GetSkeletonFromModel(entity->mAssetHandle)->count;
         }
+    }
 
-        // AABB update
-        LoadedModel *model = GetModel(entity->mAssetHandle);
-        for (u32 meshIndex = 0; meshIndex < model->numMeshes; meshIndex++)
-        {
-            Mesh *mesh      = &model->meshes[meshIndex];
-            mesh->aabbIndex = gameScene.aabbCount++;
-            mesh->meshIndex = totalMeshCount;
+    // IDEA: queue multi threaded loading?
+    // TODO: this should probably be r_framealloced for the renderer backend to use
+    // TODO: all children must be ensured to be after parents in hierarchycomponent
 
-            gameScene.aabbs[mesh->aabbIndex] = Transform(gameScene.transforms[mesh->transformIndex], mesh->bounds);
-            totalMeshCount++;
-        }
+    Mat4 *frameTransforms = PushArray(g_state->frameArena, Mat4, gameScene.transformCount.load());
+
+    for (u32 hierarchyIndex = 0; hierarchyIndex < gameScene.hierarchyWritePos.load(); hierarchyIndex++)
+    {
+        HierarchyComponent *h           = &gameScene.hierarchy[hierarchyIndex];
+        i32 transformIndex              = h->transformIndex;
+        i32 parentId                    = h->parentId;
+        Mat4 transform                  = gameScene.transforms[transformIndex];
+        frameTransforms[transformIndex] = frameTransforms[parentId] * transform;
+    }
+
+    for (MeshIter iter = gameScene.meshes.BeginIter(); !gameScene.meshes.EndIter(&iter); gameScene.meshes.Next(&iter))
+    {
+        Mesh *mesh      = gameScene.meshes.Get(&iter);
+        mesh->meshIndex = -1;
+        if (!mesh->IsRenderable()) continue;
+
+        mesh->meshIndex                  = iter.globalIndex;
+        mesh->aabbIndex                  = gameScene.aabbCount++;
+        gameScene.aabbs[mesh->aabbIndex] = Transform(gameScene.transforms[mesh->transformIndex], mesh->bounds);
+        totalMeshCount++;
     }
 
     u32 totalSkinningSize   = totalMatrixCount * sizeof(Mat4);
@@ -646,17 +565,22 @@ DLL G_UPDATE(G_Update)
             SkinModelToAnimation(&g_state->mAnimPlayers[i], entity->mAssetHandle, tforms,
                                  skinningMappedData + entity->mSkinningOffset);
         }
-        LoadedModel *model = GetModel(entity->mAssetHandle);
-        for (u32 meshIndex = 0; meshIndex < model->numMeshes; meshIndex++)
-        {
-            Mesh *mesh     = &model->meshes[meshIndex];
-            Mat4 transform = gameScene.transforms[mesh->transformIndex];
+    }
 
-            MeshParams *meshParams      = &meshParamsMappedData[mesh->meshIndex];
-            meshParams->transform       = renderState->transform * g_state->mTransforms[i] * transform;
-            meshParams->modelViewMatrix = renderState->viewMatrix * g_state->mTransforms[i] * transform;
-            meshParams->modelMatrix     = g_state->mTransforms[i] * transform;
-        }
+    // TODO IMPORTANT: update the transforms. skeleton manager. manage the aabbs somehow. renderable for meshes needs to be fixed.
+    // g_state->mTransforms[i];
+
+    for (MeshIter iter = gameScene.meshes.BeginIter(); !gameScene.meshes.EndIter(&iter); gameScene.meshes.Next(&iter))
+    {
+        Mesh *mesh = gameScene.meshes.Get(&iter);
+        if (mesh->meshIndex == -1) continue;
+
+        Mat4 transform         = frameTransforms[mesh->transformIndex];
+        MeshParams *meshParams = &meshParamsMappedData[mesh->meshIndex];
+
+        meshParams->transform       = renderState->transform * transform;
+        meshParams->modelViewMatrix = renderState->viewMatrix * transform;
+        meshParams->modelMatrix     = transform;
     }
 
     // DebugDrawSkeleton(g_state->model, transform1, skinningMappedData);

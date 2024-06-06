@@ -33,8 +33,6 @@ struct PushConstant
     int vertexNor;
     int vertexTan;
     int vertexUv;
-    int vertexBoneId;
-    int vertexBoneWeight;
 
     int albedo;
     int normal;

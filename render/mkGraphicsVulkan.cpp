@@ -1866,6 +1866,8 @@ void mkGraphicsVulkan::CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDes
         inBuffer->mDesc.mSize = buffer->mAllocation->GetSize();
     }
 
+    Fence fence = {};
+
     if (initCallback != 0)
     {
         TransferCommand cmd;
@@ -1898,6 +1900,7 @@ void mkGraphicsVulkan::CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDes
                 vkCmdCopyBuffer(cmd.mCmdBuffer, ToInternal(&allocator->transferRingBuffer)->mBuffer, buffer->mBuffer, 1, &bufferCopy);
             }
             Submit(cmd);
+            fence.internalState = (void *)cmd.mFence;
         }
     }
 
@@ -1929,6 +1932,8 @@ void mkGraphicsVulkan::CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDes
             buffer->subresourceSrv = subresourceIndex;
         }
     }
+
+    inBuffer->fence = fence;
 }
 
 void mkGraphicsVulkan::CreateTexture(Texture *outTexture, TextureDesc desc, void *inData)
@@ -2054,6 +2059,7 @@ void mkGraphicsVulkan::CreateTexture(Texture *outTexture, TextureDesc desc, void
         Assert(res == VK_SUCCESS);
     }
 
+    Fence fence = {};
     // TODO: handle 3d texture creation
     if (inData)
     {
@@ -2136,6 +2142,7 @@ void mkGraphicsVulkan::CreateTexture(Texture *outTexture, TextureDesc desc, void
             vkCmdPipelineBarrier2(cmd.mTransitionBuffer, &dependencyInfo);
 
             Submit(cmd);
+            fence.internalState = (void *)cmd.mFence;
         }
     }
     // Transfer the image layout of the image to its initial layout
@@ -2178,12 +2185,15 @@ void mkGraphicsVulkan::CreateTexture(Texture *outTexture, TextureDesc desc, void
         vkCmdPipelineBarrier2(cmd.mTransitionBuffer, &dependencyInfo);
 
         Submit(cmd);
+        fence.internalState = (void *)cmd.mFence;
     }
 
     if (desc.mUsage != MemoryUsage::GPU_TO_CPU)
     {
         CreateSubresource(outTexture);
     }
+
+    outTexture->fence = fence;
 }
 
 void mkGraphicsVulkan::DeleteTexture(Texture *texture)
@@ -3793,6 +3803,19 @@ void mkGraphicsVulkan::BindCompute(PipelineState *ps, CommandList cmd)
     vkCmdBindPipeline(command->GetCommandBuffer(), VK_PIPELINE_BIND_POINT_COMPUTE, pipelineVulkan->mPipeline);
     vkCmdBindDescriptorSets(command->GetCommandBuffer(), VK_PIPELINE_BIND_POINT_COMPUTE, pipelineVulkan->mPipelineLayout,
                             1, (u32)bindlessDescriptorSets.size(), bindlessDescriptorSets.data(), 0, 0);
+}
+
+b32 mkGraphicsVulkan::IsSignaled(Fence fence)
+{
+    VkFence fenceVulkan = ToInternal(fence);
+    b32 result          = vkGetFenceStatus(mDevice, fenceVulkan) == VK_SUCCESS;
+    return result;
+}
+
+b32 mkGraphicsVulkan::IsLoaded(GPUResource *resource)
+{
+    Fence fence = resource->fence;
+    return IsSignaled(fence);
 }
 
 void mkGraphicsVulkan::WaitForGPU()

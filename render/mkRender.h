@@ -356,11 +356,11 @@ struct R_RectInst
 //////////////////////////////
 // Renderer frontend
 //
-internal void RenderFrameDataInit();
-internal void R_SwapFrameData();
-internal void *R_FrameAlloc(const i32 inSize);
-internal void *R_CreateCommand(i32 size);
-internal void R_EndFrame();
+// internal void RenderFrameDataInit();
+// internal void R_SwapFrameData();
+// internal void *R_FrameAlloc(const i32 inSize);
+// internal void *R_CreateCommand(i32 size);
+// internal void R_EndFrame();
 
 //////////////////////////////
 // Renderer backend
@@ -456,14 +456,11 @@ struct RenderState
     FrustumCorners mFrustumCorners;
     Mat4 inverseViewProjection; // convert from clip space to world space
 
-    // Vertex cache
-    // VertexCacheState vertexCache;
-
     // Frame cache
     R_FrameState renderFrameState;
 
     // Shadow maps
-    R_MeshPreparedDrawParams *drawParams;
+    // R_MeshPreparedDrawParams *drawParams;
     Mat4 shadowMapMatrices[cNumCascades];
     f32 cascadeDistances[cNumSplits];
 };

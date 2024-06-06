@@ -369,6 +369,23 @@ internal void SkinModelToBindPose(AS_Handle model, Mat4 *finalTransforms)
     ScratchEnd(temp);
 }
 
+inline b32 Mesh::IsValid()
+{
+    b32 result = HasFlags(flags, MeshFlags_Valid);
+    return result;
+}
+
+inline b32 Mesh::IsRenderable()
+{
+    b32 result = !!(IsValid()) & device->IsLoaded(&buffer);
+    for (u32 i = 0; i < numSubsets; i++)
+    {
+        MeshSubset *subset = &subsets[i];
+        // subset->materialIndex
+    }
+    return result;
+}
+
 #if 0
 internal Heightmap CreateHeightmap(string filename)
 {

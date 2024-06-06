@@ -31,21 +31,6 @@ struct AssetFileBlockHeader
 
 struct AS_Asset;
 
-// #if 0
-// struct AS_MemoryHeader
-// {
-//     u8 *buffer;
-// };
-//
-// struct AS_MemoryHeaderNode
-// {
-//     AS_MemoryHeader header;
-//     // Free list
-//     AS_MemoryHeaderNode *next;
-//     AS_MemoryHeaderNode *prev;
-// };
-// #endif
-
 //////////////////////////////
 // Thread sync
 //

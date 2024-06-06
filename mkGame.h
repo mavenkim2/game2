@@ -4,6 +4,7 @@
 #include "mkString.h"
 #include "mkList.h"
 #include "mkPlatformInc.h"
+#include "mkTypes.h"
 
 #include "render/mkGraphics.h"
 #include "mkShaderCompiler.h"
@@ -14,18 +15,14 @@
 
 #include "mkPhysics.h"
 #include "mkCamera.h"
-#include "render/mkRenderCore.h"
 #include "mkAsset.h"
 #include "mkFont.h"
 #include "mkAssetCache.h"
 // #include "render/mkVertexCache.h"
 #include "render/mkRender.h"
 #include "mkShared.h"
-#include "render/mkRendererapi.h"
 
 #include "mkDebug.h"
-#include "mkEntity.h"
-#include "mkLevel.h"
 #include "mkScene.h"
 
 //////////////////////////////
@@ -164,12 +161,6 @@ struct G_State
 
     Arena *frameArena;
     Arena *permanentArena;
-
-    u64 entity_id_gen;
-    // TODO add entities
-    Entity player;
-
-    Level *level;
 
     Camera camera;
 

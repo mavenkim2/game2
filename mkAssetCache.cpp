@@ -335,13 +335,15 @@ internal void AS_LoadAsset(AS_Asset *asset)
         LoadedModel *model = &asset->model;
         asset->type        = AS_Model;
 
+        model->rootEntity     = gameScene.CreateEntity();
+        model->transformIndex = gameScene.CreateTransform(Identity());
+
         Tokenizer tokenizer;
         tokenizer.input.str  = AS_GetMemory(asset);
         tokenizer.input.size = asset->size;
         tokenizer.cursor     = tokenizer.input.str;
 
         GetPointerValue(&tokenizer, &model->numMeshes);
-        model->meshes = (Mesh *)AS_Alloc(sizeof(Mesh) * model->numMeshes);
 
         string materialFilename = PushStr8F(temp.arena, "%S%S.mtr", materialDirectory, RemoveFileExtension(filename));
         string materialData     = platform.ReadEntireFile(temp.arena, materialFilename);
@@ -363,7 +365,6 @@ internal void AS_LoadAsset(AS_Asset *asset)
 
             SkipToNextLine(&materialTokenizer);
             scene::MaterialComponent *component = gameScene.materials.Create(line);
-            component->name                     = line;
 
             // Read the diffuse texture if there is one
             b32 result = Advance(&materialTokenizer, "\tDiffuse: ");
@@ -414,10 +415,14 @@ internal void AS_LoadAsset(AS_Asset *asset)
             SkipToNextLine(&materialTokenizer); // final closing bracket }
         }
 
+        // model->meshes = ; //(Mesh *)AS_Alloc(sizeof(Mesh) * model->numMeshes);
+        Mesh **meshes = PushArray(temp.arena, Mesh *, model->numMeshes);
+        u32 meshCount = 0;
         for (u32 i = 0; i < model->numMeshes; i++)
         {
-            Mesh *mesh = &model->meshes[i];
-            *mesh      = {};
+            Entity meshEntity   = gameScene.CreateEntity();
+            Mesh *mesh          = gameScene.meshes.Create(meshEntity);
+            meshes[meshCount++] = mesh;
 
             // Get the size
             u32 vertexCount;
@@ -432,7 +437,7 @@ internal void AS_LoadAsset(AS_Asset *asset)
             GetPointerValue(&tokenizer, &mesh->numSubsets);
 
             // TODO: faster allocations for the asset system
-            mesh->subsets = (Mesh::MeshSubset *)AS_Alloc(sizeof(Mesh::MeshSubset) * mesh->numSubsets);
+            mesh->subsets = (Mesh::MeshSubset *)gameScene.Alloc(sizeof(Mesh::MeshSubset) * mesh->numSubsets);
 
             for (u32 subsetIndex = 0; subsetIndex < mesh->numSubsets; subsetIndex++)
             {
@@ -447,7 +452,7 @@ internal void AS_LoadAsset(AS_Asset *asset)
                     materialName.str = GetTokenCursor(&tokenizer, u8);
                     // scene::Entity entity = gameScene.CreateEntity();
                     // gameScene.materials.Link(entity, materialName);
-                    mesh->subsets[subsetIndex].materialIndex = gameScene.materials.GetComponentIndex(materialName);
+                    mesh->subsets[subsetIndex].materialHandle = gameScene.materials.GetHandle(materialName);
                     Advance(&tokenizer, (u32)materialName.size);
                 }
             }
@@ -486,7 +491,7 @@ internal void AS_LoadAsset(AS_Asset *asset)
             {
                 transform = MakeMat4(1.f);
             }
-            mesh->transformIndex = gameScene.CreateTransform(transform);
+            mesh->transformIndex = gameScene.CreateTransform(transform, model->transformIndex);
         }
 
         // Skeleton
@@ -515,7 +520,7 @@ internal void AS_LoadAsset(AS_Asset *asset)
         // Load vertices and indices of each mesh to he GPU
         for (u32 i = 0; i < model->numMeshes; i++)
         {
-            Mesh *mesh      = &model->meshes[i];
+            Mesh *mesh      = meshes[i];
             u32 vertexCount = mesh->vertexCount;
             u32 indexCount  = mesh->indexCount;
 

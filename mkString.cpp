@@ -419,8 +419,8 @@ inline b32 Advance(Tokenizer *tokenizer, string check)
 {
     string token;
     Assert((u64)(tokenizer->input.str + tokenizer->input.size - tokenizer->cursor) > check.size);
-    token.size   = check.size;
-    token.str = tokenizer->cursor;
+    token.size = check.size;
+    token.str  = tokenizer->cursor;
 
     if (token == check)
     {
@@ -553,6 +553,47 @@ inline u8 *GetPointer_(Tokenizer *tokenizer)
     GetPointerValue(tokenizer, &offset);
     u8 *result = tokenizer->input.str + offset;
     return result;
+}
+
+//////////////////////////////
+// Global string table
+//
+
+global u32 stringIds[1024];
+std::atomic<u32> stringIdCount;
+
+internal u32 Hash(string str)
+{
+    u32 result = 0;
+    for (u64 i = 0; i < str.size; i++)
+    {
+        result += (str.str[i]) * ((i32)i + 119);
+    }
+    return result;
+}
+
+internal u32 AddSID(string str)
+{
+    u32 sid = Hash(str);
+#ifdef INTERNAL
+    for (u32 i = 0; i < stringIdCount.load(); i++)
+    {
+        if (sid == stringIds[i])
+        {
+            Printf("Collision: string %S, sid %i\n", str, sid);
+            Assert(!"Hash collision");
+        }
+    }
+#endif
+    u32 index        = stringIdCount.fetch_add(1);
+    stringIds[index] = sid;
+    return sid;
+}
+
+internal u32 GetSID(string str)
+{
+    u32 sid = Hash(str);
+    return sid;
 }
 
 //////////////////////////////

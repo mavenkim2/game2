@@ -4,22 +4,54 @@
 #include "mkCrack.h"
 #ifdef LSP_INCLUDE
 #include "mkList.h"
+#include "mkAsset.h"
+#include "mkGraphics.h"
 #endif
 
 #include <atomic>
 
 namespace scene
 {
+const i32 NULL_HANDLE = 0;
 
-typedef u32 Entity;                  // TODO: maybe this needs to become 64
-const i32 ENTITY_MASK    = 0x3fffff; // maximum of 4 million
-const i32 MATERIAL_SHIFT = 22;
-const i32 MATERIAL_MASK  = 0x3ff; // max of 1024 materials
-const i32 NULL_HANDLE    = 0;
+//////////////////////////////
+// Small memory allocator
+//
 
+struct SmallMemoryNode
+{
+    SmallMemoryNode *next;
+    i32 id;
+};
+
+struct SmallMemoryPool
+{
+    SmallMemoryNode **freeList;
+
+    const i32 totalSize = kilobytes(4);
+    std::atomic<i32> allocatedSize;
+    i32 size;
+};
+
+struct SmallMemoryAllocator
+{
+    Mutex mutex;
+    Arena *arena;
+    // 16, 32, 64, 128
+    SmallMemoryPool pools[4];
+
+    void Init();
+    void *Alloc(i32 size);
+    void Free(void *memory);
+};
+
+//////////////////////////////
+// Materials
+//
 struct MaterialComponent
 {
-    string name;
+    MaterialFlag flags;
+    u32 sid;
     AS_Handle textures[TextureType_Count] = {};
 
     V4 baseColor        = {1, 1, 1, 1};
@@ -27,257 +59,256 @@ struct MaterialComponent
     f32 roughnessFactor = 1.f;
 };
 
-template <typename Component>
-class ComponentManager
+global const i32 numMaterialSlots     = 512;
+global const i32 numMaterialsPerChunk = 512;
+
+struct MaterialSlotNode
 {
-private:
-    TicketMutex mutex;
-    list<Component> components;
-    list<Entity> entities;
-    HashIndex nameMap;
-    HashIndex handleMap;
-
-public:
-    ComponentManager(i32 reserve = 0)
-    {
-        if (reserve != 0)
-        {
-            nameMap.Init(reserve, reserve);
-        }
-        else
-        {
-            nameMap.Init();
-        }
-        components.reserve(reserve);
-        handleMap.Init();
-        components.emplace_back(); // null
-        mutex = {};
-    }
-
-    Component &operator[](i32 index)
-    {
-        return components[index];
-    }
-
-    Component *Create(string name)
-    {
-        Component *component = 0;
-        TicketMutexScope(&mutex)
-        {
-            i32 hash = nameMap.Hash(name);
-            nameMap.AddInHash(hash, (i32)components.size());
-
-            components.emplace_back();
-            components.back().name = name;
-            for (u32 i = 0; i < ArrayLength(components.back().textures); i++)
-            {
-                components.back().textures[i] = {};
-            }
-            component = &components.back();
-        }
-        return component;
-    }
-
-    Component *Create(Entity entity, string name)
-    {
-        Assert(entity <= ENTITY_MASK);
-
-        Component *component = 0;
-        TicketMutexScope(&mutex)
-        {
-            i32 storedValue = ((i32)(components.size() & MATERIAL_MASK) << MATERIAL_SHIFT) |
-                              ((i32)(entity & ENTITY_MASK));
-            handleMap.AddInHash(entity, storedValue);
-            i32 hash = nameMap.Hash(name);
-            nameMap.AddInHash(hash, (i32)components.size());
-            components.emplace_back();
-            entities.push_back(entity);
-            component = &components.back();
-        }
-        return component;
-    }
-
-    Component *Link(Entity entity, string name)
-    {
-        Component *component = 0;
-        i32 index            = GetComponentIndex(name);
-
-        if (index != -1)
-        {
-            TicketMutexScope(&mutex)
-            {
-                i32 storedValue = ((i32)(index & MATERIAL_MASK) << MATERIAL_SHIFT) |
-                                  ((i32)(entity & ENTITY_MASK));
-                handleMap.AddInHash(entity, index, storedValue);
-                component = &components[index];
-            }
-        }
-        return component;
-    }
-
-    b32 Remove(Entity entity)
-    {
-        b32 result = 0;
-        TicketMutexScope(&mutex)
-        {
-            for (i32 i = handleMap.FirstInHash(entity); i != -1;)
-            {
-                u32 storedEntity   = i & ENTITY_MASK;
-                u32 storedMaterial = (i >> MATERIAL_SHIFT) & MATERIAL_MASK;
-
-                if (storedEntity == entity)
-                {
-                    // Remove from entity lookup table
-                    handleMap.indexChain[i] = handleMap.indexChain[storedMaterial];
-
-                    // Remove from name lookup table
-                    i32 hash = nameMap.Hash(components[storedMaterial].name);
-                    nameMap.RemoveFromHash(hash, (i32)storedMaterial);
-
-                    // Swap with end of list then pop
-                    components[storedMaterial] = std::move(components.back()); // move instead of copy
-                    entities[storedMaterial]   = entities.back();
-                    components.pop_back();
-                    entities.pop_back();
-                    result = 1;
-                    break;
-                }
-                i = handleMap.NextInHash(storedMaterial);
-            }
-        }
-        return result;
-    }
-
-    Component *GetComponent(Entity entity)
-    {
-        Component *component = 0;
-        TicketMutexScope(&mutex)
-        {
-            for (i32 i = handleMap.FirstInHash(entity); i != -1;)
-            {
-                u32 storedEntity   = i & ENTITY_MASK;
-                u32 storedMaterial = (i >> MATERIAL_SHIFT) & MATERIAL_MASK;
-                if (storedEntity == entity)
-                {
-                    component = &components[storedMaterial];
-                    break;
-                }
-
-                i = handleMap.NextInHash(storedMaterial);
-            }
-        }
-        return component;
-    }
-
-    i32 GetComponentIndex(string name)
-    {
-        i32 hash = nameMap.Hash(name);
-
-        i32 index = -1;
-        TicketMutexScope(&mutex)
-        {
-            for (i32 i = nameMap.FirstInHash(hash); i != -1; i = nameMap.NextInHash(i))
-            {
-                if (components[i].name == name)
-                {
-                    index = i;
-                    break;
-                }
-            }
-        }
-        return index;
-    }
-
-    Component *GetComponent(string name)
-    {
-        i32 hash             = nameMap.Hash(name);
-        Component *component = 0;
-
-        TicketMutexScope(&mutex)
-        {
-            for (i32 i = nameMap.FirstInHash(hash); i != -1; i = nameMap.NextInHash(i))
-            {
-                if (components[i].name == name)
-                {
-                    component = &components[i];
-                    break;
-                }
-            }
-        }
-        return component;
-    }
-
-    // ComponentHandle CreateComponent()
-    // {
-    //     static atomic<u32> componentGenerator = NULL_HANDLE + 1;
-    //     return componentGenerator.fetch_add(1);
-    // }
+    MaterialHandle handle;
+    u32 id;
+    MaterialSlotNode *next;
 };
 
+struct MaterialSlot
+{
+    MaterialSlotNode *first;
+    MaterialSlotNode *last;
+};
+
+struct MaterialChunkNode
+{
+    MaterialComponent materials[numMaterialsPerChunk];
+    Entity entities[numMaterialsPerChunk];
+    MaterialChunkNode *next;
+    u32 numMaterials;
+};
+
+struct MaterialFreeNode
+{
+    MaterialHandle handle;
+    MaterialFreeNode *next;
+};
+
+struct MaterialIter
+{
+    MaterialChunkNode *chunkNode;
+    MaterialComponent *material;
+    u32 localIndex;
+    u32 globalIndex;
+};
+
+class MaterialManager
+{
+private:
+    // Hash
+    MaterialSlot *nameMap;
+    MaterialSlot *entityMap;
+    MaterialSlotNode *freeSlotNode = 0;
+
+    // Data
+    MaterialChunkNode *first = 0;
+    MaterialChunkNode *last  = 0;
+    u32 totalNumMaterials    = 0;
+    u32 materialWritePos     = 0;
+
+    // Freed spots
+    MaterialFreeNode *freeMaterialPositions = 0;
+    MaterialFreeNode *freeMaterialNodes     = 0;
+
+    // TODO: if in the future it's possible to have multiple scenes/multiple material managers, ensure that the chunk node exists
+    // in the linked list and that the global index is less than materialWritePos
+    inline b8 IsValidHandle(MaterialHandle handle);
+    void InsertNameMap(MaterialHandle handle, i32 sid);
+    MaterialHandle GetHandleFromNameMap(string name);
+    void InsertEntityMap(MaterialHandle handle, Entity entity);
+    MaterialHandle GetHandleFromEntityMap(Entity entity);
+    MaterialHandle GetFreePosition(MaterialChunkNode **chunkNode, u32 *localIndex);
+
+public:
+    struct Scene *parentScene;
+    MaterialManager(Scene *inScene);
+    MaterialComponent *Create(string name, Entity entity = 0);
+    void CreateInternal(struct MaterialCreateRequest *request);
+    MaterialComponent *Link(Entity entity, string name);
+    // TODO: remove by name/sid?
+    b32 Remove(Entity entity);
+
+    inline MaterialComponent *GetFromHandle(MaterialHandle handle);
+    MaterialHandle GetHandle(string name);
+    MaterialComponent *Get(string name);
+    MaterialComponent *Get(Entity entity);
+
+    MaterialIter BeginIter();
+    b8 EndIter(MaterialIter *iter);
+    void Next(MaterialIter *iter);
+    inline MaterialComponent *Get(MaterialIter *iter);
+};
+
+//////////////////////////////
+// Meshes
+//
+global const i32 meshesPerChunk = 256;
+global const i32 numMeshSlots   = 256;
+struct MeshFreeNode
+{
+    MeshHandle handle;
+    MeshFreeNode *next;
+};
+
+struct MeshSlotNode
+{
+    MeshHandle handle;
+    Entity entity;
+    MeshSlotNode *next;
+};
+
+struct MeshSlot
+{
+    MeshSlotNode *first;
+    MeshSlotNode *last;
+};
+
+struct MeshChunkNode
+{
+    Mesh meshes[meshesPerChunk];
+    Entity entities[meshesPerChunk];
+    MeshChunkNode *next;
+    u32 count;
+};
+
+struct MeshIter
+{
+    MeshChunkNode *chunkNode;
+    Mesh *mesh;
+    u32 localIndex;
+    u32 globalIndex;
+};
+
+class MeshManager
+{
+private:
+    MeshSlot *meshSlots;
+    MeshChunkNode *first = 0;
+    MeshChunkNode *last  = 0;
+    u32 meshWritePos     = 0;
+    u32 totalNumMeshes   = 0;
+
+    MeshFreeNode *freeMeshPositions = 0;
+    MeshFreeNode *freeMeshNodes     = 0;
+    MeshSlotNode *freeMeshSlotNode  = 0;
+
+public:
+    struct Scene *parentScene;
+    MeshManager(Scene *inScene);
+    Mesh *Create(Entity entity);
+    inline b8 IsValidHandle(MeshHandle handle);
+    void CreateInternal(struct MeshCreateRequest *request);
+    b8 Remove(Entity entity);
+    Mesh *Get(Entity entity);
+
+    MeshIter BeginIter();
+    b8 EndIter(MeshIter *iter);
+    void Next(MeshIter *iter);
+    inline Mesh *Get(MeshIter *iter);
+};
+
+//////////////////////////////
+// Hierarchy
+//
+struct HierarchyComponent
+{
+    i32 parentId = -1;
+    i32 transformIndex;
+};
+
+//////////////////////////////
+// Component requests
+//
+
+struct ComponentRequestRing
+{
+    std::atomic<u64> writePos;
+    std::atomic<u64> commitWritePos;
+    std::atomic<u64> readPos;
+    std::atomic<u64> writeTag;
+    std::atomic<u64> readTag;
+
+    u8 *ringBuffer;
+    static const u32 totalSize = kilobytes(16);
+
+    void *Alloc(u64 size);
+    void EndAlloc(void *mem);
+};
+
+enum ComponentRequestType
+{
+    ComponentRequestType_CreateMaterial,
+    ComponentRequestType_CreateMesh,
+};
+
+struct ComponentRequest
+{
+    ComponentRequestType type;
+};
+
+struct MaterialCreateRequest : ComponentRequest
+{
+    MaterialComponent material;
+    Entity entity;
+    u32 sid;
+};
+
+struct MeshCreateRequest : ComponentRequest
+{
+    Mesh mesh;
+    Entity entity;
+};
+
+//////////////////////////////
+// Scene
+//
 struct Scene
 {
-    struct SceneGraphNode
+    // TicketMutex arenaMutex = {};
+    Arena *arena;
+
+    SmallMemoryAllocator sma;
+
+    void *Alloc(i32 size)
     {
-        SceneGraphNode *parent;
-        SceneGraphNode *first;
-        SceneGraphNode *last;
-        SceneGraphNode *next;
-        SceneGraphNode *prev;
+        return sma.Alloc(size);
+    }
+    void Free(void *memory)
+    {
+        sma.Free(memory);
+    }
 
-        Entity entity;
-    };
+    MaterialManager materials;
+    MeshManager meshes;
 
-    ComponentManager<MaterialComponent> materials;
-
-    TicketMutex transformMutex = {};
+    // TicketMutex transformMutex = {};
     Mat4 transforms[256];
-    u32 transformCount = 0;
+    std::atomic<u32> transformCount = 0;
 
-    TicketMutex aabbMutex = {};
+    // TicketMutex aabbMutex = {};
     Rect3 aabbs[256];
     u32 aabbCount = 0;
 
-    // TODO: meshes need to be flat in here as well, instead of bunched in entities
+    //////////////////////////////
+    // Component requests
+    //
 
-    Entity CreateEntity()
-    {
-        static std::atomic<u32> entityGen = NULL_HANDLE + 1;
-        return entityGen.fetch_add(1);
-    }
+    ComponentRequestRing componentRequestRing;
 
-    i32 CreateTransform(Mat4 transform)
-    {
-        i32 result = -1;
-        TicketMutexScope(&transformMutex)
-        {
-            Assert(transformCount < ArrayLength(transforms));
-            transforms[transformCount] = transform;
-            result                     = transformCount;
-            transformCount++;
-        }
-        return result;
-    }
-    // Occlusion results
-    // struct OcclusionResult
-    // {
-    //     u32 queryId[2];
-    //     u32 history = ~0u;
+    //////////////////////////////
+    // Hierarchy
     //
-    //     b32 IsOccluded() const
-    //     {
-    //         return history == 0;
-    //     }
-    // };
-    //
-    // list<OcclusionResult> occlusionResults;
-    // // GPUBuffer queryResultBuffer[2];
-    // std::atomic<u32> queryCount;
-    //
-    // struct AABB
-    // {
-    //     Rect3 bounds;
-    // };
-    // list<Rect3> aabbObjects;
+    std::atomic<u32> hierarchyWritePos;
+    HierarchyComponent hierarchy[256] = {};
+
+    Scene();
+    Entity CreateEntity();
+    i32 CreateTransform(Mat4 transform, i32 parent = -1);
 };
 
 } // namespace scene

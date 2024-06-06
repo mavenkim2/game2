@@ -243,6 +243,14 @@ struct mkGraphicsVulkan : mkGraphics
     };
 
     //////////////////////////////
+    // Fence
+    //
+    struct FenceVulkan
+    {
+        VkFence fence;
+    };
+
+    //////////////////////////////
     // Allocation/Deferred cleanup
     //
 
@@ -328,6 +336,12 @@ struct mkGraphicsVulkan : mkGraphics
         return (ShaderVulkan *)(shader->internalState);
     }
 
+    VkFence ToInternal(Fence fence)
+    {
+        Assert(fence.IsValid());
+        return (VkFence)(fence.internalState);
+    }
+
     mkGraphicsVulkan(ValidationMode validationMode, GPUDevicePreference preference);
     u64 GetMinAlignment(GPUBufferDesc *inDesc) override;
     b32 CreateSwapchain(Window window, SwapchainDesc *desc, Swapchain *swapchain) override;
@@ -366,6 +380,8 @@ struct mkGraphicsVulkan : mkGraphics
     void Wait(CommandList waitFor, CommandList cmd) override;
 
     void Barrier(CommandList cmd, GPUBarrier *barriers, u32 count) override;
+    b32 IsSignaled(Fence fence) override;
+    b32 IsLoaded(GPUResource *resource) override;
 
     void SetName(GPUResource *resource, const char *name) override;
 

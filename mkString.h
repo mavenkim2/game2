@@ -85,6 +85,13 @@ internal u64 HashStruct_(void *ptr, u64 size);
 #define HashStruct(ptr) HashStruct_((ptr), sizeof(*(ptr)))
 
 //////////////////////////////
+// Global string table
+//
+internal u32 Hash(string str);
+internal u32 AddSID(string str);
+internal u32 GetSID(string str);
+
+//////////////////////////////
 // String token building/reading
 //
 

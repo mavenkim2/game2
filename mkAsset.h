@@ -25,13 +25,6 @@ enum TextureType
     TextureType_Count,
 };
 
-typedef u32 MeshFlags;
-enum
-{
-    MeshFlags_Skinned = 1 << 0,
-    MeshFlags_Uvs     = 1 << 1,
-};
-
 struct Heightmap
 {
     VC_Handle vertexHandle;
@@ -182,6 +175,8 @@ struct AnimationPlayer
 
 struct Mesh
 {
+    MeshFlags flags;
+
     V3 *positions;
     V3 *normals;
     V3 *tangents;
@@ -194,15 +189,17 @@ struct Mesh
     {
         u32 indexStart;
         u32 indexCount;
-        i32 materialIndex;
+        MaterialHandle materialHandle;
     };
     MeshSubset *subsets;
     u32 numSubsets;
 
     Rect3 bounds;
+
+    i32 meshIndex;
+    i32 skinningIndex;
     i32 transformIndex;
     i32 aabbIndex; // valid for one frame only
-    i32 meshIndex;
 
     u32 vertexCount;
     u32 indexCount;
@@ -233,30 +230,20 @@ struct Mesh
     BufferView soPosView;
     BufferView soNorView;
     BufferView soTanView;
-};
 
-// TODO: split the model into submeshes, which each have a single surface with bounds
-// also implement basic frustum culling :)
+    inline b32 IsValid();
+    inline b32 IsRenderable();
+};
 
 struct LoadedModel
 {
+    Entity rootEntity;
+    i32 transformIndex;
+
     AS_Handle skeleton;
-    Mesh *meshes;
+    // Mesh *meshes;
     u32 numMeshes;
     Rect3 bounds;
-
-    // MeshVertex *vertices;
-    // u32 *indices;
-    // Material *materials;
-    //
-    // u32 vertexCount;
-    // u32 indexCount;
-    // u32 materialCount;
-
-    // R_Handle vertexBuffer;
-    // R_Handle indexBuffer;
-
-    u32 _pad[1];
 };
 
 // NOTE: Temporary hash

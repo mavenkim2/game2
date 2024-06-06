@@ -1,3 +1,8 @@
+#include "mkCrack.h"
+#ifdef LSP_INCLUDE
+#include "mkThreadContext.h"
+#endif
+
 #include <atomic>
 namespace jobsystem
 {
@@ -140,7 +145,8 @@ THREAD_ENTRY_POINT(JobThreadEntryPoint)
 {
     ThreadContextSet(ctx);
     u64 threadIndex = (u64)ptr;
-    TempArena temp  = ScratchStart(0, 0);
+    SetThreadIndex((u32)threadIndex);
+    TempArena temp = ScratchStart(0, 0);
     SetThreadName(PushStr8F(temp.arena, "[Jobsystem] Worker %u", threadIndex));
     ScratchEnd(temp);
     for (; !gTerminateJobs;)

@@ -190,7 +190,7 @@ internal void D_Init()
     }
 
     // state->vertexCache.VC_Init();
-    RenderFrameDataInit();
+    // RenderFrameDataInit();
 
     d_state->frameStartPos = ArenaPos(arena);
 }
@@ -319,12 +319,12 @@ internal b32 D_IsInBounds(Rect3 bounds, Mat4 &mvp)
     return result;
 }
 
-internal void D_PushHeightmap(Heightmap heightmap)
-{
-    R_CommandHeightMap *command = (R_CommandHeightMap *)R_CreateCommand(sizeof(*command));
-    command->type               = R_CommandType_Heightmap;
-    command->heightmap          = heightmap;
-}
+// internal void D_PushHeightmap(Heightmap heightmap)
+// {
+//     R_CommandHeightMap *command = (R_CommandHeightMap *)R_CreateCommand(sizeof(*command));
+//     command->type               = R_CommandType_Heightmap;
+//     command->heightmap          = heightmap;
+// }
 
 // so i want to have a ring buffer between the game and the renderer. simple enough. let's start with single
 // threaded, similar to what we have now. right now the way the renderer works is that there's a permanent render
@@ -583,44 +583,13 @@ internal void DebugDrawSkeleton(AS_Handle model, Mat4 transform, Mat4 *skinningM
     }
 }
 
-internal void RenderFrameDataInit()
-{
-    RenderState *state            = engine->GetRenderState();
-    Arena *arena                  = ArenaAlloc(megabytes(256));
-    state->renderFrameState.arena = arena;
-
-    for (i32 i = 0; i < cFrameDataNumFrames; i++)
-    {
-        R_FrameData *frameData = &state->renderFrameState.frameData[i];
-        frameData->memory      = PushArray(arena, u8, cFrameBufferSize);
-    }
-    state->renderFrameState.currentFrame     = 0;
-    state->renderFrameState.currentFrameData = &state->renderFrameState.frameData[state->renderFrameState.currentFrame];
-
-    R_FrameData *data = state->renderFrameState.currentFrameData;
-    data->head = data->tail = (R_Command *)R_FrameAlloc(sizeof(R_Command));
-    data->head->type        = R_CommandType_Null;
-    data->head->next        = 0;
-}
-
-internal void *R_FrameAlloc(const i32 inSize)
-{
-    RenderState *state = engine->GetRenderState();
-    i32 alignedSize    = AlignPow2(inSize, 16);
-    i32 offset         = AtomicAddI32(&state->renderFrameState.currentFrameData->allocated, alignedSize);
-
-    void *out = state->renderFrameState.currentFrameData->memory + offset;
-    MemoryZero(out, inSize);
-
-    return out;
-}
-
 internal b32 IsAligned(u8 *ptr, i32 alignment)
 {
     b32 result = (u64)ptr == AlignPow2((u64)ptr, alignment);
     return result;
 }
 
+#if 0
 internal void R_SwapFrameData()
 {
     RenderState *state                       = engine->GetRenderState();
@@ -649,6 +618,7 @@ internal void *R_CreateCommand(i32 size)
     state->renderFrameState.currentFrameData->tail       = command;
     return (void *)command;
 }
+#endif
 
 //////////////////////////////
 // Lights
@@ -656,6 +626,7 @@ internal void *R_CreateCommand(i32 size)
 // Render to depth buffer from the perspective of the light, test vertices against this depth buffer
 // to see whether object is in shadow.
 // Returns splits cascade distances, and splits + 1 matrices
+#if 0
 internal void D_PushLight(Light *light)
 {
     R_PassMesh *pass = R_GetPassFromKind(R_PassType_Mesh)->passMesh;
@@ -667,6 +638,7 @@ internal void D_PushLight(Light *light)
     viewLight->next = pass->viewLight;
     pass->viewLight = viewLight;
 }
+#endif
 
 internal void R_CullModelsToLight(ViewLight *light)
 {
@@ -875,6 +847,7 @@ internal void R_CascadedShadowMap(const ViewLight *inLight, Mat4 *outLightViewPr
 }
 
 using namespace graphics;
+using namespace scene;
 namespace render
 {
 enum InputLayoutTypes
@@ -910,14 +883,56 @@ struct DeferredBlockCompressCmd
     Texture out;
 };
 
+// Deferred block read
 DeferredBlockCompressCmd blockCompressRing[256];
 std::atomic<u64> volatile blockCompressWrite       = 0;
 std::atomic<u64> volatile blockCompressCommitWrite = 0;
 u64 blockCompressRead                              = 0;
 
+// Render mesh :)
+struct RenderMesh
+{
+};
+
+// Per frame allocations
+struct FrameData
+{
+    u8 *memory;
+    std::atomic<u32> allocated;
+    u32 totalSize;
+};
+
+u8 currentFrame;
+u8 currentBuffer;
+FrameData frameData[2];
+
+internal void *FrameAlloc(i32 size)
+{
+    i32 alignedSize   = AlignPow2(size, 16);
+    FrameData *data   = &frameData[currentBuffer];
+    u32 currentOffset = data->allocated.fetch_add(alignedSize);
+
+    u8 *ptr = data->memory + currentOffset;
+    MemoryZero(ptr, size);
+
+    return ptr;
+}
+
 internal void Initialize()
 {
     arena = ArenaAlloc();
+
+    // Initialize frame data
+    {
+        currentFrame  = 0;
+        currentBuffer = 0;
+        for (u32 i = 0; i < ArrayLength(frameData); i++)
+        {
+            FrameData *data = &frameData[i];
+            data->totalSize = megabytes(8);
+            data->memory    = PushArray(arena, u8, data->totalSize);
+        }
+    }
     // Initialize swap chain
     {
         SwapchainDesc desc;
@@ -1076,6 +1091,87 @@ internal void Initialize()
     }
 }
 
+enum RenderPassType
+{
+    RenderPassType_Main,
+    RenderPassType_Shadow,
+};
+
+internal void RenderMeshes(CommandList cmdList, RenderPassType type, i32 cascadeNum = -1)
+{
+    b8 shadowPass = type == RenderPassType_Shadow;
+    b8 mainPass   = type == RenderPassType_Main;
+
+    PushConstant pc;
+    pc.meshParamsBuffer = device->GetDescriptorIndex(&meshParamsBuffer, ResourceType::SRV);
+
+    if (shadowPass)
+    {
+        pc.cascadeNum = cascadeNum;
+    }
+
+    for (MeshIter iter = gameScene.meshes.BeginIter(); !gameScene.meshes.EndIter(&iter); gameScene.meshes.Next(&iter))
+    {
+        Mesh *mesh = gameScene.meshes.Get(&iter);
+        if (mesh->meshIndex == -1) continue;
+        pc.meshIndex = mesh->meshIndex;
+
+        if (mesh->soPosView.IsValid())
+        {
+            pc.vertexPos = mesh->soPosView.srvDescriptor;
+        }
+        else
+        {
+            pc.vertexPos = mesh->vertexPosView.srvDescriptor;
+        }
+
+        if (mainPass)
+        {
+            if (mesh->soNorView.IsValid())
+            {
+                pc.vertexNor = mesh->soNorView.srvDescriptor;
+            }
+            else
+            {
+                pc.vertexNor = mesh->vertexNorView.srvDescriptor;
+            }
+            if (mesh->soTanView.IsValid())
+            {
+                pc.vertexTan = mesh->soTanView.srvDescriptor;
+            }
+            else
+            {
+                pc.vertexTan = mesh->vertexTanView.srvDescriptor;
+            }
+            pc.vertexUv = mesh->vertexUvView.srvDescriptor;
+        }
+
+        u32 baseVertex = 0;
+        for (u32 subsetIndex = 0; subsetIndex < mesh->numSubsets; subsetIndex++)
+        {
+            Mesh::MeshSubset *subset = &mesh->subsets[subsetIndex];
+
+            if (mainPass)
+            {
+                scene::MaterialComponent *material = gameScene.materials.GetFromHandle(subset->materialHandle);
+
+                graphics::Texture *texture = GetTexture(material->textures[TextureType_Diffuse]);
+                i32 descriptorIndex        = device->GetDescriptorIndex(texture, ResourceType::SRV);
+                pc.albedo                  = descriptorIndex;
+
+                texture         = GetTexture(material->textures[TextureType_Normal]);
+                descriptorIndex = device->GetDescriptorIndex(texture, ResourceType::SRV);
+                pc.normal       = descriptorIndex;
+            }
+
+            device->PushConstants(cmdList, sizeof(pc), &pc);
+            device->BindIndexBuffer(cmdList, &mesh->buffer, mesh->indexView.offset);
+            device->DrawIndexed(cmdList, subset->indexCount, subset->indexStart, 0);
+            baseVertex += subset->indexCount;
+        }
+    }
+}
+
 internal void Render()
 {
     // TODO: eventually, this should not be accessed from here
@@ -1105,31 +1201,24 @@ internal void Render()
         device->BindCompute(&skinPipeline, cmd);
         SkinningPushConstants pc;
         pc.skinningBuffer = device->GetDescriptorIndex(&skinningBuffer, ResourceType::SRV);
-        for (u32 entityIndex = 0; entityIndex < g_state->mEntityCount; entityIndex++)
+
+        for (MeshIter iter = gameScene.meshes.BeginIter(); !gameScene.meshes.EndIter(&iter); gameScene.meshes.Next(&iter))
         {
-            game::Entity *entity = &g_state->mEntities[entityIndex];
-            if (entity->mSkinningOffset != -1)
+            Mesh *mesh = gameScene.meshes.Get(&iter);
+            if (mesh->skinningIndex != -1)
             {
-                LoadedModel *model = GetModel(entity->mAssetHandle);
-                pc.skinningOffset  = entity->mSkinningOffset;
+                pc.vertexPos        = mesh->vertexPosView.srvDescriptor;
+                pc.vertexNor        = mesh->vertexNorView.srvDescriptor;
+                pc.vertexTan        = mesh->vertexTanView.srvDescriptor;
+                pc.vertexBoneId     = mesh->vertexBoneIdView.srvDescriptor;
+                pc.vertexBoneWeight = mesh->vertexBoneWeightView.srvDescriptor;
 
-                for (u32 meshIndex = 0; meshIndex < model->numMeshes; meshIndex++)
-                {
-                    Mesh *mesh = &model->meshes[meshIndex];
+                pc.soPos = mesh->soPosView.uavDescriptor;
+                pc.soNor = mesh->soNorView.uavDescriptor;
+                pc.soTan = mesh->soTanView.uavDescriptor;
 
-                    pc.vertexPos        = mesh->vertexPosView.srvDescriptor;
-                    pc.vertexNor        = mesh->vertexNorView.srvDescriptor;
-                    pc.vertexTan        = mesh->vertexTanView.srvDescriptor;
-                    pc.vertexBoneId     = mesh->vertexBoneIdView.srvDescriptor;
-                    pc.vertexBoneWeight = mesh->vertexBoneWeightView.srvDescriptor;
-
-                    pc.soPos = mesh->soPosView.uavDescriptor;
-                    pc.soNor = mesh->soNorView.uavDescriptor;
-                    pc.soTan = mesh->soTanView.uavDescriptor;
-
-                    device->PushConstants(cmd, sizeof(pc), &pc);
-                    device->Dispatch(cmd, (mesh->vertexCount + 63) / 64, 1, 1);
-                }
+                device->PushConstants(cmd, sizeof(pc), &pc);
+                device->Dispatch(cmd, (mesh->vertexCount + 63) / 64, 1, 1);
             }
         }
     }
@@ -1143,8 +1232,7 @@ internal void Render()
         GPUBarrier barriers[] = {
             GPUBarrier::Buffer(&skinningBuffer, ResourceUsage::UniformBuffer, ResourceUsage::TransferDst),
             GPUBarrier::Buffer(&meshParamsBuffer, ResourceUsage::UniformBuffer, ResourceUsage::TransferDst),
-            // TODO: shouldn't this be transferdst?
-            GPUBarrier::Buffer(&cascadeParamsBuffer, ResourceUsage::TransferSrc, ResourceUsage::UniformBuffer),
+            GPUBarrier::Buffer(&cascadeParamsBuffer, ResourceUsage::TransferDst, ResourceUsage::UniformBuffer),
         };
         device->Barrier(cmdList, barriers, ArrayLength(barriers));
     }
@@ -1183,8 +1271,6 @@ internal void Render()
 
     // Shadow pass :)
     {
-        PushConstant pc;
-        pc.meshParamsBuffer = device->GetDescriptorIndex(&meshParamsBuffer, ResourceType::SRV);
         for (u32 shadowSlice = 0; shadowSlice < shadowDepthBuffer.mDesc.mNumLayers; shadowSlice++)
         {
             RenderPassImage images[] = {
@@ -1208,42 +1294,7 @@ internal void Render()
 
             device->SetScissor(cmdList, scissor);
 
-            pc.cascadeNum = shadowSlice;
-
-            // TODO: pull this out into a function
-            for (u32 entityIndex = 0; entityIndex < g_state->mEntityCount; entityIndex++)
-            {
-                game::Entity *entity = &g_state->mEntities[entityIndex];
-                LoadedModel *model   = GetModel(entity->mAssetHandle);
-
-                for (u32 meshIndex = 0; meshIndex < model->numMeshes; meshIndex++)
-                {
-                    Mesh *mesh = &model->meshes[meshIndex];
-
-                    pc.meshIndex = mesh->meshIndex;
-                    if (mesh->soPosView.IsValid())
-                    {
-                        pc.vertexPos = mesh->soPosView.srvDescriptor;
-                    }
-                    else
-                    {
-                        pc.vertexPos = mesh->vertexPosView.srvDescriptor;
-                    }
-                    pc.vertexBoneId     = mesh->vertexBoneIdView.srvDescriptor;
-                    pc.vertexBoneWeight = mesh->vertexBoneWeightView.srvDescriptor;
-
-                    u32 baseVertex = 0;
-                    for (u32 subsetIndex = 0; subsetIndex < mesh->numSubsets; subsetIndex++)
-                    {
-                        Mesh::MeshSubset *subset = &mesh->subsets[subsetIndex];
-
-                        device->PushConstants(cmdList, sizeof(pc), &pc);
-                        device->BindIndexBuffer(cmdList, &mesh->buffer, mesh->indexView.offset);
-                        device->DrawIndexed(cmdList, subset->indexCount, subset->indexStart, 0);
-                        baseVertex += subset->indexCount;
-                    }
-                }
-            }
+            RenderMeshes(cmdList, RenderPassType_Shadow, shadowSlice);
             device->EndRenderPass(cmdList);
         }
     }
@@ -1283,68 +1334,13 @@ internal void Render()
         PushConstant pc;
         pc.meshParamsBuffer = device->GetDescriptorIndex(&meshParamsBuffer, ResourceType::SRV);
 
-        for (u32 entityIndex = 0; entityIndex < g_state->mEntityCount; entityIndex++)
-        {
-            game::Entity *entity = &g_state->mEntities[entityIndex];
-            LoadedModel *model   = GetModel(entity->mAssetHandle);
-
-            for (u32 meshIndex = 0; meshIndex < model->numMeshes; meshIndex++)
-            {
-                Mesh *mesh   = &model->meshes[meshIndex];
-                pc.meshIndex = mesh->meshIndex;
-                if (mesh->soPosView.IsValid())
-                {
-                    pc.vertexPos = mesh->soPosView.srvDescriptor;
-                }
-                else
-                {
-                    pc.vertexPos = mesh->vertexPosView.srvDescriptor;
-                }
-                if (mesh->soNorView.IsValid())
-                {
-                    pc.vertexNor = mesh->soNorView.srvDescriptor;
-                }
-                else
-                {
-                    pc.vertexNor = mesh->vertexNorView.srvDescriptor;
-                }
-                if (mesh->soTanView.IsValid())
-                {
-                    pc.vertexTan = mesh->soTanView.srvDescriptor;
-                }
-                else
-                {
-                    pc.vertexTan = mesh->vertexTanView.srvDescriptor;
-                }
-                pc.vertexUv         = mesh->vertexUvView.srvDescriptor;
-                pc.vertexBoneId     = mesh->vertexBoneIdView.srvDescriptor;
-                pc.vertexBoneWeight = mesh->vertexBoneWeightView.srvDescriptor;
-                u32 baseVertex      = 0;
-                for (u32 subsetIndex = 0; subsetIndex < mesh->numSubsets; subsetIndex++)
-                {
-                    Mesh::MeshSubset *subset           = &mesh->subsets[subsetIndex];
-                    scene::MaterialComponent &material = gameScene.materials[subset->materialIndex];
-
-                    graphics::Texture *texture = GetTexture(material.textures[TextureType_Diffuse]);
-                    i32 descriptorIndex        = device->GetDescriptorIndex(texture, ResourceType::SRV);
-                    pc.albedo                  = descriptorIndex;
-
-                    texture         = GetTexture(material.textures[TextureType_Normal]);
-                    descriptorIndex = device->GetDescriptorIndex(texture, ResourceType::SRV);
-                    pc.normal       = descriptorIndex;
-
-                    device->PushConstants(cmdList, sizeof(pc), &pc);
-
-                    device->BindIndexBuffer(cmdList, &mesh->buffer, mesh->indexView.offset);
-
-                    device->DrawIndexed(cmdList, subset->indexCount, subset->indexStart, 0);
-                    baseVertex += subset->indexCount;
-                }
-            }
-        }
+        RenderMeshes(cmdList, RenderPassType_Main);
         device->EndRenderPass(cmdList);
     }
     device->SubmitCommandLists();
+
+    currentFrame++;
+    currentBuffer = currentFrame % ArrayLength(frameData);
 }
 
 void DeferBlockCompress(graphics::Texture input, graphics::Texture output)
