@@ -245,6 +245,17 @@ struct Font
     F_Data fontData;
 };
 
+// TODO: for later:
+// the skeleton/model/Texture/Animation should be owned by the subsystem (probably in gamescene), not by the asset system.
+// the asset system will handle ALL allocations (for stuff that comes from the file system),
+// and the resources will have handles to the asset system for alloc/dealloc
+// or maybe the asset system should be in charge of unloading, and have a pointer to the resource
+
+// (i.e. the scene declares that a resource should be removed, the handle to the asset is chased for it to be dealloced,
+// OR the asset is scheduled for deallocation, the pointer to the corresponding resource is chased + removed from the
+// scene) <-- i like the first option better
+//
+// i really do just need more data to be able to make better decsions instead of architecting based on what i think/feel
 struct AS_Asset
 {
     // Memory
@@ -306,7 +317,7 @@ internal Font *GetFont(AS_Handle handle);
 internal AS_Asset *AS_GetAssetFromHandle(AS_Handle handle);
 internal AS_Handle AS_GetAsset(const string inPath, const b32 inLoadIfNotFound = 1);
 internal LoadedSkeleton *GetSkeleton(AS_Handle handle);
-internal LoadedSkeleton *GetSkeletonFromModel(AS_Handle handle);
+// internal LoadedSkeleton *GetSkeletonFromModel(AS_Handle handle);
 internal KeyframedAnimation *GetAnim(AS_Handle handle);
 internal LoadedModel *GetModel(AS_Handle handle);
 internal graphics::Texture *GetTexture(AS_Handle handle);

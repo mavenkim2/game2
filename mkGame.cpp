@@ -155,11 +155,11 @@ G_INIT(G_Init)
 
             AS_Handle anim           = AS_GetAsset(Str8Lit("data/animations/Qishilong_attack01.anim"));
             AnimationPlayer *aPlayer = &g_state->mAnimPlayers[0];
-            StartLoopedAnimation(g_state->permanentArena, aPlayer, anim);
+            StartLoopedAnimation(aPlayer, anim);
 
             anim    = AS_GetAsset(Str8Lit("data/animations/Mon_BlackDragon31_Btl_Atk01.anim"));
             aPlayer = &g_state->mAnimPlayers[1];
-            StartLoopedAnimation(g_state->permanentArena, aPlayer, anim);
+            StartLoopedAnimation(aPlayer, anim);
 
             g_state->mEntityCount += 3;
             // KeyframedAnimation *animation = PushStruct(g_state->permanentArena, KeyframedAnimation);
@@ -474,54 +474,56 @@ DLL G_UPDATE(G_Update)
     renderState->camera = g_state->camera;
     // Update
     u32 totalMatrixCount = 0;
-    u32 totalMeshCount   = 0;
+    u32 totalMeshCount   = gameScene.meshes.GetTotal();
     gameScene.aabbCount  = 0;
 
     // Process component system requests
     gameScene.ProcessRequests();
 
-    for (u32 i = 0; i < g_state->mEntityCount; i++)
+    // for (u32 i = 0; i < g_state->mEntityCount; i++)
+    // {
+    //     // Skinning
+    //     game::Entity *entity = &g_state->mEntities[i];
+    //     u32 offset           = totalMatrixCount;
+    //     u32 count            = GetSkeletonFromModel(g_state->mEntities[i].mAssetHandle)->count;
+    //     if (count == 0)
+    //     {
+    //         entity->mSkinningOffset = -1;
+    //     }
+    //     else
+    //     {
+    //         entity->mSkinningOffset = totalMatrixCount;
+    //         totalMatrixCount += GetSkeletonFromModel(entity->mAssetHandle)->count;
+    //     }
+    // }
+
+    for (SkeletonIter iter = gameScene.BeginSkelIter(); !gameScene.End(&iter); gameScene.Next(&iter))
     {
-        // Skinning
-        game::Entity *entity = &g_state->mEntities[i];
-        u32 offset           = totalMatrixCount;
-        u32 count            = GetSkeletonFromModel(g_state->mEntities[i].mAssetHandle)->count;
-        if (count == 0)
-        {
-            entity->mSkinningOffset = -1;
-        }
-        else
-        {
-            entity->mSkinningOffset = totalMatrixCount;
-            totalMatrixCount += GetSkeletonFromModel(entity->mAssetHandle)->count;
-        }
+        LoadedSkeleton *skeleton = gameScene.Get(&iter);
+        skeleton->skinningOffset = totalMatrixCount;
+        totalMatrixCount += skeleton->count;
     }
 
-    // IDEA: queue multi threaded loading?
     // TODO: this should probably be r_framealloced for the renderer backend to use
     // TODO: all children must be ensured to be after parents in hierarchycomponent
 
-    Mat4 *frameTransforms = PushArray(g_state->frameArena, Mat4, gameScene.transformCount.load());
+    Mat4 *frameTransforms = PushArray(g_state->frameArena, Mat4, gameScene.transforms.GetEndPos());
+    frameTransforms[0]    = Identity();
 
-    for (u32 hierarchyIndex = 0; hierarchyIndex < gameScene.hierarchyWritePos.load(); hierarchyIndex++)
+    for (HierarchyIter iter = gameScene.BeginHierIter(); !gameScene.End(&iter); gameScene.Next(&iter))
     {
-        HierarchyComponent *h           = &gameScene.hierarchy[hierarchyIndex];
-        i32 transformIndex              = h->transformIndex;
-        i32 parentId                    = h->parentId;
-        Mat4 transform                  = gameScene.transforms[transformIndex];
-        frameTransforms[transformIndex] = frameTransforms[parentId] * transform;
-    }
+        HierarchyComponent *h = gameScene.Get(&iter);
+        Entity entity         = gameScene.GetEntity(&iter);
 
-    for (MeshIter iter = gameScene.meshes.BeginIter(); !gameScene.meshes.EndIter(&iter); gameScene.meshes.Next(&iter))
-    {
-        Mesh *mesh      = gameScene.meshes.Get(&iter);
-        mesh->meshIndex = -1;
-        if (!mesh->IsRenderable()) continue;
+        TransformHandle handle = gameScene.transforms.GetHandle(entity);
+        Mat4 transform         = *gameScene.transforms.GetFromHandle(handle);
+        u32 transformIndex     = gameScene.transforms.GetIndex(handle);
+        Assert(transformIndex != 0);
 
-        mesh->meshIndex                  = iter.globalIndex;
-        mesh->aabbIndex                  = gameScene.aabbCount++;
-        gameScene.aabbs[mesh->aabbIndex] = Transform(gameScene.transforms[mesh->transformIndex], mesh->bounds);
-        totalMeshCount++;
+        handle          = gameScene.transforms.GetHandle(h->parent);
+        u32 parentIndex = gameScene.transforms.GetIndex(handle);
+
+        frameTransforms[transformIndex] = frameTransforms[parentIndex] * transform;
     }
 
     u32 totalSkinningSize   = totalMatrixCount * sizeof(Mat4);
@@ -557,34 +559,40 @@ DLL G_UPDATE(G_Update)
     Mat4 *skinningMappedData         = (Mat4 *)skinningBufferUpload->mMappedData;
     MeshParams *meshParamsMappedData = (MeshParams *)meshParamsUpload->mMappedData;
 
-    for (u32 i = 0; i < g_state->mEntityCount; i++)
+    for (SkeletonIter iter = gameScene.BeginSkelIter(); !gameScene.End(&iter); gameScene.Next(&iter))
     {
-        game::Entity *entity = &g_state->mEntities[i];
-        if (entity->mSkinningOffset != -1)
-        {
-            LoadedSkeleton *skeleton   = GetSkeletonFromModel(entity->mAssetHandle);
-            AnimationTransform *tforms = PushArray(g_state->frameArena, AnimationTransform, skeleton->count);
-            PlayCurrentAnimation(g_state->permanentArena, &g_state->mAnimPlayers[i], dt, tforms);
-            SkinModelToAnimation(&g_state->mAnimPlayers[i], entity->mAssetHandle, tforms,
-                                 skinningMappedData + entity->mSkinningOffset);
-        }
+        LoadedSkeleton *skeleton   = gameScene.Get(&iter);
+        AnimationTransform *tforms = PushArray(g_state->frameArena, AnimationTransform, skeleton->count);
+
+        u32 globalIndex = iter.globalIndex;
+        PlayCurrentAnimation(&g_state->mAnimPlayers[globalIndex], dt, tforms);
+        SkinModelToAnimation(&g_state->mAnimPlayers[globalIndex], skeleton, tforms,
+                             skinningMappedData + skeleton->skinningOffset);
     }
 
-    // TODO IMPORTANT: update the transforms. skeleton manager. manage the aabbs somehow.
-    // g_state->mTransforms[i];
-
-    for (MeshIter iter = gameScene.meshes.BeginIter(); !gameScene.meshes.EndIter(&iter); gameScene.meshes.Next(&iter))
+    u32 checkMeshCount = 0;
+    for (MeshIter iter = gameScene.BeginMeshIter(); !gameScene.End(&iter); gameScene.Next(&iter))
     {
-        Mesh *mesh = gameScene.meshes.Get(&iter);
-        if (mesh->meshIndex == -1) continue;
+        Mesh *mesh      = gameScene.Get(&iter);
+        Entity entity   = gameScene.GetEntity(&iter);
+        mesh->meshIndex = -1;
+        if (!mesh->IsRenderable()) continue;
 
-        Mat4 transform         = frameTransforms[mesh->transformIndex];
+        mesh->meshIndex = iter.globalIndex;
+        mesh->aabbIndex = gameScene.aabbCount++;
+
+        Mat4 transform                   = frameTransforms[gameScene.transforms.GetIndex(entity)];
+        gameScene.aabbs[mesh->aabbIndex] = Transform(transform, mesh->bounds);
+        checkMeshCount++;
+
         MeshParams *meshParams = &meshParamsMappedData[mesh->meshIndex];
 
         meshParams->transform       = renderState->transform * transform;
         meshParams->modelViewMatrix = renderState->viewMatrix * transform;
         meshParams->modelMatrix     = transform;
     }
+
+    Assert(checkMeshCount == totalMeshCount);
 
     // DebugDrawSkeleton(g_state->model, transform1, skinningMappedData);
     // SkinModelToBindPose(g_state->model, skinningMatrices1);

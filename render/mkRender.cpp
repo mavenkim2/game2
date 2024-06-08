@@ -551,37 +551,37 @@ internal void DrawSphere(V3 offset, f32 radius, V4 color)
     inst->transform       = transform;
 }
 
-internal void DebugDrawSkeleton(AS_Handle model, Mat4 transform, Mat4 *skinningMatrices, b32 showAxes = 0)
-{
-    LoadedSkeleton *skeleton = GetSkeletonFromModel(model);
-    loopi(0, skeleton->count)
-    {
-        u32 parentId = skeleton->parents[i];
-        if (parentId != -1)
-        {
-            Mat4 bindPoseMatrix = Inverse(skeleton->inverseBindPoses[i]);
-            V3 childTranslation = GetTranslation(skinningMatrices[i] * bindPoseMatrix);
-            V3 childPoint       = transform * childTranslation;
-
-            V3 parentTranslation =
-                GetTranslation(skinningMatrices[parentId] * Inverse(skeleton->inverseBindPoses[parentId]));
-            V3 parentPoint = transform * parentTranslation;
-            DrawLine(childPoint, parentPoint, Color_Green);
-
-            if (showAxes)
-            {
-                V3 axisPoint = Normalize(bindPoseMatrix.columns[0].xyz) + childPoint;
-                DrawArrow(childPoint, axisPoint, Color_Red, .2f);
-
-                axisPoint = Normalize(bindPoseMatrix.columns[1].xyz) + childPoint;
-                DrawArrow(childPoint, axisPoint, Color_Green, .2f);
-
-                axisPoint = Normalize(bindPoseMatrix.columns[2].xyz) + childPoint;
-                DrawArrow(childPoint, axisPoint, Color_Blue, .2f);
-            }
-        }
-    }
-}
+// internal void DebugDrawSkeleton(AS_Handle model, Mat4 transform, Mat4 *skinningMatrices, b32 showAxes = 0)
+// {
+//     LoadedSkeleton *skeleton = GetSkeletonFromModel(model);
+//     loopi(0, skeleton->count)
+//     {
+//         u32 parentId = skeleton->parents[i];
+//         if (parentId != -1)
+//         {
+//             Mat4 bindPoseMatrix = Inverse(skeleton->inverseBindPoses[i]);
+//             V3 childTranslation = GetTranslation(skinningMatrices[i] * bindPoseMatrix);
+//             V3 childPoint       = transform * childTranslation;
+//
+//             V3 parentTranslation =
+//                 GetTranslation(skinningMatrices[parentId] * Inverse(skeleton->inverseBindPoses[parentId]));
+//             V3 parentPoint = transform * parentTranslation;
+//             DrawLine(childPoint, parentPoint, Color_Green);
+//
+//             if (showAxes)
+//             {
+//                 V3 axisPoint = Normalize(bindPoseMatrix.columns[0].xyz) + childPoint;
+//                 DrawArrow(childPoint, axisPoint, Color_Red, .2f);
+//
+//                 axisPoint = Normalize(bindPoseMatrix.columns[1].xyz) + childPoint;
+//                 DrawArrow(childPoint, axisPoint, Color_Green, .2f);
+//
+//                 axisPoint = Normalize(bindPoseMatrix.columns[2].xyz) + childPoint;
+//                 DrawArrow(childPoint, axisPoint, Color_Blue, .2f);
+//             }
+//         }
+//     }
+// }
 
 internal b32 IsAligned(u8 *ptr, i32 alignment)
 {
@@ -1110,9 +1110,9 @@ internal void RenderMeshes(CommandList cmdList, RenderPassType type, i32 cascade
         pc.cascadeNum = cascadeNum;
     }
 
-    for (MeshIter iter = gameScene.meshes.BeginIter(); !gameScene.meshes.EndIter(&iter); gameScene.meshes.Next(&iter))
+    for (MeshIter iter = gameScene.BeginMeshIter(); !gameScene.End(&iter); gameScene.Next(&iter))
     {
-        Mesh *mesh = gameScene.meshes.Get(&iter);
+        Mesh *mesh = gameScene.Get(&iter);
         if (mesh->meshIndex == -1) continue;
         pc.meshIndex = mesh->meshIndex;
 
@@ -1202,10 +1202,12 @@ internal void Render()
         SkinningPushConstants pc;
         pc.skinningBuffer = device->GetDescriptorIndex(&skinningBuffer, ResourceType::SRV);
 
-        for (MeshIter iter = gameScene.meshes.BeginIter(); !gameScene.meshes.EndIter(&iter); gameScene.meshes.Next(&iter))
+        for (MeshIter iter = gameScene.BeginMeshIter(); !gameScene.End(&iter); gameScene.Next(&iter))
         {
-            Mesh *mesh = gameScene.meshes.Get(&iter);
-            if (mesh->skinningIndex != -1)
+            Mesh *mesh               = gameScene.Get(&iter);
+            Entity entity            = gameScene.GetEntity(&iter);
+            LoadedSkeleton *skeleton = gameScene.skeletons.Get(entity);
+            if (skeleton)
             {
                 pc.vertexPos        = mesh->vertexPosView.srvDescriptor;
                 pc.vertexNor        = mesh->vertexNorView.srvDescriptor;

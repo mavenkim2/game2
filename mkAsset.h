@@ -70,6 +70,7 @@ struct MeshVertex
 struct LoadedSkeleton
 {
     u32 count;
+    u32 skinningOffset;
     string *names;
     i32 *parents;
     Mat4 *inverseBindPoses;
@@ -197,8 +198,6 @@ struct Mesh
     Rect3 bounds;
 
     i32 meshIndex;
-    i32 skinningIndex;
-    i32 transformIndex;
     i32 aabbIndex; // valid for one frame only
 
     u32 vertexCount;
@@ -238,9 +237,8 @@ struct Mesh
 struct LoadedModel
 {
     Entity rootEntity;
-    i32 transformIndex;
 
-    AS_Handle skeleton;
+    // AS_Handle skeleton;
     // Mesh *meshes;
     u32 numMeshes;
     Rect3 bounds;

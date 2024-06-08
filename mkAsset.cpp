@@ -144,7 +144,7 @@ internal Mat4 ConvertToMatrix(const AnimationTransform *transform)
 //////////////////////////////
 // Animation
 //
-internal b8 LoadAnimation(Arena *arena, AnimationPlayer *player, AS_Handle handle)
+internal b8 LoadAnimation(AnimationPlayer *player, AS_Handle handle)
 {
     player->anim             = handle;
     KeyframedAnimation *anim = GetAnim(handle);
@@ -159,16 +159,16 @@ internal b8 LoadAnimation(Arena *arena, AnimationPlayer *player, AS_Handle handl
     }
     return result;
 }
-internal void StartLoopedAnimation(Arena *arena, AnimationPlayer *player, AS_Handle handle)
+internal void StartLoopedAnimation(AnimationPlayer *player, AS_Handle handle)
 {
-    LoadAnimation(arena, player, handle);
+    LoadAnimation(player, handle);
 }
 
-internal void PlayCurrentAnimation(Arena *arena, AnimationPlayer *player, f32 dT, AnimationTransform *transforms)
+internal void PlayCurrentAnimation(AnimationPlayer *player, f32 dT, AnimationTransform *transforms)
 {
     if (!player->loaded)
     {
-        LoadAnimation(arena, player, player->anim);
+        LoadAnimation(player, player->anim);
         if (IsAnimNil(player->currentAnimation))
         {
             return;
@@ -273,15 +273,14 @@ internal void PlayCurrentAnimation(Arena *arena, AnimationPlayer *player, f32 dT
     }
 }
 
-internal void SkinModelToAnimation(const AnimationPlayer *inPlayer, const AS_Handle inModel,
+internal void SkinModelToAnimation(const AnimationPlayer *inPlayer, const LoadedSkeleton *skeleton,
                                    const AnimationTransform *transforms, Mat4 *outFinalTransforms)
 {
     // TIMED_FUNCTION();
 
-    TempArena temp           = ScratchStart(0, 0);
-    LoadedSkeleton *skeleton = GetSkeletonFromModel(inModel);
-    Mat4 *transformToParent  = PushArray(temp.arena, Mat4, skeleton->count);
-    i32 previousId           = -1;
+    TempArena temp          = ScratchStart(0, 0);
+    Mat4 *transformToParent = PushArray(temp.arena, Mat4, skeleton->count);
+    i32 previousId          = -1;
 
     loopi(0, skeleton->count)
     {
@@ -341,10 +340,9 @@ internal AnimationTransform operator*(AnimationTransform p, AnimationTransform c
     return result;
 }
 
-internal void SkinModelToBindPose(AS_Handle model, Mat4 *finalTransforms)
+internal void SkinModelToBindPose(LoadedSkeleton *skeleton, Mat4 *finalTransforms)
 {
     TempArena temp           = ScratchStart(0, 0);
-    LoadedSkeleton *skeleton = GetSkeletonFromModel(model);
     Mat4 *transformToParent  = PushArray(temp.arena, Mat4, skeleton->count);
     i32 previousId           = -1;
 

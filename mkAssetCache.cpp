@@ -21,6 +21,7 @@
 #include "mkScene.h"
 #include "mkList.h"
 #include "mkString.h"
+#include "mkScene.h"
 #endif
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -200,9 +201,6 @@ internal string AS_DequeueFile(Arena *arena)
 //////////////////////////////
 // Asset Thread Entry Points
 //
-
-// TODO: this being multithreaded feels a bit awkward. maybe look at this later to figure if it can be
-// single-threaded, or if stuff can be timed so that it doesn't overlap somehow?
 THREAD_ENTRY_POINT(AS_EntryPoint)
 {
     ThreadContextSet(ctx);
@@ -335,8 +333,8 @@ internal void AS_LoadAsset(AS_Asset *asset)
         LoadedModel *model = &asset->model;
         asset->type        = AS_Model;
 
-        model->rootEntity     = gameScene.CreateEntity();
-        model->transformIndex = gameScene.CreateTransform(Identity());
+        model->rootEntity = gameScene.CreateEntity();
+        gameScene.CreateTransform(Identity(), model->rootEntity);
 
         Tokenizer tokenizer;
         tokenizer.input.str  = AS_GetMemory(asset);
@@ -350,7 +348,7 @@ internal void AS_LoadAsset(AS_Asset *asset)
 
         Tokenizer materialTokenizer;
         materialTokenizer.input.str  = materialData.str;
-        materialTokenizer.input.size = asset->size;
+        materialTokenizer.input.size = materialData.size;
         materialTokenizer.cursor     = materialTokenizer.input.str;
 
         Assert(Advance(&materialTokenizer, "Num materials: "));
@@ -364,7 +362,8 @@ internal void AS_LoadAsset(AS_Asset *asset)
             string line = ReadLine(&materialTokenizer);
 
             SkipToNextLine(&materialTokenizer);
-            scene::MaterialComponent *component = gameScene.materials.Create(line);
+            MaterialTicket ticket        = gameScene.materials.Create(line);
+            MaterialComponent *component = ticket.GetMaterial();
 
             // Read the diffuse texture if there is one
             b32 result = Advance(&materialTokenizer, "\tDiffuse: ");
@@ -414,14 +413,16 @@ internal void AS_LoadAsset(AS_Asset *asset)
             }
             SkipToNextLine(&materialTokenizer); // final closing bracket }
         }
+        Assert(EndOfBuffer(&materialTokenizer));
 
-        // model->meshes = ; //(Mesh *)AS_Alloc(sizeof(Mesh) * model->numMeshes);
-        Mesh **meshes = PushArray(temp.arena, Mesh *, model->numMeshes);
-        u32 meshCount = 0;
+        Mesh **meshes    = PushArray(temp.arena, Mesh *, model->numMeshes);
+        Mat4 *transforms = PushArray(temp.arena, Mat4, model->numMeshes);
+        u32 meshCount    = 0;
         for (u32 i = 0; i < model->numMeshes; i++)
         {
             Entity meshEntity   = gameScene.CreateEntity();
-            Mesh *mesh          = gameScene.meshes.Create(meshEntity);
+            MeshTicket ticket   = gameScene.meshes.Create(meshEntity);
+            Mesh *mesh          = ticket.GetMesh();
             meshes[meshCount++] = mesh;
 
             // Get the size
@@ -436,7 +437,9 @@ internal void AS_LoadAsset(AS_Asset *asset)
             // Get all of the subsets
             GetPointerValue(&tokenizer, &mesh->numSubsets);
 
-            // TODO: faster allocations for the asset system
+            // TODO: use pointer fix ups. at the end of the asset file, have a section for temporary memory that
+            // will be discarded. this section contains a table that maps an offset in the file (representing the location
+            // of the pointer) to an offset (representing what the pointer should point to)
             mesh->subsets = (Mesh::MeshSubset *)gameScene.Alloc(sizeof(Mesh::MeshSubset) * mesh->numSubsets);
 
             for (u32 subsetIndex = 0; subsetIndex < mesh->numSubsets; subsetIndex++)
@@ -449,9 +452,7 @@ internal void AS_LoadAsset(AS_Asset *asset)
 
                 if (materialName.size != 0)
                 {
-                    materialName.str = GetTokenCursor(&tokenizer, u8);
-                    // scene::Entity entity = gameScene.CreateEntity();
-                    // gameScene.materials.Link(entity, materialName);
+                    materialName.str                          = GetTokenCursor(&tokenizer, u8);
                     mesh->subsets[subsetIndex].materialHandle = gameScene.materials.GetHandle(materialName);
                     Advance(&tokenizer, (u32)materialName.size);
                 }
@@ -491,7 +492,9 @@ internal void AS_LoadAsset(AS_Asset *asset)
             {
                 transform = MakeMat4(1.f);
             }
-            mesh->transformIndex = gameScene.CreateTransform(transform, model->transformIndex);
+
+            gameScene.CreateTransform(transform, meshEntity, model->rootEntity);
+            transforms[i] = transform;
         }
 
         // Skeleton
@@ -502,15 +505,17 @@ internal void AS_LoadAsset(AS_Asset *asset)
             {
                 path.str = GetTokenCursor(&tokenizer, u8);
                 Advance(&tokenizer, (u32)path.size);
-
+                // {
+                //     SkeletonTicket ticket = gameScene.skeletons.Create}
                 string skeletonFilename = PushStr8F(temp.arena, "%S%S.skel", skeletonDirectory, RemoveFileExtension(path));
-                model->skeleton         = AS_GetAsset(skeletonFilename);
+                AS_GetAsset(skeletonFilename);
                 Printf("Skeleton file name: %S\n", path);
-            }
-            else
-            {
-                // Nil handle
-                model->skeleton.i64[0] = 0;
+
+                // TODO: i need to map each of the mesh entities to this skeleton. however, i can't do that because this is
+                // async. what do? some ideas are: make it synchronous; map the skeleton name to the skeleton, create
+                // the skeleton here (empty), get the skeleton in the async func call and fill it out
+                // gameScene.CreateSkeleton(). i like the second option better, but the problem with it is that
+                // i don't think i'll ever use the name for anything else.
             }
         }
 
@@ -665,7 +670,7 @@ internal void AS_LoadAsset(AS_Asset *asset)
                 mesh->soTanView.uavDescriptor = device->GetDescriptorIndex(&mesh->streamBuffer, ResourceType::UAV, mesh->soTanView.uavIndex);
             }
 
-            Mat4 transform         = gameScene.transforms[mesh->transformIndex];
+            Mat4 transform         = transforms[i];
             Rect3 modelSpaceBounds = Transform(transform, mesh->bounds);
             AddBounds(model->bounds, modelSpaceBounds);
         }
@@ -726,7 +731,7 @@ internal void AS_LoadAsset(AS_Asset *asset)
             // When written, pointers are converted to offsets in file. Offset + base file address is the new
             // pointer location. For now, I am storing the string data right after the offset and size, but
             // this could theoretically be moved elsewhere.
-            // TODO: get rid of these types of allocations through pointer fix ups
+
             skeleton.names = (string *)AS_Alloc(sizeof(string) * skeleton.count);
             for (u32 i = 0; i < count; i++)
             {
@@ -774,30 +779,8 @@ internal void AS_LoadAsset(AS_Asset *asset)
         desc.mTextureType  = TextureDesc::TextureType::Texture2D;
         desc.mSampler      = TextureDesc::DefaultSampler::Linear;
 
-        // TODO: the data isn't being sent to the graphics card appropriately from the dds file :(
         device->CreateTexture(&asset->texture, desc, texData);
         device->SetName(&asset->texture, (const char *)asset->path.str);
-
-        // Creates the block compressed asset
-        // if (bcFormat != Format::Null)
-        // {
-        //     u32 blockSize = GetBlockSize(bcFormat);
-        //     TextureDesc bcDesc;
-        //     Assert((desc.mWidth & (blockSize - 1)) == 0);
-        //     Assert((desc.mHeight & (blockSize - 1)) == 0);
-        //     bcDesc.mWidth        = desc.mWidth;
-        //     bcDesc.mHeight       = desc.mHeight;
-        //     bcDesc.mFormat       = bcFormat;
-        //     bcDesc.mInitialUsage = ResourceUsage::TransferDst;
-        //     bcDesc.mFutureUsages = ResourceUsage::SampledImage;
-        //     bcDesc.mSampler      = TextureDesc::DefaultSampler::Linear;
-        //
-        //     Texture uncompressed = asset->texture; // move?
-        //     Texture compressed;
-        //     device->CreateTexture(&compressed, bcDesc, 0);
-        //
-        //     // render::DeferBlockCompress(uncompressed, compressed);
-        // }
 
         stbi_image_free(texData);
     }
@@ -1042,13 +1025,12 @@ internal LoadedModel *GetModel(AS_Handle handle)
     }
     return result;
 }
-// TODO: calling GetSkeleton() on an nil model should return a nil skeleton
-internal LoadedSkeleton *GetSkeletonFromModel(AS_Handle handle)
-{
-    LoadedModel *model     = GetModel(handle);
-    LoadedSkeleton *result = model == &modelNil ? &skeletonNil : GetSkeleton(model->skeleton);
-    return result;
-}
+// internal LoadedSkeleton *GetSkeletonFromModel(AS_Handle handle)
+// {
+//     LoadedModel *model     = GetModel(handle);
+//     LoadedSkeleton *result = model == &modelNil ? &skeletonNil : GetSkeleton(model->skeleton);
+//     return result;
+// }
 internal KeyframedAnimation *GetAnim(AS_Handle handle)
 {
     AS_Asset *asset            = AS_GetAssetFromHandle(handle);

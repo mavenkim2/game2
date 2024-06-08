@@ -3805,6 +3805,11 @@ void mkGraphicsVulkan::BindCompute(PipelineState *ps, CommandList cmd)
                             1, (u32)bindlessDescriptorSets.size(), bindlessDescriptorSets.data(), 0, 0);
 }
 
+// void mkGraphicsVulkan::CreateQueryPool()
+// {
+//     vkCreateQueryPool(mDevice
+// }
+
 b32 mkGraphicsVulkan::IsSignaled(Fence fence)
 {
     VkFence fenceVulkan = ToInternal(fence);

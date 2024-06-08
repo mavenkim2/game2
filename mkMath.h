@@ -12,7 +12,7 @@
 #define Min(a, b) ((a) < (b) ? (a) : (b))
 
 template <typename T>
-inline b32 IsPow2(T value)
+constexpr inline b32 IsPow2(T value)
 {
     return (value & (value - 1)) == 0;
 }
