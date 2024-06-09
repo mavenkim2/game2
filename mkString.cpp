@@ -12,6 +12,7 @@
 // Constructors
 //
 
+// TODO: leak, use small memory allocator
 string::string(const char *text)
 {
     if (text)
@@ -418,7 +419,10 @@ internal u64 HashStruct_(void *ptr, u64 size)
 inline b32 Advance(Tokenizer *tokenizer, string check)
 {
     string token;
-    Assert((u64)(tokenizer->input.str + tokenizer->input.size - tokenizer->cursor) > check.size);
+    if ((u64)(tokenizer->input.str + tokenizer->input.size - tokenizer->cursor) < check.size)
+    {
+        return false;
+    }
     token.size = check.size;
     token.str  = tokenizer->cursor;
 
@@ -621,6 +625,10 @@ internal u64 Put(StringBuilder *builder, void *data, u64 size)
     return cursor;
 }
 
+inline u8 *PutPointerPlaceholder(StringBuilder *builder)
+{
+}
+
 internal u64 Put(StringBuilder *builder, string str)
 {
     Assert((u32)str.size == str.size);
@@ -701,5 +709,12 @@ inline u64 PutPointer(StringBuilder *builder, u64 address)
 
 inline void ConvertPointerToOffset(u8 *buffer, u64 location, u64 offset)
 {
-    MemoryCopy(buffer + location, &offset, sizeof(offset));
+    // MemoryCopy(buffer + location, &offset, sizeof(offset));
+    *(u64 *)(buffer + location) = offset;
+}
+
+inline u8 *ConvertOffsetToPointer(u8 *base, u64 offset)
+{
+    u8 *ptr = base + offset;
+    return ptr;
 }

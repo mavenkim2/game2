@@ -6,7 +6,6 @@
 // - Hot load assets
 // - Later: if there isn't enough space, evict the least used
 //
-// - Be able to asynchronously load multiple textures at the same time (using probably a list of PBOs).
 // - LRU for eviction
 #include "mkCrack.h"
 #ifdef LSP_INCLUDE
@@ -92,9 +91,6 @@ internal void AS_Flush()
 
     AS_CacheState *as_state = engine->GetAssetCacheState();
     platform.ReleaseSemaphores(as_state->readSemaphore, as_state->threadCount);
-    // platform.OS_ReleaseSemaphores(js_state->readSemaphore, js_state->threadCount);
-    // platform.OS_ReleaseSemaphore(as_state->readSemaphore);
-    // platform.OS_ReleaseSemaphore(as_state->writeSemaphore);
 
     for (u64 i = 0; i < as_state->threadCount; i++)
     {
@@ -328,16 +324,19 @@ internal void AS_LoadAsset(AS_Asset *asset)
     string extension = GetFileExtension(asset->path);
     if (extension == Str8Lit("model"))
     {
-        string filename = PathSkipLastSlash(asset->path);
+        SceneMergeTicket ticket = gameScene->requestRing.CreateMergeRequest();
+        Scene *newScene         = ticket.GetScene();
+        string filename         = PathSkipLastSlash(asset->path);
 
         LoadedModel *model = &asset->model;
         asset->type        = AS_Model;
 
-        model->rootEntity = gameScene.CreateEntity();
-        gameScene.CreateTransform(Identity(), model->rootEntity);
+        Entity rootEntity = newScene->CreateEntity();
+        newScene->CreateTransform(Identity(), rootEntity);
 
+        u8 *buffer = AS_GetMemory(asset);
         Tokenizer tokenizer;
-        tokenizer.input.str  = AS_GetMemory(asset);
+        tokenizer.input.str  = buffer;
         tokenizer.input.size = asset->size;
         tokenizer.cursor     = tokenizer.input.str;
 
@@ -362,8 +361,7 @@ internal void AS_LoadAsset(AS_Asset *asset)
             string line = ReadLine(&materialTokenizer);
 
             SkipToNextLine(&materialTokenizer);
-            MaterialTicket ticket        = gameScene.materials.Create(line);
-            MaterialComponent *component = ticket.GetMaterial();
+            MaterialComponent *component = newScene->materials.Create(line);
 
             // Read the diffuse texture if there is one
             b32 result = Advance(&materialTokenizer, "\tDiffuse: ");
@@ -417,13 +415,14 @@ internal void AS_LoadAsset(AS_Asset *asset)
 
         Mesh **meshes    = PushArray(temp.arena, Mesh *, model->numMeshes);
         Mat4 *transforms = PushArray(temp.arena, Mat4, model->numMeshes);
-        u32 meshCount    = 0;
+        Entity *entities = PushArray(temp.arena, Entity, model->numMeshes);
         for (u32 i = 0; i < model->numMeshes; i++)
         {
-            Entity meshEntity   = gameScene.CreateEntity();
-            MeshTicket ticket   = gameScene.meshes.Create(meshEntity);
-            Mesh *mesh          = ticket.GetMesh();
-            meshes[meshCount++] = mesh;
+            Entity meshEntity = newScene->CreateEntity();
+            Mesh *mesh        = newScene->meshes.Create(meshEntity);
+
+            meshes[i]   = mesh;
+            entities[i] = meshEntity;
 
             // Get the size
             u32 vertexCount;
@@ -437,23 +436,16 @@ internal void AS_LoadAsset(AS_Asset *asset)
             // Get all of the subsets
             GetPointerValue(&tokenizer, &mesh->numSubsets);
 
-            // TODO: use pointer fix ups. at the end of the asset file, have a section for temporary memory that
-            // will be discarded. this section contains a table that maps an offset in the file (representing the location
-            // of the pointer) to an offset (representing what the pointer should point to)
-            mesh->subsets = (Mesh::MeshSubset *)gameScene.Alloc(sizeof(Mesh::MeshSubset) * mesh->numSubsets);
-
+            mesh->subsets = GetTokenCursor(&tokenizer, Mesh::MeshSubset);
+            Advance(&tokenizer, sizeof(mesh->subsets[0]) * mesh->numSubsets);
             for (u32 subsetIndex = 0; subsetIndex < mesh->numSubsets; subsetIndex++)
             {
-                GetPointerValue(&tokenizer, &mesh->subsets[subsetIndex].indexStart);
-                GetPointerValue(&tokenizer, &mesh->subsets[subsetIndex].indexCount);
-
                 string materialName;
                 GetPointerValue(&tokenizer, &materialName.size);
-
                 if (materialName.size != 0)
                 {
                     materialName.str                          = GetTokenCursor(&tokenizer, u8);
-                    mesh->subsets[subsetIndex].materialHandle = gameScene.materials.GetHandle(materialName);
+                    mesh->subsets[subsetIndex].materialHandle = newScene->materials.GetHandle(materialName);
                     Advance(&tokenizer, (u32)materialName.size);
                 }
             }
@@ -493,7 +485,7 @@ internal void AS_LoadAsset(AS_Asset *asset)
                 transform = MakeMat4(1.f);
             }
 
-            gameScene.CreateTransform(transform, meshEntity, model->rootEntity);
+            newScene->CreateTransform(transform, meshEntity, rootEntity);
             transforms[i] = transform;
         }
 
@@ -505,17 +497,62 @@ internal void AS_LoadAsset(AS_Asset *asset)
             {
                 path.str = GetTokenCursor(&tokenizer, u8);
                 Advance(&tokenizer, (u32)path.size);
-                // {
-                //     SkeletonTicket ticket = gameScene.skeletons.Create}
-                string skeletonFilename = PushStr8F(temp.arena, "%S%S.skel", skeletonDirectory, RemoveFileExtension(path));
-                AS_GetAsset(skeletonFilename);
+
+                // Load the skeleton
+                string skeletonName      = path;
+                LoadedSkeleton *skeleton = newScene->skeletons.Create(skeletonName);
+                string skeletonFilename  = PushStr8F(temp.arena, "%S%S.skel", skeletonDirectory, skeletonName);
+
+                AS_Asset *skelAsset = AS_AllocAsset(skeletonFilename, false);
                 Printf("Skeleton file name: %S\n", path);
 
-                // TODO: i need to map each of the mesh entities to this skeleton. however, i can't do that because this is
-                // async. what do? some ideas are: make it synchronous; map the skeleton name to the skeleton, create
-                // the skeleton here (empty), get the skeleton in the async func call and fill it out
-                // gameScene.CreateSkeleton(). i like the second option better, but the problem with it is that
-                // i don't think i'll ever use the name for anything else.
+                OS_Handle handle             = platform.OpenFile(OS_AccessFlag_Read | OS_AccessFlag_ShareRead, skeletonFilename);
+                OS_FileAttributes attributes = platform.AttributesFromFile(handle);
+                // If the file doesn't exist, abort
+                if (attributes.lastModified != 0 || attributes.size != 0)
+                {
+                    skelAsset->lastModified = attributes.lastModified;
+                    skelAsset->memoryBlock  = AS_Alloc((i32)attributes.size);
+
+                    skelAsset->size = platform.ReadFileHandle(handle, AS_GetMemory(skelAsset));
+                    platform.CloseFile(handle);
+
+                    u8 *skelBuffer = AS_GetMemory(skelAsset);
+                    Tokenizer skeletonTokenizer;
+                    skeletonTokenizer.input.str  = skelBuffer;
+                    skeletonTokenizer.input.size = skelAsset->size;
+                    skeletonTokenizer.cursor     = skeletonTokenizer.input.str;
+
+                    u32 version;
+                    u32 count;
+                    GetPointerValue(&skeletonTokenizer, &version);
+                    GetPointerValue(&skeletonTokenizer, &count);
+                    skeleton->count = count;
+
+                    if (version == 1)
+                    {
+                        skeleton->names = GetTokenCursor(&skeletonTokenizer, string);
+                        Advance(&skeletonTokenizer, sizeof(skeleton->names[0]) * count);
+                        for (u32 i = 0; i < count; i++)
+                        {
+                            u64 offset             = (u64)skeleton->names[i].str;
+                            skeleton->names[i].str = ConvertOffsetToPointer(skeletonTokenizer.input.str, offset);
+                            Advance(&skeletonTokenizer, (u32)skeleton->names[i].size);
+                        }
+                        skeleton->parents = GetTokenCursor(&skeletonTokenizer, i32);
+                        Advance(&skeletonTokenizer, sizeof(skeleton->parents[0]) * count);
+                        skeleton->inverseBindPoses = GetTokenCursor(&skeletonTokenizer, Mat4);
+                        Advance(&skeletonTokenizer, sizeof(skeleton->inverseBindPoses[0]) * count);
+                        skeleton->transformsToParent = GetTokenCursor(&skeletonTokenizer, Mat4);
+                        Advance(&skeletonTokenizer, sizeof(skeleton->transformsToParent[0]) * count);
+
+                        Assert(EndOfBuffer(&skeletonTokenizer));
+                    }
+                    skelAsset->type = AS_Skeleton;
+                    // TODO: having this pointer feels awkward.
+                    skelAsset->skeleton = skeleton;
+                    skelAsset->status.store(AS_Status_Loaded);
+                }
             }
         }
 
@@ -688,69 +725,85 @@ internal void AS_LoadAsset(AS_Asset *asset)
         GetPointerValue(&tokenizer, &asset->anim.numNodes);
         GetPointerValue(&tokenizer, &asset->anim.duration);
 
-        asset->anim.boneChannels = (BoneChannel *)AS_Alloc(sizeof(BoneChannel) * asset->anim.numNodes);
-
+        asset->anim.boneChannels = GetTokenCursor(&tokenizer, BoneChannel);
         for (u32 i = 0; i < asset->anim.numNodes; i++)
         {
-            BoneChannel *channel = &asset->anim.boneChannels[i];
-
-            GetPointerValue(&tokenizer, &channel->name.size);
-            channel->name.str = GetTokenCursor(&tokenizer, u8);
-            Advance(&tokenizer, (u32)(sizeof(channel->name.str[0]) * channel->name.size));
-
-            GetPointerValue(&tokenizer, &channel->numPositionKeys);
-            channel->positions = GetTokenCursor(&tokenizer, AnimationPosition);
-            Advance(&tokenizer, sizeof(channel->positions[0]) * channel->numPositionKeys);
-
-            GetPointerValue(&tokenizer, &channel->numScalingKeys);
-            channel->scales = GetTokenCursor(&tokenizer, AnimationScale);
-            Advance(&tokenizer, sizeof(channel->scales[0]) * channel->numScalingKeys);
-
-            GetPointerValue(&tokenizer, &channel->numRotationKeys);
-            channel->rotations = GetTokenCursor(&tokenizer, AnimationRotation);
-            Advance(&tokenizer, sizeof(channel->rotations[0]) * channel->numRotationKeys);
+            BoneChannel *boneChannel = &asset->anim.boneChannels[i];
+            boneChannel->name.str    = (u8 *)ConvertOffsetToPointer(buffer, (u64)boneChannel->name.str);
+            boneChannel->positions   = (AnimationPosition *)ConvertOffsetToPointer(buffer, (u64)boneChannel->positions);
+            boneChannel->scales      = (AnimationScale *)ConvertOffsetToPointer(buffer, (u64)boneChannel->scales);
+            boneChannel->rotations   = (AnimationRotation *)ConvertOffsetToPointer(buffer, (u64)boneChannel->rotations);
         }
+
+        // Advance(&tokenizer, sizeof(BoneChannel) * asset->anim.numNodes);
+        // Assert(EndOfBuffer(&tokenizer));
+
+        // asset->anim.boneChannels = (BoneChannel *)AS_Alloc(sizeof(BoneChannel) * asset->anim.numNodes);
+
+        // for (u32 i = 0; i < asset->anim.numNodes; i++)
+        // {
+        //     BoneChannel *channel = &asset->anim.boneChannels[i];
+        //
+        //     GetPointerValue(&tokenizer, &channel->name.size);
+        //     channel->name.str = GetTokenCursor(&tokenizer, u8);
+        //     Advance(&tokenizer, (u32)(sizeof(channel->name.str[0]) * channel->name.size));
+        //
+        //     GetPointerValue(&tokenizer, &channel->numPositionKeys);
+        //     channel->positions = GetTokenCursor(&tokenizer, AnimationPosition);
+        //     Advance(&tokenizer, sizeof(channel->positions[0]) * channel->numPositionKeys);
+        //
+        //     GetPointerValue(&tokenizer, &channel->numScalingKeys);
+        //     channel->scales = GetTokenCursor(&tokenizer, AnimationScale);
+        //     Advance(&tokenizer, sizeof(channel->scales[0]) * channel->numScalingKeys);
+        //
+        //     GetPointerValue(&tokenizer, &channel->numRotationKeys);
+        //     channel->rotations = GetTokenCursor(&tokenizer, AnimationRotation);
+        //     Advance(&tokenizer, sizeof(channel->rotations[0]) * channel->numRotationKeys);
+        // }
     }
     else if (extension == Str8Lit("skel"))
     {
-        LoadedSkeleton skeleton;
-        Tokenizer tokenizer;
-        tokenizer.input.str  = AS_GetMemory(asset);
-        tokenizer.input.size = asset->size;
-        tokenizer.cursor     = tokenizer.input.str;
-
-        u32 version;
-        u32 count;
-        GetPointerValue(&tokenizer, &version);
-        GetPointerValue(&tokenizer, &count);
-        skeleton.count = count;
-
-        if (version == 1)
-        {
-            // NOTE: How this works for future me:
-            // When written, pointers are converted to offsets in file. Offset + base file address is the new
-            // pointer location. For now, I am storing the string data right after the offset and size, but
-            // this could theoretically be moved elsewhere.
-
-            skeleton.names = (string *)AS_Alloc(sizeof(string) * skeleton.count);
-            for (u32 i = 0; i < count; i++)
-            {
-                string *boneName = &skeleton.names[i];
-                boneName->str    = GetPointer(&tokenizer, u8);
-                GetPointerValue(&tokenizer, &boneName->size);
-                Advance(&tokenizer, (u32)boneName->size);
-            }
-            skeleton.parents = GetTokenCursor(&tokenizer, i32);
-            Advance(&tokenizer, sizeof(skeleton.parents[0]) * count);
-            skeleton.inverseBindPoses = GetTokenCursor(&tokenizer, Mat4);
-            Advance(&tokenizer, sizeof(skeleton.inverseBindPoses[0]) * count);
-            skeleton.transformsToParent = GetTokenCursor(&tokenizer, Mat4);
-            Advance(&tokenizer, sizeof(skeleton.transformsToParent[0]) * count);
-
-            Assert(EndOfBuffer(&tokenizer));
-        }
-        asset->type     = AS_Skeleton;
-        asset->skeleton = skeleton;
+        Assert(0);
+        //     string skeletonName = RemoveFileExtension(asset->path);
+        //
+        //     Tokenizer tokenizer;
+        //     tokenizer.input.str  = AS_GetMemory(asset);
+        //     tokenizer.input.size = asset->size;
+        //     tokenizer.cursor     = tokenizer.input.str;
+        //
+        //     u32 version;
+        //     u32 count;
+        //     GetPointerValue(&tokenizer, &version);
+        //     GetPointerValue(&tokenizer, &count);
+        //     skeleton->count = count;
+        //
+        //     if (version == 1)
+        //     {
+        //         // NOTE: How this works for future me:
+        //         // When written, pointers are converted to offsets in file. Offset + base file address is the new
+        //         // pointer location. For now, I am storing the string data right after the offset and size, but
+        //         // this could theoretically be moved elsewhere.
+        //
+        //         skeleton->names = (string *)AS_Alloc(sizeof(string) * skeleton->count);
+        //         for (u32 i = 0; i < count; i++)
+        //         {
+        //             string *boneName = &skeleton->names[i];
+        //             boneName->str    = GetPointer(&tokenizer, u8);
+        //             GetPointerValue(&tokenizer, &boneName->size);
+        //             Advance(&tokenizer, (u32)boneName->size);
+        //         }
+        //         skeleton->parents = GetTokenCursor(&tokenizer, i32);
+        //         Advance(&tokenizer, sizeof(skeleton->parents[0]) * count);
+        //         skeleton->inverseBindPoses = GetTokenCursor(&tokenizer, Mat4);
+        //         Advance(&tokenizer, sizeof(skeleton->inverseBindPoses[0]) * count);
+        //         skeleton->transformsToParent = GetTokenCursor(&tokenizer, Mat4);
+        //         Advance(&tokenizer, sizeof(skeleton->transformsToParent[0]) * count);
+        //
+        //         Assert(EndOfBuffer(&tokenizer));
+        //     }
+        //     asset->type = AS_Skeleton;
+        //     // TODO: having this pointer feels awkward.
+        //     asset->skeleton = skeleton;
     }
     else if (extension == Str8Lit("png") || extension == Str8Lit("jpeg"))
     {
@@ -893,7 +946,7 @@ internal AS_Asset *AS_GetAssetFromHandle(AS_Handle handle)
     return result;
 }
 
-internal AS_Asset *AS_AllocAsset(const string inPath)
+internal AS_Asset *AS_AllocAsset(const string inPath, b8 queueFile)
 {
     AS_CacheState *as_state = engine->GetAssetCacheState();
     BeginMutex(&as_state->lock);
@@ -924,7 +977,7 @@ internal AS_Asset *AS_AllocAsset(const string inPath)
 
     EndMutex(&as_state->lock);
 
-    AS_EnqueueFile(inPath);
+    if (queueFile) AS_EnqueueFile(inPath);
 
     return asset;
 }
@@ -997,7 +1050,7 @@ internal LoadedSkeleton *GetSkeleton(AS_Handle handle)
     if (asset)
     {
         Assert(asset->type == AS_Skeleton);
-        result = &asset->skeleton;
+        result = asset->skeleton;
     }
     return result;
 }
@@ -1043,14 +1096,6 @@ internal KeyframedAnimation *GetAnim(AS_Handle handle)
     return result;
 }
 
-// internal R_Handle GetTextureRenderHandle(AS_Handle input)
-// {
-//     Texture *texture = GetTexture(input);
-//     R_Handle handle            = texture->handle;
-//     return handle;
-// }
-
-// TODO: similar function that tries to get it from the hash first before loading it smiley face :)
 inline b32 IsModelHandleNil(AS_Handle handle)
 {
     LoadedModel *model = GetModel(handle);

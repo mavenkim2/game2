@@ -20,10 +20,10 @@
 #include "mkAssetCache.h"
 // #include "render/mkVertexCache.h"
 #include "render/mkRender.h"
+#include "mkScene.h"
 #include "mkShared.h"
 
 #include "mkDebug.h"
-#include "mkScene.h"
 
 //////////////////////////////
 // Input
@@ -148,7 +148,6 @@ namespace game
 struct Entity
 {
     AS_Handle mAssetHandle;
-    i32 mSkinningOffset;
 };
 }; // namespace game
 
@@ -176,8 +175,6 @@ struct G_State
     Mat4 mTransforms[4];
     u32 transformCount;
 
-    u32 mEntityCount = 0;
-
     // AS_Handle model;
     // AS_Handle model2;
     // AS_Handle eva;
@@ -191,6 +188,7 @@ struct G_State
 PlatformApi platform;
 Engine *engine;
 Shared *shared;
+scene::Scene *gameScene;
 graphics::mkGraphics *device;
 
 internal Manifold NarrowPhaseAABBCollision(const Rect3 a, const Rect3 b);

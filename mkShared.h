@@ -310,7 +310,7 @@ struct GamePlatformMemory
 {
     Shared *mShared;
     Engine *mEngine;
-    // RendererApi mRenderer;
+    scene::Scene *mScene;
     graphics::mkGraphics *mGraphics;
     PlatformApi mPlatform;
     ThreadContext *mTctx;

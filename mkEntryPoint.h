@@ -11,6 +11,8 @@
 #include "mkList.h"
 #include "render/mkGraphics.h"
 #include "mkShaderCompiler.h"
+#include "mkAsset.h"
+#include "mkScene.h"
 
 #include "mkShared.h"
 

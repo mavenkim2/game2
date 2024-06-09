@@ -22,6 +22,13 @@
 
 #include <queue>
 
+#define VK_CHECK(check)                \
+    do                                 \
+    {                                  \
+        VkResult result_ = check;      \
+        Assert(result_ == VK_SUCCESS); \
+    } while (0);
+
 namespace graphics
 {
 

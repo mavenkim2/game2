@@ -342,9 +342,9 @@ internal AnimationTransform operator*(AnimationTransform p, AnimationTransform c
 
 internal void SkinModelToBindPose(LoadedSkeleton *skeleton, Mat4 *finalTransforms)
 {
-    TempArena temp           = ScratchStart(0, 0);
-    Mat4 *transformToParent  = PushArray(temp.arena, Mat4, skeleton->count);
-    i32 previousId           = -1;
+    TempArena temp          = ScratchStart(0, 0);
+    Mat4 *transformToParent = PushArray(temp.arena, Mat4, skeleton->count);
+    i32 previousId          = -1;
 
     for (i32 id = 0; id < (i32)skeleton->count; id++)
     {
@@ -382,7 +382,7 @@ inline b32 Mesh::IsRenderable()
     for (u32 subsetIndex = 0; subsetIndex < numSubsets; subsetIndex++)
     {
         MeshSubset *subset          = &subsets[subsetIndex];
-        MaterialComponent *material = gameScene.materials.GetFromHandle(subset->materialHandle);
+        MaterialComponent *material = gameScene->materials.GetFromHandle(subset->materialHandle);
         for (u32 textureIndex = 0; textureIndex < ArrayLength(material->textures); textureIndex++)
         {
             graphics::Texture *texture = GetTexture(material->textures[textureIndex]);

@@ -13,6 +13,7 @@ namespace scene
 void SmallMemoryAllocator::Init()
 {
     arena = ArenaAlloc();
+    mutex = {};
 
     i32 start = 16;
     for (u32 i = 0; i < ArrayLength(pools); i++)
@@ -31,12 +32,11 @@ void *SmallMemoryAllocator::Alloc(i32 size)
     Assert(id < ArrayLength(pools));
 
     SmallMemoryPool *pool = &pools[id];
-    Assert(pool->allocatedSize + pool->size < pool->totalSize);
+    // Assert(pool->allocatedSize + pool->size < pool->totalSize);
 
-    i32 threadIndex           = GetThreadIndex();
-    SmallMemoryNode *freeList = pool->freeList[threadIndex];
+    i32 threadIndex = GetThreadIndex();
 
-    if (freeList)
+    if (!pool->freeList[threadIndex])
     {
         MutexScope(&mutex)
         {
@@ -47,12 +47,12 @@ void *SmallMemoryAllocator::Alloc(i32 size)
             {
                 SmallMemoryNode *node = (SmallMemoryNode *)cursor;
                 node->id              = id;
-                StackPush(freeList, node);
+                StackPush(pool->freeList[threadIndex], node);
             }
         }
     }
 
-    SmallMemoryNode *node = freeList;
+    SmallMemoryNode *node = pool->freeList[threadIndex];
     StackPop(pool->freeList[threadIndex]);
 
     void *result = (node + 1);
@@ -73,96 +73,26 @@ void SmallMemoryAllocator::Free(void *memory)
 }
 
 //////////////////////////////
-// Tickets
-//
-
-Mesh *MeshTicket::GetMesh()
-{
-    return &request->mesh;
-}
-
-MeshTicket::~MeshTicket()
-{
-    parentScene->componentRequestRing.EndAlloc(request);
-}
-
-MaterialComponent *MaterialTicket::GetMaterial()
-{
-    return &request->material;
-}
-
-MaterialTicket::~MaterialTicket()
-{
-    parentScene->componentRequestRing.EndAlloc(request);
-}
-
-Mat4 *TransformTicket::GetTransform()
-{
-    return &request->transform;
-}
-
-TransformTicket::~TransformTicket()
-{
-    parentScene->componentRequestRing.EndAlloc(request);
-}
-
-LoadedSkeleton *SkeletonTicket::GetSkeleton()
-{
-    return &request->skeleton;
-}
-
-SkeletonTicket::~SkeletonTicket()
-{
-    parentScene->componentRequestRing.EndAlloc(request);
-}
-
-//////////////////////////////
 // Materials
 //
-MaterialManager::MaterialManager(Scene *inScene)
+void MaterialManager::Init(Scene *inScene)
 {
-    parentScene = inScene;
-    nameMap     = PushArray(parentScene->arena, MaterialSlot, numMaterialSlots);
+    parentScene           = inScene;
+    nameMap               = PushArray(parentScene->arena, MaterialSlot, numMaterialSlots);
+    freeSlotNode          = 0;
+    first                 = 0;
+    last                  = 0;
+    totalNumMaterials     = 0;
+    materialWritePos      = 0;
+    freeMaterialPositions = 0;
+    freeMaterialNodes     = 0;
 }
 
-void MaterialManager::InsertNameMap(MaterialHandle handle, i32 sid)
+MaterialComponent *MaterialManager::Create(u32 sid)
 {
-    MaterialSlot *slot         = &nameMap[sid & materialSlotMask];
-    MaterialSlotNode *freeNode = freeSlotNode;
-    if (freeNode)
-    {
-        StackPop(freeSlotNode);
-    }
-    else
-    {
-        freeNode = PushStruct(parentScene->arena, MaterialSlotNode);
-    }
-
-    freeNode->id     = sid;
-    freeNode->handle = handle;
-    QueuePush(slot->first, slot->last, freeNode);
-}
-
-MaterialHandle MaterialManager::GetHandleFromNameMap(string name)
-{
-    u32 sid               = GetSID(name);
-    MaterialSlot *slot    = &nameMap[sid & materialSlotMask];
-    MaterialHandle handle = {};
-    for (MaterialSlotNode *node = slot->first; node != 0; node = node->next)
-    {
-        if (node->id == sid)
-        {
-            handle = node->handle;
-            break;
-        }
-    }
-    return handle;
-}
-
-MaterialHandle MaterialManager::GetFreePosition(MaterialChunkNode **chunkNode, u32 *localIndex)
-{
-    MaterialChunkNode *resultChunkNode;
-    u32 resultLocalIndex;
+    // Get empty position
+    MaterialChunkNode *chunkNode = 0;
+    u32 localIndex;
 
     MaterialFreeNode *freeNode = freeMaterialPositions;
     MaterialHandle handle;
@@ -170,69 +100,50 @@ MaterialHandle MaterialManager::GetFreePosition(MaterialChunkNode **chunkNode, u
     {
         handle = freeNode->handle;
         StackPop(freeMaterialPositions);
-        UnpackHandle(handle, &resultChunkNode, &resultLocalIndex);
+        UnpackHandle(handle, &chunkNode, &localIndex);
         StackPush(freeMaterialNodes, freeNode);
     }
     else
     {
-        u32 index        = materialWritePos++;
-        resultLocalIndex = index & materialChunkMask;
-        resultChunkNode  = last;
-        if (resultChunkNode == 0 || resultLocalIndex == 0)
+        u32 index  = materialWritePos++;
+        localIndex = index & materialChunkMask;
+        chunkNode  = last;
+        if (chunkNode == 0 || localIndex == 0)
         {
             MaterialChunkNode *newChunkNode = PushStruct(parentScene->arena, MaterialChunkNode);
             QueuePush(first, last, newChunkNode);
-            resultChunkNode = newChunkNode;
+            chunkNode = newChunkNode;
         }
-        handle = CreateHandle(resultChunkNode, resultLocalIndex);
+        handle = CreateHandle(chunkNode, localIndex);
     }
-    *chunkNode  = resultChunkNode;
-    *localIndex = resultLocalIndex;
-    return handle;
-}
 
-struct MaterialScope
-{
-    MaterialCreateRequest *request;
-    MaterialManager *manager;
-    ~MaterialScope()
+    MaterialSlot *slot         = &nameMap[sid & materialSlotMask];
+    MaterialSlotNode *slotNode = freeSlotNode;
+    if (slotNode)
     {
-        manager->parentScene->componentRequestRing.EndAlloc(request);
+        StackPop(freeSlotNode);
     }
-};
+    else
+    {
+        slotNode = PushStruct(parentScene->arena, MaterialSlotNode);
+    }
 
-MaterialTicket MaterialManager::Create(string name)
-{
-    MaterialCreateRequest *request = (MaterialCreateRequest *)parentScene->componentRequestRing.Alloc(sizeof(MaterialCreateRequest));
-    request->type                  = ComponentRequestType_CreateMaterial;
-    i32 sid                        = AddSID(name);
-    request->sid                   = sid;
-
-    MaterialTicket ticket;
-    ticket.parentScene = parentScene;
-    ticket.request     = request;
-    return ticket;
-}
-
-void MaterialManager::CreateInternal(MaterialCreateRequest *request)
-{
-    MaterialComponent *component = 0;
-    Assert(request->type == ComponentRequestType_CreateMaterial);
-
-    u32 sid = request->sid;
-
-    // Get empty position
-    MaterialChunkNode *chunkNode = 0;
-    u32 localIndex;
-    MaterialHandle handle = GetFreePosition(&chunkNode, &localIndex);
-
-    InsertNameMap(handle, sid);
+    slotNode->id     = sid;
+    slotNode->handle = handle;
+    QueuePush(slot->first, slot->last, slotNode);
 
     MaterialComponent *result = &chunkNode->materials[localIndex];
-    *result                   = request->material;
     result->flags |= MaterialFlag_Valid;
     result->sid = sid;
     totalNumMaterials++;
+    return result;
+}
+
+MaterialComponent *MaterialManager::Create(string name)
+{
+    u32 sid                = AddSID(name);
+    MaterialComponent *mat = Create(sid);
+    return mat;
 }
 
 b32 MaterialManager::Remove(string name)
@@ -271,29 +182,20 @@ MaterialHandle MaterialManager::RemoveFromNameMap(u32 sid)
 void MaterialManager::RemoveFromList(MaterialHandle handle)
 {
     // TODO: gen ids?
-    //
     MaterialChunkNode *chunkNode;
     u32 localIndex;
     UnpackHandle(handle, &chunkNode, &localIndex);
-    // If the last position is freed, decrement material write pos
-    if (chunkNode == last && ((materialWritePos & materialChunkMask) == localIndex))
+    MaterialFreeNode *freeNode = freeMaterialNodes;
+    if (freeNode)
     {
-        materialWritePos--;
+        StackPop(freeMaterialNodes);
     }
     else
     {
-        MaterialFreeNode *freeNode = freeMaterialNodes;
-        if (freeNode)
-        {
-            StackPop(freeMaterialNodes);
-        }
-        else
-        {
-            freeNode = PushStruct(parentScene->arena, MaterialFreeNode);
-        }
-        freeNode->handle = handle;
-        StackPush(freeMaterialPositions, freeNode);
+        freeNode = PushStruct(parentScene->arena, MaterialFreeNode);
     }
+    freeNode->handle = handle;
+    StackPush(freeMaterialPositions, freeNode);
 }
 
 b32 MaterialManager::Remove(u32 sid)
@@ -327,15 +229,9 @@ b32 MaterialManager::Remove(MaterialHandle handle)
     return result;
 }
 
-MaterialHandle MaterialManager::GetHandle(string name)
-{
-    MaterialHandle handle = GetHandleFromNameMap(name);
-    return handle;
-}
-
 MaterialComponent *MaterialManager::Get(string name)
 {
-    MaterialHandle handle     = GetHandleFromNameMap(name);
+    MaterialHandle handle     = GetHandle(name);
     MaterialComponent *result = GetFromHandle(handle);
     return result;
 }
@@ -365,17 +261,17 @@ void MaterialManager::Next(MaterialIter *iter)
     b32 valid = 0;
     do
     {
-        MaterialComponent *material = &iter->chunkNode->materials[iter->localIndex++];
+        if (++iter->localIndex == numMaterialsPerChunk)
+        {
+            iter->localIndex = 0;
+            iter->chunkNode  = iter->chunkNode->next;
+            Assert(iter->chunkNode);
+        }
+        MaterialComponent *material = &iter->chunkNode->materials[iter->localIndex];
         valid                       = HasFlags(material->flags, MaterialFlag_Valid);
         iter->material              = material;
         iter->globalIndex++;
-        if (iter->localIndex == numMaterialsPerChunk)
-        {
-            Assert(iter->chunkNode);
-            iter->localIndex = 0;
-            iter->chunkNode  = iter->chunkNode->next;
-        }
-    } while (!valid);
+    } while (iter->globalIndex < materialWritePos && !valid);
 }
 
 inline MaterialComponent *MaterialManager::Get(MaterialIter *iter)
@@ -388,28 +284,21 @@ inline MaterialComponent *MaterialManager::Get(MaterialIter *iter)
 // Meshes
 //
 
-MeshManager::MeshManager(Scene *inScene)
+void MeshManager::Init(Scene *inScene)
 {
-    parentScene = inScene;
-    meshSlots   = PushArray(parentScene->arena, MeshSlot, numMeshSlots);
+    parentScene    = inScene;
+    meshSlots      = PushArray(parentScene->arena, MeshSlot, numMeshSlots);
+    first          = 0;
+    last           = 0;
+    meshWritePos   = 0;
+    totalNumMeshes = 0;
+    freePositions  = 0;
+    freeNodes      = 0;
+    freeSlotNodes  = 0;
 }
 
-MeshTicket MeshManager::Create(Entity entity)
+Mesh *MeshManager::Create(Entity entity)
 {
-    MeshCreateRequest *request = (MeshCreateRequest *)parentScene->componentRequestRing.Alloc(sizeof(MeshCreateRequest));
-
-    request->type   = ComponentRequestType_CreateMesh;
-    request->entity = entity;
-
-    MeshTicket ticket;
-    ticket.request     = request;
-    ticket.parentScene = parentScene;
-    return ticket;
-}
-
-void MeshManager::CreateInternal(MeshCreateRequest *request)
-{
-    u32 entity = request->entity;
     MeshChunkNode *chunkNode;
     u32 localIndex;
 
@@ -456,8 +345,9 @@ void MeshManager::CreateInternal(MeshCreateRequest *request)
     totalNumMeshes++;
 
     Mesh *result = &chunkNode->meshes[localIndex];
-    *result      = request->mesh;
     result->flags |= MeshFlags_Valid;
+
+    return result;
 }
 
 b8 MeshManager::Remove(Entity entity)
@@ -495,24 +385,17 @@ b8 MeshManager::Remove(Entity entity)
         u32 localIndex;
         UnpackHandle(handle, &chunkNode, &localIndex);
 
-        if (chunkNode == last && ((meshWritePos & meshChunkMask) == localIndex))
+        MeshFreeNode *freeNode = freeNodes;
+        if (freeNode)
         {
-            meshWritePos--;
+            StackPop(freeNodes);
         }
         else
         {
-            MeshFreeNode *freeNode = freeNodes;
-            if (freeNode)
-            {
-                StackPop(freeNodes);
-            }
-            else
-            {
-                freeNode = PushStruct(parentScene->arena, MeshFreeNode);
-            }
-            freeNode->handle = handle;
-            StackPush(freePositions, freeNode);
+            freeNode = PushStruct(parentScene->arena, MeshFreeNode);
         }
+        freeNode->handle = handle;
+        StackPush(freePositions, freeNode);
 
         chunkNode->meshes[localIndex].flags &= ~MeshFlags_Valid;
     }
@@ -561,17 +444,17 @@ void MeshManager::Next(MeshIter *iter)
     b32 valid = 0;
     do
     {
-        Mesh *mesh = &iter->chunkNode->meshes[iter->localIndex++];
-        valid      = mesh->IsValid();
-        iter->mesh = mesh;
-        iter->globalIndex++;
-        if (iter->localIndex == numMeshesPerChunk)
+        if (++iter->localIndex == numMeshesPerChunk)
         {
-            Assert(iter->chunkNode);
             iter->localIndex = 0;
             iter->chunkNode  = iter->chunkNode->next;
+            Assert(iter->chunkNode);
         }
-    } while (!valid);
+        Mesh *mesh = &iter->chunkNode->meshes[iter->localIndex];
+        valid      = HasFlags(mesh->flags, MeshFlags_Valid);
+        iter->mesh = mesh;
+        iter->globalIndex++;
+    } while (iter->globalIndex < meshWritePos && !valid);
 }
 
 inline Mesh *MeshManager::Get(MeshIter *iter)
@@ -589,28 +472,22 @@ inline Entity MeshManager::GetEntity(MeshIter *iter)
 //////////////////////////////
 // Transforms
 //
-TransformManager::TransformManager(Scene *inScene)
+void TransformManager::Init(Scene *inScene)
 {
-    parentScene    = inScene;
-    transformSlots = PushArray(parentScene->arena, TransformSlot, numTransformSlots);
+    parentScene        = inScene;
+    transformSlots     = PushArray(parentScene->arena, TransformSlot, numTransformSlots);
+    first              = 0;
+    last               = 0;
+    transformWritePos  = 0;
+    totalNumTransforms = 0;
+    lastChunkNodeIndex = 0;
+    freeSlotNodes      = 0;
+    freePositions      = 0;
+    freeNodes          = 0;
 }
 
-TransformTicket TransformManager::Create(Entity entity)
+Mat4 *TransformManager::Create(Entity entity)
 {
-    TransformCreateRequest *request = (TransformCreateRequest *)parentScene->componentRequestRing.Alloc(sizeof(TransformCreateRequest));
-
-    request->type   = ComponentRequestType_CreateTransform;
-    request->entity = entity;
-
-    TransformTicket ticket;
-    ticket.request     = request;
-    ticket.parentScene = parentScene;
-    return ticket;
-}
-
-TransformHandle TransformManager::CreateInternal(struct TransformCreateRequest *request)
-{
-    u32 entity = request->entity;
     TransformChunkNode *chunkNode;
     u32 localIndex;
 
@@ -658,9 +535,7 @@ TransformHandle TransformManager::CreateInternal(struct TransformCreateRequest *
     totalNumTransforms++;
 
     Mat4 *result = &chunkNode->transforms[localIndex];
-    *result      = request->transform;
-
-    return handle;
+    return result;
 }
 
 b32 TransformManager::Remove(Entity entity)
@@ -697,24 +572,17 @@ b32 TransformManager::Remove(Entity entity)
         u32 localIndex;
         UnpackHandle(handle, &chunkNode, &localIndex);
 
-        if (chunkNode == last && ((transformWritePos & transformChunkMask) == localIndex))
+        TransformFreeNode *freeNode = freeNodes;
+        if (freeNode)
         {
-            transformWritePos--;
+            StackPop(freeNodes);
         }
         else
         {
-            TransformFreeNode *freeNode = freeNodes;
-            if (freeNode)
-            {
-                StackPop(freeNodes);
-            }
-            else
-            {
-                freeNode = PushStruct(parentScene->arena, TransformFreeNode);
-            }
-            freeNode->handle = handle;
-            StackPush(freePositions, freeNode);
+            freeNode = PushStruct(parentScene->arena, TransformFreeNode);
         }
+        freeNode->handle = handle;
+        StackPush(freePositions, freeNode);
     }
     return result;
 }
@@ -751,10 +619,24 @@ inline Mat4 *TransformManager::Get(Entity entity)
 //////////////////////////////
 // Hierarchy Component
 //
-HierarchyManager::HierarchyManager(Scene *inScene)
+void HierarchyManager::Init(Scene *inScene)
 {
-    parentScene    = inScene;
-    hierarchySlots = PushArray(parentScene->arena, HierarchySlot, numHierarchyNodeSlots);
+    parentScene            = inScene;
+    hierarchySlots         = PushArray(parentScene->arena, HierarchySlot, numHierarchyNodeSlots);
+    first                  = 0;
+    last                   = 0;
+    hierarchyWritePos      = 0;
+    totalNumHierarchyNodes = 0;
+    freeSlotNodes          = 0;
+    freePositions          = 0;
+    freeNodes              = 0;
+}
+
+HierarchyComponent *HierarchyManager::Get(Entity entity)
+{
+    HierarchyHandle handle     = GetHandle(entity);
+    HierarchyComponent *result = GetFromHandle(handle);
+    return result;
 }
 
 HierarchyHandle HierarchyManager::GetHandle(Entity entity)
@@ -866,24 +748,17 @@ b32 HierarchyManager::Remove(Entity entity)
 
         u32 localIndex = GetLocalIndex(handle);
 
-        if (chunkNode == last && ((hierarchyWritePos & hierarchyNodeChunkMask) == localIndex))
+        HierarchyFreeNode *freeNode = freeNodes;
+        if (freeNode)
         {
-            hierarchyWritePos--;
+            StackPop(freeNodes);
         }
         else
         {
-            HierarchyFreeNode *freeNode = freeNodes;
-            if (freeNode)
-            {
-                StackPop(freeNodes);
-            }
-            else
-            {
-                freeNode = PushStruct(parentScene->arena, HierarchyFreeNode);
-            }
-            freeNode->handle = handle;
-            StackPush(freePositions, freeNode);
+            freeNode = PushStruct(parentScene->arena, HierarchyFreeNode);
         }
+        freeNode->handle = handle;
+        StackPush(freePositions, freeNode);
         node->flags &= ~HierarchyFlag_Valid;
     }
     return result;
@@ -914,17 +789,17 @@ void HierarchyManager::Next(HierarchyIter *iter)
     b32 valid = 0;
     do
     {
-        HierarchyComponent *node = &iter->chunkNode->components[iter->localIndex++];
+        if (++iter->localIndex == numHierarchyNodesPerChunk)
+        {
+            iter->localIndex = 0;
+            iter->chunkNode  = iter->chunkNode->next;
+            Assert(iter->chunkNode);
+        }
+        HierarchyComponent *node = &iter->chunkNode->components[iter->localIndex];
         valid                    = HasFlags(node->flags, HierarchyFlag_Valid);
         iter->node               = node;
         iter->globalIndex++;
-        if (iter->localIndex == numHierarchyNodesPerChunk)
-        {
-            Assert(iter->chunkNode);
-            iter->localIndex = 0;
-            iter->chunkNode  = iter->chunkNode->next;
-        }
-    } while (!valid);
+    } while (iter->globalIndex < hierarchyWritePos && !valid);
 }
 
 inline HierarchyComponent *HierarchyManager::Get(HierarchyIter *iter)
@@ -942,27 +817,80 @@ inline Entity HierarchyManager::GetEntity(HierarchyIter *iter)
 //////////////////////////////
 // Skeletons
 //
-SkeletonManager::SkeletonManager(Scene *inScene)
+void SkeletonManager::Init(Scene *inScene)
 {
-    parentScene = inScene;
+    parentScene       = inScene;
+    entityMap         = PushArray(parentScene->arena, SkeletonSlot, numSkeletonSlots);
+    nameMap           = PushArray(parentScene->arena, SkeletonSlot, numSkeletonSlots);
+    first             = 0;
+    last              = 0;
+    skeletonWritePos  = 0;
+    totalNumSkeletons = 0;
+    freeSlotNodes     = 0;
+    freePositions     = 0;
+    freeNodes         = 0;
 }
 
-SkeletonTicket SkeletonManager::Create(Entity entity)
+SkeletonHandle SkeletonManager::Get(SkeletonSlot *map, u32 id)
 {
-    SkeletonCreateRequest *request = (SkeletonCreateRequest *)parentScene->componentRequestRing.Alloc(sizeof(SkeletonCreateRequest));
-
-    request->type   = ComponentRequestType_CreateSkeleton;
-    request->entity = entity;
-
-    SkeletonTicket ticket;
-    ticket.request     = request;
-    ticket.parentScene = parentScene;
-    return ticket;
+    SkeletonSlot *slot    = &map[id & skeletonSlotMask];
+    SkeletonHandle handle = {};
+    for (SkeletonSlotNode *node = slot->first; node != 0; node = node->next)
+    {
+        if (node->id == id)
+        {
+            handle = node->handle;
+            break;
+        }
+    }
+    return handle;
 }
 
-void SkeletonManager::CreateInternal(SkeletonCreateRequest *request)
+void SkeletonManager::Insert(SkeletonSlot *map, u32 id, SkeletonHandle handle)
 {
-    u32 entity = request->entity;
+    SkeletonSlot *slot         = &map[id & skeletonSlotMask];
+    SkeletonSlotNode *slotNode = freeSlotNodes;
+    if (slotNode)
+    {
+        StackPop(freeSlotNodes);
+    }
+    else
+    {
+        slotNode = PushStruct(parentScene->arena, SkeletonSlotNode);
+    }
+    slotNode->handle = handle;
+    slotNode->id     = id;
+    QueuePush(slot->first, slot->last, slotNode);
+}
+
+SkeletonHandle SkeletonManager::Remove(SkeletonSlot *map, u32 id)
+{
+    SkeletonHandle handle  = {};
+    SkeletonSlotNode *prev = 0;
+    SkeletonSlot *slot     = &map[id & skeletonSlotMask];
+    for (SkeletonSlotNode *node = slot->first; node != 0; node = node->next)
+    {
+        if (node->id == id)
+        {
+            handle = node->handle;
+            if (prev)
+            {
+                prev->next = node->next;
+            }
+            else
+            {
+                slot->first = node->next;
+            }
+            StackPush(freeSlotNodes, node);
+            break;
+        }
+        prev = node;
+    }
+    return handle;
+}
+
+LoadedSkeleton *SkeletonManager::Create(u32 sid)
+{
     SkeletonChunkNode *chunkNode;
     u32 localIndex;
 
@@ -990,52 +918,31 @@ void SkeletonManager::CreateInternal(SkeletonCreateRequest *request)
         handle = CreateHandle(chunkNode, localIndex);
     }
 
-    // Add to hash
-    SkeletonSlot *slot         = &skeletonSlots[entity & skeletonSlotMask];
-    SkeletonSlotNode *slotNode = freeSlotNodes;
-    if (slotNode)
-    {
-        StackPop(freeSlotNodes);
-    }
-    else
-    {
-        slotNode = PushStruct(parentScene->arena, SkeletonSlotNode);
-    }
-    slotNode->handle = handle;
-    slotNode->entity = entity;
-    QueuePush(slot->first, slot->last, slotNode);
+    // Add to name hash
+    Insert(nameMap, sid, handle);
     totalNumSkeletons++;
 
-    LoadedSkeleton *result = &chunkNode->skeletons[localIndex];
-    *result                = request->skeleton;
-    chunkNode->flags[localIndex] |= SkeletonFlag_Valid;
+    LoadedSkeleton *skeleton = &chunkNode->skeletons[localIndex];
+    return skeleton;
 }
 
-b32 SkeletonManager::Remove(Entity entity)
+LoadedSkeleton *SkeletonManager::Create(string name)
 {
-    b32 result         = 0;
-    SkeletonSlot *slot = &skeletonSlots[entity & skeletonSlotMask];
+    u32 sid                = AddSID(name);
+    LoadedSkeleton *result = Create(sid);
+    return result;
+}
 
-    SkeletonHandle handle  = {};
-    SkeletonSlotNode *prev = 0;
-    for (SkeletonSlotNode *node = slot->first; node != 0; node = node->next)
-    {
-        if (node->entity == entity)
-        {
-            handle = node->handle;
-            if (prev)
-            {
-                prev->next = node->next;
-            }
-            else
-            {
-                slot->first = node->next;
-            }
-            StackPush(freeSlotNodes, node);
-            break;
-        }
-        prev = node;
-    }
+void SkeletonManager::Link(Entity entity, SkeletonHandle handle)
+{
+    Insert(entityMap, entity, handle);
+}
+
+b32 SkeletonManager::Remove(string name)
+{
+    u32 sid               = GetSID(name);
+    b32 result            = 0;
+    SkeletonHandle handle = Remove(nameMap, sid);
 
     if (IsValidHandle(handle))
     {
@@ -1045,27 +952,54 @@ b32 SkeletonManager::Remove(Entity entity)
         u32 localIndex;
         UnpackHandle(handle, &chunkNode, &localIndex);
 
-        if (chunkNode == last && ((skeletonWritePos & skeletonChunkMask) == localIndex))
+        SkeletonFreeNode *freeNode = freeNodes;
+        if (freeNode)
         {
-            skeletonWritePos--;
+            StackPop(freeNodes);
         }
         else
         {
-            SkeletonFreeNode *freeNode = freeNodes;
-            if (freeNode)
-            {
-                StackPop(freeNodes);
-            }
-            else
-            {
-                freeNode = PushStruct(parentScene->arena, SkeletonFreeNode);
-            }
-            freeNode->handle = handle;
-            StackPush(freePositions, freeNode);
+            freeNode = PushStruct(parentScene->arena, SkeletonFreeNode);
         }
+        handle           = IncrementGen(handle);
+        freeNode->handle = handle;
+        StackPush(freePositions, freeNode);
 
-        chunkNode->flags[localIndex] &= ~SkeletonFlag_Valid;
+        chunkNode->gen[localIndex]++;
+        chunkNode->gen[localIndex] &= ~SkeletonFlag_Valid;
     }
+    return result;
+}
+
+// NOTE: removes the entity mapping if the gen id is outdated
+inline SkeletonHandle SkeletonManager::GetHandleFromEntity(Entity entity)
+{
+    SkeletonHandle handle = Get(entityMap, entity);
+    if (!IsValidHandle(handle))
+    {
+        Remove(entityMap, entity);
+        handle = {};
+    }
+    return handle;
+}
+
+inline SkeletonHandle SkeletonManager::GetHandleFromSid(u32 sid)
+{
+    SkeletonHandle handle = Get(nameMap, sid);
+    return handle;
+}
+
+inline LoadedSkeleton *SkeletonManager::GetFromEntity(Entity entity)
+{
+    SkeletonHandle handle  = GetHandleFromEntity(entity);
+    LoadedSkeleton *result = GetFromHandle(handle);
+    return result;
+}
+
+inline LoadedSkeleton *SkeletonManager::GetFromSid(u32 sid)
+{
+    SkeletonHandle handle  = GetHandleFromSid(sid);
+    LoadedSkeleton *result = GetFromHandle(handle);
     return result;
 }
 
@@ -1094,19 +1028,17 @@ void SkeletonManager::Next(SkeletonIter *iter)
     b32 valid = 0;
     do
     {
-        u32 localIndex           = iter->localIndex++;
-        LoadedSkeleton *skeleton = &iter->chunkNode->skeletons[localIndex];
-        valid                    = HasFlags(iter->chunkNode->flags[localIndex], SkeletonFlag_Valid);
-        iter->skeleton           = skeleton;
-
-        iter->globalIndex++;
-        if (iter->localIndex == numSkeletonPerChunk)
+        if (++iter->localIndex == numSkeletonPerChunk)
         {
-            Assert(iter->chunkNode);
             iter->localIndex = 0;
             iter->chunkNode  = iter->chunkNode->next;
+            Assert(iter->chunkNode);
         }
-    } while (!valid);
+        LoadedSkeleton *skeleton = &iter->chunkNode->skeletons[iter->localIndex];
+        valid                    = HasFlags(iter->chunkNode->gen[iter->localIndex], SkeletonFlag_Valid);
+        iter->skeleton           = skeleton;
+        iter->globalIndex++;
+    } while (iter->globalIndex < skeletonWritePos && !valid);
 }
 
 inline LoadedSkeleton *SkeletonManager::Get(SkeletonIter *iter)
@@ -1115,46 +1047,24 @@ inline LoadedSkeleton *SkeletonManager::Get(SkeletonIter *iter)
     return skel;
 }
 
-inline SkeletonHandle SkeletonManager::GetHandle(Entity entity)
-{
-    SkeletonSlot *slot    = &skeletonSlots[entity & skeletonSlotMask];
-    SkeletonHandle handle = {};
-    for (SkeletonSlotNode *node = slot->first; node != 0; node = node->next)
-    {
-        if (node->entity == entity)
-        {
-            handle = node->handle;
-            break;
-        }
-    }
-    return handle;
-}
-
-inline LoadedSkeleton *SkeletonManager::Get(Entity entity)
-{
-    SkeletonHandle handle  = GetHandle(entity);
-    LoadedSkeleton *result = GetFromHandle(handle);
-    return result;
-}
-
 //////////////////////////////
 // Component requests
 //
-void *ComponentRequestRing::Alloc(u64 size)
+void *SceneRequestRing::Alloc(u64 size)
 {
     void *result = 0;
     u64 align    = alignment;
     for (;;)
     {
-        u64 alignedSize = size + sizeof(u64);
+        u64 alignedSize = size;
         alignedSize     = AlignPow2(alignedSize, align);
 
-        u64 loadedCommitWritePos = commitWritePos.load();
-        u64 loadedReadPos        = readPos;
+        u64 loadedWritePos = writePos.load();
+        u64 loadedReadPos  = readPos;
 
-        u64 ringCommitWritePos = loadedCommitWritePos & (totalSize - 1);
+        u64 ringWritePos = loadedWritePos & (totalSize - 1);
 
-        u64 remainder = totalSize - ringCommitWritePos;
+        u64 remainder = totalSize - ringWritePos;
         if (remainder >= alignedSize)
         {
             remainder = 0;
@@ -1162,20 +1072,18 @@ void *ComponentRequestRing::Alloc(u64 size)
 
         u64 totalAllocSize = remainder + alignedSize;
 
-        u64 availableSpace = totalSize - (loadedCommitWritePos - loadedReadPos);
+        u64 availableSpace = totalSize - (loadedWritePos - loadedReadPos);
         if (availableSpace >= totalAllocSize)
         {
-            if (commitWritePos.compare_exchange_weak(loadedCommitWritePos, loadedCommitWritePos + totalAllocSize))
+            if (writePos.compare_exchange_weak(loadedWritePos, loadedWritePos + totalAllocSize))
             {
-                u64 offset = loadedCommitWritePos & (totalSize - 1);
+                u64 offset = loadedWritePos & (totalSize - 1);
                 if (remainder != 0)
                 {
                     MemoryZero(ringBuffer + offset, remainder);
                     offset = 0;
                 }
-                u64 *tagSpot = (u64 *)(ringBuffer + offset);
-                *tagSpot     = writeTag.fetch_add(1);
-                result       = ringBuffer + offset + sizeof(u64);
+                result = ringBuffer + offset;
                 break;
             }
         }
@@ -1183,16 +1091,61 @@ void *ComponentRequestRing::Alloc(u64 size)
     return result;
 }
 
-void ComponentRequestRing::EndAlloc(void *mem)
+void SceneRequestRing::EndAlloc(SceneRequest *req)
 {
-    for (;;)
+    req->finished = 1;
+    std::atomic_thread_fence(std::memory_order_release);
+}
+
+SceneMergeTicket::~SceneMergeTicket()
+{
+    if (initialized) ring->EndAlloc(request);
+}
+Scene *SceneMergeTicket::GetScene()
+{
+    initialized = 1;
+    return &request->mergeScene;
+}
+
+SceneMergeTicket SceneRequestRing::CreateMergeRequest()
+{
+    SceneMergeRequest *request = (SceneMergeRequest *)Alloc(sizeof(SceneMergeRequest));
+    request->type              = SceneRequestType_MergeScene;
+
+    Arena *arena = ArenaAlloc();
+    request->mergeScene.Init(arena);
+
+    SceneMergeTicket ticket;
+    ticket.request = request;
+    ticket.ring    = this;
+    return ticket;
+}
+
+// NOTE: synchronous
+void SceneRequestRing::ProcessRequests(Scene *parent)
+{
+    u64 loadedWritePos = writePos.load();
+
+    const u32 ringMask = totalSize - 1;
+    while (readPos < loadedWritePos)
     {
-        u64 *tag = (u64 *)mem - 1;
-        if (*tag == readTag.load())
+        u64 ringReadPos       = readPos & ringMask;
+        SceneRequest *request = (SceneRequest *)ringBuffer + ringReadPos;
+        u64 advance           = 0;
+        if (!request->finished) break;
+
+        switch (request->type)
         {
-            readTag.fetch_add(1);
-            writePos.exchange(commitWritePos.load());
+            case SceneRequestType_MergeScene:
+            {
+                SceneMergeRequest *mergeReq = (SceneMergeRequest *)request;
+                parent->Merge(&mergeReq->mergeScene);
+                advance = AlignPow2(sizeof(SceneMergeRequest), (u64)alignment);
+            }
+            break;
+            default: Assert(0);
         }
+        readPos += advance;
     }
 }
 
@@ -1200,77 +1153,114 @@ void ComponentRequestRing::EndAlloc(void *mem)
 // Scene
 //
 
-Scene::Scene() : materials(this), meshes(this), transforms(this), hierarchy(this), skeletons(this)
+void Scene::Init(Arena *inArena)
 {
+    arena = inArena;
+    materials.Init(this);
+    meshes.Init(this);
+    transforms.Init(this);
+    hierarchy.Init(this);
+    skeletons.Init(this);
     sma.Init();
 }
 
 Entity Scene::CreateEntity()
 {
-    static std::atomic<u32> entityGen = NULL_HANDLE + 1;
     return entityGen.fetch_add(1);
 }
 
-void Scene::CreateTransform(Mat4 transform, i32 entity, i32 parent)
+void Scene::Merge(Scene *other)
 {
-    TransformCreateRequest *request = (TransformCreateRequest *)componentRequestRing.Alloc(sizeof(TransformCreateRequest));
-    request->type                   = ComponentRequestType_CreateTransform;
-    request->transform              = transform;
-    request->entity                 = entity;
-    request->parent                 = parent;
+    // Merge materials
+    for (MaterialIter iter = other->BeginMatIter(); !other->End(&iter); other->Next(&iter))
+    {
+        MaterialComponent *mat = other->Get(&iter);
+        u32 sid                = mat->sid;
+
+        MaterialComponent *newMat = materials.Create(sid);
+        *newMat                   = std::move(*mat);
+    }
+
+    // Merge skeletons
+    for (SkeletonIter iter = other->BeginSkelIter(); !other->End(&iter); other->Next(&iter))
+    {
+        LoadedSkeleton *skel = other->Get(&iter);
+        u32 sid              = skel->sid;
+
+        LoadedSkeleton *newSkel = skeletons.Create(sid);
+        *newSkel                = std::move(*skel);
+    }
+
+    // Maps old parent id to new parent id
+    TempArena temp = ScratchStart(0, 0);
+    u32 *parentMap = PushArrayNoZero(temp.arena, u32, other->entityGen.load());
+    parentMap[0]   = 0;
+
+    // Merge the meshes
+    Assert(other->meshes.GetTotal() == other->meshes.GetEndPos());
+    for (MeshIter iter = other->BeginMeshIter(); !other->End(&iter); other->Next(&iter))
+    {
+        Mesh *mesh       = other->Get(&iter);
+        Entity oldEntity = other->GetEntity(&iter);
+
+        Entity newEntity = CreateEntity();
+        Mesh *newMesh    = meshes.Create(newEntity);
+        *newMesh         = std::move(*mesh); // does this work?
+
+        // Remap materials
+        {
+            for (u32 subsetIndex = 0; subsetIndex < mesh->numSubsets; subsetIndex++)
+            {
+                Mesh::MeshSubset *subset = &mesh->subsets[subsetIndex];
+                MaterialComponent *mat   = other->materials.GetFromHandle(subset->materialHandle);
+                Assert(mat);
+                u32 sid               = mat->sid;
+                MaterialHandle handle = materials.GetHandle(sid);
+                Assert(materials.IsValidHandle(handle));
+                newMesh->subsets[subsetIndex].materialHandle = handle;
+            }
+        }
+        // Remap skeletons
+        {
+            LoadedSkeleton *skel = other->skeletons.GetFromEntity(oldEntity);
+            if (skel)
+            {
+                u32 sid               = skel->sid;
+                SkeletonHandle handle = skeletons.GetHandleFromSid(sid);
+                skeletons.Link(newEntity, handle);
+            }
+        }
+        // Remap hierarchy/transforms
+        {
+            parentMap[oldEntity] = newEntity;
+
+            HierarchyComponent *hier = other->hierarchy.Get(oldEntity);
+            Mat4 *transform          = other->transforms.Get(oldEntity);
+            Assert(transform && hier);
+
+            Mat4 *newTransform = transforms.Create(newEntity);
+            *newTransform      = std::move(*transform);
+
+            u32 newParent = parentMap[hier->parent];
+            hierarchy.Create(newEntity, newParent);
+        }
+    }
+
+    ArenaRelease(other->arena);
 }
 
+inline void Scene::CreateTransform(Mat4 transform, Entity entity, Entity parent)
+{
+    Mat4 *t = transforms.Create(entity);
+    *t      = transform;
+
+    hierarchy.Create(entity, parent);
+}
+
+// TODO: instead of having individual requests, the resources of the model file should probably just be all loaded and joined,
 void Scene::ProcessRequests()
 {
-    u64 writePos = componentRequestRing.writePos.load();
-
-    const u32 ringTotalSize = componentRequestRing.totalSize;
-    const u32 ringMask      = ringTotalSize - 1;
-    const u64 alignment     = componentRequestRing.alignment;
-    while (componentRequestRing.readPos < writePos)
-    {
-        u64 ringReadPos           = componentRequestRing.readPos & ringMask;
-        ComponentRequest *request = (ComponentRequest *)(componentRequestRing.ringBuffer + ringReadPos + sizeof(u64));
-
-        u64 advance = 0;
-        switch (request->type)
-        {
-            case ComponentRequestType_Null:
-            {
-                advance = ringTotalSize - ringReadPos;
-                Assert(((componentRequestRing.readPos + advance) & ringMask) == 0);
-            }
-            break;
-            case ComponentRequestType_CreateMaterial:
-            {
-                MaterialCreateRequest *materialCreateRequest = (MaterialCreateRequest *)request;
-                materials.CreateInternal(materialCreateRequest);
-                advance = AlignPow2(sizeof(*materialCreateRequest), alignment);
-            }
-            break;
-            case ComponentRequestType_CreateMesh:
-            {
-                MeshCreateRequest *meshCreateRequest = (MeshCreateRequest *)request;
-                meshes.CreateInternal(meshCreateRequest);
-                advance = AlignPow2(sizeof(*meshCreateRequest), alignment);
-            }
-            case ComponentRequestType_CreateTransform:
-            {
-                TransformCreateRequest *transformCreateRequest = (TransformCreateRequest *)request;
-                TransformHandle handle                         = transforms.CreateInternal(transformCreateRequest);
-
-                u32 entity       = transformCreateRequest->entity;
-                u32 parentEntity = transformCreateRequest->parent;
-
-                hierarchy.Create(entity, parentEntity);
-
-                advance = AlignPow2(sizeof(*transformCreateRequest), alignment);
-            }
-            break;
-            default: Assert(0);
-        }
-        componentRequestRing.readPos += advance;
-    }
+    requestRing.ProcessRequests(this);
 }
 
 } // namespace scene

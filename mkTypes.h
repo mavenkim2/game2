@@ -44,6 +44,21 @@ union R_Handle
     u32 u32[4];
 };
 
+union AS_Handle
+{
+    i64 i64[1];
+    i32 i32[2];
+};
+
+enum TextureType
+{
+    TextureType_Diffuse,
+    TextureType_Normal,
+    TextureType_MR,
+    TextureType_Height,
+    TextureType_Count,
+};
+
 //////////////////////////////
 // Enums
 //
@@ -67,10 +82,9 @@ enum
     HierarchyFlag_Valid = 1 << 0,
 };
 
-typedef u32 SkeletonFlag;
-enum
+enum SkeletonFlag : u32
 {
-    SkeletonFlag_Valid = 1 << 0,
+    SkeletonFlag_Valid = 1U << 31,
 };
 
 inline b32 HasFlags(u32 lhs, u32 rhs)

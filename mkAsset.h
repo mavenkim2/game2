@@ -10,21 +10,6 @@
 
 #define MAX_MATRICES_PER_VERTEX 4
 
-union AS_Handle
-{
-    i64 i64[1];
-    i32 i32[2];
-};
-
-enum TextureType
-{
-    TextureType_Diffuse,
-    TextureType_Normal,
-    TextureType_MR,
-    TextureType_Height,
-    TextureType_Count,
-};
-
 struct Heightmap
 {
     VC_Handle vertexHandle;
@@ -69,6 +54,7 @@ struct MeshVertex
 
 struct LoadedSkeleton
 {
+    u32 sid;
     u32 count;
     u32 skinningOffset;
     string *names;
@@ -197,8 +183,9 @@ struct Mesh
 
     Rect3 bounds;
 
+    // these are valid for one frame only
     i32 meshIndex;
-    i32 aabbIndex; // valid for one frame only
+    i32 aabbIndex; 
 
     u32 vertexCount;
     u32 indexCount;
@@ -236,7 +223,7 @@ struct Mesh
 
 struct LoadedModel
 {
-    Entity rootEntity;
+    // Entity rootEntity;
 
     // AS_Handle skeleton;
     // Mesh *meshes;

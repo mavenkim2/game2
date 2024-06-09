@@ -5,6 +5,7 @@
 
 #include "mkMemory.cpp"
 #include "mkString.cpp"
+#include "mkScene.cpp"
 
 #if VULKAN
 #include "render/mkGraphicsVulkan.cpp"
@@ -84,14 +85,19 @@ MAIN()
 
     Engine engineLocal;
     engine = &engineLocal;
+
+    Arena *sceneArena = ArenaAlloc();
+    scene::Scene sceneLocal;
+    sceneLocal.Init(sceneArena);
+
     GamePlatformMemory gameMem;
     gameMem.mIsLoaded    = 0;
     gameMem.mIsHotloaded = 0;
     gameMem.mEngine      = engine;
+    gameMem.mScene       = &sceneLocal;
     gameMem.mPlatform    = platform;
     gameMem.mGraphics    = &graphics;
-    // gameMem.mRenderer         = rendererFunctions.api;
-    gameMem.mShared = shared;
+    gameMem.mShared      = shared;
     // TODO: ?
     gameMem.mTctx = tctx;
     if (gameDLL.mValid)

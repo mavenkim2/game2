@@ -274,7 +274,7 @@ struct AS_Asset
     AS_Type type;
     union
     {
-        LoadedSkeleton skeleton;
+        LoadedSkeleton *skeleton;
         graphics::Texture texture;
         LoadedModel model;
         KeyframedAnimation anim;
@@ -295,7 +295,6 @@ internal string AS_DequeueFile(Arena *arena);
 
 THREAD_ENTRY_POINT(AS_EntryPoint);
 internal void AS_HotloadEntryPoint(void *p);
-// JOB_CALLBACK(AS_LoadAsset);
 internal void AS_LoadAsset(AS_Asset *asset);
 internal void AS_UnloadAsset(AS_Asset *asset);
 
@@ -308,11 +307,7 @@ global readonly graphics::Texture textureNil;
 global readonly KeyframedAnimation animNil;
 global readonly Font fontNil;
 
-// #if 0
-// internal AS_Handle AS_HandleFromAsset(AS_Asset *asset);
-// internal AS_Node *AS_AssetFromHandle(AS_Handle handle);
-// #endif
-
+internal AS_Asset *AS_AllocAsset(const string inPath, b8 queueFile = 1);
 internal Font *GetFont(AS_Handle handle);
 internal AS_Asset *AS_GetAssetFromHandle(AS_Handle handle);
 internal AS_Handle AS_GetAsset(const string inPath, const b32 inLoadIfNotFound = 1);
@@ -329,19 +324,6 @@ inline b8 IsFontNil(Font *font)
     b8 result = (font == 0 || font == &fontNil);
     return result;
 }
-
-//////////////////////////////
-// Helpers
-//
-// #if 0
-// internal AS_MemoryHeaderNode *AllocateBlock();
-// internal AS_MemoryHeaderNode *AllocateBlock(AS_MemoryHeaderNode *headerNode);
-// internal AS_MemoryHeaderNode *AllocateBlocks(u64 size);
-// internal void FreeBlock(AS_MemoryHeaderNode *headerNode);
-// internal void FreeBlocks(AS_Asset *asset);
-// inline u8 *GetAssetBuffer(AS_Asset *asset);
-// inline void EndTemporaryMemory(AS_Asset *asset);
-// #endif
 
 //////////////////////////////
 // B tree

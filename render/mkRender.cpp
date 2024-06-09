@@ -1110,9 +1110,9 @@ internal void RenderMeshes(CommandList cmdList, RenderPassType type, i32 cascade
         pc.cascadeNum = cascadeNum;
     }
 
-    for (MeshIter iter = gameScene.BeginMeshIter(); !gameScene.End(&iter); gameScene.Next(&iter))
+    for (MeshIter iter = gameScene->BeginMeshIter(); !gameScene->End(&iter); gameScene->Next(&iter))
     {
-        Mesh *mesh = gameScene.Get(&iter);
+        Mesh *mesh = gameScene->Get(&iter);
         if (mesh->meshIndex == -1) continue;
         pc.meshIndex = mesh->meshIndex;
 
@@ -1153,7 +1153,7 @@ internal void RenderMeshes(CommandList cmdList, RenderPassType type, i32 cascade
 
             if (mainPass)
             {
-                scene::MaterialComponent *material = gameScene.materials.GetFromHandle(subset->materialHandle);
+                scene::MaterialComponent *material = gameScene->materials.GetFromHandle(subset->materialHandle);
 
                 graphics::Texture *texture = GetTexture(material->textures[TextureType_Diffuse]);
                 i32 descriptorIndex        = device->GetDescriptorIndex(texture, ResourceType::SRV);
@@ -1202,11 +1202,11 @@ internal void Render()
         SkinningPushConstants pc;
         pc.skinningBuffer = device->GetDescriptorIndex(&skinningBuffer, ResourceType::SRV);
 
-        for (MeshIter iter = gameScene.BeginMeshIter(); !gameScene.End(&iter); gameScene.Next(&iter))
+        for (MeshIter iter = gameScene->BeginMeshIter(); !gameScene->End(&iter); gameScene->Next(&iter))
         {
-            Mesh *mesh               = gameScene.Get(&iter);
-            Entity entity            = gameScene.GetEntity(&iter);
-            LoadedSkeleton *skeleton = gameScene.skeletons.Get(entity);
+            Mesh *mesh               = gameScene->Get(&iter);
+            Entity entity            = gameScene->GetEntity(&iter);
+            LoadedSkeleton *skeleton = gameScene->skeletons.GetFromEntity(entity);
             if (skeleton)
             {
                 pc.vertexPos        = mesh->vertexPosView.srvDescriptor;

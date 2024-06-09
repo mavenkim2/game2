@@ -650,12 +650,14 @@ int main(int argc, char *argv[])
                     // TODO: MULTITHREAD
                     jobsystem::KickJob(&counter, [&, data, folderName](jobsystem::JobArgs args) {
                         TempArena temp           = ScratchStart(0, 0);
-                        CommandList cmd          = device.BeginCommandList(QueueType_Compute);
                         InputMaterial *materials = PushArray(temp.arena, InputMaterial, data->materials_count);
+#ifdef BLOCK_COMPRESS
+                        CommandList cmd = device.BeginCommandList(QueueType_Compute);
 
                         ReadbackTexture *readbackTextures = PushArrayNoZero(temp.arena, ReadbackTexture, data->materials_count);
                         u32 numReadbackTextures           = 0;
                         Texture uav;
+#endif
                         for (size_t i = 0; i < data->materials_count; i++)
                         {
                             InputMaterial &material      = materials[i];
@@ -698,6 +700,7 @@ int main(int argc, char *argv[])
 
                             FindUri(gltfMaterial.normal_texture, TextureType_Normal);
 
+#ifdef BLOCK_COMPRESS
                             if (material.texture[TextureType_Diffuse].size != 0)
                             {
                                 string textureName = material.texture[TextureType_Diffuse];
@@ -787,8 +790,10 @@ int main(int argc, char *argv[])
                                     device.Barrier(cmd, &barrier, 1);
                                 }
                             }
+#endif
                         }
 
+#ifdef BLOCK_COMPRESS
                         device.SubmitCommandLists();
 
                         // Write the DDS files
@@ -798,6 +803,7 @@ int main(int argc, char *argv[])
                             WriteImageToDDS(&readback->texture, readback->name);
                             device.DeleteTexture(&readback->texture);
                         }
+#endif
 
                         // Build material file
                         StringBuilder builder = {};
@@ -1028,13 +1034,19 @@ int main(int argc, char *argv[])
                                 InputMesh::MeshSubset *subset = &mesh->subsets[subsetIndex];
                                 PutPointerValue(&builder, &indexOffset);
                                 PutPointerValue(&builder, &subset->indexCount);
+                                MaterialHandle handle = {};
+                                PutPointerValue(&builder, &handle);
+                                indexOffset += subset->indexCount;
+                            }
+
+                            for (u32 subsetIndex = 0; subsetIndex < mesh->totalSubsets; subsetIndex++)
+                            {
+                                InputMesh::MeshSubset *subset = &mesh->subsets[subsetIndex];
                                 PutU64(&builder, subset->materialName.size);
                                 if (subset->materialName.size != 0)
                                 {
                                     Put(&builder, subset->materialName);
                                 }
-
-                                indexOffset += subset->indexCount;
                             }
 
                             // Positions
@@ -1166,21 +1178,29 @@ int main(int argc, char *argv[])
                             Put(&builder, skeleton.count);
                             Printf("Num bones: %u\n", skeleton.count);
 
+                            u64 *stringDataOffsets = PushArrayNoZero(temp.arena, u64, skeleton.count);
+
+                            u64 nameOffset = PutArray(&builder, skeleton.names, skeleton.count);
                             for (u32 i = 0; i < skeleton.count; i++)
                             {
-                                string *name = &skeleton.names[i];
-                                u64 offset   = PutPointer(&builder, 8);
-                                PutPointerValue(&builder, &name->size);
-                                Assert(builder.totalSize == offset);
-                                Put(&builder, *name);
+                                string *name         = &skeleton.names[i];
+                                stringDataOffsets[i] = Put(&builder, *name);
                             }
 
                             PutArray(&builder, skeleton.parents, skeleton.count);
                             PutArray(&builder, skeleton.inverseBindPoses, skeleton.count);
                             PutArray(&builder, skeleton.transformsToParent, skeleton.count);
 
+                            string fileData = CombineBuilderNodes(&builder);
+                            for (u32 i = 0; i < skeleton.count; i++)
+                            {
+                                ConvertPointerToOffset(fileData.str, nameOffset + Offset(string, str), stringDataOffsets[i]);
+                                nameOffset += sizeof(string);
+                            }
+
                             string skeletonFilename = PushStr8F(temp.arena, "data\\skeletons\\%S.skel", folderName);
-                            b32 success             = WriteEntireFile(&builder, skeletonFilename);
+                            b32 success             = platform.WriteFile(skeletonFilename, fileData.str, (u32)fileData.size);
+                            // b32 success             = WriteEntireFile(&builder, skeletonFilename);
                             if (!success)
                             {
                                 Printf("Failed to write file %S\n", skeletonFilename);
@@ -1386,30 +1406,60 @@ int main(int argc, char *argv[])
 
                         Put(&builder, (u32)numNodes);
                         PutPointerValue(&builder, &animation->duration);
-                        for (u32 i = 0; i < numNodes; i++)
+                        // for (u32 i = 0; i < numNodes; i++)
+                        // {
+                        //     CompressedBoneChannel *boneChannel = &animation->boneChannels[i];
+                        //     if (boneChannel->numPositionKeys == 0)
+                        //     {
+                        //         boneChannel->numPositionKeys = 1;
+                        //         boneChannel->positions       = &nullPosition;
+                        //     }
+                        //
+                        //     PutPointerValue(&builder, &boneChannel->name.size);
+                        //     Put(&builder, boneChannel->name);
+                        //
+                        //     Put(&builder, boneChannel->numPositionKeys);
+                        //     AppendArray(&builder, boneChannel->positions, boneChannel->numPositionKeys);
+                        //
+                        //     Put(&builder, boneChannel->numScalingKeys);
+                        //     AppendArray(&builder, boneChannel->scales, boneChannel->numScalingKeys);
+                        //
+                        //     Put(&builder, boneChannel->numRotationKeys);
+                        //     AppendArray(&builder, boneChannel->rotations, boneChannel->numRotationKeys);
+                        // }
+                        u64 boneChannelWrite = AppendArray(&builder, animation->boneChannels, animation->numNodes);
+
+                        u64 *stringDataWrites = PushArray(builder.arena, u64, animation->numNodes);
+                        u64 *positionWrites   = PushArray(builder.arena, u64, animation->numNodes);
+                        u64 *scalingWrites    = PushArray(builder.arena, u64, animation->numNodes);
+                        u64 *rotationWrites   = PushArray(builder.arena, u64, animation->numNodes);
+
+                        for (u32 i = 0; i < animation->numNodes; i++)
                         {
-                            CompressedBoneChannel *boneChannel = &animation->boneChannels[i];
-                            if (boneChannel->numPositionKeys == 0)
-                            {
-                                boneChannel->numPositionKeys = 1;
-                                boneChannel->positions       = &nullPosition;
-                            }
+                            CompressedBoneChannel *boneChannel = animation->boneChannels + i;
 
-                            PutPointerValue(&builder, &boneChannel->name.size);
-                            Put(&builder, boneChannel->name);
+                            stringDataWrites[i] = Put(&builder, animation->boneChannels[i].name);
+                            positionWrites[i]   = AppendArray(&builder, boneChannel->positions, boneChannel->numPositionKeys);
+                            scalingWrites[i]    = AppendArray(&builder, boneChannel->scales, boneChannel->numScalingKeys);
+                            rotationWrites[i]   = AppendArray(&builder, boneChannel->rotations, boneChannel->numRotationKeys);
+                        }
 
-                            Put(&builder, boneChannel->numPositionKeys);
-                            AppendArray(&builder, boneChannel->positions, boneChannel->numPositionKeys);
-
-                            Put(&builder, boneChannel->numScalingKeys);
-                            AppendArray(&builder, boneChannel->scales, boneChannel->numScalingKeys);
-
-                            Put(&builder, boneChannel->numRotationKeys);
-                            AppendArray(&builder, boneChannel->rotations, boneChannel->numRotationKeys);
+                        string result = CombineBuilderNodes(&builder);
+                        for (u32 i = 0; i < animation->numNodes; i++)
+                        {
+                            ConvertPointerToOffset(result.str, boneChannelWrite + Offset(CompressedBoneChannel, name) + Offset(string, str),
+                                                   stringDataWrites[i]);
+                            ConvertPointerToOffset(result.str, boneChannelWrite + Offset(CompressedBoneChannel, positions),
+                                                   positionWrites[i]);
+                            ConvertPointerToOffset(result.str, boneChannelWrite + Offset(CompressedBoneChannel, scales),
+                                                   scalingWrites[i]);
+                            ConvertPointerToOffset(result.str, boneChannelWrite + Offset(CompressedBoneChannel, rotations),
+                                                   rotationWrites[i]);
+                            boneChannelWrite += sizeof(CompressedBoneChannel);
                         }
 
                         string animationFilename = PushStr8F(temp2.arena, "data\\animations\\%S.anim", Str8C(anim.name));
-                        b32 success              = WriteEntireFile(&builder, animationFilename);
+                        b32 success              = platform.WriteFile(animationFilename, result.str, (u32)result.size);
                         if (!success)
                         {
                             Printf("Failed to write file %S\n", animationFilename);

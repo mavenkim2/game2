@@ -29,7 +29,7 @@ struct SmallMemoryPool
     SmallMemoryNode **freeList;
 
     const i32 totalSize = kilobytes(4);
-    std::atomic<i32> allocatedSize;
+    // std::atomic<i32> allocatedSize;
     i32 size;
 };
 
@@ -46,55 +46,19 @@ struct SmallMemoryAllocator
 };
 
 //////////////////////////////
-// Tickets
-//
-
-struct MeshTicket
-{
-    struct MeshCreateRequest *request;
-    struct Scene *parentScene;
-    struct Mesh *GetMesh();
-    ~MeshTicket();
-};
-
-struct MaterialTicket
-{
-    struct MaterialCreateRequest *request;
-    struct Scene *parentScene;
-    struct MaterialComponent *GetMaterial();
-    ~MaterialTicket();
-};
-
-struct TransformTicket
-{
-    struct TransformCreateRequest *request;
-    struct Scene *parentScene;
-    Mat4 *GetTransform();
-    ~TransformTicket();
-};
-
-struct SkeletonTicket
-{
-    struct SkeletonCreateRequest *request;
-    struct Scene *parentScene;
-    LoadedSkeleton *GetSkeleton();
-    ~SkeletonTicket();
-};
-
-//////////////////////////////
 // Materials
 //
 
 // TODO: handles could contain a pointer that directly points to a value, instead of using chunknode/index
 struct MaterialComponent
 {
-    MaterialFlag flags;
-    u32 sid;
     AS_Handle textures[TextureType_Count] = {};
 
     V4 baseColor        = {1, 1, 1, 1};
     f32 metallicFactor  = 0.f;
     f32 roughnessFactor = 1.f;
+    MaterialFlag flags;
+    u32 sid;
 };
 
 class MaterialManager
@@ -137,25 +101,22 @@ private:
 
     // Hash
     MaterialSlot *nameMap;
-    MaterialSlotNode *freeSlotNode = 0;
+    MaterialSlotNode *freeSlotNode;
 
     // Data
-    MaterialChunkNode *first = 0;
-    MaterialChunkNode *last  = 0;
-    u32 totalNumMaterials    = 0;
-    u32 materialWritePos     = 0;
+    MaterialChunkNode *first;
+    MaterialChunkNode *last;
+    u32 totalNumMaterials;
+    u32 materialWritePos;
 
     // Freed spots
-    MaterialFreeNode *freeMaterialPositions = 0;
-    MaterialFreeNode *freeMaterialNodes     = 0;
+    MaterialFreeNode *freeMaterialPositions;
+    MaterialFreeNode *freeMaterialNodes;
 
     // TODO: if in the future it's possible to have multiple scenes/multiple material managers, ensure that the chunk node exists
     // in the linked list and that the global index is less than materialWritePos
-    void InsertNameMap(MaterialHandle handle, i32 sid);
     MaterialHandle RemoveFromNameMap(u32 sid);
     void RemoveFromList(MaterialHandle handle);
-    MaterialHandle GetHandleFromNameMap(string name);
-    MaterialHandle GetFreePosition(MaterialChunkNode **chunkNode, u32 *localIndex);
 
     //////////////////////////////
     // Handles
@@ -190,17 +151,36 @@ public:
         }
         return result;
     }
+    inline MaterialHandle GetHandle(u32 sid)
+    {
+        MaterialSlot *slot    = &nameMap[sid & materialSlotMask];
+        MaterialHandle handle = {};
+        for (MaterialSlotNode *node = slot->first; node != 0; node = node->next)
+        {
+            if (node->id == sid)
+            {
+                handle = node->handle;
+                break;
+            }
+        }
+        return handle;
+    }
+    inline MaterialHandle GetHandle(string name)
+    {
+        u32 sid               = GetSID(name);
+        MaterialHandle handle = GetHandle(sid);
+        return handle;
+    }
 
     struct Scene *parentScene;
 
-    MaterialManager(Scene *inScene);
-    MaterialTicket Create(string name);
-    void CreateInternal(struct MaterialCreateRequest *request);
+    void Init(Scene *inScene);
+    MaterialComponent *Create(u32 sid);
+    MaterialComponent *Create(string name);
     b32 Remove(string name);
     b32 Remove(u32 sid);
     b32 Remove(MaterialHandle handle);
 
-    MaterialHandle GetHandle(string name);
     MaterialComponent *Get(string name);
     MaterialComponent *Get(Entity entity);
 
@@ -261,14 +241,14 @@ private:
     };
 
     MeshSlot *meshSlots;
-    MeshChunkNode *first = 0;
-    MeshChunkNode *last  = 0;
-    u32 meshWritePos     = 0;
-    u32 totalNumMeshes   = 0;
+    MeshChunkNode *first;
+    MeshChunkNode *last;
+    u32 meshWritePos;
+    u32 totalNumMeshes;
 
-    MeshFreeNode *freePositions = 0;
-    MeshFreeNode *freeNodes     = 0;
-    MeshSlotNode *freeSlotNodes = 0;
+    MeshFreeNode *freePositions;
+    MeshFreeNode *freeNodes;
+    MeshSlotNode *freeSlotNodes;
 
     //////////////////////////////
     // Handles
@@ -305,9 +285,8 @@ public:
 
 public:
     struct Scene *parentScene;
-    MeshManager(Scene *inScene);
-    MeshTicket Create(Entity entity);
-    void CreateInternal(struct MeshCreateRequest *request);
+    void Init(Scene *inScene);
+    Mesh *Create(Entity entity);
     b8 Remove(Entity entity);
     Mesh *Get(Entity entity);
 
@@ -318,6 +297,7 @@ public:
     inline Entity GetEntity(MeshIter *iter);
 
     inline u32 GetTotal() { return totalNumMeshes; }
+    inline u32 GetEndPos() { return meshWritePos; }
 };
 
 struct MeshIter
@@ -370,15 +350,15 @@ private:
     };
 
     TransformSlot *transformSlots;
-    TransformChunkNode *first = 0;
-    TransformChunkNode *last  = 0;
-    u32 transformWritePos     = 1;
-    u32 totalNumTransforms    = 0;
-    u32 lastChunkNodeIndex    = 0;
+    TransformChunkNode *first;
+    TransformChunkNode *last;
+    u32 transformWritePos;
+    u32 totalNumTransforms;
+    u32 lastChunkNodeIndex;
 
-    TransformSlotNode *freeSlotNodes = 0;
-    TransformFreeNode *freePositions = 0;
-    TransformFreeNode *freeNodes     = 0;
+    TransformSlotNode *freeSlotNodes;
+    TransformFreeNode *freePositions;
+    TransformFreeNode *freeNodes;
 
     //////////////////////////////
     // Handles
@@ -422,10 +402,9 @@ public:
 
 public:
     struct Scene *parentScene;
-    TransformManager(Scene *inScene);
+    void Init(Scene *inScene);
 
-    TransformTicket Create(Entity entity);
-    TransformHandle CreateInternal(struct TransformCreateRequest *request);
+    Mat4 *Create(Entity entity);
     b32 Remove(Entity entity);
     inline Mat4 *Get(Entity entity);
     inline TransformHandle GetHandle(Entity entity);
@@ -484,14 +463,14 @@ private:
     };
 
     HierarchySlot *hierarchySlots;
-    HierarchyChunkNode *first  = 0;
-    HierarchyChunkNode *last   = 0;
-    u32 hierarchyWritePos      = 0;
-    u32 totalNumHierarchyNodes = 0;
+    HierarchyChunkNode *first;
+    HierarchyChunkNode *last;
+    u32 hierarchyWritePos;
+    u32 totalNumHierarchyNodes;
 
-    HierarchySlotNode *freeSlotNodes = 0;
-    HierarchyFreeNode *freePositions = 0;
-    HierarchyFreeNode *freeNodes     = 0;
+    HierarchySlotNode *freeSlotNodes;
+    HierarchyFreeNode *freePositions;
+    HierarchyFreeNode *freeNodes;
 
     //////////////////////////////
     // Handle
@@ -528,11 +507,12 @@ public:
 
 public:
     struct Scene *parentScene;
-    HierarchyManager(Scene *inScene);
+    void Init(Scene *inScene);
 
     void Create(Entity entity, Entity parent);
     b32 Remove(Entity entity);
     HierarchyHandle GetHandle(Entity entity);
+    HierarchyComponent *Get(Entity entity);
 
     HierarchyIter BeginIter();
     b8 EndIter(HierarchyIter *iter);
@@ -567,17 +547,21 @@ private:
     StaticAssert(IsPow2(numSkeletonSlots), SkeletonSlotsPow2);
     static const i32 skeletonSlotMask = numSkeletonSlots - 1;
 
+    static const u32 genMask = 0x7fffffff;
+
     struct SkeletonChunkNode
     {
         LoadedSkeleton skeletons[numSkeletonPerChunk];
-        SkeletonFlag flags[numSkeletonPerChunk];
+        // SkeletonFlag flags[numSkeletonPerChunk];
+        u32 gen[numSkeletonPerChunk];
         SkeletonChunkNode *next;
     };
 
     struct SkeletonSlotNode
     {
         SkeletonHandle handle;
-        Entity entity;
+        // Entity entity;
+        u32 id;
         SkeletonSlotNode *next;
     };
 
@@ -593,15 +577,20 @@ private:
         SkeletonFreeNode *next;
     };
 
-    SkeletonSlot *skeletonSlots;
-    SkeletonChunkNode *first = 0;
-    SkeletonChunkNode *last  = 0;
-    u32 skeletonWritePos     = 0;
-    u32 totalNumSkeletons    = 0;
+    SkeletonSlot *entityMap;
+    SkeletonSlot *nameMap;
+    SkeletonChunkNode *first;
+    SkeletonChunkNode *last;
+    u32 skeletonWritePos;
+    u32 totalNumSkeletons;
 
-    SkeletonSlotNode *freeSlotNodes = 0;
-    SkeletonFreeNode *freePositions = 0;
-    SkeletonFreeNode *freeNodes     = 0;
+    SkeletonSlotNode *freeSlotNodes;
+    SkeletonFreeNode *freePositions;
+    SkeletonFreeNode *freeNodes;
+
+    SkeletonHandle Get(SkeletonSlot *map, u32 id);
+    void Insert(SkeletonSlot *map, u32 id, SkeletonHandle handle);
+    SkeletonHandle Remove(SkeletonSlot *map, u32 id);
 
     //////////////////////////////
     // Handles
@@ -612,6 +601,7 @@ private:
         SkeletonHandle handle;
         handle.u64[0] = (u64)chunkNode;
         handle.u32[2] = localIndex;
+        handle.u32[3] = chunkNode->gen[localIndex] & genMask; // NOTE: limit of 2 billion rewrites per index
         return handle;
     }
     inline void UnpackHandle(SkeletonHandle handle, SkeletonChunkNode **chunkNode, u32 *localIndex)
@@ -619,11 +609,33 @@ private:
         *chunkNode  = (SkeletonChunkNode *)handle.u64[0];
         *localIndex = handle.u32[2];
     }
+    inline void UnpackHandle(SkeletonHandle handle, SkeletonChunkNode **chunkNode, u32 *localIndex, u32 *gen)
+    {
+        *chunkNode  = (SkeletonChunkNode *)handle.u64[0];
+        *localIndex = handle.u32[2];
+        *gen        = handle.u32[3];
+    }
+    inline SkeletonHandle IncrementGen(SkeletonHandle handle)
+    {
+        handle.u32[3]++;
+        return handle;
+    }
 
 public:
     inline b32 IsValidHandle(SkeletonHandle handle)
     {
-        return handle.u64[0] != 0;
+        b32 result = 0;
+        if (handle.u64[0] != 0)
+        {
+            SkeletonChunkNode *chunkNode;
+            u32 localIndex, gen;
+            UnpackHandle(handle, &chunkNode, &localIndex, &gen);
+            if (gen == (chunkNode->gen[localIndex] & genMask))
+            {
+                result = 1;
+            }
+        }
+        return result;
     }
     inline LoadedSkeleton *GetFromHandle(SkeletonHandle handle)
     {
@@ -639,13 +651,16 @@ public:
 
 public:
     struct Scene *parentScene;
-    SkeletonManager(Scene *inScene);
+    void Init(Scene *inScene);
 
-    SkeletonTicket Create(Entity entity);
-    void CreateInternal(SkeletonCreateRequest *request);
-    b32 Remove(Entity entity);
-    LoadedSkeleton *Get(Entity entity);
-    inline SkeletonHandle GetHandle(Entity entity);
+    LoadedSkeleton *Create(u32 sid);
+    LoadedSkeleton *Create(string name);
+    void Link(Entity entity, SkeletonHandle handle);
+    b32 Remove(string name);
+    inline SkeletonHandle GetHandleFromEntity(Entity entity);
+    inline SkeletonHandle GetHandleFromSid(u32 sid);
+    inline LoadedSkeleton *GetFromEntity(Entity entity);
+    inline LoadedSkeleton *GetFromSid(u32 sid);
 
     // Iter
     SkeletonIter BeginIter();
@@ -653,7 +668,10 @@ public:
     void Next(SkeletonIter *iter);
     inline LoadedSkeleton *Get(SkeletonIter *iter);
 
-    inline u32 GetTotal() { return totalNumSkeletons; }
+    inline u32 GetTotal()
+    {
+        return totalNumSkeletons;
+    }
 };
 
 struct SkeletonIter
@@ -668,59 +686,40 @@ struct SkeletonIter
 // Component requests
 //
 
-struct ComponentRequestRing
+enum SceneRequestType
 {
-    std::atomic<u64> writePos;
-    std::atomic<u64> commitWritePos;
-    u64 readPos;
-    std::atomic<u64> writeTag;
-    std::atomic<u64> readTag;
+    SceneRequestType_MergeScene,
+};
+
+struct SceneRequest
+{
+    SceneRequestType type;
+    b8 finished = 0;
+};
+
+struct SceneMergeTicket
+{
+    struct SceneMergeRequest *request;
+    struct SceneRequestRing *ring;
+    b8 initialized = 0;
+
+    ~SceneMergeTicket();
+    struct Scene *GetScene();
+};
+
+struct SceneRequestRing
+{
+    std::atomic<u64> writePos = 0;
+    u64 readPos               = 0;
 
     u8 *ringBuffer;
     static const u32 totalSize = kilobytes(16);
     u32 alignment              = 8;
 
     void *Alloc(u64 size);
-    void EndAlloc(void *mem);
-};
-
-enum ComponentRequestType
-{
-    ComponentRequestType_Null,
-    ComponentRequestType_CreateMaterial,
-    ComponentRequestType_CreateMesh,
-    ComponentRequestType_CreateTransform,
-    ComponentRequestType_CreateSkeleton,
-};
-
-struct ComponentRequest
-{
-    ComponentRequestType type;
-};
-
-struct MaterialCreateRequest : ComponentRequest
-{
-    MaterialComponent material;
-    u32 sid;
-};
-
-struct MeshCreateRequest : ComponentRequest
-{
-    Mesh mesh;
-    Entity entity;
-};
-
-struct TransformCreateRequest : ComponentRequest
-{
-    Mat4 transform;
-    Entity entity;
-    Entity parent;
-};
-
-struct SkeletonCreateRequest : ComponentRequest
-{
-    LoadedSkeleton skeleton;
-    Entity entity;
+    void EndAlloc(SceneRequest *req);
+    SceneMergeTicket CreateMergeRequest();
+    void ProcessRequests(Scene *parent);
 };
 
 //////////////////////////////
@@ -729,6 +728,7 @@ struct SkeletonCreateRequest : ComponentRequest
 struct Scene
 {
     Arena *arena;
+    std::atomic<u32> entityGen = NULL_HANDLE + 1;
 
     SmallMemoryAllocator sma;
 
@@ -746,6 +746,27 @@ struct Scene
     TransformManager transforms;
     HierarchyManager hierarchy;
     SkeletonManager skeletons;
+
+    //////////////////////////////
+    // Materials
+    //
+    inline MaterialIter BeginMatIter()
+    {
+        return materials.BeginIter();
+    }
+    inline b8 End(MaterialIter *iter)
+    {
+        b8 result = materials.EndIter(iter);
+        return result;
+    }
+    inline void Next(MaterialIter *iter)
+    {
+        materials.Next(iter);
+    }
+    inline MaterialComponent *Get(MaterialIter *iter)
+    {
+        return materials.Get(iter);
+    }
 
     //////////////////////////////
     // Meshes
@@ -797,11 +818,17 @@ struct Scene
         return hierarchy.GetEntity(iter);
     }
 
+    //////////////////////////////
+    // Transform
+    //
     inline u32 GetIndex(TransformHandle handle)
     {
         return transforms.GetIndex(handle);
     }
 
+    //////////////////////////////
+    // Skel
+    //
     inline SkeletonIter BeginSkelIter()
     {
         return skeletons.BeginIter();
@@ -827,15 +854,24 @@ struct Scene
     // Component requests
     //
 
-    ComponentRequestRing componentRequestRing;
+    SceneRequestRing requestRing;
     void ProcessRequests();
 
-    Scene();
+    void Init(Arena *inArena);
+    inline void CreateTransform(Mat4 transform, Entity entity, Entity parent = 0);
     Entity CreateEntity();
-    void CreateTransform(Mat4 transform, i32 entity, i32 parent = 0);
+    void Merge(Scene *other);
+};
+
+//////////////////////////////
+// Merge request
+//
+struct SceneMergeRequest : SceneRequest
+{
+    Scene mergeScene;
 };
 
 } // namespace scene
 
-global scene::Scene gameScene;
+extern scene::Scene *gameScene;
 #endif

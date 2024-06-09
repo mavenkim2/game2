@@ -283,10 +283,7 @@ mkGraphicsVulkan::mkGraphicsVulkan(ValidationMode validationMode, GPUDevicePrefe
     const i32 minor = 0;
     const i32 patch = 1;
 
-    VkResult res;
-
-    res = volkInitialize();
-    Assert(res == VK_SUCCESS);
+    VK_CHECK(volkInitialize());
 
     // Create the application
     VkApplicationInfo appInfo  = {};
@@ -299,19 +296,15 @@ mkGraphicsVulkan::mkGraphicsVulkan(ValidationMode validationMode, GPUDevicePrefe
 
     // Load available layers
     u32 layerCount = 0;
-    res            = vkEnumerateInstanceLayerProperties(&layerCount, 0);
-    Assert(res == VK_SUCCESS);
+    VK_CHECK(vkEnumerateInstanceLayerProperties(&layerCount, 0));
     list<VkLayerProperties> availableLayers(layerCount);
-    res = vkEnumerateInstanceLayerProperties(&layerCount, availableLayers.data());
-    Assert(res == VK_SUCCESS);
+    VK_CHECK(vkEnumerateInstanceLayerProperties(&layerCount, availableLayers.data()));
 
     // Load extension info
     u32 extensionCount = 0;
-    res                = vkEnumerateInstanceExtensionProperties(0, &extensionCount, 0);
-    Assert(res == VK_SUCCESS);
+    VK_CHECK(vkEnumerateInstanceExtensionProperties(0, &extensionCount, 0));
     list<VkExtensionProperties> extensionProperties(extensionCount);
-    res = vkEnumerateInstanceExtensionProperties(0, &extensionCount, extensionProperties.data());
-    Assert(res == VK_SUCCESS);
+    VK_CHECK(vkEnumerateInstanceExtensionProperties(0, &extensionCount, extensionProperties.data()));
 
     list<const char *> instanceExtensions;
     list<const char *> instanceLayers;
@@ -386,6 +379,7 @@ mkGraphicsVulkan::mkGraphicsVulkan(ValidationMode validationMode, GPUDevicePrefe
 
     // Create instance
     {
+        Assert(volkGetInstanceVersion() >= VK_API_VERSION_1_3);
         VkInstanceCreateInfo instInfo    = {};
         instInfo.sType                   = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
         instInfo.pApplicationInfo        = &appInfo;
@@ -410,28 +404,23 @@ mkGraphicsVulkan::mkGraphicsVulkan(ValidationMode validationMode, GPUDevicePrefe
             instInfo.pNext                       = &debugUtilsCreateInfo;
         }
 
-        res = vkCreateInstance(&instInfo, 0, &mInstance);
-        Assert(res == VK_SUCCESS);
-
-        volkLoadInstance(mInstance);
+        VK_CHECK(vkCreateInstance(&instInfo, 0, &mInstance));
+        volkLoadInstanceOnly(mInstance);
 
         if (validationMode != ValidationMode::Disabled && mDebugUtils)
         {
-            res = vkCreateDebugUtilsMessengerEXT(mInstance, &debugUtilsCreateInfo, 0, &mDebugMessenger);
-            Assert(res == VK_SUCCESS);
+            VK_CHECK(vkCreateDebugUtilsMessengerEXT(mInstance, &debugUtilsCreateInfo, 0, &mDebugMessenger));
         }
     }
 
     // Enumerate physical devices
     {
         u32 deviceCount = 0;
-        res             = vkEnumeratePhysicalDevices(mInstance, &deviceCount, 0);
-        Assert(res == VK_SUCCESS);
+        VK_CHECK(vkEnumeratePhysicalDevices(mInstance, &deviceCount, 0));
         Assert(deviceCount != 0);
 
         list<VkPhysicalDevice> devices(deviceCount);
-        res = vkEnumeratePhysicalDevices(mInstance, &deviceCount, devices.data());
-        Assert(res == VK_SUCCESS);
+        VK_CHECK(vkEnumeratePhysicalDevices(mInstance, &deviceCount, devices.data()));
 
         list<const char *> deviceExtensions = {
             VK_KHR_SWAPCHAIN_EXTENSION_NAME,
@@ -441,11 +430,9 @@ mkGraphicsVulkan::mkGraphicsVulkan(ValidationMode validationMode, GPUDevicePrefe
         {
             b32 suitable       = false;
             u32 deviceExtCount = 0;
-            res                = vkEnumerateDeviceExtensionProperties(device, 0, &deviceExtCount, 0);
-            Assert(res == VK_SUCCESS);
+            VK_CHECK(vkEnumerateDeviceExtensionProperties(device, 0, &deviceExtCount, 0));
             list<VkExtensionProperties> availableDevExt(deviceExtCount);
-            res = vkEnumerateDeviceExtensionProperties(device, 0, &deviceExtCount, availableDevExt.data());
-            Assert(res == VK_SUCCESS);
+            VK_CHECK(vkEnumerateDeviceExtensionProperties(device, 0, &deviceExtCount, availableDevExt.data()));
 
             b32 hasRequiredExtensions = 1;
             for (auto &requiredExtension : deviceExtensions)
@@ -592,8 +579,7 @@ mkGraphicsVulkan::mkGraphicsVulkan(ValidationMode validationMode, GPUDevicePrefe
         createInfo.enabledExtensionCount   = (u32)deviceExtensions.size();
         createInfo.ppEnabledExtensionNames = deviceExtensions.data();
 
-        res = vkCreateDevice(physicalDevice, &createInfo, 0, &mDevice);
-        Assert(res == VK_SUCCESS);
+        VK_CHECK(vkCreateDevice(physicalDevice, &createInfo, 0, &mDevice));
 
         volkLoadDevice(mDevice);
     }
@@ -628,8 +614,7 @@ mkGraphicsVulkan::mkGraphicsVulkan(ValidationMode validationMode, GPUDevicePrefe
 #error
 #endif
 
-    res = vmaCreateAllocator(&allocCreateInfo, &mAllocator);
-    Assert(res == VK_SUCCESS);
+    VK_CHECK(vmaCreateAllocator(&allocCreateInfo, &mAllocator));
 
     // Set up dynamic pso
     mDynamicStates = {
@@ -648,8 +633,7 @@ mkGraphicsVulkan::mkGraphicsVulkan(ValidationMode validationMode, GPUDevicePrefe
             }
             VkFenceCreateInfo fenceInfo = {};
             fenceInfo.sType             = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-            res                         = vkCreateFence(mDevice, &fenceInfo, 0, &mFrameFences[buffer][queue]);
-            Assert(res == VK_SUCCESS);
+            VK_CHECK(vkCreateFence(mDevice, &fenceInfo, 0, &mFrameFences[buffer][queue]));
         }
     }
 
@@ -678,8 +662,7 @@ mkGraphicsVulkan::mkGraphicsVulkan(ValidationMode validationMode, GPUDevicePrefe
         createInfo.pPoolSizes                 = poolSizes;
         createInfo.maxSets                    = cPoolSize;
 
-        res = vkCreateDescriptorPool(mDevice, &createInfo, 0, &mPool);
-        Assert(res == VK_SUCCESS);
+        VK_CHECK(vkCreateDescriptorPool(mDevice, &createInfo, 0, &mPool));
     }
 
     // Bindless descriptor pools
@@ -719,8 +702,7 @@ mkGraphicsVulkan::mkGraphicsVulkan(ValidationMode validationMode, GPUDevicePrefe
             createInfo.pPoolSizes                 = &poolSize;
             createInfo.maxSets                    = 1;
             createInfo.flags                      = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
-            res                                   = vkCreateDescriptorPool(mDevice, &createInfo, 0, &bindlessDescriptorPool.pool);
-            Assert(res == VK_SUCCESS);
+            VK_CHECK(vkCreateDescriptorPool(mDevice, &createInfo, 0, &bindlessDescriptorPool.pool));
 
             VkDescriptorSetLayoutBinding binding = {};
             binding.binding                      = 0;
@@ -745,16 +727,14 @@ mkGraphicsVulkan::mkGraphicsVulkan(ValidationMode validationMode, GPUDevicePrefe
             createSetLayout.flags                           = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
             createSetLayout.pNext                           = &bindingFlagsCreate;
 
-            res = vkCreateDescriptorSetLayout(mDevice, &createSetLayout, 0, &bindlessDescriptorPool.layout);
-            Assert(res == VK_SUCCESS);
+            VK_CHECK(vkCreateDescriptorSetLayout(mDevice, &createSetLayout, 0, &bindlessDescriptorPool.layout));
 
             VkDescriptorSetAllocateInfo allocInfo = {};
             allocInfo.sType                       = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
             allocInfo.descriptorPool              = bindlessDescriptorPool.pool;
             allocInfo.descriptorSetCount          = 1;
             allocInfo.pSetLayouts                 = &bindlessDescriptorPool.layout;
-            res                                   = vkAllocateDescriptorSets(mDevice, &allocInfo, &bindlessDescriptorPool.set);
-            Assert(res == VK_SUCCESS);
+            VK_CHECK(vkAllocateDescriptorSets(mDevice, &allocInfo, &bindlessDescriptorPool.set));
 
             for (u32 i = 0; i < poolSize.descriptorCount; i++)
             {
@@ -821,8 +801,7 @@ mkGraphicsVulkan::mkGraphicsVulkan(ValidationMode validationMode, GPUDevicePrefe
         VkSamplerCreateInfo samplerCreate = {};
         samplerCreate.sType               = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
 
-        res = vkCreateSampler(mDevice, &samplerCreate, 0, &mNullSampler);
-        Assert(res == VK_SUCCESS);
+        VK_CHECK(vkCreateSampler(mDevice, &samplerCreate, 0, &mNullSampler));
 
         samplerCreate.anisotropyEnable        = VK_FALSE;
         samplerCreate.maxAnisotropy           = 0;
@@ -842,24 +821,21 @@ mkGraphicsVulkan::mkGraphicsVulkan(ValidationMode validationMode, GPUDevicePrefe
 
         // sampler linear wrap
         immutableSamplers.emplace_back();
-        res = vkCreateSampler(mDevice, &samplerCreate, 0, &immutableSamplers.back());
-        Assert(res == VK_SUCCESS);
+        VK_CHECK(vkCreateSampler(mDevice, &samplerCreate, 0, &immutableSamplers.back()));
 
         // samler nearest wrap
         samplerCreate.minFilter  = VK_FILTER_NEAREST;
         samplerCreate.magFilter  = VK_FILTER_NEAREST;
         samplerCreate.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
         immutableSamplers.emplace_back();
-        res = vkCreateSampler(mDevice, &samplerCreate, 0, &immutableSamplers.back());
-        Assert(res == VK_SUCCESS);
+        VK_CHECK(vkCreateSampler(mDevice, &samplerCreate, 0, &immutableSamplers.back()));
 
         // sampler linear clamp
         samplerCreate.minFilter  = VK_FILTER_LINEAR;
         samplerCreate.magFilter  = VK_FILTER_LINEAR;
         samplerCreate.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
         immutableSamplers.emplace_back();
-        res = vkCreateSampler(mDevice, &samplerCreate, 0, &immutableSamplers.back());
-        Assert(res == VK_SUCCESS);
+        VK_CHECK(vkCreateSampler(mDevice, &samplerCreate, 0, &immutableSamplers.back()));
 
         // sampler nearest compare
         samplerCreate.mipmapMode    = VK_SAMPLER_MIPMAP_MODE_NEAREST;
@@ -869,8 +845,7 @@ mkGraphicsVulkan::mkGraphicsVulkan(ValidationMode validationMode, GPUDevicePrefe
         samplerCreate.compareEnable = VK_TRUE;
         samplerCreate.compareOp     = VK_COMPARE_OP_GREATER_OR_EQUAL;
         immutableSamplers.emplace_back();
-        res = vkCreateSampler(mDevice, &samplerCreate, 0, &immutableSamplers.back());
-        Assert(res == VK_SUCCESS);
+        VK_CHECK(vkCreateSampler(mDevice, &samplerCreate, 0, &immutableSamplers.back()));
     }
 
     // Default views
@@ -891,7 +866,7 @@ mkGraphicsVulkan::mkGraphicsVulkan(ValidationMode validationMode, GPUDevicePrefe
 
         VmaAllocationCreateInfo allocInfo = {};
         allocInfo.usage                   = VMA_MEMORY_USAGE_GPU_ONLY;
-        res                               = vmaCreateImage(mAllocator, &imageInfo, &allocInfo, &mNullImage2D, &mNullImage2DAllocation, 0);
+        VK_CHECK(vmaCreateImage(mAllocator, &imageInfo, &allocInfo, &mNullImage2D, &mNullImage2DAllocation, 0));
 
         VkImageViewCreateInfo createInfo           = {};
         createInfo.sType                           = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -905,12 +880,10 @@ mkGraphicsVulkan::mkGraphicsVulkan(ValidationMode validationMode, GPUDevicePrefe
         createInfo.image    = mNullImage2D;
         createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
 
-        res = vkCreateImageView(mDevice, &createInfo, 0, &mNullImageView2D);
-        Assert(res == VK_SUCCESS);
+        VK_CHECK(vkCreateImageView(mDevice, &createInfo, 0, &mNullImageView2D));
 
         createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
-        res                 = vkCreateImageView(mDevice, &createInfo, 0, &mNullImageView2DArray);
-        Assert(res == VK_SUCCESS);
+        VK_CHECK(vkCreateImageView(mDevice, &createInfo, 0, &mNullImageView2DArray));
 
         // Transitions
         TransferCommand cmd = Stage(0);
@@ -954,8 +927,7 @@ mkGraphicsVulkan::mkGraphicsVulkan(ValidationMode validationMode, GPUDevicePrefe
         VmaAllocationCreateInfo allocInfo = {};
         allocInfo.preferredFlags          = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 
-        res = vmaCreateBuffer(mAllocator, &bufferInfo, &allocInfo, &mNullBuffer, &mNullBufferAllocation, 0);
-        Assert(res == VK_SUCCESS);
+        VK_CHECK(vmaCreateBuffer(mAllocator, &bufferInfo, &allocInfo, &mNullBuffer, &mNullBufferAllocation, 0));
     }
 } // namespace graphics
 
@@ -983,7 +955,6 @@ b32 mkGraphicsVulkan::CreateSwapchain(Window window, SwapchainDesc *desc, Swapch
     }
     inSwapchain->mDesc         = *desc;
     inSwapchain->internalState = swapchain;
-    VkResult res;
 // Create surface
 #if WINDOWS
     VkWin32SurfaceCreateInfoKHR win32SurfaceCreateInfo = {};
@@ -991,8 +962,7 @@ b32 mkGraphicsVulkan::CreateSwapchain(Window window, SwapchainDesc *desc, Swapch
     win32SurfaceCreateInfo.hwnd                        = window;
     win32SurfaceCreateInfo.hinstance                   = GetModuleHandleW(0);
 
-    res = vkCreateWin32SurfaceKHR(mInstance, &win32SurfaceCreateInfo, 0, &swapchain->mSurface);
-    Assert(res == VK_SUCCESS);
+    VK_CHECK(vkCreateWin32SurfaceKHR(mInstance, &win32SurfaceCreateInfo, 0, &swapchain->mSurface));
 #else
 #error not supported
 #endif
@@ -1002,8 +972,13 @@ b32 mkGraphicsVulkan::CreateSwapchain(Window window, SwapchainDesc *desc, Swapch
     for (u32 familyIndex = 0; familyIndex < mQueueFamilyProperties.size(); familyIndex++)
     {
         VkBool32 supported = false;
-        res                = vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, familyIndex, swapchain->mSurface, &supported);
-        Assert(res == VK_SUCCESS);
+        // TODO: why is this function pointer null?
+        // if (vkGetPhysicalDeviceSurfaceSupportKHR == 0)
+        // {
+        //     volkLoadInstanceOnly(mInstance);
+        // }
+        Assert(vkGetPhysicalDeviceSurfaceSupportKHR);
+        VK_CHECK(vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevice, familyIndex, swapchain->mSurface, &supported));
 
         if (mQueueFamilyProperties[familyIndex].queueFamilyProperties.queueCount > 0 && supported)
         {
@@ -1027,25 +1002,18 @@ b32 mkGraphicsVulkan::CreateSwapchain(Swapchain *inSwapchain)
     SwapchainVulkan *swapchain = ToInternal(inSwapchain);
     Assert(swapchain);
 
-    VkResult res;
-
     u32 formatCount = 0;
-    res             = vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, swapchain->mSurface, &formatCount, 0);
-    Assert(res == VK_SUCCESS);
+    VK_CHECK(vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, swapchain->mSurface, &formatCount, 0));
     list<VkSurfaceFormatKHR> surfaceFormats(formatCount);
-    res = vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, swapchain->mSurface, &formatCount, surfaceFormats.data());
-    Assert(res == VK_SUCCESS);
+    VK_CHECK(vkGetPhysicalDeviceSurfaceFormatsKHR(physicalDevice, swapchain->mSurface, &formatCount, surfaceFormats.data()));
 
     VkSurfaceCapabilitiesKHR surfaceCapabilities;
-    res = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, swapchain->mSurface, &surfaceCapabilities);
-    Assert(res == VK_SUCCESS);
+    VK_CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physicalDevice, swapchain->mSurface, &surfaceCapabilities));
 
     u32 presentCount = 0;
-    res              = vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, swapchain->mSurface, &presentCount, 0);
-    Assert(res == VK_SUCCESS);
+    VK_CHECK(vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, swapchain->mSurface, &presentCount, 0));
     list<VkPresentModeKHR> surfacePresentModes;
-    res = vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, swapchain->mSurface, &presentCount, surfacePresentModes.data());
-    Assert(res == VK_SUCCESS);
+    VK_CHECK(vkGetPhysicalDeviceSurfacePresentModesKHR(physicalDevice, swapchain->mSurface, &presentCount, surfacePresentModes.data()));
 
     // Pick one of the supported formats
     VkSurfaceFormatKHR surfaceFormat = {};
@@ -1117,8 +1085,7 @@ b32 mkGraphicsVulkan::CreateSwapchain(Swapchain *inSwapchain)
         swapchainCreateInfo.clipped      = VK_TRUE;
         swapchainCreateInfo.oldSwapchain = swapchain->mSwapchain;
 
-        res = vkCreateSwapchainKHR(mDevice, &swapchainCreateInfo, 0, &swapchain->mSwapchain);
-        Assert(res == VK_SUCCESS);
+        VK_CHECK(vkCreateSwapchainKHR(mDevice, &swapchainCreateInfo, 0, &swapchain->mSwapchain));
 
         // Clean up the old swap chain, if it exists
         if (swapchainCreateInfo.oldSwapchain != VK_NULL_HANDLE)
@@ -1140,11 +1107,9 @@ b32 mkGraphicsVulkan::CreateSwapchain(Swapchain *inSwapchain)
         }
 
         // Get swapchain images
-        res = vkGetSwapchainImagesKHR(mDevice, swapchain->mSwapchain, &imageCount, 0);
-        Assert(res == VK_SUCCESS);
+        VK_CHECK(vkGetSwapchainImagesKHR(mDevice, swapchain->mSwapchain, &imageCount, 0));
         swapchain->mImages.resize(imageCount);
-        res = vkGetSwapchainImagesKHR(mDevice, swapchain->mSwapchain, &imageCount, swapchain->mImages.data());
-        Assert(res == VK_SUCCESS);
+        VK_CHECK(vkGetSwapchainImagesKHR(mDevice, swapchain->mSwapchain, &imageCount, swapchain->mImages.data()));
 
         // Create swap chain image views (determine how images are accessed)
         swapchain->mImageViews.resize(imageCount);
@@ -1166,8 +1131,7 @@ b32 mkGraphicsVulkan::CreateSwapchain(Swapchain *inSwapchain)
             createInfo.subresourceRange.layerCount     = 1;
 
             // TODO: delete old image view
-            res = vkCreateImageView(mDevice, &createInfo, 0, &swapchain->mImageViews[i]);
-            Assert(res == VK_SUCCESS);
+            VK_CHECK(vkCreateImageView(mDevice, &createInfo, 0, &swapchain->mImageViews[i]));
         }
 
         // Create swap chain semaphores
@@ -1181,14 +1145,12 @@ b32 mkGraphicsVulkan::CreateSwapchain(Swapchain *inSwapchain)
                 swapchain->mAcquireSemaphores.resize(size);
                 for (u32 i = 0; i < size; i++)
                 {
-                    res = vkCreateSemaphore(mDevice, &semaphoreInfo, 0, &swapchain->mAcquireSemaphores[i]);
-                    Assert(res == VK_SUCCESS);
+                    VK_CHECK(vkCreateSemaphore(mDevice, &semaphoreInfo, 0, &swapchain->mAcquireSemaphores[i]));
                 }
             }
             if (swapchain->mReleaseSemaphore == VK_NULL_HANDLE)
             {
-                res = vkCreateSemaphore(mDevice, &semaphoreInfo, 0, &swapchain->mReleaseSemaphore);
-                Assert(res == VK_SUCCESS);
+                VK_CHECK(vkCreateSemaphore(mDevice, &semaphoreInfo, 0, &swapchain->mReleaseSemaphore));
             }
         }
     }
@@ -1217,8 +1179,7 @@ void mkGraphicsVulkan::CreateShader(Shader *shader, string shaderData)
     createInfo.sType                    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
     createInfo.pCode                    = (u32 *)shaderData.str;
     createInfo.codeSize                 = shaderData.size;
-    VkResult res                        = vkCreateShaderModule(mDevice, &createInfo, 0, &shaderVulkan->module);
-    Assert(res == VK_SUCCESS);
+    VK_CHECK(vkCreateShaderModule(mDevice, &createInfo, 0, &shaderVulkan->module));
 
     VkPipelineShaderStageCreateInfo &pipelineStageInfo = shaderVulkan->pipelineStageInfo;
     pipelineStageInfo.sType                            = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -1291,7 +1252,6 @@ void mkGraphicsVulkan::CreateShader(Shader *shader, string shaderData)
 
 void mkGraphicsVulkan::CreatePipeline(PipelineStateDesc *inDesc, PipelineState *outPS, string name)
 {
-    VkResult res;
     PipelineStateVulkan *ps = 0;
     MutexScope(&mArenaMutex)
     {
@@ -1522,9 +1482,8 @@ void mkGraphicsVulkan::CreatePipeline(PipelineStateDesc *inDesc, PipelineState *
         descriptorCreateInfo.bindingCount = (u32)ps->mLayoutBindings.size();
         descriptorCreateInfo.pBindings    = ps->mLayoutBindings.data();
 
-        res = vkCreateDescriptorSetLayout(mDevice, &descriptorCreateInfo, 0, &descriptorLayout);
+        VK_CHECK(vkCreateDescriptorSetLayout(mDevice, &descriptorCreateInfo, 0, &descriptorLayout));
 
-        Assert(res == VK_SUCCESS);
         ps->mDescriptorSetLayouts.push_back(descriptorLayout);
     }
 
@@ -1550,8 +1509,7 @@ void mkGraphicsVulkan::CreatePipeline(PipelineStateDesc *inDesc, PipelineState *
         pipelineLayoutInfo.pPushConstantRanges    = &range;
     }
 
-    res = vkCreatePipelineLayout(mDevice, &pipelineLayoutInfo, 0, &ps->mPipelineLayout);
-    Assert(res == VK_SUCCESS);
+    VK_CHECK(vkCreatePipelineLayout(mDevice, &pipelineLayoutInfo, 0, &ps->mPipelineLayout));
 
     // Create the pipeline
     VkGraphicsPipelineCreateInfo pipelineInfo = {};
@@ -1594,14 +1552,12 @@ void mkGraphicsVulkan::CreatePipeline(PipelineStateDesc *inDesc, PipelineState *
     pipelineInfo.pNext = &renderingInfo;
 
     // VkPipelineRenderingCreateInfo
-    res = vkCreateGraphicsPipelines(mDevice, VK_NULL_HANDLE, 1, &pipelineInfo, 0, &ps->mPipeline);
+    VK_CHECK(vkCreateGraphicsPipelines(mDevice, VK_NULL_HANDLE, 1, &pipelineInfo, 0, &ps->mPipeline));
     SetName(ps->mPipeline, (const char *)name.str);
-    Assert(res == VK_SUCCESS);
 }
 
 void mkGraphicsVulkan::CreateComputePipeline(PipelineStateDesc *inDesc, PipelineState *outPS, string name)
 {
-    VkResult res;
     PipelineStateVulkan *ps = 0;
     MutexScope(&mArenaMutex)
     {
@@ -1632,9 +1588,8 @@ void mkGraphicsVulkan::CreateComputePipeline(PipelineStateDesc *inDesc, Pipeline
     descriptorCreateInfo.bindingCount                    = (u32)ps->mLayoutBindings.size();
     descriptorCreateInfo.pBindings                       = ps->mLayoutBindings.data();
 
-    res = vkCreateDescriptorSetLayout(mDevice, &descriptorCreateInfo, 0, &descriptorLayout);
+    VK_CHECK(vkCreateDescriptorSetLayout(mDevice, &descriptorCreateInfo, 0, &descriptorLayout));
 
-    Assert(res == VK_SUCCESS);
     ps->mDescriptorSetLayouts.push_back(descriptorLayout);
 
     // Push bindless descriptor set layouts
@@ -1661,8 +1616,7 @@ void mkGraphicsVulkan::CreateComputePipeline(PipelineStateDesc *inDesc, Pipeline
 
     ps->mPushConstantRange = shaderVulkan->pushConstantRange;
 
-    res = vkCreatePipelineLayout(mDevice, &pipelineLayoutInfo, 0, &ps->mPipelineLayout);
-    Assert(res == VK_SUCCESS);
+    VK_CHECK(vkCreatePipelineLayout(mDevice, &pipelineLayoutInfo, 0, &ps->mPipelineLayout));
 
     VkComputePipelineCreateInfo computePipelineInfo = {};
     computePipelineInfo.sType                       = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
@@ -1671,9 +1625,8 @@ void mkGraphicsVulkan::CreateComputePipeline(PipelineStateDesc *inDesc, Pipeline
     computePipelineInfo.basePipelineHandle          = VK_NULL_HANDLE;
     computePipelineInfo.basePipelineIndex           = 0;
 
-    res = vkCreateComputePipelines(mDevice, VK_NULL_HANDLE, 1, &computePipelineInfo, 0, &ps->mPipeline);
+    VK_CHECK(vkCreateComputePipelines(mDevice, VK_NULL_HANDLE, 1, &computePipelineInfo, 0, &ps->mPipeline));
     SetName(ps->mPipeline, (const char *)name.str);
-    Assert(res == VK_SUCCESS);
 }
 
 void mkGraphicsVulkan::Barrier(CommandList cmd, GPUBarrier *barriers, u32 count)
@@ -1776,8 +1729,6 @@ u64 mkGraphicsVulkan::GetMinAlignment(GPUBufferDesc *inDesc)
 
 void mkGraphicsVulkan::CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDesc, CopyFunction initCallback)
 {
-    VkResult res;
-
     GPUBufferVulkan *buffer = 0;
     MutexScope(&mArenaMutex)
     {
@@ -1856,8 +1807,7 @@ void mkGraphicsVulkan::CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDes
         createInfo.usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     }
 
-    res = vmaCreateBuffer(mAllocator, &createInfo, &allocCreateInfo, &buffer->mBuffer, &buffer->mAllocation, 0);
-    Assert(res == VK_SUCCESS);
+    VK_CHECK(vmaCreateBuffer(mAllocator, &createInfo, &allocCreateInfo, &buffer->mBuffer, &buffer->mAllocation, 0));
 
     // Map the buffer if it's a staging buffer
     if (inDesc.mUsage == MemoryUsage::CPU_TO_GPU)
@@ -1938,7 +1888,6 @@ void mkGraphicsVulkan::CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDes
 
 void mkGraphicsVulkan::CreateTexture(Texture *outTexture, TextureDesc desc, void *inData)
 {
-    VkResult res;
     TextureVulkan *texVulk = 0;
     MutexScope(&mArenaMutex)
     {
@@ -2041,8 +1990,7 @@ void mkGraphicsVulkan::CreateTexture(Texture *outTexture, TextureDesc desc, void
         bufferCreate.sType              = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
         bufferCreate.size               = size;
         bufferCreate.usage              = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-        res                             = vmaCreateBuffer(mAllocator, &bufferCreate, &allocInfo, &texVulk->stagingBuffer, &texVulk->mAllocation, &info);
-        Assert(res == VK_SUCCESS);
+        VK_CHECK(vmaCreateBuffer(mAllocator, &bufferCreate, &allocInfo, &texVulk->stagingBuffer, &texVulk->mAllocation, &info));
 
         // TODO: support readback of multiple mips/layers/depth
         Assert(desc.mDepth == 1 && desc.mNumMips == 1 && desc.mNumLayers == 1);
@@ -2055,8 +2003,7 @@ void mkGraphicsVulkan::CreateTexture(Texture *outTexture, TextureDesc desc, void
     }
     else if (desc.mUsage == MemoryUsage::GPU_ONLY)
     {
-        res = vmaCreateImage(mAllocator, &imageInfo, &allocInfo, &texVulk->mImage, &texVulk->mAllocation, &info);
-        Assert(res == VK_SUCCESS);
+        VK_CHECK(vmaCreateImage(mAllocator, &imageInfo, &allocInfo, &texVulk->mImage, &texVulk->mAllocation, &info));
     }
 
     Fence fence = {};
@@ -2282,8 +2229,7 @@ void mkGraphicsVulkan::CreateSampler(Sampler *sampler, SamplerDesc desc)
     samplerCreate.minLod                  = 0;
     samplerCreate.maxLod                  = 0;
 
-    VkResult res = vkCreateSampler(mDevice, &samplerCreate, 0, &samplerVulk->mSampler);
-    Assert(res == VK_SUCCESS);
+    VK_CHECK(vkCreateSampler(mDevice, &samplerCreate, 0, &samplerVulk->mSampler));
 }
 
 void mkGraphicsVulkan::BindResource(GPUResource *resource, ResourceType type, u32 slot, CommandList cmd, i32 subresource)
@@ -2403,8 +2349,7 @@ i32 mkGraphicsVulkan::CreateSubresource(GPUBuffer *buffer, ResourceType type, u6
         createView.offset                 = offset;
         createView.range                  = size;
 
-        VkResult res = vkCreateBufferView(mDevice, &createView, 0, &subresource.view);
-        Assert(res == VK_SUCCESS);
+        VK_CHECK(vkCreateBufferView(mDevice, &createView, 0, &subresource.view));
     }
 
     BindlessDescriptorPool &pool   = bindlessDescriptorPools[descriptorType];
@@ -2491,8 +2436,7 @@ i32 mkGraphicsVulkan::CreateSubresource(Texture *texture, u32 baseLayer, u32 num
         subresource             = &textureVulk->mSubresource;
         subresource->mBaseLayer = 0;
         subresource->mNumLayers = VK_REMAINING_ARRAY_LAYERS;
-        VkResult res            = vkCreateImageView(mDevice, &createInfo, 0, &subresource->mImageView);
-        Assert(res == VK_SUCCESS);
+        VK_CHECK(vkCreateImageView(mDevice, &createInfo, 0, &subresource->mImageView));
     }
     else
     {
@@ -2501,8 +2445,7 @@ i32 mkGraphicsVulkan::CreateSubresource(Texture *texture, u32 baseLayer, u32 num
         subresource->mBaseLayer = baseLayer;
         subresource->mNumLayers = numLayers;
 
-        VkResult res = vkCreateImageView(mDevice, &createInfo, 0, &subresource->mImageView);
-        Assert(res == VK_SUCCESS);
+        VK_CHECK(vkCreateImageView(mDevice, &createInfo, 0, &subresource->mImageView));
         result = (i32)(textureVulk->mSubresources.size() - 1);
     }
 
@@ -2562,8 +2505,7 @@ void mkGraphicsVulkan::UpdateDescriptorSet(CommandList cmd)
         allocInfo.descriptorPool              = mPool;
         allocInfo.descriptorSetCount          = 1;
         allocInfo.pSetLayouts                 = pipelineVulkan->mDescriptorSetLayouts.data();
-        VkResult res                          = vkAllocateDescriptorSets(mDevice, &allocInfo, descriptorSet);
-        Assert(res == VK_SUCCESS); // TODO: this will run out
+        VK_CHECK(vkAllocateDescriptorSets(mDevice, &allocInfo, descriptorSet));
     }
     else
     {
@@ -2811,7 +2753,6 @@ void mkGraphicsVulkan::RingFree(RingAllocation *allocation)
 
 mkGraphicsVulkan::TransferCommand mkGraphicsVulkan::Stage(u64 size)
 {
-    VkResult res;
     BeginMutex(&mTransferMutex);
 
     TransferCommand cmd;
@@ -2843,56 +2784,45 @@ mkGraphicsVulkan::TransferCommand mkGraphicsVulkan::Stage(u64 size)
         poolInfo.sType                   = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
         poolInfo.flags                   = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
         poolInfo.queueFamilyIndex        = mCopyFamily;
-        res                              = vkCreateCommandPool(mDevice, &poolInfo, 0, &cmd.mCmdPool);
-        Assert(res == VK_SUCCESS);
+        VK_CHECK(vkCreateCommandPool(mDevice, &poolInfo, 0, &cmd.mCmdPool));
         poolInfo.queueFamilyIndex = mGraphicsFamily;
-        res                       = vkCreateCommandPool(mDevice, &poolInfo, 0, &cmd.mTransitionPool);
-        Assert(res == VK_SUCCESS);
+        VK_CHECK(vkCreateCommandPool(mDevice, &poolInfo, 0, &cmd.mTransitionPool));
 
         VkCommandBufferAllocateInfo bufferInfo = {};
         bufferInfo.sType                       = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
         bufferInfo.commandPool                 = cmd.mCmdPool;
         bufferInfo.commandBufferCount          = 1;
         bufferInfo.level                       = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        res                                    = vkAllocateCommandBuffers(mDevice, &bufferInfo, &cmd.mCmdBuffer);
-        Assert(res == VK_SUCCESS);
+        VK_CHECK(vkAllocateCommandBuffers(mDevice, &bufferInfo, &cmd.mCmdBuffer));
         bufferInfo.commandPool = cmd.mTransitionPool;
-        res                    = vkAllocateCommandBuffers(mDevice, &bufferInfo, &cmd.mTransitionBuffer);
-        Assert(res == VK_SUCCESS);
+        VK_CHECK(vkAllocateCommandBuffers(mDevice, &bufferInfo, &cmd.mTransitionBuffer));
 
         VkFenceCreateInfo fenceInfo = {};
         fenceInfo.sType             = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        res                         = vkCreateFence(mDevice, &fenceInfo, 0, &cmd.mFence);
-        Assert(res == VK_SUCCESS);
+        VK_CHECK(vkCreateFence(mDevice, &fenceInfo, 0, &cmd.mFence));
 
         VkSemaphoreCreateInfo semaphoreInfo = {};
         semaphoreInfo.sType                 = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 
         for (u32 i = 0; i < ArrayLength(cmd.mSemaphores); i++)
         {
-            res = vkCreateSemaphore(mDevice, &semaphoreInfo, 0, &cmd.mSemaphores[i]);
-            Assert(res == VK_SUCCESS);
+            VK_CHECK(vkCreateSemaphore(mDevice, &semaphoreInfo, 0, &cmd.mSemaphores[i]));
         }
 
         cmd.ringAllocation = 0;
     }
 
-    res = vkResetCommandPool(mDevice, cmd.mCmdPool, 0);
-    Assert(res == VK_SUCCESS);
-    res = vkResetCommandPool(mDevice, cmd.mTransitionPool, 0);
-    Assert(res == VK_SUCCESS);
+    VK_CHECK(vkResetCommandPool(mDevice, cmd.mCmdPool, 0));
+    VK_CHECK(vkResetCommandPool(mDevice, cmd.mTransitionPool, 0));
 
     VkCommandBufferBeginInfo beginInfo = {};
     beginInfo.sType                    = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     beginInfo.flags                    = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     beginInfo.pInheritanceInfo         = 0;
-    res                                = vkBeginCommandBuffer(cmd.mCmdBuffer, &beginInfo);
-    Assert(res == VK_SUCCESS);
-    res = vkBeginCommandBuffer(cmd.mTransitionBuffer, &beginInfo);
-    Assert(res == VK_SUCCESS);
+    VK_CHECK(vkBeginCommandBuffer(cmd.mCmdBuffer, &beginInfo));
+    VK_CHECK(vkBeginCommandBuffer(cmd.mTransitionBuffer, &beginInfo));
 
-    res = vkResetFences(mDevice, 1, &cmd.mFence);
-    Assert(res == VK_SUCCESS);
+    VK_CHECK(vkResetFences(mDevice, 1, &cmd.mFence));
 
     if (size != 0)
     {
@@ -2904,10 +2834,8 @@ mkGraphicsVulkan::TransferCommand mkGraphicsVulkan::Stage(u64 size)
 
 void mkGraphicsVulkan::Submit(TransferCommand cmd)
 {
-    VkResult res = vkEndCommandBuffer(cmd.mCmdBuffer);
-    Assert(res == VK_SUCCESS);
-    res = vkEndCommandBuffer(cmd.mTransitionBuffer);
-    Assert(res == VK_SUCCESS);
+    VK_CHECK(vkEndCommandBuffer(cmd.mCmdBuffer));
+    VK_CHECK(vkEndCommandBuffer(cmd.mTransitionBuffer));
 
     VkCommandBufferSubmitInfo bufSubmitInfo = {};
     bufSubmitInfo.sType                     = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
@@ -2937,8 +2865,7 @@ void mkGraphicsVulkan::Submit(TransferCommand cmd)
 
         MutexScope(&mQueues[QueueType_Copy].mLock)
         {
-            res = vkQueueSubmit2(mQueues[QueueType_Copy].mQueue, 1, &submitInfo, VK_NULL_HANDLE);
-            Assert(res == VK_SUCCESS);
+            VK_CHECK(vkQueueSubmit2(mQueues[QueueType_Copy].mQueue, 1, &submitInfo, VK_NULL_HANDLE));
         }
     }
     // Insert the execution dependency (semaphores) and memory dependency (barrier) on the graphics queue
@@ -2962,8 +2889,7 @@ void mkGraphicsVulkan::Submit(TransferCommand cmd)
 
         MutexScope(&mQueues[QueueType_Graphics].mLock)
         {
-            res = vkQueueSubmit2(mQueues[QueueType_Graphics].mQueue, 1, &submitInfo, VK_NULL_HANDLE);
-            Assert(res == VK_SUCCESS);
+            VK_CHECK(vkQueueSubmit2(mQueues[QueueType_Graphics].mQueue, 1, &submitInfo, VK_NULL_HANDLE));
         }
     }
     // Execution dependency on compute queue
@@ -2981,8 +2907,7 @@ void mkGraphicsVulkan::Submit(TransferCommand cmd)
 
         MutexScope(&mQueues[QueueType_Compute].mLock)
         {
-            res = vkQueueSubmit2(mQueues[QueueType_Compute].mQueue, 1, &submitInfo, cmd.mFence);
-            Assert(res == VK_SUCCESS);
+            VK_CHECK(vkQueueSubmit2(mQueues[QueueType_Compute].mQueue, 1, &submitInfo, cmd.mFence));
         }
     }
     MutexScope(&mTransferMutex)
@@ -3133,7 +3058,6 @@ void mkGraphicsVulkan::CopyTexture(CommandList cmd, Texture *dst, Texture *src, 
 // command buffer. If the command buffer isn't initialize, the pool/command buffer/semaphore is created for it.
 CommandList mkGraphicsVulkan::BeginCommandList(QueueType queue)
 {
-    VkResult res;
     BeginTicketMutex(&mCommandMutex);
     u32 currentCmd;
     CommandList cmd;
@@ -3179,8 +3103,7 @@ CommandList mkGraphicsVulkan::BeginCommandList(QueueType queue)
                     break;
             }
 
-            res = vkCreateCommandPool(mDevice, &poolInfo, 0, &command.commandPools[buffer]);
-            Assert(res == VK_SUCCESS);
+            VK_CHECK(vkCreateCommandPool(mDevice, &poolInfo, 0, &command.commandPools[buffer]));
 
             VkCommandBufferAllocateInfo bufferInfo = {};
             bufferInfo.sType                       = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -3188,27 +3111,23 @@ CommandList mkGraphicsVulkan::BeginCommandList(QueueType queue)
             bufferInfo.commandBufferCount          = 1;
             bufferInfo.level                       = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 
-            res = vkAllocateCommandBuffers(mDevice, &bufferInfo, &command.commandBuffers[buffer]);
-            Assert(res == VK_SUCCESS);
+            VK_CHECK(vkAllocateCommandBuffers(mDevice, &bufferInfo, &command.commandBuffers[buffer]));
 
             VkSemaphoreCreateInfo semaphoreInfo = {};
             semaphoreInfo.sType                 = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-            res                                 = vkCreateSemaphore(mDevice, &semaphoreInfo, 0, &command.semaphore);
-            Assert(res == VK_SUCCESS);
+            VK_CHECK(vkCreateSemaphore(mDevice, &semaphoreInfo, 0, &command.semaphore));
         }
     } // namespace graphics
 
     // Reset command pool
-    res = vkResetCommandPool(mDevice, command.GetCommandPool(), 0);
-    Assert(res == VK_SUCCESS);
+    VK_CHECK(vkResetCommandPool(mDevice, command.GetCommandPool(), 0));
 
     // Start command buffer recording
     VkCommandBufferBeginInfo beginInfo = {};
     beginInfo.sType                    = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     beginInfo.flags                    = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     beginInfo.pInheritanceInfo         = 0; // for secondary command buffers
-    res                                = vkBeginCommandBuffer(command.GetCommandBuffer(), &beginInfo);
-    Assert(res == VK_SUCCESS);
+    VK_CHECK(vkBeginCommandBuffer(command.GetCommandBuffer(), &beginInfo));
 
     return cmd;
 }
@@ -3237,9 +3156,6 @@ void mkGraphicsVulkan::BeginRenderPass(Swapchain *inSwapchain, RenderPassImage *
         }
         Assert(0);
     }
-
-    // TODO: handle swap chain becoming suboptimal
-    Assert(res == VK_SUCCESS);
 
     // NOTE: this is usually done during the pipeline creation phase. however, with dynamic rendering,
     // the attachments don't have to be added until the render pass is started.
@@ -3760,10 +3676,8 @@ void mkGraphicsVulkan::SubmitCommandLists()
             {
                 if (type == QueueType_Copy) continue;
                 if (mFrameFences[currentBuffer][type] == VK_NULL_HANDLE) continue;
-                res = vkWaitForFences(mDevice, 1, &mFrameFences[currentBuffer][type], VK_TRUE, UINT64_MAX);
-                Assert(res == VK_SUCCESS);
-                res = vkResetFences(mDevice, 1, &mFrameFences[currentBuffer][type]);
-                Assert(res == VK_SUCCESS);
+                VK_CHECK(vkWaitForFences(mDevice, 1, &mFrameFences[currentBuffer][type], VK_TRUE, UINT64_MAX));
+                VK_CHECK(vkResetFences(mDevice, 1, &mFrameFences[currentBuffer][type]));
             }
         }
         mFrameAllocator[GetCurrentBuffer()].mOffset.store(0);
@@ -3805,11 +3719,6 @@ void mkGraphicsVulkan::BindCompute(PipelineState *ps, CommandList cmd)
                             1, (u32)bindlessDescriptorSets.size(), bindlessDescriptorSets.data(), 0, 0);
 }
 
-// void mkGraphicsVulkan::CreateQueryPool()
-// {
-//     vkCreateQueryPool(mDevice
-// }
-
 b32 mkGraphicsVulkan::IsSignaled(Fence fence)
 {
     VkFence fenceVulkan = ToInternal(fence);
@@ -3825,8 +3734,7 @@ b32 mkGraphicsVulkan::IsLoaded(GPUResource *resource)
 
 void mkGraphicsVulkan::WaitForGPU()
 {
-    VkResult res = vkDeviceWaitIdle(mDevice);
-    Assert(res == VK_SUCCESS);
+    VK_CHECK(vkDeviceWaitIdle(mDevice));
 }
 
 // TODO: maybe explore render graphs in the future
@@ -3862,8 +3770,7 @@ void mkGraphicsVulkan::SetName(GPUResource *resource, const char *name)
     {
         return;
     }
-    VkResult res = vkSetDebugUtilsObjectNameEXT(mDevice, &info);
-    Assert(res == VK_SUCCESS);
+    VK_CHECK(vkSetDebugUtilsObjectNameEXT(mDevice, &info));
 }
 
 void mkGraphicsVulkan::SetName(u64 handle, VkObjectType type, const char *name)
@@ -3877,8 +3784,7 @@ void mkGraphicsVulkan::SetName(u64 handle, VkObjectType type, const char *name)
     info.pObjectName                   = name;
     info.objectType                    = type;
     info.objectHandle                  = handle;
-    VkResult res                       = vkSetDebugUtilsObjectNameEXT(mDevice, &info);
-    Assert(res == VK_SUCCESS);
+    VK_CHECK(vkSetDebugUtilsObjectNameEXT(mDevice, &info));
 }
 
 void mkGraphicsVulkan::SetName(VkDescriptorSetLayout handle, const char *name)

@@ -102,11 +102,12 @@ G_INIT(G_Init)
     // renderer = ioPlatformMemory->mRenderer;
     if (ioPlatformMemory->mIsHotloaded || !ioPlatformMemory->mIsLoaded)
     {
-        engine   = ioPlatformMemory->mEngine;
-        platform = ioPlatformMemory->mPlatform;
-        shared   = ioPlatformMemory->mShared;
-        device   = ioPlatformMemory->mGraphics;
-        Printf   = platform.Printf;
+        engine    = ioPlatformMemory->mEngine;
+        gameScene = ioPlatformMemory->mScene;
+        platform  = ioPlatformMemory->mPlatform;
+        shared    = ioPlatformMemory->mShared;
+        device    = ioPlatformMemory->mGraphics;
+        Printf    = platform.Printf;
         ThreadContextSet(ioPlatformMemory->mTctx);
     }
     if (ioPlatformMemory->mIsHotloaded)
@@ -136,10 +137,6 @@ G_INIT(G_Init)
 
         // Load assets
         {
-            g_state->mEntities[0].mAssetHandle = AS_GetAsset(Str8Lit("data/models/dragon.model"));
-            g_state->mEntities[1].mAssetHandle = AS_GetAsset(Str8Lit("data/models/hero.model"));
-            g_state->mEntities[2].mAssetHandle = AS_GetAsset(Str8Lit("data/models/Main.1_Sponza.model"));
-
             Mat4 translate          = Translate4(V3{0, 20, 0});
             Mat4 scale              = Scale(V3{0.5f, 0.5f, 0.5f});
             Mat4 rotate             = Rotate4(MakeV3(1, 0, 0), PI / 2);
@@ -153,6 +150,10 @@ G_INIT(G_Init)
             scale                   = Scale(V3{1, 1, 1});
             g_state->mTransforms[2] = translate * rotate;
 
+            // g_state->mEntities[0].mAssetHandle = AS_GetAsset(Str8Lit("data/models/dragon.model"));
+            // g_state->mEntities[1].mAssetHandle = AS_GetAsset(Str8Lit("data/models/hero.model"));
+            g_state->mEntities[2].mAssetHandle = AS_GetAsset(Str8Lit("data/models/Main.1_Sponza.model"));
+
             AS_Handle anim           = AS_GetAsset(Str8Lit("data/animations/Qishilong_attack01.anim"));
             AnimationPlayer *aPlayer = &g_state->mAnimPlayers[0];
             StartLoopedAnimation(aPlayer, anim);
@@ -160,17 +161,10 @@ G_INIT(G_Init)
             anim    = AS_GetAsset(Str8Lit("data/animations/Mon_BlackDragon31_Btl_Atk01.anim"));
             aPlayer = &g_state->mAnimPlayers[1];
             StartLoopedAnimation(aPlayer, anim);
-
-            g_state->mEntityCount += 3;
-            // KeyframedAnimation *animation = PushStruct(g_state->permanentArena, KeyframedAnimation);
         }
 
         // g_state->eva    = AS_GetAsset(Str8Lit("data/eva/Eva01.model"));
-
         // g_state->modelBall = AS_GetAsset(Str8Lit("data/ball/scene.model"));
-
-        // ReadAnimationFile(g_state->worldArena, animation, Str8Lit("data/dragon_attack_01.anim"));
-        // AS_Handle anim = LoadAssetFile(Str8Lit("data/dragon/Qishilong_attack02.anim"));
         // g_state->font = AS_GetAsset(Str8Lit("data/liberation_mono.ttf"));
 
         g_state->camera.position = V3{0, -10, 0};
@@ -473,12 +467,12 @@ DLL G_UPDATE(G_Update)
 
     renderState->camera = g_state->camera;
     // Update
+    gameScene->ProcessRequests();
     u32 totalMatrixCount = 0;
-    u32 totalMeshCount   = gameScene.meshes.GetTotal();
-    gameScene.aabbCount  = 0;
+    u32 totalMeshCount   = gameScene->meshes.GetTotal();
+    gameScene->aabbCount = 0;
 
     // Process component system requests
-    gameScene.ProcessRequests();
 
     // for (u32 i = 0; i < g_state->mEntityCount; i++)
     // {
@@ -497,9 +491,9 @@ DLL G_UPDATE(G_Update)
     //     }
     // }
 
-    for (SkeletonIter iter = gameScene.BeginSkelIter(); !gameScene.End(&iter); gameScene.Next(&iter))
+    for (SkeletonIter iter = gameScene->BeginSkelIter(); !gameScene->End(&iter); gameScene->Next(&iter))
     {
-        LoadedSkeleton *skeleton = gameScene.Get(&iter);
+        LoadedSkeleton *skeleton = gameScene->Get(&iter);
         skeleton->skinningOffset = totalMatrixCount;
         totalMatrixCount += skeleton->count;
     }
@@ -507,21 +501,21 @@ DLL G_UPDATE(G_Update)
     // TODO: this should probably be r_framealloced for the renderer backend to use
     // TODO: all children must be ensured to be after parents in hierarchycomponent
 
-    Mat4 *frameTransforms = PushArray(g_state->frameArena, Mat4, gameScene.transforms.GetEndPos());
+    Mat4 *frameTransforms = PushArray(g_state->frameArena, Mat4, gameScene->transforms.GetEndPos());
     frameTransforms[0]    = Identity();
 
-    for (HierarchyIter iter = gameScene.BeginHierIter(); !gameScene.End(&iter); gameScene.Next(&iter))
+    for (HierarchyIter iter = gameScene->BeginHierIter(); !gameScene->End(&iter); gameScene->Next(&iter))
     {
-        HierarchyComponent *h = gameScene.Get(&iter);
-        Entity entity         = gameScene.GetEntity(&iter);
+        HierarchyComponent *h = gameScene->Get(&iter);
+        Entity entity         = gameScene->GetEntity(&iter);
 
-        TransformHandle handle = gameScene.transforms.GetHandle(entity);
-        Mat4 transform         = *gameScene.transforms.GetFromHandle(handle);
-        u32 transformIndex     = gameScene.transforms.GetIndex(handle);
+        TransformHandle handle = gameScene->transforms.GetHandle(entity);
+        Mat4 transform         = *gameScene->transforms.GetFromHandle(handle);
+        u32 transformIndex     = gameScene->transforms.GetIndex(handle);
         Assert(transformIndex != 0);
 
-        handle          = gameScene.transforms.GetHandle(h->parent);
-        u32 parentIndex = gameScene.transforms.GetIndex(handle);
+        handle          = gameScene->transforms.GetHandle(h->parent);
+        u32 parentIndex = gameScene->transforms.GetIndex(handle);
 
         frameTransforms[transformIndex] = frameTransforms[parentIndex] * transform;
     }
@@ -559,9 +553,9 @@ DLL G_UPDATE(G_Update)
     Mat4 *skinningMappedData         = (Mat4 *)skinningBufferUpload->mMappedData;
     MeshParams *meshParamsMappedData = (MeshParams *)meshParamsUpload->mMappedData;
 
-    for (SkeletonIter iter = gameScene.BeginSkelIter(); !gameScene.End(&iter); gameScene.Next(&iter))
+    for (SkeletonIter iter = gameScene->BeginSkelIter(); !gameScene->End(&iter); gameScene->Next(&iter))
     {
-        LoadedSkeleton *skeleton   = gameScene.Get(&iter);
+        LoadedSkeleton *skeleton   = gameScene->Get(&iter);
         AnimationTransform *tforms = PushArray(g_state->frameArena, AnimationTransform, skeleton->count);
 
         u32 globalIndex = iter.globalIndex;
@@ -570,20 +564,20 @@ DLL G_UPDATE(G_Update)
                              skinningMappedData + skeleton->skinningOffset);
     }
 
-    u32 checkMeshCount = 0;
-    for (MeshIter iter = gameScene.BeginMeshIter(); !gameScene.End(&iter); gameScene.Next(&iter))
+    // u32 checkMeshCount = 0;
+    for (MeshIter iter = gameScene->BeginMeshIter(); !gameScene->End(&iter); gameScene->Next(&iter))
     {
-        Mesh *mesh      = gameScene.Get(&iter);
-        Entity entity   = gameScene.GetEntity(&iter);
+        Mesh *mesh      = gameScene->Get(&iter);
+        Entity entity   = gameScene->GetEntity(&iter);
         mesh->meshIndex = -1;
         if (!mesh->IsRenderable()) continue;
 
         mesh->meshIndex = iter.globalIndex;
-        mesh->aabbIndex = gameScene.aabbCount++;
+        mesh->aabbIndex = gameScene->aabbCount++;
 
-        Mat4 transform                   = frameTransforms[gameScene.transforms.GetIndex(entity)];
-        gameScene.aabbs[mesh->aabbIndex] = Transform(transform, mesh->bounds);
-        checkMeshCount++;
+        Mat4 transform                    = frameTransforms[gameScene->transforms.GetIndex(entity)];
+        gameScene->aabbs[mesh->aabbIndex] = Transform(transform, mesh->bounds);
+        // checkMeshCount++;
 
         MeshParams *meshParams = &meshParamsMappedData[mesh->meshIndex];
 
@@ -592,7 +586,7 @@ DLL G_UPDATE(G_Update)
         meshParams->modelMatrix     = transform;
     }
 
-    Assert(checkMeshCount == totalMeshCount);
+    // Assert(checkMeshCount == totalMeshCount);
 
     // DebugDrawSkeleton(g_state->model, transform1, skinningMappedData);
     // SkinModelToBindPose(g_state->model, skinningMatrices1);
