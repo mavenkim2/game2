@@ -169,8 +169,24 @@ struct G_State
 
     CameraMode cameraMode;
 
+    struct EntitySlotNode
+    {
+        u32 sid;
+        u32 index;
+        EntitySlotNode *next;
+    };
+    struct EntitySlot
+    {
+        EntitySlotNode *first;
+        EntitySlotNode *last;
+    };
+    static const u32 numSlots = 1024;
+    EntitySlot *entityMap;
+    EntitySlotNode *freeNode;
+
     game::Entity mEntities[4];
     AnimationPlayer mAnimPlayers[4];
+    u32 numEntities;
 
     Mat4 mTransforms[4];
     u32 transformCount;
@@ -183,6 +199,9 @@ struct G_State
     AS_Handle font;
 
     Heightmap heightmap;
+
+    void Insert(string name, u32 index);
+    u32 GetIndex(string name);
 };
 
 PlatformApi platform;

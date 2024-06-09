@@ -354,7 +354,7 @@ private:
     TransformChunkNode *last;
     u32 transformWritePos;
     u32 totalNumTransforms;
-    u32 lastChunkNodeIndex;
+    u32 numChunkNodes;
 
     TransformSlotNode *freeSlotNodes;
     TransformFreeNode *freePositions;
@@ -384,9 +384,9 @@ public:
     }
     inline u32 GetIndex(TransformHandle handle)
     {
-        u32 chunkNodeNum = handle.u32[3];
-        u32 localIndex   = handle.u32[2];
-        return numTransformsPerChunk * chunkNodeNum + localIndex;
+        u32 chunkNodeIndex = handle.u32[3];
+        u32 localIndex     = handle.u32[2];
+        return numTransformsPerChunk * chunkNodeIndex + localIndex;
     }
     inline Mat4 *GetFromHandle(TransformHandle handle)
     {
@@ -552,7 +552,6 @@ private:
     struct SkeletonChunkNode
     {
         LoadedSkeleton skeletons[numSkeletonPerChunk];
-        // SkeletonFlag flags[numSkeletonPerChunk];
         u32 gen[numSkeletonPerChunk];
         SkeletonChunkNode *next;
     };
@@ -560,7 +559,6 @@ private:
     struct SkeletonSlotNode
     {
         SkeletonHandle handle;
-        // Entity entity;
         u32 id;
         SkeletonSlotNode *next;
     };
@@ -659,6 +657,7 @@ public:
     b32 Remove(string name);
     inline SkeletonHandle GetHandleFromEntity(Entity entity);
     inline SkeletonHandle GetHandleFromSid(u32 sid);
+    inline SkeletonHandle GetHandleFromName(string name);
     inline LoadedSkeleton *GetFromEntity(Entity entity);
     inline LoadedSkeleton *GetFromSid(u32 sid);
 
@@ -688,6 +687,7 @@ struct SkeletonIter
 
 enum SceneRequestType
 {
+    SceneRequestType_Reset,
     SceneRequestType_MergeScene,
 };
 
@@ -712,10 +712,11 @@ struct SceneRequestRing
     std::atomic<u64> writePos = 0;
     u64 readPos               = 0;
 
-    u8 *ringBuffer;
-    static const u32 totalSize = kilobytes(16);
+    u8 *ringBuffer             = 0;
+    static const u32 totalSize = kilobytes(32);
     u32 alignment              = 8;
 
+    void Init(Arena *arena);
     void *Alloc(u64 size);
     void EndAlloc(SceneRequest *req);
     SceneMergeTicket CreateMergeRequest();
@@ -728,7 +729,8 @@ struct SceneRequestRing
 struct Scene
 {
     Arena *arena;
-    std::atomic<u32> entityGen = NULL_HANDLE + 1;
+    std::atomic<u32> entityGen;
+    u32 rootEntity;
 
     SmallMemoryAllocator sma;
 

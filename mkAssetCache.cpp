@@ -331,8 +331,12 @@ internal void AS_LoadAsset(AS_Asset *asset)
         LoadedModel *model = &asset->model;
         asset->type        = AS_Model;
 
-        Entity rootEntity = newScene->CreateEntity();
-        newScene->CreateTransform(Identity(), rootEntity);
+        Entity rootEntity    = newScene->CreateEntity();
+        newScene->rootEntity = rootEntity;
+
+        G_State *g_state = engine->GetGameState();
+        u32 index        = g_state->GetIndex(asset->path);
+        newScene->CreateTransform(g_state->mTransforms[index], rootEntity);
 
         u8 *buffer = AS_GetMemory(asset);
         Tokenizer tokenizer;
@@ -342,7 +346,8 @@ internal void AS_LoadAsset(AS_Asset *asset)
 
         GetPointerValue(&tokenizer, &model->numMeshes);
 
-        string materialFilename = PushStr8F(temp.arena, "%S%S.mtr", materialDirectory, RemoveFileExtension(filename));
+        string modelName        = RemoveFileExtension(filename);
+        string materialFilename = PushStr8F(temp.arena, "%S%S.mtr", materialDirectory, modelName);
         string materialData     = platform.ReadEntireFile(temp.arena, materialFilename);
 
         Tokenizer materialTokenizer;
@@ -490,6 +495,7 @@ internal void AS_LoadAsset(AS_Asset *asset)
         }
 
         // Skeleton
+        SkeletonHandle skeletonHandle = {};
         {
             string path;
             GetPointerValue(&tokenizer, &path.size);
@@ -501,6 +507,7 @@ internal void AS_LoadAsset(AS_Asset *asset)
                 // Load the skeleton
                 string skeletonName      = path;
                 LoadedSkeleton *skeleton = newScene->skeletons.Create(skeletonName);
+                skeletonHandle           = newScene->skeletons.GetHandleFromName(skeletonName);
                 string skeletonFilename  = PushStr8F(temp.arena, "%S%S.skel", skeletonDirectory, skeletonName);
 
                 AS_Asset *skelAsset = AS_AllocAsset(skeletonFilename, false);
@@ -548,8 +555,7 @@ internal void AS_LoadAsset(AS_Asset *asset)
 
                         Assert(EndOfBuffer(&skeletonTokenizer));
                     }
-                    skelAsset->type = AS_Skeleton;
-                    // TODO: having this pointer feels awkward.
+                    skelAsset->type     = AS_Skeleton;
                     skelAsset->skeleton = skeleton;
                     skelAsset->status.store(AS_Status_Loaded);
                 }
@@ -566,6 +572,10 @@ internal void AS_LoadAsset(AS_Asset *asset)
             u32 vertexCount = mesh->vertexCount;
             u32 indexCount  = mesh->indexCount;
 
+            if (newScene->skeletons.IsValidHandle(skeletonHandle))
+            {
+                newScene->skeletons.Link(entities[i], skeletonHandle);
+            }
             GPUBufferDesc desc;
             desc.mResourceUsage = ResourceUsage::MegaBuffer | ResourceUsage::UniformTexelBuffer | ResourceUsage::IndexBuffer;
             u64 alignment       = device->GetMinAlignment(&desc);
@@ -691,7 +701,7 @@ internal void AS_LoadAsset(AS_Asset *asset)
                 device->CreateBuffer(&mesh->streamBuffer, streamDesc, 0);
                 device->SetName(&mesh->streamBuffer, "Mesh stream buffer");
 
-                mesh->soPosView.srvIndex      = device->CreateSubresource(&mesh->streamBuffer, ResourceType::SRV, mesh->soPosView.offset, mesh->soPosView.size, Format::R32G32B32_SFLOAT);
+                mesh->soPosView.srvIndex      = device->CreateSubresource(&mesh->streamBuffer, ResourceType::SRV, mesh->soPosView.offset, mesh->soPosView.size, Format::R32G32B32_SFLOAT, "Streamout pos");
                 mesh->soPosView.srvDescriptor = device->GetDescriptorIndex(&mesh->streamBuffer, ResourceType::SRV, mesh->soPosView.srvIndex);
                 mesh->soPosView.uavIndex      = device->CreateSubresource(&mesh->streamBuffer, ResourceType::UAV, mesh->soPosView.offset, mesh->soPosView.size);
                 mesh->soPosView.uavDescriptor = device->GetDescriptorIndex(&mesh->streamBuffer, ResourceType::UAV, mesh->soPosView.uavIndex);

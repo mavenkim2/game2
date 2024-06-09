@@ -2312,7 +2312,7 @@ i32 mkGraphicsVulkan::GetDescriptorIndex(GPUResource *resource, ResourceType typ
 }
 
 // Only used to create bindless subresources
-i32 mkGraphicsVulkan::CreateSubresource(GPUBuffer *buffer, ResourceType type, u64 offset, u64 size, Format format)
+i32 mkGraphicsVulkan::CreateSubresource(GPUBuffer *buffer, ResourceType type, u64 offset, u64 size, Format format, const char *name)
 {
     i32 subresourceIndex     = -1;
     GPUBufferVulkan *bufVulk = ToInternal(buffer);
@@ -2350,6 +2350,10 @@ i32 mkGraphicsVulkan::CreateSubresource(GPUBuffer *buffer, ResourceType type, u6
         createView.range                  = size;
 
         VK_CHECK(vkCreateBufferView(mDevice, &createView, 0, &subresource.view));
+        if (name)
+        {
+            SetName((u64)subresource.view, VK_OBJECT_TYPE_BUFFER_VIEW, name);
+        }
     }
 
     BindlessDescriptorPool &pool   = bindlessDescriptorPools[descriptorType];

@@ -185,7 +185,7 @@ struct Mesh
 
     // these are valid for one frame only
     i32 meshIndex;
-    i32 aabbIndex; 
+    i32 aabbIndex;
 
     u32 vertexCount;
     u32 indexCount;
@@ -223,10 +223,6 @@ struct Mesh
 
 struct LoadedModel
 {
-    // Entity rootEntity;
-
-    // AS_Handle skeleton;
-    // Mesh *meshes;
     u32 numMeshes;
     Rect3 bounds;
 };

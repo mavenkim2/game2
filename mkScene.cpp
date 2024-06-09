@@ -478,9 +478,9 @@ void TransformManager::Init(Scene *inScene)
     transformSlots     = PushArray(parentScene->arena, TransformSlot, numTransformSlots);
     first              = 0;
     last               = 0;
-    transformWritePos  = 0;
+    transformWritePos  = 1;
     totalNumTransforms = 0;
-    lastChunkNodeIndex = 0;
+    numChunkNodes      = 0;
     freeSlotNodes      = 0;
     freePositions      = 0;
     freeNodes          = 0;
@@ -511,9 +511,9 @@ Mat4 *TransformManager::Create(Entity entity)
             TransformChunkNode *newChunkNode = PushStruct(parentScene->arena, TransformChunkNode);
             QueuePush(first, last, newChunkNode);
             chunkNode = newChunkNode;
-            lastChunkNodeIndex++;
+            numChunkNodes++;
         }
-        handle = CreateHandle(chunkNode, localIndex, lastChunkNodeIndex);
+        handle = CreateHandle(chunkNode, localIndex, numChunkNodes - 1);
     }
 
     chunkNode->entities[localIndex] = entity;
@@ -625,7 +625,7 @@ void HierarchyManager::Init(Scene *inScene)
     hierarchySlots         = PushArray(parentScene->arena, HierarchySlot, numHierarchyNodeSlots);
     first                  = 0;
     last                   = 0;
-    hierarchyWritePos      = 0;
+    hierarchyWritePos      = 1;
     totalNumHierarchyNodes = 0;
     freeSlotNodes          = 0;
     freePositions          = 0;
@@ -767,10 +767,10 @@ b32 HierarchyManager::Remove(Entity entity)
 HierarchyIter HierarchyManager::BeginIter()
 {
     HierarchyIter iter;
-    iter.localIndex  = 0;
-    iter.globalIndex = 0;
+    iter.localIndex  = 1;
+    iter.globalIndex = 1;
     iter.chunkNode   = first;
-    iter.node        = iter.chunkNode ? &first->components[0] : 0;
+    iter.node        = iter.chunkNode ? &first->components[1] : 0;
     return iter;
 }
 
@@ -923,6 +923,9 @@ LoadedSkeleton *SkeletonManager::Create(u32 sid)
     totalNumSkeletons++;
 
     LoadedSkeleton *skeleton = &chunkNode->skeletons[localIndex];
+    skeleton->sid            = sid;
+
+    chunkNode->gen[localIndex] |= SkeletonFlag_Valid;
     return skeleton;
 }
 
@@ -989,6 +992,13 @@ inline SkeletonHandle SkeletonManager::GetHandleFromSid(u32 sid)
     return handle;
 }
 
+inline SkeletonHandle SkeletonManager::GetHandleFromName(string name)
+{
+    u32 sid               = GetSID(name);
+    SkeletonHandle handle = Get(nameMap, sid);
+    return handle;
+}
+
 inline LoadedSkeleton *SkeletonManager::GetFromEntity(Entity entity)
 {
     SkeletonHandle handle  = GetHandleFromEntity(entity);
@@ -1050,6 +1060,11 @@ inline LoadedSkeleton *SkeletonManager::Get(SkeletonIter *iter)
 //////////////////////////////
 // Component requests
 //
+void SceneRequestRing::Init(Arena *arena)
+{
+    ringBuffer = PushArray(arena, u8, totalSize);
+}
+
 void *SceneRequestRing::Alloc(u64 size)
 {
     void *result = 0;
@@ -1111,6 +1126,7 @@ SceneMergeTicket SceneRequestRing::CreateMergeRequest()
 {
     SceneMergeRequest *request = (SceneMergeRequest *)Alloc(sizeof(SceneMergeRequest));
     request->type              = SceneRequestType_MergeScene;
+    request->finished          = 0;
 
     Arena *arena = ArenaAlloc();
     request->mergeScene.Init(arena);
@@ -1130,12 +1146,17 @@ void SceneRequestRing::ProcessRequests(Scene *parent)
     while (readPos < loadedWritePos)
     {
         u64 ringReadPos       = readPos & ringMask;
-        SceneRequest *request = (SceneRequest *)ringBuffer + ringReadPos;
+        SceneRequest *request = (SceneRequest *)(ringBuffer + ringReadPos);
         u64 advance           = 0;
         if (!request->finished) break;
 
         switch (request->type)
         {
+            case SceneRequestType_Reset:
+            {
+                advance = totalSize - ringReadPos;
+            }
+            break;
             case SceneRequestType_MergeScene:
             {
                 SceneMergeRequest *mergeReq = (SceneMergeRequest *)request;
@@ -1162,6 +1183,8 @@ void Scene::Init(Arena *inArena)
     hierarchy.Init(this);
     skeletons.Init(this);
     sma.Init();
+    requestRing.Init(inArena);
+    entityGen = NULL_HANDLE + 1;
 }
 
 Entity Scene::CreateEntity()
@@ -1193,8 +1216,25 @@ void Scene::Merge(Scene *other)
 
     // Maps old parent id to new parent id
     TempArena temp = ScratchStart(0, 0);
-    u32 *parentMap = PushArrayNoZero(temp.arena, u32, other->entityGen.load());
-    parentMap[0]   = 0;
+    u32 *entityMap = PushArrayNoZero(temp.arena, u32, other->entityGen.load());
+    entityMap[0]   = 0;
+    // Merge hierarchy
+    for (HierarchyIter iter = other->BeginHierIter(); !other->End(&iter); other->Next(&iter))
+    {
+        HierarchyComponent *hier = other->Get(&iter);
+        Entity oldEntity         = other->GetEntity(&iter);
+        Entity newEntity         = CreateEntity();
+        entityMap[oldEntity]     = newEntity;
+
+        Mat4 *transform = other->transforms.Get(oldEntity);
+        Assert(transform && hier);
+
+        Mat4 *newTransform = transforms.Create(newEntity);
+        *newTransform      = std::move(*transform);
+
+        u32 newParent = entityMap[hier->parent];
+        hierarchy.Create(newEntity, newParent);
+    }
 
     // Merge the meshes
     Assert(other->meshes.GetTotal() == other->meshes.GetEndPos());
@@ -1203,7 +1243,7 @@ void Scene::Merge(Scene *other)
         Mesh *mesh       = other->Get(&iter);
         Entity oldEntity = other->GetEntity(&iter);
 
-        Entity newEntity = CreateEntity();
+        Entity newEntity = entityMap[oldEntity];
         Mesh *newMesh    = meshes.Create(newEntity);
         *newMesh         = std::move(*mesh); // does this work?
 
@@ -1229,20 +1269,6 @@ void Scene::Merge(Scene *other)
                 SkeletonHandle handle = skeletons.GetHandleFromSid(sid);
                 skeletons.Link(newEntity, handle);
             }
-        }
-        // Remap hierarchy/transforms
-        {
-            parentMap[oldEntity] = newEntity;
-
-            HierarchyComponent *hier = other->hierarchy.Get(oldEntity);
-            Mat4 *transform          = other->transforms.Get(oldEntity);
-            Assert(transform && hier);
-
-            Mat4 *newTransform = transforms.Create(newEntity);
-            *newTransform      = std::move(*transform);
-
-            u32 newParent = parentMap[hier->parent];
-            hierarchy.Create(newEntity, newParent);
         }
     }
 

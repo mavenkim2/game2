@@ -630,7 +630,7 @@ struct mkGraphics
     virtual void BindResource(GPUResource *resource, ResourceType type, u32 slot, CommandList cmd, i32 subresource = -1) = 0;
     virtual i32 GetDescriptorIndex(GPUResource *resource, ResourceType type, i32 subresourceIndex = -1)                  = 0;
 
-    virtual i32 CreateSubresource(GPUBuffer *buffer, ResourceType type, u64 offset = 0ull, u64 size = ~0ull, Format format = Format::Null) = 0;
+    virtual i32 CreateSubresource(GPUBuffer *buffer, ResourceType type, u64 offset = 0ull, u64 size = ~0ull, Format format = Format::Null, const char *name = 0) = 0;
 
     virtual i32 CreateSubresource(Texture *texture, u32 baseLayer = 0, u32 numLayers = ~0u)                             = 0;
     virtual void UpdateDescriptorSet(CommandList cmd)                                                                   = 0;

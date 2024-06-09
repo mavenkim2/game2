@@ -88,6 +88,38 @@ internal Manifold NarrowPhaseAABBCollision(const Rect3 a, const Rect3 b)
 
 // RendererApi renderer;
 
+void G_State::Insert(string name, u32 index)
+{
+    u32 sid              = AddSID(name);
+    EntitySlotNode *node = freeNode;
+    if (node)
+    {
+        StackPop(freeNode);
+    }
+    else
+    {
+        node = PushStruct(permanentArena, EntitySlotNode);
+    }
+    node->sid        = sid;
+    node->index      = index;
+    EntitySlot *slot = &entityMap[sid & (numSlots - 1)];
+    QueuePush(slot->first, slot->last, node);
+}
+
+u32 G_State::GetIndex(string name)
+{
+    u32 sid          = GetSID(name);
+    EntitySlot *slot = &entityMap[sid & (numSlots - 1)];
+    for (EntitySlotNode *node = slot->first; node != 0; node = node->next)
+    {
+        if (node->sid == sid)
+        {
+            return node->index;
+        }
+    }
+    return 0;
+}
+
 // simply waits for all threads to finish executing
 G_FLUSH(G_Flush)
 {
@@ -135,27 +167,40 @@ G_INIT(G_Init)
         g_state->permanentArena = permanentArena;
         g_state->frameArena     = frameArena;
 
+        g_state->entityMap = PushArray(permanentArena, G_State::EntitySlot, g_state->numSlots);
         // Load assets
         {
             Mat4 translate          = Translate4(V3{0, 20, 0});
             Mat4 scale              = Scale(V3{0.5f, 0.5f, 0.5f});
             Mat4 rotate             = Rotate4(MakeV3(1, 0, 0), PI / 2);
-            g_state->mTransforms[0] = translate * rotate * scale;
+            g_state->mTransforms[1] = translate * rotate * scale;
 
             translate = Translate4(V3{0, 20, 20});
             // scale                   = Scale(V3{1, 1, 1});
-            g_state->mTransforms[1] = translate * rotate;
+            g_state->mTransforms[2] = translate * rotate;
 
             translate               = Translate4(V3{0, 0, 0});
             scale                   = Scale(V3{1, 1, 1});
-            g_state->mTransforms[2] = translate * rotate;
+            g_state->mTransforms[3] = translate * rotate;
 
-            // g_state->mEntities[0].mAssetHandle = AS_GetAsset(Str8Lit("data/models/dragon.model"));
-            // g_state->mEntities[1].mAssetHandle = AS_GetAsset(Str8Lit("data/models/hero.model"));
-            g_state->mEntities[2].mAssetHandle = AS_GetAsset(Str8Lit("data/models/Main.1_Sponza.model"));
+            string dragonName = Str8Lit("data/models/dragon.model");
+            g_state->Insert(dragonName, 1);
+            g_state->mEntities[1].mAssetHandle = AS_GetAsset(dragonName);
 
-            AS_Handle anim           = AS_GetAsset(Str8Lit("data/animations/Qishilong_attack01.anim"));
-            AnimationPlayer *aPlayer = &g_state->mAnimPlayers[0];
+            string heroName = Str8Lit("data/models/hero.model");
+            g_state->Insert(heroName, 2);
+            g_state->mEntities[2].mAssetHandle = AS_GetAsset(heroName);
+
+            // string sponza = Str8Lit("data/models/Main.1_Sponza.model");
+            // g_state->Insert(sponza, 3);
+            // g_state->mEntities[3].mAssetHandle = AS_GetAsset(sponza);
+
+            g_state->numEntities = 2;
+
+            AS_Handle anim;
+            AnimationPlayer *aPlayer;
+            anim    = AS_GetAsset(Str8Lit("data/animations/Qishilong_attack01.anim"));
+            aPlayer = &g_state->mAnimPlayers[0];
             StartLoopedAnimation(aPlayer, anim);
 
             anim    = AS_GetAsset(Str8Lit("data/animations/Mon_BlackDragon31_Btl_Atk01.anim"));
@@ -473,23 +518,6 @@ DLL G_UPDATE(G_Update)
     gameScene->aabbCount = 0;
 
     // Process component system requests
-
-    // for (u32 i = 0; i < g_state->mEntityCount; i++)
-    // {
-    //     // Skinning
-    //     game::Entity *entity = &g_state->mEntities[i];
-    //     u32 offset           = totalMatrixCount;
-    //     u32 count            = GetSkeletonFromModel(g_state->mEntities[i].mAssetHandle)->count;
-    //     if (count == 0)
-    //     {
-    //         entity->mSkinningOffset = -1;
-    //     }
-    //     else
-    //     {
-    //         entity->mSkinningOffset = totalMatrixCount;
-    //         totalMatrixCount += GetSkeletonFromModel(entity->mAssetHandle)->count;
-    //     }
-    // }
 
     for (SkeletonIter iter = gameScene->BeginSkelIter(); !gameScene->End(&iter); gameScene->Next(&iter))
     {

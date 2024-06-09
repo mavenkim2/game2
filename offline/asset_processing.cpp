@@ -1406,27 +1406,17 @@ int main(int argc, char *argv[])
 
                         Put(&builder, (u32)numNodes);
                         PutPointerValue(&builder, &animation->duration);
-                        // for (u32 i = 0; i < numNodes; i++)
-                        // {
-                        //     CompressedBoneChannel *boneChannel = &animation->boneChannels[i];
-                        //     if (boneChannel->numPositionKeys == 0)
-                        //     {
-                        //         boneChannel->numPositionKeys = 1;
-                        //         boneChannel->positions       = &nullPosition;
-                        //     }
-                        //
-                        //     PutPointerValue(&builder, &boneChannel->name.size);
-                        //     Put(&builder, boneChannel->name);
-                        //
-                        //     Put(&builder, boneChannel->numPositionKeys);
-                        //     AppendArray(&builder, boneChannel->positions, boneChannel->numPositionKeys);
-                        //
-                        //     Put(&builder, boneChannel->numScalingKeys);
-                        //     AppendArray(&builder, boneChannel->scales, boneChannel->numScalingKeys);
-                        //
-                        //     Put(&builder, boneChannel->numRotationKeys);
-                        //     AppendArray(&builder, boneChannel->rotations, boneChannel->numRotationKeys);
-                        // }
+
+                        for (u32 i = 0; i < animation->numNodes; i++)
+                        {
+                            CompressedBoneChannel *boneChannel = animation->boneChannels + i;
+                            if (boneChannel->numPositionKeys == 0)
+                            {
+                                boneChannel->numPositionKeys = 1;
+                                boneChannel->positions       = &nullPosition;
+                            }
+                        }
+
                         u64 boneChannelWrite = AppendArray(&builder, animation->boneChannels, animation->numNodes);
 
                         u64 *stringDataWrites = PushArray(builder.arena, u64, animation->numNodes);

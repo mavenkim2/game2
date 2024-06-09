@@ -1215,9 +1215,10 @@ internal void Render()
                 pc.vertexBoneId     = mesh->vertexBoneIdView.srvDescriptor;
                 pc.vertexBoneWeight = mesh->vertexBoneWeightView.srvDescriptor;
 
-                pc.soPos = mesh->soPosView.uavDescriptor;
-                pc.soNor = mesh->soNorView.uavDescriptor;
-                pc.soTan = mesh->soTanView.uavDescriptor;
+                pc.soPos          = mesh->soPosView.uavDescriptor;
+                pc.soNor          = mesh->soNorView.uavDescriptor;
+                pc.soTan          = mesh->soTanView.uavDescriptor;
+                pc.skinningOffset = skeleton->skinningOffset;
 
                 device->PushConstants(cmd, sizeof(pc), &pc);
                 device->Dispatch(cmd, (mesh->vertexCount + 63) / 64, 1, 1);
