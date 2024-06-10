@@ -19,7 +19,7 @@ struct Range
 {
     char *filename;
     char *function;
-    f32 timeElapsed;
+    f64 timeElapsed;
     u32 lineNumber;
 
     // GPU
@@ -49,6 +49,9 @@ struct DebugState
     static const u32 totalNumSlots = 1024;
 
     Arena *arena;
+
+    // Timing
+    QueryPool timestampPool;
     Record records[totalNumSlots];
     Range ranges[graphics::mkGraphics::cNumBuffers][256];
     u32 numRecords;
@@ -57,13 +60,17 @@ struct DebugState
     graphics::GPUBuffer queryResultBuffer[graphics::mkGraphics::cNumBuffers];
     std::atomic<u32> queryIndex;
     // AS_Handle debugFont;
-    QueryPool timestampPool;
+
+    // Pipeline statistics
     QueryPool pipelineStatisticsPool;
+    u64 triangleCounts[graphics::mkGraphics::cNumBuffers];
 
     b8 initialized = 0;
 
     void BeginFrame();
     void EndFrame(CommandList cmd);
+    void BeginTriangleCount(CommandList cmdList);
+    void EndTriangleCount(CommandList cmdList);
     u32 BeginRange(char *filename, char *functionName, u32 lineNum, CommandList cmdList);
     void EndRange(u32 rangeIndex);
     Record *GetRecord(char *name);

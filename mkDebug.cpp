@@ -42,23 +42,25 @@ void DebugState::BeginFrame()
         record->totalTimes[index]     = 0;
     }
 
+    u64 *mappedData = (u64 *)queryResultBuffer[currentBuffer].mMappedData;
     for (u32 rangeIndex = 0; rangeIndex < numRanges; rangeIndex++)
     {
-        Range *range = &ranges[currentBuffer][rangeIndex];
+        Range *range   = &ranges[currentBuffer][rangeIndex];
+        Record *record = debugState.GetRecord(range->function);
         if (range->IsGPURange())
         {
-            u64 *mappedData     = (u64 *)queryResultBuffer[currentBuffer].mMappedData;
             f64 timestampPeriod = device->GetTimestampPeriod() * 1000;
-            f64 ms              = (mappedData[range->gpuEndIndex] - mappedData[range->gpuBeginIndex]) * timestampPeriod;
-            Record *record      = debugState.GetRecord(range->function);
-
-            u32 index = (record->count - 1) % (ArrayLength(record->totalTimes));
-            record->numInvocations[index]++;
-            record->totalTimes[index] += ms;
+            range->timeElapsed  = (f64)(mappedData[range->gpuEndIndex] - mappedData[range->gpuBeginIndex]) * timestampPeriod;
         }
+        u32 index = (record->count - 1) % (ArrayLength(record->totalTimes));
+        record->numInvocations[index]++;
+        record->totalTimes[index] += range->timeElapsed;
     }
 
+    triangleCounts[currentBuffer] = mappedData[queryIndex.load() + 0];
+
     device->ResetQuery(&timestampPool, cmd, 0, timestampPool.queryCount);
+    device->ResetQuery(&pipelineStatisticsPool, cmd, 0, pipelineStatisticsPool.queryCount);
     currentRangeIndex[currentBuffer].store(0);
     queryIndex.store(0);
 }
@@ -67,7 +69,9 @@ void DebugState::EndFrame(CommandList cmd)
 {
     u32 currentBuffer = device->GetCurrentBuffer();
 
-    device->ResolveQuery(&timestampPool, cmd, &queryResultBuffer[currentBuffer], 0, queryIndex.load(), 0);
+    u32 numTimestampQueries = queryIndex.load();
+    device->ResolveQuery(&timestampPool, cmd, &queryResultBuffer[currentBuffer], 0, numTimestampQueries, 0);
+    device->ResolveQuery(&pipelineStatisticsPool, cmd, &queryResultBuffer[currentBuffer], 0, 1, sizeof(u64) * numTimestampQueries);
 }
 
 Record *DebugState::GetRecord(char *name)
@@ -98,6 +102,15 @@ Record *DebugState::GetRecord(char *name)
         Assert(record->count == 0);
     }
     return record;
+}
+
+void DebugState::BeginTriangleCount(CommandList cmdList)
+{
+    device->BeginQuery(&pipelineStatisticsPool, cmdList, 0);
+}
+void DebugState::EndTriangleCount(CommandList cmdList)
+{
+    device->EndQuery(&pipelineStatisticsPool, cmdList, 0);
 }
 
 u32 DebugState::BeginRange(char *filename, char *functionName, u32 lineNum, CommandList cmdList)
@@ -135,7 +148,7 @@ void DebugState::EndRange(u32 rangeIndex)
     }
     else
     {
-        range->timeElapsed = platform.NowSeconds() - range->timeElapsed;
+        range->timeElapsed = 1000 * (platform.NowSeconds() - range->timeElapsed);
     }
 }
 
@@ -159,6 +172,7 @@ void DebugState::PrintDebugRecords()
             Printf("%s | Avg Time: %f | Avg Invocations: %f\n", record->functionName, avg, avgInvocations);
         }
     }
+    Printf("Triangle counts: %u\n\n", (triangleCounts[0] + triangleCounts[1]) / 2);
 }
 
 Event::Event(char *filename, char *functionName, u32 lineNum, CommandList cmdList)

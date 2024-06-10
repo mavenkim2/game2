@@ -1174,6 +1174,7 @@ internal void RenderMeshes(CommandList cmdList, RenderPassType type, i32 cascade
 
 internal void Render()
 {
+    TIMED_FUNCTION();
     // TODO: eventually, this should not be accessed from here
     G_State *g_state                  = engine->GetGameState();
     RenderState *renderState          = engine->GetRenderState();
@@ -1229,6 +1230,7 @@ internal void Render()
     CommandList cmdList = device->BeginCommandList(QueueType_Graphics);
     device->Wait(cmd, cmdList);
     TIMED_GPU(cmdList);
+    debugState.BeginTriangleCount(cmdList);
 
     // GPUBarrier barrier = CreateBarrier(currentSkinBufUpload, ResourceUsage::TransferSrc, ResourceUsage::None);
     // device->Barrier(cmdList, &barrier, 1);
@@ -1306,6 +1308,7 @@ internal void Render()
     // Main geo pass
 
     {
+        // TIMED_GPU(cmdList);
         // RenderPassImage images[] = {
         //     RenderPassImage::DepthStencil(&depthBufferMain,
         //                                   ResourceUsage::None, ResourceUsage::DepthStencil),
@@ -1341,6 +1344,7 @@ internal void Render()
         RenderMeshes(cmdList, RenderPassType_Main);
         device->EndRenderPass(cmdList);
     }
+    debugState.EndTriangleCount(cmdList);
     debugState.EndFrame(cmdList);
     device->SubmitCommandLists();
 
