@@ -379,19 +379,19 @@ inline b32 Mesh::IsRenderable()
 {
     if (!IsValid() || !device->IsLoaded(&buffer)) return 0;
 
-    for (u32 subsetIndex = 0; subsetIndex < numSubsets; subsetIndex++)
-    {
-        MeshSubset *subset          = &subsets[subsetIndex];
-        MaterialComponent *material = gameScene->materials.GetFromHandle(subset->materialHandle);
-        for (u32 textureIndex = 0; textureIndex < ArrayLength(material->textures); textureIndex++)
-        {
-            graphics::Texture *texture = GetTexture(material->textures[textureIndex]);
-            if (texture && !device->IsLoaded(texture))
-            {
-                return 0;
-            }
-        }
-    }
+    // for (u32 subsetIndex = 0; subsetIndex < numSubsets; subsetIndex++)
+    // {
+    //     MeshSubset *subset          = &subsets[subsetIndex];
+    //     MaterialComponent *material = gameScene->materials.GetFromHandle(subset->materialHandle);
+    //     for (u32 textureIndex = 0; textureIndex < ArrayLength(material->textures); textureIndex++)
+    //     {
+    //         graphics::Texture *texture = GetTexture(material->textures[textureIndex]);
+    //         if (texture && !device->IsLoaded(texture))
+    //         {
+    //             return 0;
+    //         }
+    //     }
+    // }
     return 1;
 }
 

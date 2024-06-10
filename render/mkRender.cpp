@@ -1228,6 +1228,7 @@ internal void Render()
 
     CommandList cmdList = device->BeginCommandList(QueueType_Graphics);
     device->Wait(cmd, cmdList);
+    TIMED_GPU(cmdList);
 
     // GPUBarrier barrier = CreateBarrier(currentSkinBufUpload, ResourceUsage::TransferSrc, ResourceUsage::None);
     // device->Barrier(cmdList, &barrier, 1);
@@ -1340,10 +1341,13 @@ internal void Render()
         RenderMeshes(cmdList, RenderPassType_Main);
         device->EndRenderPass(cmdList);
     }
+    debugState.EndFrame(cmdList);
     device->SubmitCommandLists();
 
     currentFrame++;
     currentBuffer = currentFrame % ArrayLength(frameData);
+
+    debugState.PrintDebugRecords();
 }
 
 void DeferBlockCompress(graphics::Texture input, graphics::Texture output)

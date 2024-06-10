@@ -39,6 +39,13 @@ enum QueueType
     QueueType_Count,
 };
 
+typedef u32 DeviceCapabilities;
+enum
+{
+    DeviceCapabilities_MeshShader,
+    DeviceCapabilities_VariableShading,
+};
+
 enum class Format
 {
     Null,
@@ -244,6 +251,13 @@ enum ShaderType
     ShaderType_Count,
 };
 
+enum QueryType
+{
+    QueryType_Occlusion,
+    QueryType_Timestamp,
+    QueryType_PipelineStatistics,
+};
+
 enum RasterType
 {
     RasterType_CCW_CullBack,
@@ -271,8 +285,15 @@ struct GraphicsObject
     }
 };
 
+struct QueryPool : GraphicsObject
+{
+    QueryType type;
+    u32 queryCount;
+};
+
 struct Fence : GraphicsObject
 {
+    b8 signaled;
 };
 
 struct GPUResource : GraphicsObject
@@ -589,8 +610,10 @@ inline u32 GetTextureSize(TextureDesc desc)
 struct mkGraphics
 {
     static const i32 cNumBuffers = 2;
-    u64 mFrameCount              = 0;
+    f64 cTimestampPeriod;
+    u64 mFrameCount = 0;
 
+    inline f64 GetTimestampPeriod() { return cTimestampPeriod; }
     virtual u64 GetMinAlignment(GPUBufferDesc *inDesc)                                                             = 0;
     virtual void FrameAllocate(GPUBuffer *inBuf, void *inData, CommandList cmd, u64 inSize = ~0, u64 inOffset = 0) = 0;
 
@@ -632,29 +655,34 @@ struct mkGraphics
 
     virtual i32 CreateSubresource(GPUBuffer *buffer, ResourceType type, u64 offset = 0ull, u64 size = ~0ull, Format format = Format::Null, const char *name = 0) = 0;
 
-    virtual i32 CreateSubresource(Texture *texture, u32 baseLayer = 0, u32 numLayers = ~0u)                             = 0;
-    virtual void UpdateDescriptorSet(CommandList cmd)                                                                   = 0;
-    virtual CommandList BeginCommandList(QueueType queue)                                                               = 0;
-    virtual void BeginRenderPass(Swapchain *inSwapchain, RenderPassImage *images, u32 count, CommandList inCommandList) = 0;
-    virtual void BeginRenderPass(RenderPassImage *images, u32 count, CommandList cmd)                                   = 0;
-    virtual void Draw(CommandList cmd, u32 vertexCount, u32 firstVertex)                                                = 0;
-    virtual void DrawIndexed(CommandList cmd, u32 indexCount, u32 firstVertex, u32 baseVertex)                          = 0;
-    virtual void BindVertexBuffer(CommandList cmd, GPUBuffer **buffers, u32 count = 1, u32 *offsets = 0)                = 0;
-    virtual void BindIndexBuffer(CommandList cmd, GPUBuffer *buffer, u64 offset = 0)                                    = 0;
-    virtual void Dispatch(CommandList cmd, u32 groupCountX, u32 groupCountY, u32 groupCountZ)                           = 0;
-    virtual void SetViewport(CommandList cmd, Viewport *viewport)                                                       = 0;
-    virtual void SetScissor(CommandList cmd, Rect2 scissor)                                                             = 0;
-    virtual void EndRenderPass(CommandList cmd)                                                                         = 0;
-    virtual void SubmitCommandLists()                                                                                   = 0;
-    virtual void BindPipeline(PipelineState *ps, CommandList cmd)                                                       = 0;
-    virtual void BindCompute(PipelineState *ps, CommandList cmd)                                                        = 0;
-    virtual void PushConstants(CommandList cmd, u32 size, void *data, u32 offset = 0)                                   = 0;
-    virtual void WaitForGPU()                                                                                           = 0;
-    virtual void Wait(CommandList waitFor, CommandList cmd)                                                             = 0;
-    virtual void Barrier(CommandList cmd, GPUBarrier *barriers, u32 count)                                              = 0;
-    virtual b32 IsSignaled(Fence fence)                                                                                 = 0;
-    virtual b32 IsLoaded(GPUResource *resource)                                                                         = 0;
-    virtual void SetName(GPUResource *resource, const char *name)                                                       = 0;
+    virtual i32 CreateSubresource(Texture *texture, u32 baseLayer = 0, u32 numLayers = ~0u)                                   = 0;
+    virtual void UpdateDescriptorSet(CommandList cmd)                                                                         = 0;
+    virtual CommandList BeginCommandList(QueueType queue)                                                                     = 0;
+    virtual void BeginRenderPass(Swapchain *inSwapchain, RenderPassImage *images, u32 count, CommandList inCommandList)       = 0;
+    virtual void BeginRenderPass(RenderPassImage *images, u32 count, CommandList cmd)                                         = 0;
+    virtual void Draw(CommandList cmd, u32 vertexCount, u32 firstVertex)                                                      = 0;
+    virtual void DrawIndexed(CommandList cmd, u32 indexCount, u32 firstVertex, u32 baseVertex)                                = 0;
+    virtual void BindVertexBuffer(CommandList cmd, GPUBuffer **buffers, u32 count = 1, u32 *offsets = 0)                      = 0;
+    virtual void BindIndexBuffer(CommandList cmd, GPUBuffer *buffer, u64 offset = 0)                                          = 0;
+    virtual void Dispatch(CommandList cmd, u32 groupCountX, u32 groupCountY, u32 groupCountZ)                                 = 0;
+    virtual void SetViewport(CommandList cmd, Viewport *viewport)                                                             = 0;
+    virtual void SetScissor(CommandList cmd, Rect2 scissor)                                                                   = 0;
+    virtual void EndRenderPass(CommandList cmd)                                                                               = 0;
+    virtual void SubmitCommandLists()                                                                                         = 0;
+    virtual void BindPipeline(PipelineState *ps, CommandList cmd)                                                             = 0;
+    virtual void BindCompute(PipelineState *ps, CommandList cmd)                                                              = 0;
+    virtual void PushConstants(CommandList cmd, u32 size, void *data, u32 offset = 0)                                         = 0;
+    virtual void WaitForGPU()                                                                                                 = 0;
+    virtual void Wait(CommandList waitFor, CommandList cmd)                                                                   = 0;
+    virtual void Barrier(CommandList cmd, GPUBarrier *barriers, u32 count)                                                    = 0;
+    virtual b32 IsSignaled(Fence fence)                                                                                       = 0;
+    virtual b32 IsLoaded(GPUResource *resource)                                                                               = 0;
+    virtual void CreateQueryPool(QueryPool *pool, QueryType type, u32 queryCount)                                             = 0;
+    virtual void BeginQuery(QueryPool *pool, CommandList cmd, u32 queryIndex)                                                 = 0;
+    virtual void EndQuery(QueryPool *pool, CommandList cmd, u32 queryIndex)                                                   = 0;
+    virtual void ResolveQuery(QueryPool *pool, CommandList cmd, GPUBuffer *buffer, u32 queryIndex, u32 count, u32 destOffset) = 0;
+    virtual void ResetQuery(QueryPool *pool, CommandList cmd, u32 index, u32 count)                                           = 0;
+    virtual void SetName(GPUResource *resource, const char *name)                                                             = 0;
 
     virtual u32 GetCurrentBuffer() = 0;
 };

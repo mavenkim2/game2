@@ -319,7 +319,8 @@ Mesh *MeshManager::Create(Entity entity)
 
         if (chunkNode == 0 || localIndex == 0)
         {
-            MeshChunkNode *newChunkNode = PushStructNoZero(parentScene->arena, MeshChunkNode);
+            // NOTE: if a struct is initialized w/ an array, it won't have the default values set
+            MeshChunkNode *newChunkNode = PushStruct(parentScene->arena, MeshChunkNode);
             QueuePush(first, last, newChunkNode);
             chunkNode = newChunkNode;
         }

@@ -157,7 +157,6 @@ G_INIT(G_Init)
         AS_Init();
         // F_Init();
         D_Init();
-        DBG_Init();
 
         Arena *frameArena     = ArenaAlloc();
         Arena *permanentArena = ArenaAlloc();
@@ -183,13 +182,13 @@ G_INIT(G_Init)
             scale                   = Scale(V3{1, 1, 1});
             g_state->mTransforms[3] = translate * rotate;
 
-            // string dragonName = Str8Lit("data/models/dragon.model");
-            // g_state->Insert(dragonName, 1);
-            // g_state->mEntities[1].mAssetHandle = AS_GetAsset(dragonName);
-            //
-            // string heroName = Str8Lit("data/models/hero.model");
-            // g_state->Insert(heroName, 2);
-            // g_state->mEntities[2].mAssetHandle = AS_GetAsset(heroName);
+            string dragonName = Str8Lit("data/models/dragon.model");
+            g_state->Insert(dragonName, 1);
+            g_state->mEntities[1].mAssetHandle = AS_GetAsset(dragonName);
+
+            string heroName = Str8Lit("data/models/hero.model");
+            g_state->Insert(heroName, 2);
+            g_state->mEntities[2].mAssetHandle = AS_GetAsset(heroName);
 
             string sponza = Str8Lit("data/models/Main.1_Sponza.model");
             g_state->Insert(sponza, 3);
@@ -271,6 +270,7 @@ using namespace scene;
 
 DLL G_UPDATE(G_Update)
 {
+    debugState.BeginFrame();
     G_State *g_state         = engine->GetGameState();
     RenderState *renderState = engine->GetRenderState();
     ArenaClear(g_state->frameArena);

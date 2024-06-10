@@ -426,53 +426,64 @@ mkGraphicsVulkan::mkGraphicsVulkan(ValidationMode validationMode, GPUDevicePrefe
             VK_KHR_SWAPCHAIN_EXTENSION_NAME,
         };
 
+        VkPhysicalDevice preferred = VK_NULL_HANDLE;
+        VkPhysicalDevice fallback  = VK_NULL_HANDLE;
+
         for (auto &device : devices)
         {
-            b32 suitable       = false;
-            u32 deviceExtCount = 0;
-            VK_CHECK(vkEnumerateDeviceExtensionProperties(device, 0, &deviceExtCount, 0));
-            list<VkExtensionProperties> availableDevExt(deviceExtCount);
-            VK_CHECK(vkEnumerateDeviceExtensionProperties(device, 0, &deviceExtCount, availableDevExt.data()));
+            VkPhysicalDeviceProperties2 props = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+            vkGetPhysicalDeviceProperties2(device, &props);
+            if (props.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU) continue;
 
-            b32 hasRequiredExtensions = 1;
-            for (auto &requiredExtension : deviceExtensions)
+            u32 queueFamilyCount = 0;
+            vkGetPhysicalDeviceQueueFamilyProperties2(device, &queueFamilyCount, 0);
+
+            list<VkQueueFamilyProperties2> queueFamilyProps;
+            queueFamilyProps.resize(queueFamilyCount);
+            for (u32 i = 0; i < queueFamilyCount; i++)
             {
-                b32 hasExtension = 0;
-                for (auto &extension : availableDevExt)
+                queueFamilyProps[i].sType = VK_STRUCTURE_TYPE_QUEUE_FAMILY_PROPERTIES_2;
+            }
+
+            vkGetPhysicalDeviceQueueFamilyProperties2(device, &queueFamilyCount, queueFamilyProps.data());
+
+            u32 graphicsIndex = VK_QUEUE_FAMILY_IGNORED;
+            for (u32 i = 0; i < queueFamilyCount; i++)
+            {
+                if (queueFamilyProps[i].queueFamilyProperties.queueFlags & VK_QUEUE_GRAPHICS_BIT)
                 {
-                    if (strcmp(extension.extensionName, requiredExtension) == 0)
-                    {
-                        hasExtension = 1;
-                        break;
-                    }
-                }
-                if (!hasExtension)
-                {
-                    hasRequiredExtensions = 0;
+                    graphicsIndex = i;
                     break;
                 }
             }
+            if (graphicsIndex == VK_QUEUE_FAMILY_IGNORED) continue;
 
-            if (!hasRequiredExtensions)
-            {
-                continue;
-            }
+#if WINDOWS
+            if (!vkGetPhysicalDeviceWin32PresentationSupportKHR(device, graphicsIndex)) continue;
+#endif
+            if (props.properties.apiVersion < VK_API_VERSION_1_3) continue;
 
-            mDeviceProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-            mDeviceProperties.pNext = 0;
-            vkGetPhysicalDeviceProperties2(device, &mDeviceProperties);
-
-            suitable = mDeviceProperties.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
+            b32 suitable = props.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
             if (preference == GPUDevicePreference::Integrated)
             {
-                suitable = mDeviceProperties.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU;
+                suitable = props.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU;
             }
-            if (suitable)
+            if (!preferred && suitable)
             {
-                physicalDevice = device;
-                break;
+                preferred = device;
+            }
+            if (!fallback)
+            {
+                fallback = device;
             }
         }
+        physicalDevice = preferred ? preferred : fallback;
+        if (!physicalDevice)
+        {
+            Printf("Error: No GPU selected\n");
+            Assert(0);
+        }
+        // Printf("Selected GPU: %s\n", mDeviceProperties.properties.deviceName);
 
         mDeviceFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
         mFeatures11.sType     = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
@@ -484,16 +495,76 @@ mkGraphicsVulkan::mkGraphicsVulkan(ValidationMode validationMode, GPUDevicePrefe
         void **featuresChain  = &mFeatures13.pNext;
         *featuresChain        = 0;
 
+        mDeviceProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+        mProperties11.sType     = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_PROPERTIES;
+        mProperties12.sType     = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_PROPERTIES;
+        mProperties13.sType     = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_PROPERTIES;
+        mDeviceProperties.pNext = &mProperties11;
+        mProperties11.pNext     = &mProperties12;
+        mProperties12.pNext     = &mProperties13;
+        void **propertiesChain  = &mProperties13.pNext;
+
+        u32 deviceExtCount = 0;
+        VK_CHECK(vkEnumerateDeviceExtensionProperties(physicalDevice, 0, &deviceExtCount, 0));
+        list<VkExtensionProperties> availableDevExt(deviceExtCount);
+        VK_CHECK(vkEnumerateDeviceExtensionProperties(physicalDevice, 0, &deviceExtCount, availableDevExt.data()));
+
+        auto checkExtension = [&availableDevExt](const char *extName) {
+            for (auto &extension : availableDevExt)
+            {
+                if (strcmp(extension.extensionName, extName) == 0)
+                {
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        if (checkExtension(VK_KHR_PERFORMANCE_QUERY_EXTENSION_NAME))
+        {
+            deviceExtensions.push_back(VK_KHR_PERFORMANCE_QUERY_EXTENSION_NAME);
+        }
+        if (checkExtension(VK_EXT_MESH_SHADER_EXTENSION_NAME))
+        {
+            deviceExtensions.push_back(VK_EXT_MESH_SHADER_EXTENSION_NAME);
+            capabilities |= DeviceCapabilities_MeshShader;
+            meshShaderProperties = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_PROPERTIES_EXT};
+            *propertiesChain     = &meshShaderProperties;
+            propertiesChain      = &meshShaderProperties.pNext;
+            meshShaderFeatures   = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT};
+            *featuresChain       = &meshShaderFeatures;
+            featuresChain        = &meshShaderFeatures.pNext;
+        }
+        if (checkExtension(VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME))
+        {
+            deviceExtensions.push_back(VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME);
+            capabilities |= DeviceCapabilities_VariableShading;
+            variableShadingRateProperties = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_PROPERTIES_KHR};
+            *propertiesChain              = &variableShadingRateProperties;
+            propertiesChain               = &variableShadingRateProperties.pNext;
+            variableShadingRateFeatures   = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR};
+            *featuresChain                = &variableShadingRateFeatures;
+            featuresChain                 = &variableShadingRateFeatures.pNext;
+        }
+
         vkGetPhysicalDeviceFeatures2(physicalDevice, &mDeviceFeatures);
 
+        Assert(mDeviceFeatures.features.multiDrawIndirect == VK_TRUE);
+        Assert(mDeviceFeatures.features.pipelineStatisticsQuery == VK_TRUE);
         Assert(mFeatures13.dynamicRendering == VK_TRUE);
         Assert(mFeatures12.descriptorIndexing == VK_TRUE);
+        if (capabilities & DeviceCapabilities_MeshShader)
+        {
+            Assert(meshShaderFeatures.meshShader == VK_TRUE);
+            Assert(meshShaderFeatures.taskShader == VK_TRUE);
+        }
+
+        vkGetPhysicalDeviceProperties2(physicalDevice, &mDeviceProperties);
+        cTimestampPeriod = (f64)mDeviceProperties.properties.limits.timestampPeriod * 1e-9;
 
         u32 queueFamilyCount = 0;
         vkGetPhysicalDeviceQueueFamilyProperties2(physicalDevice, &queueFamilyCount, 0);
-
         mQueueFamilyProperties.resize(queueFamilyCount);
-
         for (u32 i = 0; i < queueFamilyCount; i++)
         {
             mQueueFamilyProperties[i].sType = VK_STRUCTURE_TYPE_QUEUE_FAMILY_PROPERTIES_2;
@@ -1800,6 +1871,11 @@ void mkGraphicsVulkan::CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDes
         allocCreateInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
         createInfo.usage |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
     }
+    else if (inDesc.mUsage == MemoryUsage::GPU_TO_CPU)
+    {
+        allocCreateInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        createInfo.usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT; // TODO: not necessary?
+    }
 
     // Buffers only on GPU must be copied to using a staging buffer
     else if (inDesc.mUsage == MemoryUsage::GPU_ONLY)
@@ -1810,7 +1886,7 @@ void mkGraphicsVulkan::CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDes
     VK_CHECK(vmaCreateBuffer(mAllocator, &createInfo, &allocCreateInfo, &buffer->mBuffer, &buffer->mAllocation, 0));
 
     // Map the buffer if it's a staging buffer
-    if (inDesc.mUsage == MemoryUsage::CPU_TO_GPU)
+    if (inDesc.mUsage == MemoryUsage::CPU_TO_GPU || inDesc.mUsage == MemoryUsage::GPU_TO_CPU)
     {
         inBuffer->mMappedData = buffer->mAllocation->GetMappedData();
         inBuffer->mDesc.mSize = buffer->mAllocation->GetSize();
@@ -2774,7 +2850,7 @@ mkGraphicsVulkan::TransferCommand mkGraphicsVulkan::Stage(u64 size)
             cmd                = testCmd;
             cmd.ringAllocation = 0;
 
-            Swap(TransferCommand, mTransferFreeList[mTransferFreeList.size() - 1], mTransferFreeList[i]);
+            mTransferFreeList[i] = mTransferFreeList[mTransferFreeList.size() - 1];
             mTransferFreeList.pop_back();
             break;
         }
@@ -3726,7 +3802,9 @@ void mkGraphicsVulkan::BindCompute(PipelineState *ps, CommandList cmd)
 b32 mkGraphicsVulkan::IsSignaled(Fence fence)
 {
     VkFence fenceVulkan = ToInternal(fence);
-    b32 result          = vkGetFenceStatus(mDevice, fenceVulkan) == VK_SUCCESS;
+    b32 result          = fence.signaled || vkGetFenceStatus(mDevice, fenceVulkan) == VK_SUCCESS;
+    // TODO: this isn't correct; the fence could be reused before it's checked
+    if (result) fence.signaled = true;
     return result;
 }
 
@@ -3750,6 +3828,84 @@ void mkGraphicsVulkan::Wait(CommandList waitFor, CommandList cmd)
     waitForCmd->waitedOn.store(1);
     command->waitForCmds.push_back(waitFor);
 }
+
+void mkGraphicsVulkan::CreateQueryPool(QueryPool *pool, QueryType type, u32 queryCount)
+{
+    pool->type                       = type;
+    pool->queryCount                 = queryCount;
+    VkQueryPoolCreateInfo createInfo = {VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
+    createInfo.queryCount            = queryCount;
+    switch (type)
+    {
+        case QueryType_PipelineStatistics:
+        {
+            createInfo.queryType          = VK_QUERY_TYPE_PIPELINE_STATISTICS;
+            createInfo.pipelineStatistics = VK_QUERY_PIPELINE_STATISTIC_CLIPPING_INVOCATIONS_BIT;
+        }
+        break;
+        case QueryType_Timestamp: createInfo.queryType = VK_QUERY_TYPE_TIMESTAMP; break;
+        case QueryType_Occlusion: createInfo.queryType = VK_QUERY_TYPE_OCCLUSION; break;
+        default: Assert(0);
+    }
+
+    VkQueryPool vkQueryPool = VK_NULL_HANDLE;
+    VK_CHECK(vkCreateQueryPool(mDevice, &createInfo, 0, &vkQueryPool));
+
+    // TODO: free list?
+    pool->internalState = (void *)vkQueryPool;
+}
+
+void mkGraphicsVulkan::BeginQuery(QueryPool *pool, CommandList cmd, u32 queryIndex)
+{
+    CommandListVulkan *commandVulkan = ToInternal(cmd);
+    VkQueryPool queryPoolVulkan      = ToInternal(pool);
+    switch (pool->type)
+    {
+        case QueryType_PipelineStatistics: vkCmdBeginQuery(commandVulkan->GetCommandBuffer(), queryPoolVulkan, queryIndex, 0); break;
+        case QueryType_Timestamp: break;
+        case QueryType_Occlusion: vkCmdBeginQuery(commandVulkan->GetCommandBuffer(), queryPoolVulkan, queryIndex, VK_QUERY_CONTROL_PRECISE_BIT); break;
+    }
+}
+
+void mkGraphicsVulkan::EndQuery(QueryPool *pool, CommandList cmd, u32 queryIndex)
+{
+    CommandListVulkan *commandVulkan = ToInternal(cmd);
+    VkQueryPool queryPoolVulkan      = ToInternal(pool);
+    switch (pool->type)
+    {
+        case QueryType_Occlusion:
+        case QueryType_PipelineStatistics: vkCmdEndQuery(commandVulkan->GetCommandBuffer(), queryPoolVulkan, queryIndex); break;
+        case QueryType_Timestamp: vkCmdWriteTimestamp2(commandVulkan->GetCommandBuffer(), VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, queryPoolVulkan, queryIndex); break;
+    }
+}
+
+void mkGraphicsVulkan::ResolveQuery(QueryPool *pool, CommandList cmd, GPUBuffer *buffer, u32 queryIndex, u32 count, u32 destOffset)
+{
+    CommandListVulkan *commandVulkan = ToInternal(cmd);
+    VkQueryPool queryPoolVulkan      = ToInternal(pool);
+    GPUBufferVulkan *bufferVulkan    = ToInternal(buffer);
+
+    VkQueryResultFlags flags = VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT;
+    vkCmdCopyQueryPoolResults(commandVulkan->GetCommandBuffer(), queryPoolVulkan, queryIndex, count, bufferVulkan->mBuffer,
+                              destOffset, sizeof(u64), flags);
+    // switch (pool->type)
+    // {
+    //     case QueryType_Timestamp:
+    //     {
+    //         vkGetQueryPoolResults(mDevice, queryPoolVulkan, 0, );
+    //     };
+    //     break;
+    // }
+}
+
+void mkGraphicsVulkan::ResetQuery(QueryPool *pool, CommandList cmd, u32 index, u32 count)
+{
+    CommandListVulkan *commandVulkan = ToInternal(cmd);
+    VkQueryPool queryPoolVulkan      = ToInternal(pool);
+    vkCmdResetQueryPool(commandVulkan->GetCommandBuffer(), queryPoolVulkan, index, count);
+}
+
+// void mkGraphicsVulkan::ResolveQuery(QueryPool *pool, )
 
 void mkGraphicsVulkan::SetName(GPUResource *resource, const char *name)
 {

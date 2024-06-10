@@ -36,6 +36,7 @@ struct mkGraphicsVulkan : mkGraphics
 {
     Arena *mArena;
     Mutex mArenaMutex = {};
+    DeviceCapabilities capabilities;
 
     //////////////////////////////
     // API State
@@ -51,14 +52,18 @@ struct mkGraphicsVulkan : mkGraphics
     u32 mCopyFamily     = VK_QUEUE_FAMILY_IGNORED;
 
     VkPhysicalDeviceProperties2 mDeviceProperties;
-    // VkPhysicalDeviceVulkan11Properties mProperties11;
-    // VkPhysicalDeviceVulkan12Properties mProperties12;
-    // VkPhysicalDeviceVulkan13Properties mProperties13;
+    VkPhysicalDeviceVulkan11Properties mProperties11;
+    VkPhysicalDeviceVulkan12Properties mProperties12;
+    VkPhysicalDeviceVulkan13Properties mProperties13;
+    VkPhysicalDeviceMeshShaderPropertiesEXT meshShaderProperties;
+    VkPhysicalDeviceFragmentShadingRatePropertiesKHR variableShadingRateProperties;
 
     VkPhysicalDeviceFeatures2 mDeviceFeatures;
     VkPhysicalDeviceVulkan11Features mFeatures11;
     VkPhysicalDeviceVulkan12Features mFeatures12;
     VkPhysicalDeviceVulkan13Features mFeatures13;
+    VkPhysicalDeviceMeshShaderFeaturesEXT meshShaderFeatures;
+    VkPhysicalDeviceFragmentShadingRateFeaturesKHR variableShadingRateFeatures;
 
     VkPhysicalDeviceMemoryProperties2 mMemProperties;
 
@@ -349,6 +354,12 @@ struct mkGraphicsVulkan : mkGraphics
         return (VkFence)(fence.internalState);
     }
 
+    VkQueryPool ToInternal(QueryPool *pool)
+    {
+        Assert(pool->IsValid());
+        return (VkQueryPool)(pool->internalState);
+    }
+
     mkGraphicsVulkan(ValidationMode validationMode, GPUDevicePreference preference);
     u64 GetMinAlignment(GPUBufferDesc *inDesc) override;
     b32 CreateSwapchain(Window window, SwapchainDesc *desc, Swapchain *swapchain) override;
@@ -390,6 +401,14 @@ struct mkGraphicsVulkan : mkGraphics
     b32 IsSignaled(Fence fence) override;
     b32 IsLoaded(GPUResource *resource) override;
 
+    // Query pool
+    void CreateQueryPool(QueryPool *pool, QueryType type, u32 queryCount) override;
+    void BeginQuery(QueryPool *pool, CommandList cmd, u32 queryIndex) override;
+    void EndQuery(QueryPool *pool, CommandList cmd, u32 queryIndex) override;
+    void ResolveQuery(QueryPool *pool, CommandList cmd, GPUBuffer *buffer, u32 queryIndex, u32 count, u32 destOffset) override;
+    void ResetQuery(QueryPool *pool, CommandList cmd, u32 index, u32 count) override;
+
+    // Debug
     void SetName(GPUResource *resource, const char *name) override;
 
 private:
