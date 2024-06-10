@@ -194,13 +194,22 @@ struct Mesh
     graphics::GPUBuffer streamBuffer; // for skinning
     struct BufferView
     {
-        u64 offset        = ~0ull;
-        u64 size          = 0ull;
-        i32 srvIndex      = -1;
-        i32 srvDescriptor = -1;
-        i32 uavIndex      = -1;
-        i32 uavDescriptor = -1;
+        u64 offset;
+        u64 size;
+        i32 srvIndex;
+        i32 srvDescriptor;
+        i32 uavIndex;
+        i32 uavDescriptor;
 
+        void Init()
+        {
+            offset        = ~0ull;
+            size          = 0ull;
+            srvIndex      = -1;
+            srvDescriptor = -1;
+            uavIndex      = -1;
+            uavDescriptor = -1;
+        }
         b32 IsValid()
         {
             return offset != ~0ull;
@@ -216,6 +225,20 @@ struct Mesh
     BufferView soPosView;
     BufferView soNorView;
     BufferView soTanView;
+
+    void Init()
+    {
+        indexView.Init();
+        vertexPosView.Init();
+        vertexNorView.Init();
+        vertexTanView.Init();
+        vertexUvView.Init();
+        vertexBoneIdView.Init();
+        vertexBoneWeightView.Init();
+        soPosView.Init();
+        soNorView.Init();
+        soTanView.Init();
+    }
 
     inline b32 IsValid();
     inline b32 IsRenderable();

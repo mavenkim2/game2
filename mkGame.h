@@ -186,7 +186,7 @@ struct G_State
 
     game::Entity mEntities[4];
     AnimationPlayer mAnimPlayers[4];
-    u32 numEntities;
+    // u32 numEntities;
 
     Mat4 mTransforms[4];
     u32 transformCount;

@@ -569,6 +569,7 @@ internal void AS_LoadAsset(AS_Asset *asset)
         for (u32 i = 0; i < model->numMeshes; i++)
         {
             Mesh *mesh      = meshes[i];
+            mesh->Init();
             u32 vertexCount = mesh->vertexCount;
             u32 indexCount  = mesh->indexCount;
 

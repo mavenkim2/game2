@@ -183,19 +183,19 @@ G_INIT(G_Init)
             scale                   = Scale(V3{1, 1, 1});
             g_state->mTransforms[3] = translate * rotate;
 
-            string dragonName = Str8Lit("data/models/dragon.model");
-            g_state->Insert(dragonName, 1);
-            g_state->mEntities[1].mAssetHandle = AS_GetAsset(dragonName);
+            // string dragonName = Str8Lit("data/models/dragon.model");
+            // g_state->Insert(dragonName, 1);
+            // g_state->mEntities[1].mAssetHandle = AS_GetAsset(dragonName);
+            //
+            // string heroName = Str8Lit("data/models/hero.model");
+            // g_state->Insert(heroName, 2);
+            // g_state->mEntities[2].mAssetHandle = AS_GetAsset(heroName);
 
-            string heroName = Str8Lit("data/models/hero.model");
-            g_state->Insert(heroName, 2);
-            g_state->mEntities[2].mAssetHandle = AS_GetAsset(heroName);
+            string sponza = Str8Lit("data/models/Main.1_Sponza.model");
+            g_state->Insert(sponza, 3);
+            g_state->mEntities[3].mAssetHandle = AS_GetAsset(sponza);
 
-            // string sponza = Str8Lit("data/models/Main.1_Sponza.model");
-            // g_state->Insert(sponza, 3);
-            // g_state->mEntities[3].mAssetHandle = AS_GetAsset(sponza);
-
-            g_state->numEntities = 2;
+            // g_state->numEntities = 3;
 
             AS_Handle anim;
             AnimationPlayer *aPlayer;
