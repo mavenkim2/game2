@@ -58,6 +58,20 @@ VkFormat ConvertFormat(Format value)
     }
 }
 
+VkImageLayout ConvertImageLayout(ImageLayout layout)
+{
+    switch (layout)
+    {
+        case ImageLayout_None: return VK_IMAGE_LAYOUT_UNDEFINED;
+        case ImageLayout_DepthStencilAttachment: return VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        case ImageLayout_ShaderRead: return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        case ImageLayout_General: return VK_IMAGE_LAYOUT_GENERAL;
+        case ImageLayout_TransferSrc: return VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        case ImageLayout_TransferDst: return VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        default: Assert(0); return VK_IMAGE_LAYOUT_UNDEFINED;
+    }
+}
+
 VkImageLayout ConvertResourceUsageToImageLayout(ResourceUsage usage)
 {
     switch (usage)
@@ -212,6 +226,82 @@ VkPipelineStageFlags2 ConvertResourceToPipelineStage(TextureDesc *desc)
 {
     return ConvertResourceToPipelineStage(desc->mInitialUsage | desc->mFutureUsages);
 }
+
+} // namespace vulkan
+} // namespace graphics
+
+VkPipelineStageFlags2 ConvertPipelineFlags(graphics::PipelineFlag flags)
+{
+    VkPipelineStageFlags2 outFlags = VK_PIPELINE_STAGE_2_NONE;
+    if (HasFlags(flags, graphics::PipelineFlag_IndexInput))
+    {
+        outFlags |= VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT;
+    }
+    if (HasFlags(flags, graphics::PipelineFlag_VertexAttributeInput))
+    {
+        outFlags |= VK_PIPELINE_STAGE_2_VERTEX_ATTRIBUTE_INPUT_BIT;
+    }
+    if (HasFlags(flags, graphics::PipelineFlag_VertexShader))
+    {
+        outFlags |= VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT;
+    }
+    if (HasFlags(flags, graphics::PipelineFlag_Transfer))
+    {
+        outFlags |= VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    }
+    if (HasFlags(flags, graphics::PipelineFlag_Compute))
+    {
+        outFlags |= VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    }
+    if (HasFlags(flags, graphics::PipelineFlag_FragmentShader))
+    {
+        outFlags |= VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+    }
+    if (HasFlags(flags, graphics::PipelineFlag_AllCommands))
+    {
+        outFlags |= VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    }
+    return outFlags;
+}
+
+VkAccessFlags2 ConvertAccessFlags(graphics::AccessFlag flags)
+{
+    VkAccessFlags2 outFlags = VK_ACCESS_2_NONE;
+    if (HasFlags(flags, graphics::AccessFlag_VertexAttributeRead))
+    {
+        outFlags |= VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT;
+    }
+    if (HasFlags(flags, graphics::AccessFlag_IndexRead))
+    {
+        outFlags |= VK_ACCESS_2_INDEX_READ_BIT;
+    }
+    if (HasFlags(flags, graphics::AccessFlag_UniformRead))
+    {
+        outFlags |= VK_ACCESS_2_UNIFORM_READ_BIT;
+    }
+    if (HasFlags(flags, graphics::AccessFlag_TransferRead))
+    {
+        outFlags |= VK_ACCESS_2_TRANSFER_READ_BIT;
+    }
+    if (HasFlags(flags, graphics::AccessFlag_TransferWrite))
+    {
+        outFlags |= VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    }
+    if (HasFlags(flags, graphics::AccessFlag_ShaderRead))
+    {
+        outFlags |= VK_ACCESS_2_SHADER_READ_BIT;
+    }
+    if (HasFlags(flags, graphics::AccessFlag_ShaderWrite))
+    {
+        outFlags |= VK_ACCESS_2_SHADER_WRITE_BIT;
+    }
+    return outFlags;
+}
+
+namespace graphics
+{
+namespace vulkan
+{
 
 VkFilter ConvertFilter(Filter filter)
 {
@@ -862,7 +952,9 @@ mkGraphicsVulkan::mkGraphicsVulkan(ValidationMode validationMode, GPUDevicePrefe
 
             stagingRingAllocator.ringBufferSize = ringBufferSize;
             stagingRingAllocator.writePos = stagingRingAllocator.readPos = 0;
-            stagingRingAllocator.lock                                    = {};
+            stagingRingAllocator.allocationReadPos                       = 0;
+            stagingRingAllocator.allocationWritePos                      = 0;
+            stagingRingAllocator.alignment                               = 16;
         }
     }
 
@@ -1707,14 +1799,20 @@ void mkGraphicsVulkan::Barrier(CommandList cmd, GPUBarrier *barriers, u32 count)
     list<VkBufferMemoryBarrier2> bufferBarriers;
     list<VkMemoryBarrier2> memoryBarriers;
     list<VkImageMemoryBarrier2> imageBarriers;
+
     for (u32 i = 0; i < count; i++)
     {
-        GPUBarrier *barrier = &barriers[i];
-        switch (barrier->mType)
+        GPUBarrier *barrier               = &barriers[i];
+        VkPipelineStageFlags2 stageBefore = ConvertPipelineFlags(barrier->stageBefore);
+        VkPipelineStageFlags2 stageAfter  = ConvertPipelineFlags(barrier->stageAfter);
+        VkAccessFlags2 accessBefore       = ConvertAccessFlags(barrier->accessBefore);
+        VkAccessFlags2 accessAfter        = ConvertAccessFlags(barrier->accessAfter);
+
+        switch (barrier->type)
         {
             case GPUBarrier::Type::Buffer:
             {
-                GPUBuffer *buffer             = (GPUBuffer *)barrier->mResource;
+                GPUBuffer *buffer             = (GPUBuffer *)barrier->resource;
                 GPUBufferVulkan *bufferVulkan = ToInternal(buffer);
 
                 bufferBarriers.emplace_back();
@@ -1723,10 +1821,10 @@ void mkGraphicsVulkan::Barrier(CommandList cmd, GPUBarrier *barriers, u32 count)
                 bufferBarrier.buffer                  = bufferVulkan->mBuffer;
                 bufferBarrier.offset                  = 0;
                 bufferBarrier.size                    = buffer->mDesc.mSize;
-                bufferBarrier.srcStageMask            = ConvertResourceToPipelineStage(barrier->mBefore);
-                bufferBarrier.srcAccessMask           = ConvertResourceUsageToAccessFlag(barrier->mBefore);
-                bufferBarrier.dstStageMask            = ConvertResourceToPipelineStage(barrier->mAfter);
-                bufferBarrier.dstAccessMask           = ConvertResourceUsageToAccessFlag(barrier->mAfter);
+                bufferBarrier.srcStageMask            = stageBefore;
+                bufferBarrier.srcAccessMask           = accessBefore;
+                bufferBarrier.dstStageMask            = stageAfter;
+                bufferBarrier.dstAccessMask           = accessAfter;
                 bufferBarrier.srcQueueFamilyIndex     = VK_QUEUE_FAMILY_IGNORED;
                 bufferBarrier.dstQueueFamilyIndex     = VK_QUEUE_FAMILY_IGNORED;
             };
@@ -1736,27 +1834,27 @@ void mkGraphicsVulkan::Barrier(CommandList cmd, GPUBarrier *barriers, u32 count)
                 memoryBarriers.emplace_back();
                 VkMemoryBarrier2 &memoryBarrier = memoryBarriers.back();
                 memoryBarrier.sType             = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-                memoryBarrier.srcStageMask      = ConvertResourceToPipelineStage(barrier->mBefore);
-                memoryBarrier.srcAccessMask     = ConvertResourceUsageToAccessFlag(barrier->mBefore);
-                memoryBarrier.dstStageMask      = ConvertResourceToPipelineStage(barrier->mAfter);
-                memoryBarrier.dstAccessMask     = ConvertResourceUsageToAccessFlag(barrier->mAfter);
+                memoryBarrier.srcStageMask      = stageBefore;
+                memoryBarrier.srcAccessMask     = accessBefore;
+                memoryBarrier.dstStageMask      = stageAfter;
+                memoryBarrier.dstAccessMask     = accessAfter;
             }
             break;
             case GPUBarrier::Type::Image:
             {
-                Texture *texture             = (Texture *)barrier->mResource;
+                Texture *texture             = (Texture *)barrier->resource;
                 TextureVulkan *textureVulkan = ToInternal(texture);
                 Assert(textureVulkan->mImage != VK_NULL_HANDLE);
                 imageBarriers.emplace_back();
                 VkImageMemoryBarrier2 &imageBarrier          = imageBarriers.back();
                 imageBarrier.sType                           = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
                 imageBarrier.image                           = textureVulkan->mImage;
-                imageBarrier.oldLayout                       = ConvertResourceUsageToImageLayout(barrier->mBefore);
-                imageBarrier.newLayout                       = ConvertResourceUsageToImageLayout(barrier->mAfter);
-                imageBarrier.srcStageMask                    = ConvertResourceToPipelineStage(barrier->mBefore);
-                imageBarrier.srcAccessMask                   = ConvertResourceToPipelineStage(barrier->mBefore);
-                imageBarrier.dstStageMask                    = ConvertResourceToPipelineStage(barrier->mAfter);
-                imageBarrier.dstAccessMask                   = ConvertResourceToPipelineStage(barrier->mAfter);
+                imageBarrier.oldLayout                       = ConvertImageLayout(barrier->layoutBefore);
+                imageBarrier.newLayout                       = ConvertImageLayout(barrier->layoutAfter);
+                imageBarrier.srcStageMask                    = stageBefore;
+                imageBarrier.srcAccessMask                   = accessBefore;
+                imageBarrier.dstStageMask                    = stageAfter;
+                imageBarrier.dstAccessMask                   = accessAfter;
                 imageBarrier.srcQueueFamilyIndex             = VK_QUEUE_FAMILY_IGNORED;
                 imageBarrier.dstQueueFamilyIndex             = VK_QUEUE_FAMILY_IGNORED;
                 imageBarrier.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -1820,6 +1918,7 @@ void mkGraphicsVulkan::CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDes
     inBuffer->mDesc         = inDesc;
     inBuffer->mMappedData   = 0;
     inBuffer->mResourceType = GPUResource::ResourceType::Buffer;
+    inBuffer->ticket.ticket = 0;
 
     VkBufferCreateInfo createInfo = {};
     createInfo.sType              = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -1849,6 +1948,10 @@ void mkGraphicsVulkan::CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDes
     if (HasFlags(inDesc.mResourceUsage, ResourceUsage::StorageTexelBuffer))
     {
         createInfo.usage |= VK_BUFFER_USAGE_STORAGE_TEXEL_BUFFER_BIT;
+    }
+    if (HasFlags(inDesc.mResourceUsage, ResourceUsage::IndirectBuffer))
+    {
+        createInfo.usage |= VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
     }
 
     // Sharing
@@ -1892,8 +1995,6 @@ void mkGraphicsVulkan::CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDes
         inBuffer->mDesc.mSize = buffer->mAllocation->GetSize();
     }
 
-    Fence fence = {};
-
     if (initCallback != 0)
     {
         TransferCommand cmd;
@@ -1925,8 +2026,10 @@ void mkGraphicsVulkan::CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDes
                 // Copy from the staging buffer to the allocated buffer
                 vkCmdCopyBuffer(cmd.mCmdBuffer, ToInternal(&allocator->transferRingBuffer)->mBuffer, buffer->mBuffer, 1, &bufferCopy);
             }
+            FenceVulkan *fenceVulkan = ToInternal(&cmd.fence);
+            inBuffer->ticket.fence   = cmd.fence;
+            inBuffer->ticket.ticket  = fenceVulkan->count;
             Submit(cmd);
-            fence.internalState = (void *)cmd.mFence;
         }
     }
 
@@ -1958,8 +2061,6 @@ void mkGraphicsVulkan::CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDes
             buffer->subresourceSrv = subresourceIndex;
         }
     }
-
-    inBuffer->fence = fence;
 }
 
 void mkGraphicsVulkan::CreateTexture(Texture *outTexture, TextureDesc desc, void *inData)
@@ -2082,7 +2183,6 @@ void mkGraphicsVulkan::CreateTexture(Texture *outTexture, TextureDesc desc, void
         VK_CHECK(vmaCreateImage(mAllocator, &imageInfo, &allocInfo, &texVulk->mImage, &texVulk->mAllocation, &info));
     }
 
-    Fence fence = {};
     // TODO: handle 3d texture creation
     if (inData)
     {
@@ -2164,8 +2264,10 @@ void mkGraphicsVulkan::CreateTexture(Texture *outTexture, TextureDesc desc, void
             dependencyInfo.pImageMemoryBarriers    = &barrier;
             vkCmdPipelineBarrier2(cmd.mTransitionBuffer, &dependencyInfo);
 
+            FenceVulkan *fenceVulkan  = ToInternal(&cmd.fence);
+            outTexture->ticket.fence  = cmd.fence;
+            outTexture->ticket.ticket = fenceVulkan->count;
             Submit(cmd);
-            fence.internalState = (void *)cmd.mFence;
         }
     }
     // Transfer the image layout of the image to its initial layout
@@ -2207,16 +2309,17 @@ void mkGraphicsVulkan::CreateTexture(Texture *outTexture, TextureDesc desc, void
         dependencyInfo.pImageMemoryBarriers    = &barrier;
         vkCmdPipelineBarrier2(cmd.mTransitionBuffer, &dependencyInfo);
 
+        FenceVulkan *fenceVulkan  = ToInternal(&cmd.fence);
+        outTexture->ticket.fence  = cmd.fence;
+        outTexture->ticket.ticket = fenceVulkan->count;
         Submit(cmd);
-        fence.internalState = (void *)cmd.mFence;
     }
 
     if (desc.mUsage != MemoryUsage::GPU_TO_CPU)
     {
         CreateSubresource(outTexture);
     }
-
-    outTexture->fence = fence;
+    Assert(outTexture->ticket.fence.internalState);
 }
 
 void mkGraphicsVulkan::DeleteTexture(Texture *texture)
@@ -2730,7 +2833,7 @@ void mkGraphicsVulkan::FrameAllocate(GPUBuffer *inBuf, void *inData, CommandList
 }
 
 // NOTE: loops through 4 rings until one with space for the allocation is found.
-mkGraphicsVulkan::RingAllocation *mkGraphicsVulkan::RingAlloc(u64 size, VkFence fence)
+mkGraphicsVulkan::RingAllocation *mkGraphicsVulkan::RingAlloc(u64 size)
 {
     RingAllocation *result = 0;
     const u32 arrayLength  = ArrayLength(stagingRingAllocators);
@@ -2738,13 +2841,14 @@ mkGraphicsVulkan::RingAllocation *mkGraphicsVulkan::RingAlloc(u64 size, VkFence 
     while (result == 0)
     {
         id     = id & (arrayLength - 1);
-        result = RingAllocInternal(id, size, fence);
+        result = RingAllocInternal(id, size);
         id++;
     }
     return result;
 }
 
-mkGraphicsVulkan::RingAllocation *mkGraphicsVulkan::RingAllocInternal(u32 id, u64 size, VkFence fence)
+// TODO: there is a memory bug!!!! YAY!
+mkGraphicsVulkan::RingAllocation *mkGraphicsVulkan::RingAllocInternal(u32 id, u64 size)
 {
     RingAllocator *allocator = &stagingRingAllocators[id];
     u64 ringBufferSize       = allocator->ringBufferSize;
@@ -2795,12 +2899,14 @@ mkGraphicsVulkan::RingAllocation *mkGraphicsVulkan::RingAllocInternal(u32 id, u6
             allocation.size       = size;
             allocation.offset     = (u32)offset;
             allocation.mappedData = (u8 *)allocator->transferRingBuffer.mMappedData + offset;
-            allocation.fence      = fence;
             allocation.ringId     = id;
             allocation.freed      = 0;
 
-            allocator->allocations.push(allocation);
-            result = &allocator->allocations.back();
+            u32 length = ArrayLength(allocator->allocations);
+            Assert(length - (allocator->allocationWritePos - allocator->allocationReadPos) >= 1);
+            u32 allocationWritePos                     = allocator->allocationWritePos++ & (length - 1);
+            allocator->allocations[allocationWritePos] = allocation;
+            result                                     = &allocator->allocations[allocationWritePos];
         }
     }
 
@@ -2812,21 +2918,16 @@ void mkGraphicsVulkan::RingFree(RingAllocation *allocation)
     RingAllocator *allocator = &stagingRingAllocators[allocation->ringId];
     TicketMutexScope(&allocator->lock)
     {
-        allocation->freed  = 1;
-        b8 freeAllocations = 1;
-        while (!allocator->allocations.empty() && freeAllocations)
+        allocation->freed = 1;
+
+        while (allocator->allocationReadPos != allocator->allocationWritePos)
         {
-            RingAllocation &potentiallyFreeAllocation = allocator->allocations.front();
-            // TODO: on one occassion, the loop somehow got here but ring alloc was freed? idk how that was possible,
-            // since this is the only place where things are removed, and it's mutexed, and interlockedincrement on windows
-            // generates a full memory barrier...
-            if (!potentiallyFreeAllocation.freed)
-            {
-                freeAllocations = 0;
-                continue;
-            }
-            allocator->readPos = potentiallyFreeAllocation.offset + (u32)potentiallyFreeAllocation.size;
-            allocator->allocations.pop();
+            u32 allocationReadPos                     = allocator->allocationReadPos & (ArrayLength(allocator->allocations) - 1);
+            RingAllocation *potentiallyFreeAllocation = &allocator->allocations[allocationReadPos];
+
+            if (potentiallyFreeAllocation == 0 || !potentiallyFreeAllocation->freed) break;
+            allocator->readPos = potentiallyFreeAllocation->offset + (u32)potentiallyFreeAllocation->size;
+            allocator->allocationReadPos++;
         }
     }
 }
@@ -2840,8 +2941,11 @@ mkGraphicsVulkan::TransferCommand mkGraphicsVulkan::Stage(u64 size)
     {
         // Submission is done, can reuse cmd pool
         TransferCommand &testCmd = mTransferFreeList[i];
-        if (vkGetFenceStatus(mDevice, mTransferFreeList[i].mFence) == VK_SUCCESS)
+        if (vkGetFenceStatus(mDevice, ToInternal(&mTransferFreeList[i].fence)->fence) == VK_SUCCESS)
         {
+            FenceVulkan *fenceVulkan = ToInternal(&mTransferFreeList[i].fence);
+            fenceVulkan->count++;
+            std::atomic_thread_fence(std::memory_order_release);
             // Only some cmds will have ring allocations
             if (testCmd.ringAllocation)
             {
@@ -2877,9 +2981,22 @@ mkGraphicsVulkan::TransferCommand mkGraphicsVulkan::Stage(u64 size)
         bufferInfo.commandPool = cmd.mTransitionPool;
         VK_CHECK(vkAllocateCommandBuffers(mDevice, &bufferInfo, &cmd.mTransitionBuffer));
 
-        VkFenceCreateInfo fenceInfo = {};
-        fenceInfo.sType             = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-        VK_CHECK(vkCreateFence(mDevice, &fenceInfo, 0, &cmd.mFence));
+        FenceVulkan *fenceVulkan = 0;
+        MutexScope(&mArenaMutex)
+        {
+            fenceVulkan = freeFence;
+            if (fenceVulkan)
+            {
+                StackPop(freeFence);
+            }
+            else
+            {
+                fenceVulkan = PushStruct(mArena, FenceVulkan);
+            }
+        }
+        VkFenceCreateInfo fenceInfo = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+        VK_CHECK(vkCreateFence(mDevice, &fenceInfo, 0, &fenceVulkan->fence));
+        cmd.fence.internalState = fenceVulkan;
 
         VkSemaphoreCreateInfo semaphoreInfo = {};
         semaphoreInfo.sType                 = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
@@ -2902,11 +3019,12 @@ mkGraphicsVulkan::TransferCommand mkGraphicsVulkan::Stage(u64 size)
     VK_CHECK(vkBeginCommandBuffer(cmd.mCmdBuffer, &beginInfo));
     VK_CHECK(vkBeginCommandBuffer(cmd.mTransitionBuffer, &beginInfo));
 
-    VK_CHECK(vkResetFences(mDevice, 1, &cmd.mFence));
+    FenceVulkan *fenceVulkan = ToInternal(&cmd.fence);
+    VK_CHECK(vkResetFences(mDevice, 1, &fenceVulkan->fence));
 
     if (size != 0)
     {
-        cmd.ringAllocation = RingAlloc(size, cmd.mFence);
+        cmd.ringAllocation = RingAlloc(size);
     }
 
     return cmd;
@@ -2987,7 +3105,7 @@ void mkGraphicsVulkan::Submit(TransferCommand cmd)
 
         MutexScope(&mQueues[QueueType_Compute].mLock)
         {
-            VK_CHECK(vkQueueSubmit2(mQueues[QueueType_Compute].mQueue, 1, &submitInfo, cmd.mFence));
+            VK_CHECK(vkQueueSubmit2(mQueues[QueueType_Compute].mQueue, 1, &submitInfo, ToInternal(&cmd.fence)->fence));
         }
     }
     MutexScope(&mTransferMutex)
@@ -3799,19 +3917,18 @@ void mkGraphicsVulkan::BindCompute(PipelineState *ps, CommandList cmd)
                             1, (u32)bindlessDescriptorSets.size(), bindlessDescriptorSets.data(), 0, 0);
 }
 
-b32 mkGraphicsVulkan::IsSignaled(Fence fence)
+b32 mkGraphicsVulkan::IsSignaled(FenceTicket ticket)
 {
-    VkFence fenceVulkan = ToInternal(fence);
-    b32 result          = fence.signaled || vkGetFenceStatus(mDevice, fenceVulkan) == VK_SUCCESS;
-    // TODO: this isn't correct; the fence could be reused before it's checked
-    if (result) fence.signaled = true;
+    FenceVulkan *fenceVulkan = ToInternal(&ticket.fence);
+    Assert(fenceVulkan->count < 100000);
+    b32 result = ticket.ticket < fenceVulkan->count || vkGetFenceStatus(mDevice, fenceVulkan->fence) == VK_SUCCESS;
     return result;
 }
 
 b32 mkGraphicsVulkan::IsLoaded(GPUResource *resource)
 {
-    Fence fence = resource->fence;
-    return IsSignaled(fence);
+    FenceTicket ticket = resource->ticket;
+    return IsSignaled(ticket);
 }
 
 void mkGraphicsVulkan::WaitForGPU()
@@ -3906,6 +4023,12 @@ void mkGraphicsVulkan::ResetQuery(QueryPool *pool, CommandList cmd, u32 index, u
 }
 
 // void mkGraphicsVulkan::ResolveQuery(QueryPool *pool, )
+u32 mkGraphicsVulkan::GetCount(Fence f)
+{
+    FenceVulkan *fenceVulkan = ToInternal(&f);
+    u32 count                = fenceVulkan->count;
+    return count;
+}
 
 void mkGraphicsVulkan::SetName(GPUResource *resource, const char *name)
 {
@@ -3931,6 +4054,11 @@ void mkGraphicsVulkan::SetName(GPUResource *resource, const char *name)
         return;
     }
     VK_CHECK(vkSetDebugUtilsObjectNameEXT(mDevice, &info));
+}
+
+void mkGraphicsVulkan::SetName(GPUResource *resource, string name)
+{
+    SetName(resource, (char *)name.str);
 }
 
 void mkGraphicsVulkan::SetName(u64 handle, VkObjectType type, const char *name)

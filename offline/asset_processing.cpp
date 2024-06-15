@@ -862,6 +862,7 @@ int main(int argc, char *argv[])
                     // Write all of the models
                     TempArena temp = ScratchStart(&scratch.arena, 1);
                     InputModel model;
+
                     // Find total number of meshes
                     InputMesh *meshes = PushArrayNoZero(temp.arena, InputMesh, data->meshes_count);
                     model.meshes      = meshes;

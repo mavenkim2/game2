@@ -59,6 +59,8 @@ struct MaterialComponent
     f32 roughnessFactor = 1.f;
     MaterialFlag flags;
     u32 sid;
+
+    b32 IsRenderable();
 };
 
 class MaterialManager
@@ -108,6 +110,7 @@ private:
     MaterialChunkNode *last;
     u32 totalNumMaterials;
     u32 materialWritePos;
+    u32 numChunkNodes;
 
     // Freed spots
     MaterialFreeNode *freeMaterialPositions;
@@ -121,11 +124,12 @@ private:
     //////////////////////////////
     // Handles
     //
-    inline MaterialHandle CreateHandle(MaterialChunkNode *chunkNode, u32 localIndex)
+    inline MaterialHandle CreateHandle(MaterialChunkNode *chunkNode, u32 localIndex, u32 chunkNodeIndex)
     {
         MaterialHandle handle;
         handle.u64[0] = (u64)chunkNode;
         handle.u32[2] = localIndex;
+        handle.u32[3] = chunkNodeIndex;
         return handle;
     }
     inline void UnpackHandle(MaterialHandle handle, MaterialChunkNode **chunkNode, u32 *localIndex)
@@ -188,8 +192,19 @@ public:
     b8 EndIter(MaterialIter *iter);
     void Next(MaterialIter *iter);
     inline MaterialComponent *Get(MaterialIter *iter);
+    inline Entity GetEntity(MaterialIter *iter);
+
+    inline u32 GetTotal() { return totalNumMaterials; }
+    inline u32 GetEndPos() { return materialWritePos; }
+    inline u32 GetIndex(MaterialHandle handle)
+    {
+        u32 chunkNodeIndex = handle.u32[3];
+        u32 localIndex     = handle.u32[2];
+        return numMaterialsPerChunk * chunkNodeIndex + localIndex;
+    }
 };
 
+// TODO: consider how to make this iteration multithreaded
 struct MaterialIter
 {
     MaterialManager::MaterialChunkNode *chunkNode;

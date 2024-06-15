@@ -262,13 +262,15 @@ inline i32 AtomicAddI32(i32 volatile *dest, i32 addend)
 
 struct TicketMutex
 {
-    u64 volatile ticket;
-    u64 volatile serving;
+    std::atomic<u64> ticket = 0;
+    std::atomic<u64> serving = 0;
+    // u64 volatile ticket;
+    // u64 volatile serving;
 };
 
 inline void BeginTicketMutex(TicketMutex *mutex)
 {
-    u64 ticket = AtomicAddU64(&mutex->ticket, 1);
+    u64 ticket = mutex->ticket.fetch_add(1);
     while (ticket != mutex->serving)
     {
         _mm_pause();
@@ -277,7 +279,7 @@ inline void BeginTicketMutex(TicketMutex *mutex)
 
 inline void EndTicketMutex(TicketMutex *mutex)
 {
-    AtomicIncrementU64(&mutex->serving);
+    mutex->serving.fetch_add(1);
 }
 
 struct Mutex

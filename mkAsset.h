@@ -225,6 +225,9 @@ struct Mesh
     BufferView soPosView;
     BufferView soNorView;
     BufferView soTanView;
+    i32 posDescriptor;
+    i32 norDescriptor;
+    i32 tanDescriptor;
 
     void Init()
     {
@@ -238,6 +241,9 @@ struct Mesh
         soPosView.Init();
         soNorView.Init();
         soTanView.Init();
+        posDescriptor = -1;
+        norDescriptor = -1;
+        tanDescriptor = -1;
     }
 
     inline b32 IsValid();

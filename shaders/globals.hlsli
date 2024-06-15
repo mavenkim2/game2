@@ -20,7 +20,12 @@ static const uint BINDLESS_STORAGE_TEXEL_BUFFER_SET = 4;
 
 [[vk::binding(0, BINDLESS_STORAGE_BUFFER_SET)]] ByteAddressBuffer bindlessBuffers[];
 [[vk::binding(0, BINDLESS_STORAGE_BUFFER_SET)]] RWByteAddressBuffer bindlessStorageBuffers[];
+
 [[vk::binding(0, BINDLESS_STORAGE_BUFFER_SET)]] StructuredBuffer<MeshParams> bindlessMeshParams[];
+[[vk::binding(0, BINDLESS_STORAGE_BUFFER_SET)]] StructuredBuffer<MeshGeometry> bindlessMeshGeometry[];
+[[vk::binding(0, BINDLESS_STORAGE_BUFFER_SET)]] StructuredBuffer<MeshBatch> bindlessMeshBatches[];
+[[vk::binding(0, BINDLESS_STORAGE_BUFFER_SET)]] StructuredBuffer<ShaderMeshSubset> bindlessMeshSubsets[];
+[[vk::binding(0, BINDLESS_STORAGE_BUFFER_SET)]] StructuredBuffer<ShaderMaterial> bindlessMaterials[];
 #else
 #error not supported
 #endif

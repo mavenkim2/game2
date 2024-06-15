@@ -513,9 +513,11 @@ DLL G_UPDATE(G_Update)
     renderState->camera = g_state->camera;
     // Update
     gameScene->ProcessRequests();
-    u32 totalMatrixCount = 0;
-    u32 totalMeshCount   = gameScene->meshes.GetTotal();
-    gameScene->aabbCount = 0;
+    u32 totalMatrixCount     = 0;
+    u32 totalMeshCount       = gameScene->meshes.GetTotal();
+    u32 totalMeshBatchCount  = 0;
+    u32 totalMeshSubsetCount = 0;
+    u32 totalMaterialCount   = gameScene->materials.GetEndPos();
 
     // Process component system requests
 
@@ -548,38 +550,106 @@ DLL G_UPDATE(G_Update)
         frameTransforms[transformIndex] = frameTransforms[parentIndex] * transform;
     }
 
-    u32 totalSkinningSize   = totalMatrixCount * sizeof(Mat4);
-    u32 totalMeshParamsSize = totalMeshCount * sizeof(MeshParams);
+    for (MeshIter iter = gameScene->BeginMeshIter(); !gameScene->End(&iter); gameScene->Next(&iter))
+    {
+        Mesh *mesh = gameScene->Get(&iter);
+        Assert(mesh->numSubsets >= 1);
+        for (u32 subsetIndex = 0; subsetIndex < mesh->numSubsets; subsetIndex++)
+        {
+            totalMeshBatchCount += (mesh->subsets[subsetIndex].indexCount + BATCH_SIZE - 1) / BATCH_SIZE;
+            totalMeshSubsetCount++;
+        }
+    }
 
-    GPUBuffer *skinningBufferUpload = &render::skinningBufferUpload[device->GetCurrentBuffer()];
-    GPUBuffer *skinningBuffer       = &render::skinningBuffer;
+    // Resize
+    u32 totalSkinningSize     = totalMatrixCount * sizeof(Mat4);
+    u32 totalMeshParamsSize   = totalMeshCount * sizeof(MeshParams);
+    u32 totalMeshGeometrySize = totalMeshCount * sizeof(MeshGeometry);
+    u32 totalMeshBatchSize    = totalMeshBatchCount * sizeof(MeshBatch);
+    u32 totalMeshSubsetSize   = totalMeshSubsetCount * sizeof(ShaderMeshSubset);
+    u32 totalMaterialSize     = totalMaterialCount * sizeof(ShaderMaterial);
+
+    GPUBuffer *skinningUpload = &render::skinningBufferUpload[device->GetCurrentBuffer()];
+    GPUBuffer *skinningBuffer = &render::skinningBuffer;
 
     GPUBuffer *meshParamsUpload = &render::meshParamsBufferUpload[device->GetCurrentBuffer()];
     GPUBuffer *meshParamsBuffer = &render::meshParamsBuffer;
 
-    // Resize
-    if (totalSkinningSize > skinningBufferUpload->mDesc.mSize)
+    GPUBuffer *meshGeometryUpload = &render::meshGeometryBufferUpload[device->GetCurrentBuffer()];
+    GPUBuffer *meshGeometryBuffer = &render::meshGeometryBuffer;
+
+    GPUBuffer *meshBatchUpload = &render::meshBatchBufferUpload[device->GetCurrentBuffer()];
+    GPUBuffer *meshBatchBuffer = &render::meshBatchBuffer;
+
+    GPUBuffer *meshSubsetUpload = &render::meshSubsetBufferUpload[device->GetCurrentBuffer()];
+    GPUBuffer *meshSubsetBuffer = &render::meshSubsetBuffer;
+
+    GPUBuffer *materialUpload = &render::materialBufferUpload[device->GetCurrentBuffer()];
+    GPUBuffer *materialBuffer = &render::materialBuffer;
     {
-        for (u32 frame = 0; frame < device->cNumBuffers; frame++)
+        if (totalSkinningSize > skinningUpload->mDesc.mSize)
         {
-            device->ResizeBuffer(&render::skinningBufferUpload[frame], totalSkinningSize * 2);
+            for (u32 frame = 0; frame < device->cNumBuffers; frame++)
+            {
+                device->ResizeBuffer(&render::skinningBufferUpload[frame], totalSkinningSize * 2);
+            }
+            device->ResizeBuffer(skinningBuffer, totalSkinningSize * 2);
         }
-        device->ResizeBuffer(skinningBuffer, totalSkinningSize * 2);
-    }
-    if (totalMeshParamsSize > meshParamsUpload->mDesc.mSize)
-    {
-        for (u32 frame = 0; frame < device->cNumBuffers; frame++)
+        if (totalMeshParamsSize > meshParamsUpload->mDesc.mSize)
         {
-            device->ResizeBuffer(&render::meshParamsBufferUpload[frame], totalMeshParamsSize * 2);
+            for (u32 frame = 0; frame < device->cNumBuffers; frame++)
+            {
+                device->ResizeBuffer(&render::meshParamsBufferUpload[frame], totalMeshParamsSize * 2);
+            }
+            device->ResizeBuffer(meshParamsBuffer, totalMeshParamsSize * 2);
         }
-        device->ResizeBuffer(meshParamsBuffer, totalMeshParamsSize * 2);
+        if (totalMeshGeometrySize > meshGeometryUpload->mDesc.mSize)
+        {
+            for (u32 frame = 0; frame < device->cNumBuffers; frame++)
+            {
+                device->ResizeBuffer(&render::meshGeometryBufferUpload[frame], totalMeshGeometrySize * 2);
+            }
+            device->ResizeBuffer(meshGeometryBuffer, totalMeshGeometrySize * 2);
+        }
+        if (totalMeshBatchSize > meshBatchUpload->mDesc.mSize)
+        {
+            for (u32 frame = 0; frame < device->cNumBuffers; frame++)
+            {
+                device->ResizeBuffer(&render::meshBatchBufferUpload[frame], totalMeshBatchSize * 2);
+            }
+            device->ResizeBuffer(meshBatchBuffer, totalMeshBatchSize * 2);
+        }
+        if (totalMeshSubsetSize > meshSubsetUpload->mDesc.mSize)
+        {
+            for (u32 frame = 0; frame < device->cNumBuffers; frame++)
+            {
+                device->ResizeBuffer(&render::meshSubsetBufferUpload[frame], totalMeshSubsetSize * 2);
+            }
+            device->ResizeBuffer(meshSubsetBuffer, totalMeshSubsetSize * 2);
+        }
+        if (totalMaterialSize > materialUpload->mDesc.mSize)
+        {
+            for (u32 frame = 0; frame < device->cNumBuffers; frame++)
+            {
+                device->ResizeBuffer(&render::materialBufferUpload[frame], totalMaterialSize * 2);
+            }
+            device->ResizeBuffer(materialBuffer, totalMaterialSize * 2);
+        }
     }
 
-    g_state->skinningBufferSize = totalSkinningSize;
-    g_state->meshParamsSize     = totalMeshParamsSize;
+    render::skinningBufferSize     = totalSkinningSize;
+    render::meshParamsBufferSize   = totalMeshParamsSize;
+    render::meshGeometryBufferSize = totalMeshGeometrySize;
+    render::meshBatchBufferSize    = totalMeshBatchSize;
+    render::meshSubsetBufferSize   = totalMeshSubsetSize;
+    render::materialBufferSize     = totalMaterialSize;
 
-    Mat4 *skinningMappedData         = (Mat4 *)skinningBufferUpload->mMappedData;
-    MeshParams *meshParamsMappedData = (MeshParams *)meshParamsUpload->mMappedData;
+    Mat4 *skinningMappedData               = (Mat4 *)skinningUpload->mMappedData;
+    MeshParams *meshParamsMappedData       = (MeshParams *)meshParamsUpload->mMappedData;
+    MeshGeometry *meshGeometryMappedData   = (MeshGeometry *)meshGeometryUpload->mMappedData;
+    MeshBatch *meshBatchMappedData         = (MeshBatch *)meshBatchUpload->mMappedData;
+    ShaderMaterial *materialMappedData     = (ShaderMaterial *)materialUpload->mMappedData;
+    ShaderMeshSubset *meshSubsetMappedData = (ShaderMeshSubset *)meshSubsetUpload->mMappedData;
 
     for (SkeletonIter iter = gameScene->BeginSkelIter(); !gameScene->End(&iter); gameScene->Next(&iter))
     {
@@ -592,7 +662,35 @@ DLL G_UPDATE(G_Update)
                              skinningMappedData + skeleton->skinningOffset);
     }
 
-    // u32 checkMeshCount = 0;
+    for (MaterialIter iter = gameScene->BeginMatIter(); !gameScene->End(&iter); gameScene->Next(&iter))
+    {
+        MaterialComponent *mat   = gameScene->Get(&iter);
+        u32 index                = iter.globalIndex;
+        ShaderMaterial *material = &materialMappedData[index];
+        material->normal         = -1;
+        material->albedo         = -1;
+        if (mat->IsRenderable())
+        {
+            graphics::Texture *texture = GetTexture(mat->textures[TextureType_Diffuse]);
+            i32 descriptorIndex        = device->GetDescriptorIndex(texture, ResourceType::SRV);
+            material->albedo           = descriptorIndex;
+
+            texture          = GetTexture(mat->textures[TextureType_Normal]);
+            descriptorIndex  = device->GetDescriptorIndex(texture, ResourceType::SRV);
+            material->normal = descriptorIndex;
+        }
+        else
+        {
+            graphics::Texture *texture = GetTexture(mat->textures[TextureType_Diffuse]);
+            texture                    = GetTexture(mat->textures[TextureType_Normal]);
+            b32 result                 = mat->IsRenderable();
+            int x                      = 0;
+        }
+    }
+
+    u32 activeMeshCount       = 0;
+    u32 activeMeshSubsetCount = 0;
+    u32 activeMeshBatchCount  = 0;
     for (MeshIter iter = gameScene->BeginMeshIter(); !gameScene->End(&iter); gameScene->Next(&iter))
     {
         Mesh *mesh      = gameScene->Get(&iter);
@@ -600,19 +698,57 @@ DLL G_UPDATE(G_Update)
         mesh->meshIndex = -1;
         if (!mesh->IsRenderable()) continue;
 
-        mesh->meshIndex = iter.globalIndex;
+        mesh->meshIndex = activeMeshCount++;
         mesh->aabbIndex = gameScene->aabbCount++;
 
-        Mat4 transform                    = frameTransforms[gameScene->transforms.GetIndex(entity)];
-        gameScene->aabbs[mesh->aabbIndex] = Transform(transform, mesh->bounds);
-        // checkMeshCount++;
+        Mat4 transform = frameTransforms[gameScene->transforms.GetIndex(entity)];
+        // gameScene->aabbs[mesh->aabbIndex] = Transform(transform, mesh->bounds);
 
-        MeshParams *meshParams = &meshParamsMappedData[mesh->meshIndex];
+        // draw ID, instance ID. each mesh params corresponds with one instance ID. each geo
+        // corresponds with one draw ID. each subset corresponds with one draw ID.
 
+        MeshParams *meshParams      = &meshParamsMappedData[mesh->meshIndex];
         meshParams->transform       = renderState->transform * transform;
         meshParams->modelViewMatrix = renderState->viewMatrix * transform;
         meshParams->modelMatrix     = transform;
+        meshParams->minP            = mesh->bounds.minP; // mesh space
+        meshParams->maxP            = mesh->bounds.maxP;
+
+        MeshGeometry *geometry = &meshGeometryMappedData[mesh->meshIndex];
+        geometry->vertexPos    = mesh->posDescriptor;
+        geometry->vertexNor    = mesh->norDescriptor;
+        geometry->vertexTan    = mesh->tanDescriptor;
+        geometry->vertexUv     = mesh->vertexUvView.srvDescriptor;
+        // geometry->vertexInd = ?;
+
+        for (u32 subsetIndex = 0; subsetIndex < mesh->numSubsets; subsetIndex++)
+        {
+            Mesh::MeshSubset *subset = &mesh->subsets[subsetIndex];
+
+            ShaderMeshSubset *shaderMeshSubset = &meshSubsetMappedData[activeMeshSubsetCount];
+            shaderMeshSubset->materialIndex    = gameScene->materials.GetIndex(subset->materialHandle);
+            shaderMeshSubset->meshIndex        = mesh->meshIndex;
+
+            MeshBatch batch;
+            batch.firstBatch = activeMeshBatchCount;
+            batch.drawID     = activeMeshSubsetCount++;
+            batch.meshIndex  = mesh->meshIndex;
+
+#if 0
+            u32 totalIndexCount = subset->indexStart;
+            for (u32 indexIndex = 0; indexIndex < subset->indexCount; indexIndex += BATCH_SIZE)
+            {
+                u32 indexCount           = Min(BATCH_SIZE, subset->indexCount - indexIndex);
+                MeshBatch *mappedBatch   = &meshBatchMappedData[activeMeshBatchCount++];
+                *mappedBatch             = batch;
+                mappedBatch->indexOffset = totalIndexCount;
+                mappedBatch->indexCount  = indexCount;
+                totalIndexCount += indexCount;
+            }
+#endif
+        }
     }
+    int x = 0;
 
     // Assert(checkMeshCount == totalMeshCount);
 
@@ -625,212 +761,207 @@ DLL G_UPDATE(G_Update)
     render::Render();
 }
 
-#if 0
-    V3 *velocity = &player->velocity;
-
-    Normalize(acceleration->xy);
-
-    f32 multiplier = 50;
-    if (playerController->shift.keyDown)
-    {
-        multiplier = 100;
-    }
-    acceleration->xy *= multiplier;
-
-    acceleration->z = -GRAVITY;
-    if (playerController->jump.keyDown && !HasFlag(player, Entity_Airborne))
-    {
-        velocity->z += 25.f;
-        AddFlag(player, Entity_Airborne);
-    }
-
-    Rect3 playerBox;
-    // TODO: pull out friction
-    *acceleration += MakeV3(-800.f * velocity->xy * dt, -10.f * velocity->z * dt);
-    *velocity += *acceleration * dt;
-
-    V3 playerDelta = *velocity * dt;
-    player->pos += playerDelta;
-    playerBox.minP = player->pos;
-    playerBox.maxP = player->pos + player->size;
-
-    // TODO: fix position of boxes (center vs bottom left vs bottom center)
-    // TODO: capsule collision for player? GJK?
-    for (Entity *entity = 0; IncrementEntity(level, &entity);)
-    {
-        if (HasFlag(entity, Entity_Collidable))
-        {
-            Rect3 collisionBox      = Rect3BottomLeft(entity->pos, entity->size);
-            Manifold manifold       = NarrowPhaseAABBCollision(playerBox, collisionBox);
-            f32 velocityAlongNormal = Dot(manifold.normal, *velocity);
-            if (velocityAlongNormal > 0)
-            {
-                continue;
-            }
-            *velocity -= manifold.normal * velocityAlongNormal;
-            player->pos += manifold.normal * manifold.penetration;
-            playerBox.minP = player->pos;
-            if (manifold.normal.x == 0 && manifold.normal.y == 0 && manifold.normal.z == 1)
-            {
-                RemoveFlag(player, Entity_Airborne);
-            }
-        }
-    }
-
-    // Physics
-    {
-        // ConvexShape a;
-        // f32 p = 1;
-        //
-        // V3 points[8] = {MakeV3(-p, -p, -p), MakeV3(p, -p, -p), MakeV3(p, p, -p), MakeV3(-p, p, -p),
-        //                 MakeV3(-p, -p, p),  MakeV3(p, -p, p),  MakeV3(p, p, p),  MakeV3(-p, p, p)};
-        // a.points     = points;
-        // a.numPoints  = ArrayLength(points);
-        // loopi(0, a.numPoints - 1)
-        // {
-        //     DrawLine(&renderState->debugRenderer, a.points[i], a.points[i + 1], Color_Red);
-        // }
-
-        // ConvexShape b;
-        // V3 points2[8] = {MakeV3(-p, -p, -p+1), MakeV3(p, -p, -p+1),
-        //                  MakeV3(p, p, -p+1),   MakeV3(-p, p, -p+1),
-        //                  MakeV3(-p + 1, -p + 1, p + 2),  MakeV3(p + 1, -p + 1, p + 2),
-        //                  MakeV3(p + 1, p + 1, p + 2),    MakeV3(-p + 1, p + 1, p + 2)};
-        // b.points      = points2;
-        // b.numPoints   = ArrayLength(points2);
-        // loopi(0, b.numPoints)
-        // {
-        //     DrawPoint(&renderState->debugRenderer, b.points[i], Color_Blue);
-        // }
-        ConvexShape sphereA = MakeSphere(MakeV3(5, 0, 0), 1.f);
-        ConvexShape sphereB = MakeSphere(MakeV3(7.f, 0, 0), 1.f);
-
-        b32 result = Intersects(&sphereA, &sphereB, MakeV3(0, 0, 0));
-        V4 color;
-        if (result)
-        {
-            color = Color_Red;
-        }
-        else
-        {
-            color = Color_Green;
-        }
-
-        DrawSphere(sphereA.center, sphereA.radius, color);
-        DrawSphere(sphereB.center, sphereB.radius, color);
-
-        DrawSphere(player->pos, 2.f, color);
-
-        DrawBox({5, 1, 1}, {2, 1, 1}, Color_Black);
-        DrawBox({8, 3, 3}, {1, 4, 2}, Color_Green);
-        DrawArrow({0, 0, 0}, {5, 0, 0}, {1, 0, 0, 1}, 1.f);
-        DrawArrow({0, 0, 0}, {0, 5, 0}, {0, 1, 0, 1}, 1.f);
-        DrawArrow({0, 0, 0}, {0, 0, 5}, {0, 0, 1, 1}, 1.f);
-    }
-#endif
-
-// Render
-#if 0
-{
-    // for (Entity *entity = 0; IncrementEntity(level, &entity);)
-    // {
-    //     PushCube(&openGL->group, entity->pos, entity->size, entity->color);
-    // }
-    // PushCube(&openGL->group, player->pos, player->size, player->color);
-    // DrawRectangle(&renderState, V2(0, 0), V2(renderState.width / 10, renderState.height / 10));
-
-        static b8 test = 0;
-        static VC_Handle vertex;
-        static VC_Handle index;
-        if (!test)
-        {
-            test                   = 1;
-            MeshVertex vertices[4] = {};
-            vertices[0].position   = {-1, -1, 0};
-            vertices[1].position   = {1, -1, 0};
-            vertices[2].position   = {1, 1, 0};
-            vertices[3].position   = {-1, 1, 0};
-
-            vertices[0].normal = {0, 0, 1.f};
-            vertices[1].normal = {0, 0, 1.f};
-            vertices[2].normal = {0, 0, 1.f};
-            vertices[3].normal = {0, 0, 1.f};
-
-            vertices[0].tangent = {1.f, 0, 0};
-            vertices[1].tangent = {1.f, 0, 0};
-            vertices[2].tangent = {1.f, 0, 0};
-            vertices[3].tangent = {1.f, 0, 0};
-
-            u32 indices[6];
-            indices[0] = 0;
-            indices[1] = 1;
-            indices[2] = 2;
-            indices[3] = 0;
-            indices[4] = 2;
-            indices[5] = 3;
-
-            vertex = renderState->vertexCache.VC_AllocateBuffer(BufferType_Vertex, BufferUsage_Static, vertices, sizeof(MeshVertex), 4);
-            index  = renderState->vertexCache.VC_AllocateBuffer(BufferType_Index, BufferUsage_Static, indices, sizeof(u32), 6);
-        }
-
-        Mat4 transform = Scale({20.f, 20.f, 20.f});
-        D_PushModel(vertex, index, renderState->transform * transform);
-#endif
-
-#if 0
-
-        LoadedSkeleton *skeleton    = GetSkeletonFromModel(g_state->model);
-        AnimationTransform *tforms1 = PushArray(g_state->frameArena, AnimationTransform, skeleton->count);
-        Mat4 *skinningMatrices1     = PushArray(g_state->frameArena, Mat4, skeleton->count);
-        PlayCurrentAnimation(g_state->permanentArena, &g_state->animPlayer, dt, tforms1);
-        SkinModelToAnimation(&g_state->animPlayer, g_state->model, tforms1, skinningMatrices1);
-        DebugDrawSkeleton(g_state->model, transform1, skinningMatrices1);
-        // SkinModelToBindPose(g_state->model, skinningMatrices1);
-        Mat4 mvp1 = renderState->transform * transform1;
-        D_PushModel(g_state->model, transform1, mvp1, skinningMatrices1, skeleton->count);
-
-        LoadedSkeleton *skeleton2   = GetSkeletonFromModel(g_state->model2);
-        AnimationTransform *tforms2 = PushArray(g_state->frameArena, AnimationTransform, skeleton2->count);
-        Mat4 *skinningMatrices2     = PushArray(g_state->frameArena, Mat4, skeleton2->count);
-        // PlayCurrentAnimation(g_state->worldArena, &g_state->animPlayer, dt, tforms2);
-        // SkinModelToAnimation(&g_state->animPlayer, &g_state->model2, tforms2, finalTransforms2);
-        SkinModelToBindPose(g_state->model2, skinningMatrices2);
-        Mat4 mvp2 = renderState->transform * transform2;
-        D_PushModel(g_state->model2, transform2, mvp2, skinningMatrices2, skeleton2->count);
-
-        // Eva model 01
-        translate       = Translate4(V3{-10, 10, 0});
-        scale           = Scale(V3{.1f, .1f, .1f});
-        rotate          = Rotate4(MakeV3(1, 0, 0), PI / 2);
-        Mat4 transform3 = translate * scale;
-        Mat4 mvp3       = renderState->transform * transform3;
-
-        D_PushModel(g_state->eva, transform3, mvp3);
-
-        // Ball
-
-        translate       = Translate4(V3{20, 10, 0});
-        scale           = Scale(V3{.1f, .1f, .1f});
-        rotate          = Rotate4(MakeV3(1, 0, 0), PI / 2);
-        Mat4 transform4 = translate;
-        Mat4 mvp4       = renderState->transform * transform4;
-
-        D_PushModel(g_state->modelBall, transform4, mvp4);
-
-        Light light;
-        light.type = LightType_Directional;
-        // TODO: no matter what direction is specified the shadow map is always {0, 0, -1}
-        // light.dir = MakeV3(0, .75f, 0.5f);
-        light.dir = MakeV3(0.f, 0.f, 1.f);
-        light.dir = Normalize(light.dir);
-        // light.pos = MakeV3(0.f, 0.f, 0.f);
-        D_PushLight(&light);
-
-        // D_PushHeightmap(g_state->heightmap);
-        D_CollateDebugRecords();
-
-        // R_SubmitFrame();
-    }
-    D_EndFrame();
-}
-#endif
+// #if 0
+//     V3 *velocity = &player->velocity;
+//
+//     Normalize(acceleration->xy);
+//
+//     f32 multiplier = 50;
+//     if (playerController->shift.keyDown)
+//     {
+//         multiplier = 100;
+//     }
+//     acceleration->xy *= multiplier;
+//
+//     acceleration->z = -GRAVITY;
+//     if (playerController->jump.keyDown && !HasFlag(player, Entity_Airborne))
+//     {
+//         velocity->z += 25.f;
+//         AddFlag(player, Entity_Airborne);
+//     }
+//
+//     Rect3 playerBox;
+//     // TODO: pull out friction
+//     *acceleration += MakeV3(-800.f * velocity->xy * dt, -10.f * velocity->z * dt);
+//     *velocity += *acceleration * dt;
+//
+//     V3 playerDelta = *velocity * dt;
+//     player->pos += playerDelta;
+//     playerBox.minP = player->pos;
+//     playerBox.maxP = player->pos + player->size;
+//
+//     // TODO: fix position of boxes (center vs bottom left vs bottom center)
+//     // TODO: capsule collision for player? GJK?
+//     for (Entity *entity = 0; IncrementEntity(level, &entity);)
+//     {
+//         if (HasFlag(entity, Entity_Collidable))
+//         {
+//             Rect3 collisionBox      = Rect3BottomLeft(entity->pos, entity->size);
+//             Manifold manifold       = NarrowPhaseAABBCollision(playerBox, collisionBox);
+//             f32 velocityAlongNormal = Dot(manifold.normal, *velocity);
+//             if (velocityAlongNormal > 0)
+//             {
+//                 continue;
+//             }
+//             *velocity -= manifold.normal * velocityAlongNormal;
+//             player->pos += manifold.normal * manifold.penetration;
+//             playerBox.minP = player->pos;
+//             if (manifold.normal.x == 0 && manifold.normal.y == 0 && manifold.normal.z == 1)
+//             {
+//                 RemoveFlag(player, Entity_Airborne);
+//             }
+//         }
+//     }
+//
+//     // Physics
+//     {
+//         // ConvexShape a;
+//         // f32 p = 1;
+//         //
+//         // V3 points[8] = {MakeV3(-p, -p, -p), MakeV3(p, -p, -p), MakeV3(p, p, -p), MakeV3(-p, p, -p),
+//         //                 MakeV3(-p, -p, p),  MakeV3(p, -p, p),  MakeV3(p, p, p),  MakeV3(-p, p, p)};
+//         // a.points     = points;
+//         // a.numPoints  = ArrayLength(points);
+//         // loopi(0, a.numPoints - 1)
+//         // {
+//         //     DrawLine(&renderState->debugRenderer, a.points[i], a.points[i + 1], Color_Red);
+//         // }
+//
+//         // ConvexShape b;
+//         // V3 points2[8] = {MakeV3(-p, -p, -p+1), MakeV3(p, -p, -p+1),
+//         //                  MakeV3(p, p, -p+1),   MakeV3(-p, p, -p+1),
+//         //                  MakeV3(-p + 1, -p + 1, p + 2),  MakeV3(p + 1, -p + 1, p + 2),
+//         //                  MakeV3(p + 1, p + 1, p + 2),    MakeV3(-p + 1, p + 1, p + 2)};
+//         // b.points      = points2;
+//         // b.numPoints   = ArrayLength(points2);
+//         // loopi(0, b.numPoints)
+//         // {
+//         //     DrawPoint(&renderState->debugRenderer, b.points[i], Color_Blue);
+//         // }
+//         ConvexShape sphereA = MakeSphere(MakeV3(5, 0, 0), 1.f);
+//         ConvexShape sphereB = MakeSphere(MakeV3(7.f, 0, 0), 1.f);
+//
+//         b32 result = Intersects(&sphereA, &sphereB, MakeV3(0, 0, 0));
+//         V4 color;
+//         if (result)
+//         {
+//             color = Color_Red;
+//         }
+//         else
+//         {
+//             color = Color_Green;
+//         }
+//
+//         DrawSphere(sphereA.center, sphereA.radius, color);
+//         DrawSphere(sphereB.center, sphereB.radius, color);
+//
+//         DrawSphere(player->pos, 2.f, color);
+//
+//         DrawBox({5, 1, 1}, {2, 1, 1}, Color_Black);
+//         DrawBox({8, 3, 3}, {1, 4, 2}, Color_Green);
+//         DrawArrow({0, 0, 0}, {5, 0, 0}, {1, 0, 0, 1}, 1.f);
+//         DrawArrow({0, 0, 0}, {0, 5, 0}, {0, 1, 0, 1}, 1.f);
+//         DrawArrow({0, 0, 0}, {0, 0, 5}, {0, 0, 1, 1}, 1.f);
+//     }
+//
+// // Render
+// {
+//     // for (Entity *entity = 0; IncrementEntity(level, &entity);)
+//     // {
+//     //     PushCube(&openGL->group, entity->pos, entity->size, entity->color);
+//     // }
+//     // PushCube(&openGL->group, player->pos, player->size, player->color);
+//     // DrawRectangle(&renderState, V2(0, 0), V2(renderState.width / 10, renderState.height / 10));
+//
+//         static b8 test = 0;
+//         static VC_Handle vertex;
+//         static VC_Handle index;
+//         if (!test)
+//         {
+//             test                   = 1;
+//             MeshVertex vertices[4] = {};
+//             vertices[0].position   = {-1, -1, 0};
+//             vertices[1].position   = {1, -1, 0};
+//             vertices[2].position   = {1, 1, 0};
+//             vertices[3].position   = {-1, 1, 0};
+//
+//             vertices[0].normal = {0, 0, 1.f};
+//             vertices[1].normal = {0, 0, 1.f};
+//             vertices[2].normal = {0, 0, 1.f};
+//             vertices[3].normal = {0, 0, 1.f};
+//
+//             vertices[0].tangent = {1.f, 0, 0};
+//             vertices[1].tangent = {1.f, 0, 0};
+//             vertices[2].tangent = {1.f, 0, 0};
+//             vertices[3].tangent = {1.f, 0, 0};
+//
+//             u32 indices[6];
+//             indices[0] = 0;
+//             indices[1] = 1;
+//             indices[2] = 2;
+//             indices[3] = 0;
+//             indices[4] = 2;
+//             indices[5] = 3;
+//
+//             vertex = renderState->vertexCache.VC_AllocateBuffer(BufferType_Vertex, BufferUsage_Static, vertices, sizeof(MeshVertex), 4);
+//             index  = renderState->vertexCache.VC_AllocateBuffer(BufferType_Index, BufferUsage_Static, indices, sizeof(u32), 6);
+//         }
+//
+//         Mat4 transform = Scale({20.f, 20.f, 20.f});
+//         D_PushModel(vertex, index, renderState->transform * transform);
+//
+//         LoadedSkeleton *skeleton    = GetSkeletonFromModel(g_state->model);
+//         AnimationTransform *tforms1 = PushArray(g_state->frameArena, AnimationTransform, skeleton->count);
+//         Mat4 *skinningMatrices1     = PushArray(g_state->frameArena, Mat4, skeleton->count);
+//         PlayCurrentAnimation(g_state->permanentArena, &g_state->animPlayer, dt, tforms1);
+//         SkinModelToAnimation(&g_state->animPlayer, g_state->model, tforms1, skinningMatrices1);
+//         DebugDrawSkeleton(g_state->model, transform1, skinningMatrices1);
+//         // SkinModelToBindPose(g_state->model, skinningMatrices1);
+//         Mat4 mvp1 = renderState->transform * transform1;
+//         D_PushModel(g_state->model, transform1, mvp1, skinningMatrices1, skeleton->count);
+//
+//         LoadedSkeleton *skeleton2   = GetSkeletonFromModel(g_state->model2);
+//         AnimationTransform *tforms2 = PushArray(g_state->frameArena, AnimationTransform, skeleton2->count);
+//         Mat4 *skinningMatrices2     = PushArray(g_state->frameArena, Mat4, skeleton2->count);
+//         // PlayCurrentAnimation(g_state->worldArena, &g_state->animPlayer, dt, tforms2);
+//         // SkinModelToAnimation(&g_state->animPlayer, &g_state->model2, tforms2, finalTransforms2);
+//         SkinModelToBindPose(g_state->model2, skinningMatrices2);
+//         Mat4 mvp2 = renderState->transform * transform2;
+//         D_PushModel(g_state->model2, transform2, mvp2, skinningMatrices2, skeleton2->count);
+//
+//         // Eva model 01
+//         translate       = Translate4(V3{-10, 10, 0});
+//         scale           = Scale(V3{.1f, .1f, .1f});
+//         rotate          = Rotate4(MakeV3(1, 0, 0), PI / 2);
+//         Mat4 transform3 = translate * scale;
+//         Mat4 mvp3       = renderState->transform * transform3;
+//
+//         D_PushModel(g_state->eva, transform3, mvp3);
+//
+//         // Ball
+//
+//         translate       = Translate4(V3{20, 10, 0});
+//         scale           = Scale(V3{.1f, .1f, .1f});
+//         rotate          = Rotate4(MakeV3(1, 0, 0), PI / 2);
+//         Mat4 transform4 = translate;
+//         Mat4 mvp4       = renderState->transform * transform4;
+//
+//         D_PushModel(g_state->modelBall, transform4, mvp4);
+//
+//         Light light;
+//         light.type = LightType_Directional;
+//         // TODO: no matter what direction is specified the shadow map is always {0, 0, -1}
+//         // light.dir = MakeV3(0, .75f, 0.5f);
+//         light.dir = MakeV3(0.f, 0.f, 1.f);
+//         light.dir = Normalize(light.dir);
+//         // light.pos = MakeV3(0.f, 0.f, 0.f);
+//         D_PushLight(&light);
+//
+//         // D_PushHeightmap(g_state->heightmap);
+//         D_CollateDebugRecords();
+//
+//         // R_SubmitFrame();
+//     }
+//     D_EndFrame();
+// }
+// #endif

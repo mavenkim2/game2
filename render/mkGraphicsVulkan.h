@@ -222,6 +222,16 @@ struct mkGraphicsVulkan : mkGraphics
     };
 
     //////////////////////////////
+    // Fences
+    //
+    struct FenceVulkan
+    {
+        u32 count;
+        VkFence fence;
+        FenceVulkan *next;
+    };
+
+    //////////////////////////////
     // Textures/Samplers
     //
 
@@ -252,14 +262,6 @@ struct mkGraphicsVulkan : mkGraphics
     {
         VkSampler mSampler;
         SamplerVulkan *next;
-    };
-
-    //////////////////////////////
-    // Fence
-    //
-    struct FenceVulkan
-    {
-        VkFence fence;
     };
 
     //////////////////////////////
@@ -311,6 +313,7 @@ struct mkGraphicsVulkan : mkGraphics
     TextureVulkan *freeTexture         = 0;
     SamplerVulkan *freeSampler         = 0;
     ShaderVulkan *freeShader           = 0;
+    FenceVulkan *freeFence             = 0;
 
     SwapchainVulkan *ToInternal(Swapchain *swapchain)
     {
@@ -348,10 +351,16 @@ struct mkGraphicsVulkan : mkGraphics
         return (ShaderVulkan *)(shader->internalState);
     }
 
-    VkFence ToInternal(Fence fence)
+    // VkFence ToInternal(Fence fence)
+    // {
+    //     Assert(fence.IsValid());
+    //     return (VkFence)(fence.internalState);
+    // }
+
+    FenceVulkan *ToInternal(Fence *fence)
     {
-        Assert(fence.IsValid());
-        return (VkFence)(fence.internalState);
+        Assert(fence->IsValid());
+        return (FenceVulkan *)(fence->internalState);
     }
 
     VkQueryPool ToInternal(QueryPool *pool)
@@ -398,7 +407,7 @@ struct mkGraphicsVulkan : mkGraphics
     void Wait(CommandList waitFor, CommandList cmd) override;
 
     void Barrier(CommandList cmd, GPUBarrier *barriers, u32 count) override;
-    b32 IsSignaled(Fence fence) override;
+    b32 IsSignaled(FenceTicket ticket) override;
     b32 IsLoaded(GPUResource *resource) override;
 
     // Query pool
@@ -407,9 +416,11 @@ struct mkGraphicsVulkan : mkGraphics
     void EndQuery(QueryPool *pool, CommandList cmd, u32 queryIndex) override;
     void ResolveQuery(QueryPool *pool, CommandList cmd, GPUBuffer *buffer, u32 queryIndex, u32 count, u32 destOffset) override;
     void ResetQuery(QueryPool *pool, CommandList cmd, u32 index, u32 count) override;
+    u32 GetCount(Fence f) override;
 
     // Debug
     void SetName(GPUResource *resource, const char *name) override;
+    void SetName(GPUResource *resource, string name) override;
 
 private:
     const i32 cPoolSize = 64;
@@ -423,19 +434,19 @@ private:
         void *mappedData;
         u64 size;
         u32 offset;
-        VkFence fence;
         u32 ringId;
         b8 freed;
     };
     Mutex mTransferMutex = {};
     struct TransferCommand
     {
-        VkCommandPool mCmdPool                       = VK_NULL_HANDLE; // command pool to issue transfer request
-        VkCommandBuffer mCmdBuffer                   = VK_NULL_HANDLE;
-        VkCommandPool mTransitionPool                = VK_NULL_HANDLE; // command pool to issue transfer request
-        VkCommandBuffer mTransitionBuffer            = VK_NULL_HANDLE;
-        VkFence mFence                               = VK_NULL_HANDLE; // signals cpu that transfer is complete
-        VkSemaphore mSemaphores[QueueType_Count - 1] = {};             // graphics, compute
+        VkCommandPool mCmdPool            = VK_NULL_HANDLE; // command pool to issue transfer request
+        VkCommandBuffer mCmdBuffer        = VK_NULL_HANDLE;
+        VkCommandPool mTransitionPool     = VK_NULL_HANDLE; // command pool to issue transfer request
+        VkCommandBuffer mTransitionBuffer = VK_NULL_HANDLE;
+        // VkFence mFence                               = VK_NULL_HANDLE; // signals cpu that transfer is complete
+        Fence fence;
+        VkSemaphore mSemaphores[QueueType_Count - 1] = {}; // graphics, compute
         RingAllocation *ringAllocation;
 
         const b32 IsValid()
@@ -456,15 +467,18 @@ private:
         u64 ringBufferSize;
         u32 writePos;
         u32 readPos;
-        u32 alignment = 16;
-        std::queue<RingAllocation> allocations;
+        u32 alignment;
+
+        RingAllocation allocations[256];
+        u16 allocationReadPos;
+        u16 allocationWritePos;
 
     } stagingRingAllocators[4];
 
     // NOTE: there is a potential case where the allocation has transferred, but the fence isn't signaled (when command buffer
     // is being reused). current solution is to just not care, since it doesn't impact anything yet.
-    RingAllocation *RingAlloc(u64 size, VkFence fence);
-    RingAllocation *RingAllocInternal(u32 ringId, u64 size, VkFence fence);
+    RingAllocation *RingAlloc(u64 size);
+    RingAllocation *RingAllocInternal(u32 ringId, u64 size);
     void RingFree(RingAllocation *allocation);
 
     //////////////////////////////

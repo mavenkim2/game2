@@ -1,6 +1,7 @@
 #ifndef MK_GRAPHICS_H
 #define MK_GRAPHICS_H
 
+#include <atomic>
 #include <functional>
 
 namespace graphics
@@ -186,11 +187,50 @@ enum class ResourceUsage
 
     DepthStencil = 1 << 11,
 
-    MegaBuffer  = 1 << 12, // e.g. subviews contain meaningful data, not the whole buffer itself
-    NotBindless = 1 << 13,
+    IndirectBuffer = 1 << 12,
+
+    MegaBuffer  = 1 << 13, // e.g. subviews contain meaningful data, not the whole buffer itself
+    NotBindless = 1 << 14,
 };
 
-// inline b32 HasFlags(ResourceUsage lhs, ResourceUsage rhs)
+typedef u32 PipelineFlag;
+enum : u32
+{
+    PipelineFlag_None                 = 0,
+    PipelineFlag_Indirect             = 1 << 0,
+    PipelineFlag_IndexInput           = 1 << 1,
+    PipelineFlag_VertexAttributeInput = 1 << 2,
+    PipelineFlag_VertexShader         = 1 << 3,
+    PipelineFlag_Transfer             = 1 << 4,
+    PipelineFlag_Compute              = 1 << 5,
+    PipelineFlag_FragmentShader       = 1 << 6,
+    PipelineFlag_AllCommands          = 1U << 31,
+};
+
+typedef u32 AccessFlag;
+enum
+{
+    AccessFlag_None                = 0,
+    AccessFlag_VertexAttributeRead = 1 << 0,
+    AccessFlag_IndexRead           = 1 << 1,
+    AccessFlag_UniformRead         = 1 << 2,
+    AccessFlag_TransferRead        = 1 << 3,
+    AccessFlag_TransferWrite       = 1 << 4,
+    AccessFlag_ShaderRead          = 1 << 5,
+    AccessFlag_ShaderWrite         = 1 << 6,
+};
+
+enum ImageLayout
+{
+    ImageLayout_None,
+    ImageLayout_DepthStencilAttachment,
+    ImageLayout_ShaderRead,
+    ImageLayout_General,
+    ImageLayout_TransferSrc,
+    ImageLayout_TransferDst,
+};
+
+// inline b32 HasFlags(u32 lhs, u32 rhs)
 // {
 //     return (lhs & rhs) == rhs;
 // }
@@ -293,7 +333,15 @@ struct QueryPool : GraphicsObject
 
 struct Fence : GraphicsObject
 {
-    b8 signaled;
+    // u32 count;
+};
+
+struct FenceTicket
+{
+    Fence fence;
+    u32 ticket;
+
+    // void Create(Fence f);
 };
 
 struct GPUResource : GraphicsObject
@@ -305,7 +353,7 @@ struct GPUResource : GraphicsObject
         Image,
     } mResourceType;
 
-    Fence fence;
+    FenceTicket ticket;
 
     inline b32 IsTexture()
     {
@@ -427,42 +475,61 @@ struct GPUBarrier
         Buffer,
         Image,
         Memory,
-    } mType = Type::Memory;
+    } type = Type::Memory;
 
-    GPUResource *mResource;
+    GPUResource *resource;
 
-    ResourceUsage mBefore;
-    ResourceUsage mAfter;
+    PipelineFlag stageBefore;
+    PipelineFlag stageAfter;
 
-    static GPUBarrier Buffer(GPUResource *resource, ResourceUsage before, ResourceUsage after)
+    AccessFlag accessBefore;
+    AccessFlag accessAfter;
+
+    ImageLayout layoutBefore;
+    ImageLayout layoutAfter;
+
+    static GPUBarrier Buffer(GPUResource *resource, PipelineFlag inStageBefore, PipelineFlag inStageAfter,
+                             AccessFlag inAccessBefore, AccessFlag inAccessAfter)
     {
         GPUBarrier barrier;
         Assert(resource->mResourceType == GPUResource::ResourceType::Buffer);
-        barrier.mType     = Type::Buffer;
-        barrier.mResource = resource;
-        barrier.mBefore   = before;
-        barrier.mAfter    = after;
+
+        barrier.type         = Type::Buffer;
+        barrier.resource     = resource;
+        barrier.stageBefore  = inStageBefore;
+        barrier.stageAfter   = inStageAfter;
+        barrier.accessBefore = inAccessBefore;
+        barrier.accessAfter  = inAccessAfter;
+
         return barrier;
     }
 
-    static GPUBarrier Memory(ResourceUsage before, ResourceUsage after)
+    static GPUBarrier Memory(PipelineFlag inStageBefore, PipelineFlag inStageAfter,
+                             AccessFlag inAccessBefore = AccessFlag_None, AccessFlag inAccessAfter = AccessFlag_None)
     {
         GPUBarrier barrier;
-        barrier.mType     = Type::Memory;
-        barrier.mResource = 0;
-        barrier.mBefore   = before;
-        barrier.mAfter    = after;
+        barrier.type         = Type::Memory;
+        barrier.resource     = 0;
+        barrier.stageBefore  = inStageBefore;
+        barrier.stageAfter   = inStageAfter;
+        barrier.accessBefore = inAccessBefore;
+        barrier.accessAfter  = inAccessAfter;
         return barrier;
     }
 
-    static GPUBarrier Image(GPUResource *resource, ResourceUsage before, ResourceUsage after)
+    static GPUBarrier Image(GPUResource *resource, PipelineFlag inStageBefore, PipelineFlag inStageAfter, AccessFlag inAccessBefore,
+                            AccessFlag inAccessAfter, ImageLayout inLayoutBefore, ImageLayout inLayoutAfter)
     {
         GPUBarrier barrier;
         Assert(resource->mResourceType == GPUResource::ResourceType::Image);
-        barrier.mType     = Type::Image;
-        barrier.mResource = resource;
-        barrier.mBefore   = before;
-        barrier.mAfter    = after;
+        barrier.type         = Type::Image;
+        barrier.resource     = resource;
+        barrier.stageBefore  = inStageBefore;
+        barrier.stageAfter   = inStageAfter;
+        barrier.accessBefore = inAccessBefore;
+        barrier.accessAfter  = inAccessAfter;
+        barrier.layoutBefore = inLayoutBefore;
+        barrier.layoutAfter  = inLayoutAfter;
         return barrier;
     }
 };
@@ -675,14 +742,16 @@ struct mkGraphics
     virtual void WaitForGPU()                                                                                                 = 0;
     virtual void Wait(CommandList waitFor, CommandList cmd)                                                                   = 0;
     virtual void Barrier(CommandList cmd, GPUBarrier *barriers, u32 count)                                                    = 0;
-    virtual b32 IsSignaled(Fence fence)                                                                                       = 0;
+    virtual b32 IsSignaled(FenceTicket ticket)                                                                                = 0;
     virtual b32 IsLoaded(GPUResource *resource)                                                                               = 0;
     virtual void CreateQueryPool(QueryPool *pool, QueryType type, u32 queryCount)                                             = 0;
     virtual void BeginQuery(QueryPool *pool, CommandList cmd, u32 queryIndex)                                                 = 0;
     virtual void EndQuery(QueryPool *pool, CommandList cmd, u32 queryIndex)                                                   = 0;
     virtual void ResolveQuery(QueryPool *pool, CommandList cmd, GPUBuffer *buffer, u32 queryIndex, u32 count, u32 destOffset) = 0;
     virtual void ResetQuery(QueryPool *pool, CommandList cmd, u32 index, u32 count)                                           = 0;
+    virtual u32 GetCount(Fence f)                                                                                             = 0;
     virtual void SetName(GPUResource *resource, const char *name)                                                             = 0;
+    virtual void SetName(GPUResource *resource, string name)                                                                  = 0;
 
     virtual u32 GetCurrentBuffer() = 0;
 };

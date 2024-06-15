@@ -568,7 +568,7 @@ internal void AS_LoadAsset(AS_Asset *asset)
         // Load vertices and indices of each mesh to he GPU
         for (u32 i = 0; i < model->numMeshes; i++)
         {
-            Mesh *mesh      = meshes[i];
+            Mesh *mesh = meshes[i];
             mesh->Init();
             u32 vertexCount = mesh->vertexCount;
             u32 indexCount  = mesh->indexCount;
@@ -716,6 +716,16 @@ internal void AS_LoadAsset(AS_Asset *asset)
                 mesh->soTanView.srvDescriptor = device->GetDescriptorIndex(&mesh->streamBuffer, ResourceType::SRV, mesh->soTanView.srvIndex);
                 mesh->soTanView.uavIndex      = device->CreateSubresource(&mesh->streamBuffer, ResourceType::UAV, mesh->soTanView.offset, mesh->soTanView.size);
                 mesh->soTanView.uavDescriptor = device->GetDescriptorIndex(&mesh->streamBuffer, ResourceType::UAV, mesh->soTanView.uavIndex);
+
+                mesh->posDescriptor = mesh->soPosView.srvDescriptor;
+                mesh->norDescriptor = mesh->soNorView.srvDescriptor;
+                mesh->tanDescriptor = mesh->soTanView.srvDescriptor;
+            }
+            else
+            {
+                mesh->posDescriptor = mesh->vertexPosView.srvDescriptor;
+                mesh->norDescriptor = mesh->vertexNorView.srvDescriptor;
+                mesh->tanDescriptor = mesh->vertexTanView.srvDescriptor;
             }
 
             Mat4 transform         = transforms[i];

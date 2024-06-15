@@ -86,6 +86,7 @@ void MaterialManager::Init(Scene *inScene)
     materialWritePos      = 0;
     freeMaterialPositions = 0;
     freeMaterialNodes     = 0;
+    numChunkNodes         = 0;
 }
 
 MaterialComponent *MaterialManager::Create(u32 sid)
@@ -113,8 +114,9 @@ MaterialComponent *MaterialManager::Create(u32 sid)
             MaterialChunkNode *newChunkNode = PushStruct(parentScene->arena, MaterialChunkNode);
             QueuePush(first, last, newChunkNode);
             chunkNode = newChunkNode;
+            numChunkNodes++;
         }
-        handle = CreateHandle(chunkNode, localIndex);
+        handle = CreateHandle(chunkNode, localIndex, numChunkNodes - 1);
     }
 
     MaterialSlot *slot         = &nameMap[sid & materialSlotMask];
@@ -209,7 +211,7 @@ b32 MaterialManager::Remove(u32 sid)
         MaterialComponent *material = GetFromHandle(handle);
         material->flags             = material->flags & ~MaterialFlag_Valid;
         RemoveFromList(handle);
-        result = 1;
+        result  = 1;
     }
     return result;
 }
@@ -224,7 +226,7 @@ b32 MaterialManager::Remove(MaterialHandle handle)
         RemoveFromNameMap(material->sid);
         material->flags = material->flags & ~MaterialFlag_Valid;
         RemoveFromList(handle);
-        result = 1;
+        result  = 1;
     }
     return result;
 }

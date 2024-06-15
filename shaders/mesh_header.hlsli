@@ -12,6 +12,8 @@
 struct VertexInput
 {
     uint vertexID: SV_VertexID;
+    // uint instanceID : SV_InstanceID; // gl_InstanceIndex
+    // TODO: support shader draw parameters extension
 };
 
 struct FragmentInput
@@ -32,14 +34,17 @@ FragmentInput main(VertexInput input)
 {
     FragmentInput output;
 
-    float3 pos = GetFloat3(push.vertexPos, input.vertexID);
+    ShaderMeshSubset subset = bindlessMeshSubsets[push.subsetDescriptor][push.drawID];
+    MeshParams params = bindlessMeshParams[push.meshParamsDescriptor][subset.meshIndex];
+    MeshGeometry geo = bindlessMeshGeometry[push.geometryDescriptor][subset.meshIndex];
+
+    float3 pos = GetFloat3(geo.vertexPos, input.vertexID);
 
 #ifdef MESH_PASS
-    float2 uv = GetFloat2(push.vertexUv, input.vertexID);
-    float3 n = GetFloat3(push.vertexNor, input.vertexID);
-    float3 tangent = GetFloat3(push.vertexTan, input.vertexID);
+    float2 uv = GetFloat2(geo.vertexUv, input.vertexID);
+    float3 n = GetFloat3(geo.vertexNor, input.vertexID);
+    float3 tangent = GetFloat3(geo.vertexTan, input.vertexID);
 #endif
-    MeshParams params = bindlessMeshParams[push.meshParamsBuffer][push.meshIndex];
 
     float4x4 modelToWorldMatrix = params.modelMatrix;
     float4 modelSpacePos;
@@ -76,13 +81,17 @@ float4 main(FragmentInput fragment) : SV_Target
 {
     float3 albedo = float3(1, 1, 1);
     float3 normal = float3(1, 1, 1);
-    if (push.albedo >= 0)
+
+    ShaderMeshSubset subset = bindlessMeshSubsets[push.subsetDescriptor][push.drawID];
+    ShaderMaterial material = bindlessMaterials[push.materialDescriptor][subset.materialIndex];
+    
+    if (material.albedo >= 0)
     {
-        albedo = bindlessTextures[push.albedo].Sample(samplerLinearWrap, fragment.uv).rgb;
+        albedo = bindlessTextures[material.albedo].Sample(samplerLinearWrap, fragment.uv).rgb;
     }
-    if (push.normal >= 0)
+    if (material.normal >= 0)
     {
-        normal = normalize(bindlessTextures[push.normal].Sample(samplerLinearWrap, fragment.uv).rgb * 2 - 1);
+        normal = normalize(bindlessTextures[material.normal].Sample(samplerLinearWrap, fragment.uv).rgb * 2 - 1);
     }
     float viewZ = abs(fragment.viewFragPos.z);
 

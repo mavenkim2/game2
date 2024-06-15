@@ -863,11 +863,32 @@ PipelineState shadowMapPipeline;
 PipelineState blockCompressPipeline;
 PipelineState skinPipeline;
 
+// Buffers
 graphics::GPUBuffer cascadeParamsBuffer;
-graphics::GPUBuffer meshParamsBuffer;
-graphics::GPUBuffer meshParamsBufferUpload[device->cNumBuffers];
-graphics::GPUBuffer skinningBuffer;
 graphics::GPUBuffer skinningBufferUpload[device->cNumBuffers];
+graphics::GPUBuffer skinningBuffer;
+graphics::GPUBuffer meshParamsBufferUpload[device->cNumBuffers];
+graphics::GPUBuffer meshParamsBuffer;
+graphics::GPUBuffer meshGeometryBufferUpload[device->cNumBuffers];
+graphics::GPUBuffer meshGeometryBuffer;
+graphics::GPUBuffer meshBatchBufferUpload[device->cNumBuffers];
+graphics::GPUBuffer meshBatchBuffer;
+// TODO: I think this will eventually disappear
+graphics::GPUBuffer meshSubsetBufferUpload[device->cNumBuffers];
+graphics::GPUBuffer meshSubsetBuffer;
+graphics::GPUBuffer materialBufferUpload[device->cNumBuffers];
+graphics::GPUBuffer materialBuffer;
+
+// graphics::GPUBuffer instanceToDrawIDBuffer;
+graphics::GPUBuffer meshIndirectBuffer;
+graphics::GPUBuffer meshIndexBuffer;
+
+u32 skinningBufferSize;
+u32 meshParamsBufferSize;
+u32 meshGeometryBufferSize;
+u32 meshBatchBufferSize;
+u32 meshSubsetBufferSize;
+u32 materialBufferSize;
 
 InputLayout inputLayouts[IL_Type_Count];
 Shader shaders[ShaderType_Count];
@@ -889,11 +910,6 @@ std::atomic<u64> volatile blockCompressWrite       = 0;
 std::atomic<u64> volatile blockCompressCommitWrite = 0;
 u64 blockCompressRead                              = 0;
 
-// Render mesh :)
-struct RenderMesh
-{
-};
-
 // Per frame allocations
 struct FrameData
 {
@@ -906,7 +922,14 @@ u8 currentFrame;
 u8 currentBuffer;
 FrameData frameData[2];
 
-internal void *FrameAlloc(i32 size)
+// graphics::GPUBuffer globalVertexBuffer;
+//
+// internal void AllocateGeometry(void *data, u64 size)
+// {
+// }
+
+internal void *
+FrameAlloc(i32 size)
 {
     i32 alignedSize   = AlignPow2(size, 16);
     FrameData *data   = &frameData[currentBuffer];
@@ -945,6 +968,14 @@ internal void Initialize()
 
     // Initialize buffers
     {
+        skinningBufferSize     = 0;
+        meshParamsBufferSize   = 0;
+        meshGeometryBufferSize = 0;
+        meshBatchBufferSize    = 0;
+        meshSubsetBufferSize   = 0;
+        materialBufferSize     = 0;
+
+        TempArena temp = ScratchStart(0, 0);
         GPUBufferDesc desc;
         desc.mSize          = kilobytes(64);
         desc.mResourceUsage = ResourceUsage::UniformBuffer | ResourceUsage::NotBindless;
@@ -968,15 +999,16 @@ internal void Initialize()
         device->CreateBuffer(&skinningBuffer, desc, 0);
         device->SetName(&skinningBuffer, "Skinning buffer");
 
-        // Mesh transforms
+        // Mesh params
         desc                = {};
         desc.mSize          = kilobytes(4);
         desc.mUsage         = MemoryUsage::CPU_TO_GPU;
-        desc.mResourceUsage = ResourceUsage::UniformBuffer;
+        desc.mResourceUsage = ResourceUsage::TransferSrc; // ResourceUsage::UniformBuffer;
         for (u32 i = 0; i < ArrayLength(meshParamsBufferUpload); i++)
         {
             device->CreateBuffer(&meshParamsBufferUpload[i], desc, 0);
-            device->SetName(&meshParamsBufferUpload[i], "Mesh params upload buffer");
+            string name = PushStr8F(temp.arena, "Mesh params upload buffer %i", i);
+            device->SetName(&meshParamsBufferUpload[i], name);
         }
 
         desc                = {};
@@ -985,6 +1017,107 @@ internal void Initialize()
         desc.mResourceUsage = ResourceUsage::UniformBuffer;
         device->CreateBuffer(&meshParamsBuffer, desc, 0);
         device->SetName(&meshParamsBuffer, "Mesh params buffer");
+
+        // Mesh geometry
+        desc                = {};
+        desc.mSize          = kilobytes(4);
+        desc.mUsage         = MemoryUsage::CPU_TO_GPU;
+        desc.mResourceUsage = ResourceUsage::TransferSrc;
+
+        for (u32 i = 0; i < ArrayLength(meshGeometryBufferUpload); i++)
+        {
+            device->CreateBuffer(&meshGeometryBufferUpload[i], desc, 0);
+            string name = PushStr8F(temp.arena, "Mesh geometry upload buffer %i", i);
+            device->SetName(&meshGeometryBufferUpload[i], name);
+        }
+
+        desc                = {};
+        desc.mSize          = kilobytes(4);
+        desc.mUsage         = MemoryUsage::GPU_ONLY;
+        desc.mResourceUsage = ResourceUsage::UniformBuffer;
+        device->CreateBuffer(&meshGeometryBuffer, desc, 0);
+        device->SetName(&meshGeometryBuffer, "Mesh geometry buffer");
+
+        // Mesh batches
+        desc                = {};
+        desc.mSize          = kilobytes(4);
+        desc.mUsage         = MemoryUsage::CPU_TO_GPU;
+        desc.mResourceUsage = ResourceUsage::TransferSrc;
+
+        for (u32 i = 0; i < ArrayLength(meshBatchBufferUpload); i++)
+        {
+            device->CreateBuffer(&meshBatchBufferUpload[i], desc, 0);
+            string name = PushStr8F(temp.arena, "Mesh batch upload buffer %i", i);
+            device->SetName(&meshBatchBufferUpload[i], name);
+        }
+
+        desc                = {};
+        desc.mSize          = kilobytes(4);
+        desc.mUsage         = MemoryUsage::GPU_ONLY;
+        desc.mResourceUsage = ResourceUsage::UniformBuffer;
+        device->CreateBuffer(&meshBatchBuffer, desc, 0);
+        device->SetName(&meshBatchBuffer, "Mesh batch buffer");
+
+        // Mesh subset
+        desc                = {};
+        desc.mSize          = kilobytes(4);
+        desc.mUsage         = MemoryUsage::CPU_TO_GPU;
+        desc.mResourceUsage = ResourceUsage::TransferSrc;
+
+        for (u32 i = 0; i < ArrayLength(meshSubsetBufferUpload); i++)
+        {
+            device->CreateBuffer(&meshSubsetBufferUpload[i], desc, 0);
+            string name = PushStr8F(temp.arena, "Mesh subset upload buffer %i", i);
+            device->SetName(&meshSubsetBufferUpload[i], name);
+        }
+
+        desc                = {};
+        desc.mSize          = kilobytes(4);
+        desc.mUsage         = MemoryUsage::GPU_ONLY;
+        desc.mResourceUsage = ResourceUsage::UniformBuffer;
+        device->CreateBuffer(&meshSubsetBuffer, desc, 0);
+        device->SetName(&meshSubsetBuffer, "Mesh subset buffer");
+
+        // Material buffer
+        desc                = {};
+        desc.mSize          = kilobytes(4);
+        desc.mUsage         = MemoryUsage::CPU_TO_GPU;
+        desc.mResourceUsage = ResourceUsage::TransferSrc;
+
+        for (u32 i = 0; i < ArrayLength(materialBufferUpload); i++)
+        {
+            device->CreateBuffer(&materialBufferUpload[i], desc, 0);
+            string name = PushStr8F(temp.arena, "Material upload buffer %i", i);
+            device->SetName(&materialBufferUpload[i], name);
+        }
+
+        desc                = {};
+        desc.mSize          = kilobytes(4);
+        desc.mUsage         = MemoryUsage::GPU_ONLY;
+        desc.mResourceUsage = ResourceUsage::UniformBuffer;
+        device->CreateBuffer(&materialBuffer, desc, 0);
+        device->SetName(&materialBuffer, "Material buffer");
+
+        // Indirect buffer
+        desc                = {};
+        desc.mSize          = kilobytes(4);
+        desc.mUsage         = MemoryUsage::GPU_ONLY;
+        desc.mResourceUsage = ResourceUsage::StorageBuffer | ResourceUsage::IndirectBuffer;
+        device->CreateBuffer(&meshIndirectBuffer, desc, 0);
+        device->SetName(&meshIndirectBuffer, "Mesh indirect buffer");
+
+        // Mesh index buffer
+        desc                = {};
+        desc.mSize          = kilobytes(4);
+        desc.mUsage         = MemoryUsage::GPU_ONLY;
+        desc.mResourceUsage = ResourceUsage::StorageBuffer | ResourceUsage::IndexBuffer;
+        device->CreateBuffer(&meshIndexBuffer, desc, 0);
+        device->SetName(&meshIndexBuffer, "Mesh index buffer");
+
+        // instance to draw id buffer
+        // desc        = {};
+        // desc.mSize  = kilobytes(4);
+        // desc.mUsage = MemoryUsage::GPU_ONLY;
     }
 
     // Initialize render targets/depth buffers
@@ -1097,77 +1230,61 @@ enum RenderPassType
     RenderPassType_Shadow,
 };
 
+internal void CullMeshBatches(CommandList cmdList)
+{
+    for (MeshIter iter = gameScene->BeginMeshIter(); !gameScene->End(&iter); gameScene->Next(&iter))
+    {
+        Mesh *mesh = gameScene->Get(&iter);
+        for (u32 subsetIndex = 0; subsetIndex < mesh->numSubsets; subsetIndex++)
+        {
+        }
+    }
+}
+
 internal void RenderMeshes(CommandList cmdList, RenderPassType type, i32 cascadeNum = -1)
 {
     b8 shadowPass = type == RenderPassType_Shadow;
     b8 mainPass   = type == RenderPassType_Main;
 
     PushConstant pc;
-    pc.meshParamsBuffer = device->GetDescriptorIndex(&meshParamsBuffer, ResourceType::SRV);
+    pc.meshParamsDescriptor = device->GetDescriptorIndex(&meshParamsBuffer, ResourceType::SRV);
+    pc.subsetDescriptor     = device->GetDescriptorIndex(&meshSubsetBuffer, ResourceType::SRV);
+    pc.materialDescriptor   = device->GetDescriptorIndex(&materialBuffer, ResourceType::SRV);
+    pc.geometryDescriptor   = device->GetDescriptorIndex(&meshGeometryBuffer, ResourceType::SRV);
 
     if (shadowPass)
     {
         pc.cascadeNum = cascadeNum;
     }
 
+    u32 subsetCount = 0;
     for (MeshIter iter = gameScene->BeginMeshIter(); !gameScene->End(&iter); gameScene->Next(&iter))
     {
         Mesh *mesh = gameScene->Get(&iter);
         if (mesh->meshIndex == -1) continue;
-        pc.meshIndex = mesh->meshIndex;
 
-        if (mesh->soPosView.IsValid())
-        {
-            pc.vertexPos = mesh->soPosView.srvDescriptor;
-        }
-        else
-        {
-            pc.vertexPos = mesh->vertexPosView.srvDescriptor;
-        }
-
-        if (mainPass)
-        {
-            if (mesh->soNorView.IsValid())
-            {
-                pc.vertexNor = mesh->soNorView.srvDescriptor;
-            }
-            else
-            {
-                pc.vertexNor = mesh->vertexNorView.srvDescriptor;
-            }
-            if (mesh->soTanView.IsValid())
-            {
-                pc.vertexTan = mesh->soTanView.srvDescriptor;
-            }
-            else
-            {
-                pc.vertexTan = mesh->vertexTanView.srvDescriptor;
-            }
-            pc.vertexUv = mesh->vertexUvView.srvDescriptor;
-        }
-
-        u32 baseVertex = 0;
         for (u32 subsetIndex = 0; subsetIndex < mesh->numSubsets; subsetIndex++)
         {
             Mesh::MeshSubset *subset = &mesh->subsets[subsetIndex];
+            // TODO: remove this for indirect
+            pc.drawID = subsetCount++;
 
-            if (mainPass)
-            {
-                scene::MaterialComponent *material = gameScene->materials.GetFromHandle(subset->materialHandle);
-
-                graphics::Texture *texture = GetTexture(material->textures[TextureType_Diffuse]);
-                i32 descriptorIndex        = device->GetDescriptorIndex(texture, ResourceType::SRV);
-                pc.albedo                  = descriptorIndex;
-
-                texture         = GetTexture(material->textures[TextureType_Normal]);
-                descriptorIndex = device->GetDescriptorIndex(texture, ResourceType::SRV);
-                pc.normal       = descriptorIndex;
-            }
+            // if (mainPass)
+            // {
+            //     scene::MaterialComponent *material = gameScene->materials.GetFromHandle(subset->materialHandle);
+            //
+            //     graphics::Texture *texture = GetTexture(material->textures[TextureType_Diffuse]);
+            //     i32 descriptorIndex        = device->GetDescriptorIndex(texture, ResourceType::SRV);
+            //     pc.albedo                  = descriptorIndex;
+            //
+            //     texture         = GetTexture(material->textures[TextureType_Normal]);
+            //     descriptorIndex = device->GetDescriptorIndex(texture, ResourceType::SRV);
+            //     pc.normal       = descriptorIndex;
+            // }
 
             device->PushConstants(cmdList, sizeof(pc), &pc);
             device->BindIndexBuffer(cmdList, &mesh->buffer, mesh->indexView.offset);
             device->DrawIndexed(cmdList, subset->indexCount, subset->indexStart, 0);
-            baseVertex += subset->indexCount;
         }
     }
 }
@@ -1176,10 +1293,8 @@ internal void Render()
 {
     TIMED_FUNCTION();
     // TODO: eventually, this should not be accessed from here
-    G_State *g_state                  = engine->GetGameState();
-    RenderState *renderState          = engine->GetRenderState();
-    GPUBuffer *currentSkinBufUpload   = &skinningBufferUpload[device->GetCurrentBuffer()];
-    GPUBuffer *currentMeshParamUpload = &meshParamsBufferUpload[device->GetCurrentBuffer()];
+    G_State *g_state         = engine->GetGameState();
+    RenderState *renderState = engine->GetRenderState();
 
     // Read through deferred block compress commands
     CommandList cmd;
@@ -1232,26 +1347,51 @@ internal void Render()
     TIMED_GPU(cmdList);
     debugState.BeginTriangleCount(cmdList);
 
-    // GPUBarrier barrier = CreateBarrier(currentSkinBufUpload, ResourceUsage::TransferSrc, ResourceUsage::None);
-    // device->Barrier(cmdList, &barrier, 1);
     {
-        GPUBarrier barriers[] = {
-            GPUBarrier::Buffer(&skinningBuffer, ResourceUsage::UniformBuffer, ResourceUsage::TransferDst),
-            GPUBarrier::Buffer(&meshParamsBuffer, ResourceUsage::UniformBuffer, ResourceUsage::TransferDst),
-            GPUBarrier::Buffer(&cascadeParamsBuffer, ResourceUsage::TransferDst, ResourceUsage::UniformBuffer),
-        };
-        device->Barrier(cmdList, barriers, ArrayLength(barriers));
+        // GPUBarrier barriers[] = {
+        //     GPUBarrier::Buffer(&skinningBuffer, ResourceUsage::UniformBuffer, ResourceUsage::TransferDst),
+        //     GPUBarrier::Buffer(&meshParamsBuffer, ResourceUsage::UniformBuffer, ResourceUsage::TransferDst),
+        //     GPUBarrier::Buffer(&cascadeParamsBuffer, ResourceUsage::TransferDst, ResourceUsage::UniformBuffer),
+        // };
+        // device->Barrier(cmdList, barriers, ArrayLength(barriers));
+
+        // NOTE: WAR, only need execution dependency
+        GPUBarrier barrier = GPUBarrier::Memory(PipelineFlag_AllCommands, PipelineFlag_Transfer);
+        device->Barrier(cmdList, &barrier, 1);
     }
 
-    u32 skinningBufferSize = g_state->skinningBufferSize;
-    if (skinningBufferSize)
+    // Upload frame allocations
     {
-        device->CopyBuffer(cmdList, &skinningBuffer, currentSkinBufUpload, skinningBufferSize);
-    }
-    u32 meshParamsSize = g_state->meshParamsSize;
-    if (meshParamsSize)
-    {
-        device->CopyBuffer(cmdList, &meshParamsBuffer, currentMeshParamUpload, meshParamsSize);
+        GPUBuffer *currentSkinBufUpload   = &skinningBufferUpload[device->GetCurrentBuffer()];
+        GPUBuffer *currentMeshParamUpload = &meshParamsBufferUpload[device->GetCurrentBuffer()];
+        GPUBuffer *currentMeshGeoUpload   = &meshGeometryBufferUpload[device->GetCurrentBuffer()];
+        GPUBuffer *currentBatchUpload     = &meshBatchBufferUpload[device->GetCurrentBuffer()];
+        GPUBuffer *currentSubsetUpload    = &meshSubsetBufferUpload[device->GetCurrentBuffer()];
+        if (skinningBufferSize)
+        {
+            device->CopyBuffer(cmdList, &skinningBuffer, currentSkinBufUpload, skinningBufferSize);
+        }
+        if (meshParamsBufferSize)
+        {
+            device->CopyBuffer(cmdList, &meshParamsBuffer, currentMeshParamUpload, meshParamsBufferSize);
+        }
+        if (meshGeometryBufferSize)
+        {
+            device->CopyBuffer(cmdList, &meshGeometryBuffer, currentMeshGeoUpload, meshGeometryBufferSize);
+        }
+        if (meshBatchBufferSize)
+        {
+            device->CopyBuffer(cmdList, &meshBatchBuffer, currentBatchUpload, meshBatchBufferSize);
+        }
+        if (meshSubsetBufferSize)
+        {
+            device->CopyBuffer(cmdList, &meshSubsetBuffer, currentSubsetUpload, meshSubsetBufferSize);
+        }
+        GPUBuffer *currentMaterialUpload = &materialBufferUpload[device->GetCurrentBuffer()];
+        if (materialBufferSize)
+        {
+            device->CopyBuffer(cmdList, &materialBuffer, currentMaterialUpload, materialBufferSize);
+        }
     }
 
     // Setup cascaded shadowmaps
@@ -1268,11 +1408,14 @@ internal void Render()
     }
 
     {
-        GPUBarrier barriers[] = {
-            GPUBarrier::Buffer(&skinningBuffer, ResourceUsage::TransferDst, ResourceUsage::UniformBuffer),
-            GPUBarrier::Buffer(&meshParamsBuffer, ResourceUsage::TransferDst, ResourceUsage::UniformBuffer),
-        };
-        device->Barrier(cmdList, barriers, ArrayLength(barriers));
+        // GPUBarrier barriers[] = {
+        //     GPUBarrier::Buffer(&skinningBuffer, ResourceUsage::TransferDst, ResourceUsage::UniformBuffer),
+        //     GPUBarrier::Buffer(&meshParamsBuffer, ResourceUsage::TransferDst, ResourceUsage::UniformBuffer),
+        // };
+        // device->Barrier(cmdList, barriers, ArrayLength(barriers));
+        GPUBarrier barrier = GPUBarrier::Memory(PipelineFlag_Transfer, PipelineFlag_VertexShader,
+                                                AccessFlag_TransferWrite, AccessFlag_ShaderRead | AccessFlag_UniformRead);
+        device->Barrier(cmdList, &barrier, 1);
     }
 
     // Shadow pass :)
@@ -1339,7 +1482,7 @@ internal void Render()
         device->SetScissor(cmdList, scissor);
 
         PushConstant pc;
-        pc.meshParamsBuffer = device->GetDescriptorIndex(&meshParamsBuffer, ResourceType::SRV);
+        pc.meshParamsDescriptor = device->GetDescriptorIndex(&meshParamsBuffer, ResourceType::SRV);
 
         RenderMeshes(cmdList, RenderPassType_Main);
         device->EndRenderPass(cmdList);
@@ -1416,7 +1559,9 @@ void BlockCompressImage(graphics::Texture *input, graphics::Texture *output, Com
     // Copy from uav to output
     {
         GPUBarrier barriers[] = {
-            GPUBarrier::Image(&bc1Uav, ResourceUsage::StorageImage, ResourceUsage::TransferSrc),
+            GPUBarrier::Image(&bc1Uav, PipelineFlag_Compute, PipelineFlag_Transfer,
+                              AccessFlag_ShaderWrite, AccessFlag_TransferRead,
+                              ImageLayout_General, ImageLayout_TransferSrc),
         };
         device->Barrier(cmd, barriers, ArrayLength(barriers));
     }
@@ -1426,8 +1571,12 @@ void BlockCompressImage(graphics::Texture *input, graphics::Texture *output, Com
     // Transfer the block compressed texture to its initial format
     {
         GPUBarrier barriers[] = {
-            GPUBarrier::Image(&bc1Uav, ResourceUsage::TransferSrc, ResourceUsage::StorageImage),
-            GPUBarrier::Image(output, ResourceUsage::TransferDst, ResourceUsage::SampledImage),
+            GPUBarrier::Image(&bc1Uav, PipelineFlag_Transfer, PipelineFlag_Compute,
+                              AccessFlag_TransferRead, AccessFlag_ShaderWrite,
+                              ImageLayout_TransferSrc, ImageLayout_General),
+            GPUBarrier::Image(output, PipelineFlag_Transfer, PipelineFlag_FragmentShader,
+                              AccessFlag_TransferWrite, AccessFlag_ShaderRead,
+                              ImageLayout_TransferDst, ImageLayout_ShaderRead),
         };
         device->Barrier(cmd, barriers, ArrayLength(barriers));
     }

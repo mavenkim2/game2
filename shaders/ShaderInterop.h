@@ -15,6 +15,7 @@ using float4   = V4;
 using float3   = V3;
 using float2   = V2;
 using uint4    = UV4;
+using uint     = u32;
 
 // #define GET_UNIFORM_BIND_SLOT(name) __UNIFORM_BIND_SLOT__##name##__
 #define UNIFORM(name, slot) \
@@ -25,7 +26,7 @@ using uint4    = UV4;
 #else
 #define GET_UNIFORM_BIND_SLOT(name)
 #define UNIFORM(name, slot) cbuffer name : register(GLUE(b, slot))
-#define SLOT(type, slot) GLUE(type, slot)
+#define SLOT(type, slot)    GLUE(type, slot)
 #endif
 
 #endif

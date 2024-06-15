@@ -378,21 +378,21 @@ using namespace scene;
 inline b32 Mesh::IsRenderable()
 {
     if (!IsValid() || !device->IsLoaded(&buffer)) return 0;
-
-    // for (u32 subsetIndex = 0; subsetIndex < numSubsets; subsetIndex++)
-    // {
-    //     MeshSubset *subset          = &subsets[subsetIndex];
-    //     MaterialComponent *material = gameScene->materials.GetFromHandle(subset->materialHandle);
-    //     for (u32 textureIndex = 0; textureIndex < ArrayLength(material->textures); textureIndex++)
-    //     {
-    //         graphics::Texture *texture = GetTexture(material->textures[textureIndex]);
-    //         if (texture && !device->IsLoaded(texture))
-    //         {
-    //             return 0;
-    //         }
-    //     }
-    // }
     return 1;
+}
+b32 MaterialComponent::IsRenderable()
+{
+    b32 result = 1;
+    for (u32 textureIndex = 0; textureIndex < ArrayLength(textures); textureIndex++)
+    {
+        graphics::Texture *texture = GetTexture(textures[textureIndex]);
+        if (texture && !device->IsLoaded(texture))
+        {
+            result = 0;
+            break;
+        }
+    }
+    return result;
 }
 
 #if 0
