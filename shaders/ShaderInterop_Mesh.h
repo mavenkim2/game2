@@ -32,11 +32,13 @@ struct MeshGeometry
 struct MeshBatch
 {
     // uint baseVertex;
+
+    uint subsetID;
     uint drawID;
     uint indexOffset;
     uint indexCount;
 
-    uint firstBatch;
+    // uint firstBatch;
     uint meshIndex;
 
     uint outputIndexOffset;
@@ -91,6 +93,8 @@ struct TriangleCullPushConstant
     int meshBatchDescriptor;
     int meshGeometryDescriptor;
     int meshParamsDescriptor;
+    uint screenWidth;
+    uint screenHeight;
 };
 
 // struct PushConstant

@@ -556,7 +556,7 @@ DLL G_UPDATE(G_Update)
         Assert(mesh->numSubsets >= 1);
         for (u32 subsetIndex = 0; subsetIndex < mesh->numSubsets; subsetIndex++)
         {
-            totalMeshBatchCount += (mesh->subsets[subsetIndex].indexCount + BATCH_SIZE - 1) / BATCH_SIZE;
+            totalMeshBatchCount += (mesh->subsets[subsetIndex].indexCount + (BATCH_SIZE * 3 - 1)) / (BATCH_SIZE * 3);
             totalMeshSubsetCount++;
         }
     }
@@ -568,8 +568,9 @@ DLL G_UPDATE(G_Update)
     u32 totalMeshBatchSize    = totalMeshBatchCount * sizeof(MeshBatch);
     u32 totalMeshSubsetSize   = totalMeshSubsetCount * sizeof(ShaderMeshSubset);
     u32 totalMaterialSize     = totalMaterialCount * sizeof(ShaderMaterial);
-    u32 totalIndirectSize     = totalMeshSubsetCount * sizeof(DrawIndexedIndirectCommand);
-    u32 totalMeshIndexSize    = totalMeshBatchCount * sizeof(u32) * BATCH_SIZE * 3;
+    // u32 totalIndirectSize     = totalMeshSubsetCount * sizeof(DrawIndexedIndirectCommand);
+    u32 totalIndirectSize  = totalMeshBatchCount * sizeof(DrawIndexedIndirectCommand);
+    u32 totalMeshIndexSize = totalMeshBatchCount * sizeof(u32) * BATCH_SIZE * 3;
 
     GPUBuffer *skinningUpload = &render::skinningBufferUpload[device->GetCurrentBuffer()];
     GPUBuffer *skinningBuffer = &render::skinningBuffer;
@@ -662,7 +663,7 @@ DLL G_UPDATE(G_Update)
     render::meshSubsetBufferSize   = totalMeshSubsetSize;
     render::materialBufferSize     = totalMaterialSize;
     render::meshIndirectBufferSize = totalIndirectSize;
-    render::drawCount              = totalMeshSubsetCount;
+    render::drawCount              = totalMeshBatchCount;
 
     Mat4 *skinningMappedData               = (Mat4 *)skinningUpload->mMappedData;
     MeshParams *meshParamsMappedData       = (MeshParams *)meshParamsUpload->mMappedData;
@@ -670,7 +671,6 @@ DLL G_UPDATE(G_Update)
     MeshBatch *meshBatchMappedData         = (MeshBatch *)meshBatchUpload->mMappedData;
     ShaderMaterial *materialMappedData     = (ShaderMaterial *)materialUpload->mMappedData;
     ShaderMeshSubset *meshSubsetMappedData = (ShaderMeshSubset *)meshSubsetUpload->mMappedData;
-    // DrawIndexedIndirectCommand *indirectMappedData = (DrawIndexedIndirectCommand *)indirectUpload->mMappedData;
 
     for (SkeletonIter iter = gameScene->BeginSkelIter(); !gameScene->End(&iter); gameScene->Next(&iter))
     {
@@ -699,13 +699,6 @@ DLL G_UPDATE(G_Update)
             texture          = GetTexture(mat->textures[TextureType_Normal]);
             descriptorIndex  = device->GetDescriptorIndex(texture, ResourceType::SRV);
             material->normal = descriptorIndex;
-        }
-        else
-        {
-            graphics::Texture *texture = GetTexture(mat->textures[TextureType_Diffuse]);
-            texture                    = GetTexture(mat->textures[TextureType_Normal]);
-            b32 result                 = mat->IsRenderable();
-            int x                      = 0;
         }
     }
 
@@ -750,24 +743,16 @@ DLL G_UPDATE(G_Update)
             shaderMeshSubset->materialIndex    = gameScene->materials.GetIndex(subset->materialHandle);
             shaderMeshSubset->meshIndex        = mesh->meshIndex;
 
-            // DrawIndexedIndirectCommand *cmd = &indirectMappedData[activeMeshSubsetCount];
-            // cmd->indexCount                 = subset->indexCount;
-            // cmd->instanceCount              = 1;
-            // cmd->firstIndex                 = subset->indexStart;
-            // cmd->vertexOffset               = 0;
-            // cmd->firstInstance              = 0;
-
-            MeshBatch batch;
-            batch.firstBatch = activeMeshBatchCount;
-            batch.drawID     = activeMeshSubsetCount++;
-            batch.meshIndex  = mesh->meshIndex;
+            u32 subsetID = activeMeshSubsetCount++;
 
             u32 totalIndexCount = subset->indexStart;
             for (u32 indexIndex = 0; indexIndex < subset->indexCount; indexIndex += BATCH_SIZE * 3)
             {
                 u32 indexCount                 = Min(BATCH_SIZE * 3, subset->indexCount - indexIndex);
                 MeshBatch *mappedBatch         = &meshBatchMappedData[activeMeshBatchCount];
-                *mappedBatch                   = batch;
+                mappedBatch->subsetID          = subsetID;
+                mappedBatch->meshIndex         = mesh->meshIndex;
+                mappedBatch->drawID            = activeMeshBatchCount;
                 mappedBatch->indexOffset       = totalIndexCount;
                 mappedBatch->indexCount        = indexCount;
                 mappedBatch->outputIndexOffset = activeMeshBatchCount * BATCH_SIZE * 3;

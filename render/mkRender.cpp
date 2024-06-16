@@ -1232,7 +1232,8 @@ internal void Initialize()
         desc.mColorAttachmentFormat = Format::R8G8B8A8_SRGB;
         desc.vs                     = &shaders[ShaderType_Mesh_VS];
         desc.fs                     = &shaders[ShaderType_Mesh_FS];
-        desc.mRasterState           = &rasterizers[RasterType_CCW_CullBack];
+        // desc.mRasterState           = &rasterizers[RasterType_CCW_CullBack];
+        desc.mRasterState = &rasterizers[RasterType_CCW_CullNone];
         device->CreatePipeline(&desc, &pipelineState, "Main pass");
 
         // Shadows
@@ -1273,6 +1274,8 @@ internal void CullMeshBatches(CommandList cmdList)
     pc.meshBatchDescriptor    = device->GetDescriptorIndex(&meshBatchBuffer, ResourceType::SRV);
     pc.meshGeometryDescriptor = device->GetDescriptorIndex(&meshGeometryBuffer, ResourceType::SRV);
     pc.meshParamsDescriptor   = device->GetDescriptorIndex(&meshParamsBuffer, ResourceType::SRV);
+    pc.screenWidth            = (u32)platform.GetWindowDimension(shared->windowHandle).x;
+    pc.screenHeight           = (u32)platform.GetWindowDimension(shared->windowHandle).y;
     device->PushConstants(cmdList, sizeof(pc), &pc);
     device->BindCompute(&triangleCullPipeline, cmdList);
     device->BindResource(&meshIndirectBuffer, ResourceType::UAV, 0, cmdList);
@@ -1298,28 +1301,8 @@ internal void RenderMeshes(CommandList cmdList, RenderPassType type, i32 cascade
     }
 
     device->PushConstants(cmdList, sizeof(pc), &pc);
-    // TODO: generate global index buffer
     device->BindIndexBuffer(cmdList, &meshIndexBuffer);
     device->DrawIndexedIndirect(cmdList, &meshIndirectBuffer, drawCount);
-
-    // u32 subsetCount = 0;
-    // for (MeshIter iter = gameScene->BeginMeshIter(); !gameScene->End(&iter); gameScene->Next(&iter))
-    // {
-    //     Mesh *mesh = gameScene->Get(&iter);
-    //     if (mesh->meshIndex == -1) continue;
-    //
-    //     for (u32 subsetIndex = 0; subsetIndex < mesh->numSubsets; subsetIndex++)
-    //     {
-    //         Mesh::MeshSubset *subset = &mesh->subsets[subsetIndex];
-    //
-    //         // TODO: remove this for indirect
-    //         pc.drawID = subsetCount++;
-    //
-    //         device->PushConstants(cmdList, sizeof(pc), &pc);
-    //         device->BindIndexBuffer(cmdList, &mesh->buffer, mesh->indexView.offset);
-    //         device->DrawIndexed(cmdList, subset->indexCount, subset->indexStart, 0);
-    //     }
-    // }
 }
 
 internal void Render()
@@ -1339,8 +1322,7 @@ internal void Render()
         {
             GPUBarrier barriers[] = {
                 GPUBarrier::Memory(PipelineFlag_AllCommands, PipelineFlag_Transfer),
-                GPUBarrier::Buffer(&meshIndirectBuffer, PipelineFlag_Indirect, PipelineFlag_Compute,
-                                   AccessFlag_IndirectRead, AccessFlag_ShaderWrite),
+                GPUBarrier::Memory(PipelineFlag_Indirect, PipelineFlag_Compute),
             };
             device->Barrier(cmd, barriers, ArrayLength(barriers));
         }
