@@ -3,7 +3,7 @@
 
 [[vk::push_constant]] SkinningPushConstants push;
 
-[numthreads(64, 1, 1)]
+[numthreads(SKINNING_GROUP_SIZE, 1, 1)]
 void main(uint3 DTid : SV_DispatchThreadID)
 {
     uint vertexID = DTid.x;

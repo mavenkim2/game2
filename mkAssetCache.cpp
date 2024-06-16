@@ -578,7 +578,7 @@ internal void AS_LoadAsset(AS_Asset *asset)
                 newScene->skeletons.Link(entities[i], skeletonHandle);
             }
             GPUBufferDesc desc;
-            desc.mResourceUsage = ResourceUsage::MegaBuffer | ResourceUsage::UniformTexelBuffer | ResourceUsage::IndexBuffer;
+            desc.mResourceUsage = ResourceUsage::MegaBuffer | ResourceUsage::UniformTexelBuffer | ResourceUsage::IndexBuffer | ResourceUsage::UniformBuffer;
             u64 alignment       = device->GetMinAlignment(&desc);
 
             Assert(IsPow2(alignment));
@@ -674,7 +674,7 @@ internal void AS_LoadAsset(AS_Asset *asset)
                 mesh->vertexBoneWeightView.srvDescriptor = device->GetDescriptorIndex(&mesh->buffer, ResourceType::SRV, mesh->vertexBoneWeightView.srvIndex);
             }
 
-            mesh->indexView.srvIndex      = device->CreateSubresource(&mesh->buffer, ResourceType::SRV, mesh->indexView.offset, mesh->indexView.size, Format::R32_UINT);
+            mesh->indexView.srvIndex      = device->CreateSubresource(&mesh->buffer, ResourceType::SRV, mesh->indexView.offset, mesh->indexView.size);
             mesh->indexView.srvDescriptor = device->GetDescriptorIndex(&mesh->buffer, ResourceType::SRV, mesh->indexView.srvIndex);
 
             // Create skinning uavs

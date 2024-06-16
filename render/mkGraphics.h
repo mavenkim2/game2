@@ -218,6 +218,7 @@ enum
     AccessFlag_TransferWrite       = 1 << 4,
     AccessFlag_ShaderRead          = 1 << 5,
     AccessFlag_ShaderWrite         = 1 << 6,
+    AccessFlag_IndirectRead        = 1 << 7,
 };
 
 enum ImageLayout
@@ -288,6 +289,8 @@ enum ShaderType
     ShaderType_ShadowMap_VS,
     ShaderType_BC1_CS,
     ShaderType_Skin_CS,
+    ShaderType_TriangleCull_CS,
+    ShaderType_ClearIndirect_CS,
     ShaderType_Count,
 };
 
@@ -722,13 +725,16 @@ struct mkGraphics
 
     virtual i32 CreateSubresource(GPUBuffer *buffer, ResourceType type, u64 offset = 0ull, u64 size = ~0ull, Format format = Format::Null, const char *name = 0) = 0;
 
-    virtual i32 CreateSubresource(Texture *texture, u32 baseLayer = 0, u32 numLayers = ~0u)                                   = 0;
-    virtual void UpdateDescriptorSet(CommandList cmd)                                                                         = 0;
-    virtual CommandList BeginCommandList(QueueType queue)                                                                     = 0;
-    virtual void BeginRenderPass(Swapchain *inSwapchain, RenderPassImage *images, u32 count, CommandList inCommandList)       = 0;
-    virtual void BeginRenderPass(RenderPassImage *images, u32 count, CommandList cmd)                                         = 0;
-    virtual void Draw(CommandList cmd, u32 vertexCount, u32 firstVertex)                                                      = 0;
-    virtual void DrawIndexed(CommandList cmd, u32 indexCount, u32 firstVertex, u32 baseVertex)                                = 0;
+    virtual i32 CreateSubresource(Texture *texture, u32 baseLayer = 0, u32 numLayers = ~0u)                             = 0;
+    virtual void UpdateDescriptorSet(CommandList cmd)                                                                   = 0;
+    virtual CommandList BeginCommandList(QueueType queue)                                                               = 0;
+    virtual void BeginRenderPass(Swapchain *inSwapchain, RenderPassImage *images, u32 count, CommandList inCommandList) = 0;
+    virtual void BeginRenderPass(RenderPassImage *images, u32 count, CommandList cmd)                                   = 0;
+    virtual void Draw(CommandList cmd, u32 vertexCount, u32 firstVertex)                                                = 0;
+    virtual void DrawIndexed(CommandList cmd, u32 indexCount, u32 firstVertex, u32 baseVertex)                          = 0;
+
+    virtual void DrawIndexedIndirect(CommandList cmd, GPUBuffer *indirectBuffer, u32 drawCount, u32 offset = 0, u32 stride = 20) = 0;
+
     virtual void BindVertexBuffer(CommandList cmd, GPUBuffer **buffers, u32 count = 1, u32 *offsets = 0)                      = 0;
     virtual void BindIndexBuffer(CommandList cmd, GPUBuffer *buffer, u64 offset = 0)                                          = 0;
     virtual void Dispatch(CommandList cmd, u32 groupCountX, u32 groupCountY, u32 groupCountZ)                                 = 0;

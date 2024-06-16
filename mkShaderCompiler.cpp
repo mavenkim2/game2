@@ -60,6 +60,7 @@ internal void CompileShader(Arena *arena, CompileInput *input, CompileOutput *ou
     list<const wchar_t *> args;
     args.push_back(L"nologo");
     args.push_back(L"-spirv");
+    args.push_back(L"-fspv-target-env=vulkan1.3");
     // Shift register slots
     // b, s, t, u
     // args.push_back(L"-I");

@@ -9,6 +9,7 @@ static const uint BINDLESS_STORAGE_TEXEL_BUFFER_SET = 4;
 #ifdef __spirv__
 [[vk::binding(0, BINDLESS_TEXTURE_SET)]] Texture2D bindlessTextures[];
 
+[[vk::binding(0, BINDLESS_UNIFORM_TEXEL_SET)]] Buffer<uint> bindlessBuffersUint[];
 [[vk::binding(0, BINDLESS_UNIFORM_TEXEL_SET)]] Buffer<float> bindlessBuffersFloat[];
 [[vk::binding(0, BINDLESS_UNIFORM_TEXEL_SET)]] Buffer<float2> bindlessBuffersFloat2[];
 [[vk::binding(0, BINDLESS_UNIFORM_TEXEL_SET)]] Buffer<float4> bindlessBuffersFloat4[];
@@ -34,6 +35,16 @@ SamplerState samplerLinearWrap : register(s50);
 SamplerState samplerNearestWrap : register(s51);
 SamplerState samplerLinearClamp : register(s52);
 SamplerComparisonState samplerShadowMap : register(s53);
+
+uint GetUint(int descriptor, int indexIndex)
+{
+    uint result = 0;
+    if (descriptor >= 0)
+    {
+        result = bindlessBuffers[descriptor].Load<uint>(indexIndex * sizeof(uint));
+    }
+    return result;
+}
 
 float2 GetFloat2(int descriptor, int vertexId)
 {

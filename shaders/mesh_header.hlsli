@@ -12,13 +12,14 @@
 struct VertexInput
 {
     uint vertexID: SV_VertexID;
-    // uint instanceID : SV_InstanceID; // gl_InstanceIndex
+    uint instanceID : SV_InstanceID; // gl_InstanceIndex
     // TODO: support shader draw parameters extension
 };
 
 struct FragmentInput
 {
     precise float4 pos : SV_POSITION;
+    nointerpolation uint instanceID : INSTANCE_ID;
 #ifdef MESH_PASS
     float2 uv : TEXCOORD;
     float4 viewFragPos : VIEW_FRAG_POS;
@@ -34,7 +35,7 @@ FragmentInput main(VertexInput input)
 {
     FragmentInput output;
 
-    ShaderMeshSubset subset = bindlessMeshSubsets[push.subsetDescriptor][push.drawID];
+    ShaderMeshSubset subset = bindlessMeshSubsets[push.subsetDescriptor][input.instanceID];
     MeshParams params = bindlessMeshParams[push.meshParamsDescriptor][subset.meshIndex];
     MeshGeometry geo = bindlessMeshGeometry[push.geometryDescriptor][subset.meshIndex];
 
@@ -67,6 +68,7 @@ FragmentInput main(VertexInput input)
     output.tbn = float3x3(tT, tB, tN);
 #endif
 
+    output.instanceID = input.instanceID;
     return output;
 }
 #endif
@@ -82,7 +84,7 @@ float4 main(FragmentInput fragment) : SV_Target
     float3 albedo = float3(1, 1, 1);
     float3 normal = float3(1, 1, 1);
 
-    ShaderMeshSubset subset = bindlessMeshSubsets[push.subsetDescriptor][push.drawID];
+    ShaderMeshSubset subset = bindlessMeshSubsets[push.subsetDescriptor][fragment.instanceID];
     ShaderMaterial material = bindlessMaterials[push.materialDescriptor][subset.materialIndex];
     
     if (material.albedo >= 0)

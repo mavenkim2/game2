@@ -6,6 +6,9 @@
 #define CASCADE_PARAMS_BIND 0
 #define SHADOW_MAP_BIND     1
 
+#define BATCH_SIZE 256
+#define SKINNING_GROUP_SIZE 64
+
 struct MeshParams
 {
     float4x4 transform;
@@ -26,7 +29,6 @@ struct MeshGeometry
     int vertexInd;
 };
 
-#define BATCH_SIZE 256
 struct MeshBatch
 {
     // uint baseVertex;
@@ -36,11 +38,9 @@ struct MeshBatch
 
     uint firstBatch;
     uint meshIndex;
-    // uint materialIndex;
 
-    // TODO: shadermaterial
-    // int albedo;
-    // int normal;
+    uint outputIndexOffset;
+    // uint materialIndex;
 };
 
 struct ShaderMeshSubset
@@ -64,6 +64,10 @@ struct DrawIndexedIndirectCommand
     uint firstInstance;
 };
 
+#ifdef __cplusplus
+StaticAssert(sizeof(DrawIndexedIndirectCommand) == 20, IndirectStructSize);
+#endif
+
 UNIFORM(CascadeParams, CASCADE_PARAMS_BIND)
 {
     float4x4 rLightViewProjectionMatrices[8];
@@ -80,13 +84,13 @@ struct PushConstant
     int geometryDescriptor;
 
     int cascadeNum;
-    int drawID;
 };
 
 struct TriangleCullPushConstant
 {
     int meshBatchDescriptor;
     int meshGeometryDescriptor;
+    int meshParamsDescriptor;
 };
 
 // struct PushConstant

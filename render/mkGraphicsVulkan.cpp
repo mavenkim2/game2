@@ -233,6 +233,10 @@ VkPipelineStageFlags2 ConvertResourceToPipelineStage(TextureDesc *desc)
 VkPipelineStageFlags2 ConvertPipelineFlags(graphics::PipelineFlag flags)
 {
     VkPipelineStageFlags2 outFlags = VK_PIPELINE_STAGE_2_NONE;
+    if (HasFlags(flags, graphics::PipelineFlag_Indirect))
+    {
+        outFlags |= VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
+    }
     if (HasFlags(flags, graphics::PipelineFlag_IndexInput))
     {
         outFlags |= VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT;
@@ -294,6 +298,10 @@ VkAccessFlags2 ConvertAccessFlags(graphics::AccessFlag flags)
     if (HasFlags(flags, graphics::AccessFlag_ShaderWrite))
     {
         outFlags |= VK_ACCESS_2_SHADER_WRITE_BIT;
+    }
+    if (HasFlags(flags, graphics::AccessFlag_IndirectRead))
+    {
+        outFlags |= VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
     }
     return outFlags;
 }
@@ -2774,7 +2782,7 @@ void mkGraphicsVulkan::UpdateDescriptorSet(CommandList cmd)
                     u32 mappedBinding = layoutBinding.binding - VK_BINDING_SHIFT_U;
                     Assert(mappedBinding < cMaxBindings);
 
-                    BindedResource *bindedResource = &command->uavTable[layoutBinding.binding - VK_BINDING_SHIFT_U];
+                    BindedResource *bindedResource = &command->uavTable[mappedBinding];
                     GPUResource *resource          = bindedResource->resource;
                     VkImageView view;
                     if (!bindedResource->IsValid() || !resource->IsTexture())
@@ -2793,6 +2801,31 @@ void mkGraphicsVulkan::UpdateDescriptorSet(CommandList cmd)
                     imageInfo.imageLayout            = VK_IMAGE_LAYOUT_GENERAL;
 
                     descriptorWrite.pImageInfo = &imageInfo;
+                }
+                break;
+                case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:
+                {
+                    u32 mappedBinding = layoutBinding.binding - VK_BINDING_SHIFT_U;
+                    Assert(mappedBinding < cMaxBindings);
+
+                    BindedResource *bindedResource = &command->uavTable[mappedBinding];
+                    GPUResource *resource          = bindedResource->resource;
+                    bufferInfos.emplace_back();
+                    if (!bindedResource->IsValid() || !resource->IsBuffer())
+                    {
+                        VkDescriptorBufferInfo &info = bufferInfos.back();
+                        info.buffer                  = mNullBuffer;
+                        info.offset                  = 0;
+                        info.range                   = VK_WHOLE_SIZE;
+                    }
+                    else
+                    {
+                        GPUBufferVulkan *bufferVulkan = ToInternal((GPUBuffer *)resource);
+                        i32 subresourceIndex          = bindedResource->subresourceIndex == -1 ? bufferVulkan->subresourceUav : bindedResource->subresourceIndex;
+                        Assert(subresourceIndex != -1);
+                        bufferInfos.back() = bufferVulkan->subresources[subresourceIndex].info;
+                    }
+                    descriptorWrite.pBufferInfo = &bufferInfos.back();
                 }
                 break;
                 default:
@@ -2945,6 +2978,8 @@ mkGraphicsVulkan::TransferCommand mkGraphicsVulkan::Stage(u64 size)
         {
             FenceVulkan *fenceVulkan = ToInternal(&mTransferFreeList[i].fence);
             fenceVulkan->count++;
+            // TODO: I'm not 100% sure that this fence handling is correct. The current solution is pretty awkward
+            // since fences are used both for the staging buffers as well as to see if meshes/materials can be rendered.
             std::atomic_thread_fence(std::memory_order_release);
             // Only some cmds will have ring allocations
             if (testCmd.ringAllocation)
@@ -3675,6 +3710,15 @@ void mkGraphicsVulkan::DrawIndexed(CommandList cmd, u32 indexCount, u32 firstVer
     Assert(commandList);
 
     vkCmdDrawIndexed(commandList->GetCommandBuffer(), indexCount, 1, firstVertex, baseVertex, 0);
+}
+
+void mkGraphicsVulkan::DrawIndexedIndirect(CommandList cmd, GPUBuffer *indirectBuffer, u32 drawCount, u32 offset, u32 stride)
+{
+    CommandListVulkan *commandList = ToInternal(cmd);
+    GPUBufferVulkan *bufferVulkan  = ToInternal(indirectBuffer);
+    Assert(commandList);
+
+    vkCmdDrawIndexedIndirect(commandList->GetCommandBuffer(), bufferVulkan->mBuffer, offset, drawCount, stride);
 }
 
 void mkGraphicsVulkan::SetViewport(CommandList cmd, Viewport *viewport)

@@ -391,7 +391,9 @@ struct mkGraphicsVulkan : mkGraphics
     void BeginRenderPass(Swapchain *inSwapchain, RenderPassImage *images, u32 count, CommandList inCommandList) override;
     void BeginRenderPass(RenderPassImage *images, u32 count, CommandList cmd) override;
     void Draw(CommandList cmd, u32 vertexCount, u32 firstVertex) override;
-    void DrawIndexed(CommandList cmd, u32 indexCount, u32 firstVertex, u32 baseVertex);
+    void DrawIndexed(CommandList cmd, u32 indexCount, u32 firstVertex, u32 baseVertex) override;
+
+    void DrawIndexedIndirect(CommandList cmd, GPUBuffer *indirectBuffer, u32 drawCount, u32 offset = 0, u32 stride = 20) override;
 
     void BindVertexBuffer(CommandList cmd, GPUBuffer **buffers, u32 count = 1, u32 *offsets = 0) override;
     void BindIndexBuffer(CommandList cmd, GPUBuffer *buffer, u64 offset = 0) override;
