@@ -681,6 +681,14 @@ DLL G_UPDATE(G_Update)
         PlayCurrentAnimation(&g_state->mAnimPlayers[globalIndex], dt, tforms);
         SkinModelToAnimation(&g_state->mAnimPlayers[globalIndex], skeleton, tforms,
                              skinningMappedData + skeleton->skinningOffset);
+
+        Init(&skeleton->aabb);
+        for (u32 boneIndex = 0; boneIndex < skeleton->count; boneIndex++)
+        {
+            V3 bonePos   = skinningMappedData[skeleton->skinningOffset + boneIndex] * -GetTranslation(skeleton->inverseBindPoses[boneIndex]);
+            Rect3 bounds = MakeRect3Center(bonePos, {1.f, 1.f, 1.f});
+            AddBounds(skeleton->aabb, bounds);
+        }
     }
 
     for (MaterialIter iter = gameScene->BeginMatIter(); !gameScene->End(&iter); gameScene->Next(&iter))
@@ -712,17 +720,33 @@ DLL G_UPDATE(G_Update)
         mesh->meshIndex = -1;
         if (!mesh->IsRenderable()) continue;
 
+        // TODO: support instancing. simd for frustum/box test
+        Mat4 transform = frameTransforms[gameScene->transforms.GetIndex(entity)];
+        // Rect3 bounds   = Transform(transform, mesh->bounds);
+        Mat4 mvp = renderState->transform * transform;
+
+        LoadedSkeleton *skeleton = gameScene->skeletons.GetFromEntity(entity);
+        Rect3 bounds             = mesh->bounds;
+        // TODO: one of the skinned meshes is being rendered still even when not on screen
+        if (skeleton)
+        {
+            bounds = skeleton->aabb;
+        }
+
+        // TODO: for whatever reason this doesn't work :)
+        u32 rangeId = TIMED_CPU_RANGE_NAME_BEGIN("Frustum cull");
+        if (!IntersectFrustumAABB(mvp, mesh->bounds, renderState->nearZ, renderState->farZ)) continue;
+        TIMED_RANGE_END(rangeId);
+
         mesh->meshIndex = activeMeshCount++;
         mesh->aabbIndex = gameScene->aabbCount++;
-
-        Mat4 transform = frameTransforms[gameScene->transforms.GetIndex(entity)];
         // gameScene->aabbs[mesh->aabbIndex] = Transform(transform, mesh->bounds);
 
         // draw ID, instance ID. each mesh params corresponds with one instance ID. each geo
         // corresponds with one draw ID. each subset corresponds with one draw ID.
 
         MeshParams *meshParams      = &meshParamsMappedData[mesh->meshIndex];
-        meshParams->transform       = renderState->transform * transform;
+        meshParams->transform       = mvp;
         meshParams->modelViewMatrix = renderState->viewMatrix * transform;
         meshParams->modelMatrix     = transform;
         meshParams->minP            = mesh->bounds.minP; // mesh space

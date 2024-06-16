@@ -44,6 +44,23 @@ f32 OS_NowSeconds()
     return result;
 }
 
+PerformanceCounter OS_StartCounter()
+{
+    PerformanceCounter counter;
+    LARGE_INTEGER c;
+    QueryPerformanceCounter(&c);
+    counter.counter = c.QuadPart;
+    return counter;
+}
+
+f32 OS_GetMilliseconds(PerformanceCounter counter)
+{
+    LARGE_INTEGER c;
+    QueryPerformanceCounter(&c);
+    f32 result = (f32)(1000.f * (c.QuadPart - counter.counter)) / (win32State->mPerformanceFrequency);
+    return result;
+}
+
 //////////////////////////////
 // File Information
 //

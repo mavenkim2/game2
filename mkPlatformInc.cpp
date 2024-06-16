@@ -1,4 +1,3 @@
-#include "mkPlatform.cpp"
 #if WINDOWS 
 #include "mkWin32.cpp"
 #else 

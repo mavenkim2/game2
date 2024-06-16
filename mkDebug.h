@@ -19,6 +19,7 @@ struct Range
 {
     char *filename;
     char *function;
+    PerformanceCounter counter;
     f64 timeElapsed;
     u32 lineNumber;
 
@@ -54,7 +55,7 @@ struct DebugState
     // Timing
     QueryPool timestampPool;
     Record records[totalNumSlots];
-    Range ranges[graphics::mkGraphics::cNumBuffers][256];
+    Range ranges[graphics::mkGraphics::cNumBuffers][1024];
     u32 numRecords;
     DebugSlot *slots;
     std::atomic<u32> currentRangeIndex[graphics::mkGraphics::cNumBuffers];
@@ -72,7 +73,7 @@ struct DebugState
     void EndFrame(CommandList cmd);
     void BeginTriangleCount(CommandList cmdList);
     void EndTriangleCount(CommandList cmdList);
-    u32 BeginRange(char *filename, char *functionName, u32 lineNum, CommandList cmdList);
+    u32 BeginRange(char *filename, char *functionName, u32 lineNum, CommandList cmdList = {});
     void EndRange(u32 rangeIndex);
     Record *GetRecord(char *name);
     void PrintDebugRecords();
@@ -90,7 +91,10 @@ struct Event
 // TODO: if gpu commands occur cross different function calls, consider
 #define TIMED_GPU(cmd)             debug::Event(__FILE__, FUNCTION_NAME, __LINE__, cmd);
 #define TIMED_GPU_RANGE_BEGIN(cmd) debugState.BeginRange(__FILE__, FUNCTION_NAME, __LINE__, cmd)
-#define TIMED_GPU_RANGE_END(index) debugState.EndRange(index)
+#define TIMED_RANGE_END(index)     debugState.EndRange(index)
+#define TIMED_CPU_RANGE_BEGIN()    debugState.BeginRange(__FILE__, FUNCTION_NAME, __LINE__)
+
+#define TIMED_CPU_RANGE_NAME_BEGIN(name) debugState.BeginRange(__FILE__, name, __LINE__)
 
 } // namespace debug
 

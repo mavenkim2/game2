@@ -57,6 +57,7 @@ struct LoadedSkeleton
     u32 sid;
     u32 count;
     u32 skinningOffset;
+    Rect3 aabb;
     string *names;
     i32 *parents;
     Mat4 *inverseBindPoses;

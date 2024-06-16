@@ -134,7 +134,7 @@ u32 DebugState::BeginRange(char *filename, char *functionName, u32 lineNum, Comm
     }
     else
     {
-        range->timeElapsed = platform.NowSeconds();
+        range->counter = platform.StartCounter();
     }
     return rangeIndex;
 }
@@ -150,7 +150,7 @@ void DebugState::EndRange(u32 rangeIndex)
     }
     else
     {
-        range->timeElapsed = 1000 * (platform.NowSeconds() - range->timeElapsed);
+        range->timeElapsed = platform.GetMilliseconds(range->counter);
     }
 }
 
@@ -197,18 +197,4 @@ Event::~Event()
     debugState.EndRange(rangeIndex);
 }
 
-#if 0
-internal void D_CollateDebugRecords()
-{
-    u32 length = AtomicExchange(&dbg_state.currentRecordIndex, 0);
-    V2 pos     = {0, 10};
-    for (u32 i = 0; i < length; i++)
-    {
-        Record *record = dbg_state.records + i;
-        D_PushTextF(dbg_state.debugFont, pos, 40, (char *)"%s: %f", record->function,
-                    record->timeElapsed * 1000.f);
-        pos.y += 40;
-    }
-}
-#endif
 } // namespace debug

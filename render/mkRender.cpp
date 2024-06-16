@@ -263,61 +263,61 @@ internal void R_GetFrustumCorners(Mat4 &inInverseMvp, Rect3 &inBounds, V3 *outFr
     }
 }
 
-internal b32 D_IsInBounds(Rect3 bounds, Mat4 &mvp)
-{
-    V4 p;
-    p.w      = 1;
-    int bits = 0;
-    // Loop over every point on the AABB bounding box
-    for (u32 i = 0; i < 2; i++)
-    {
-        p.x = bounds[i][0];
-        for (u32 j = 0; j < 2; j++)
-        {
-            p.y = bounds[j][1];
-            for (u32 k = 0; k < 2; k++)
-            {
-                p.z = bounds[k][2];
-
-                // Find point in homogeneous clip space
-                V4 test = mvp * p;
-
-                // Compare to the hcs AABB
-                const f32 minW = -test.w;
-                const f32 maxW = test.w;
-                const f32 minZ = minW;
-
-                if (test.x > minW)
-                {
-                    bits |= (1 << 0);
-                }
-                if (test.x < maxW)
-                {
-                    bits |= (1 << 1);
-                }
-                if (test.y > minW)
-                {
-                    bits |= (1 << 2);
-                }
-                if (test.y < maxW)
-                {
-                    bits |= (1 << 3);
-                }
-                if (test.z > minZ)
-                {
-                    bits |= (1 << 4);
-                }
-                if (test.z < maxW)
-                {
-                    bits |= (1 << 5);
-                }
-            }
-        }
-    }
-    // If any bits not set, the model isn't in bounds
-    b32 result = (bits == 63);
-    return result;
-}
+// internal b32 D_IsInBounds(Rect3 bounds, Mat4 &mvp)
+// {
+//     V4 p;
+//     p.w      = 1;
+//     int bits = 0;
+//     // Loop over every point on the AABB bounding box
+//     for (u32 i = 0; i < 2; i++)
+//     {
+//         p.x = bounds[i][0];
+//         for (u32 j = 0; j < 2; j++)
+//         {
+//             p.y = bounds[j][1];
+//             for (u32 k = 0; k < 2; k++)
+//             {
+//                 p.z = bounds[k][2];
+//
+//                 // Find point in homogeneous clip space
+//                 V4 test = mvp * p;
+//
+//                 // Compare to the hcs AABB
+//                 const f32 minW = -test.w;
+//                 const f32 maxW = test.w;
+//                 const f32 minZ = minW;
+//
+//                 if (test.x > minW)
+//                 {
+//                     bits |= (1 << 0);
+//                 }
+//                 if (test.x < maxW)
+//                 {
+//                     bits |= (1 << 1);
+//                 }
+//                 if (test.y > minW)
+//                 {
+//                     bits |= (1 << 2);
+//                 }
+//                 if (test.y < maxW)
+//                 {
+//                     bits |= (1 << 3);
+//                 }
+//                 if (test.z > minZ)
+//                 {
+//                     bits |= (1 << 4);
+//                 }
+//                 if (test.z < maxW)
+//                 {
+//                     bits |= (1 << 5);
+//                 }
+//             }
+//         }
+//     }
+//     // If any bits not set, the model isn't in bounds
+//     b32 result = (bits == 63);
+//     return result;
+// }
 
 // internal void D_PushHeightmap(Heightmap heightmap)
 // {
@@ -1356,7 +1356,8 @@ internal void Render()
         GPUBuffer *currentBatchUpload     = &meshBatchBufferUpload[device->GetCurrentBuffer()];
         GPUBuffer *currentMaterialUpload  = &materialBufferUpload[device->GetCurrentBuffer()];
 
-        // GPUBuffer *currentIndirectUpload  = &meshIndirectBufferUpload[device->GetCurrentBuffer()];
+        u32 zero = 0;
+        device->FrameAllocate(&meshIndirectCountBuffer, &zero, cmd);
         if (skinningBufferSize)
         {
             device->CopyBuffer(cmd, &skinningBuffer, currentSkinBufUpload, skinningBufferSize);
@@ -1442,7 +1443,7 @@ internal void Render()
         CullMeshBatches(cmd);
     }
 
-    TIMED_GPU_RANGE_END(computeIndex);
+    TIMED_RANGE_END(computeIndex);
 
     CommandList cmdList = device->BeginCommandList(QueueType_Graphics);
     device->Wait(cmd, cmdList);
@@ -1543,7 +1544,7 @@ internal void Render()
         RenderMeshes(cmdList, RenderPassType_Main);
         device->EndRenderPass(cmdList);
     }
-    TIMED_GPU_RANGE_END(rangeIndex);
+    TIMED_RANGE_END(rangeIndex);
     debugState.EndTriangleCount(cmdList);
     debugState.EndFrame(cmdList);
     device->SubmitCommandLists();

@@ -488,12 +488,11 @@ internal void OptimizeMesh(InputMesh::MeshSubset *mesh)
 //////////////////////////////
 // Bounds
 //
-internal void SkinModelToBindPose(const InputModel *inModel, Mat4 *outFinalTransforms)
+internal void SkinModelToBindPose(Skeleton *skeleton, Mat4 *outFinalTransforms)
 {
-    TempArena temp           = ScratchStart(0, 0);
-    const Skeleton *skeleton = &inModel->skeleton;
-    Mat4 *transformToParent  = PushArray(temp.arena, Mat4, skeleton->count);
-    i32 previousId           = -1;
+    TempArena temp          = ScratchStart(0, 0);
+    Mat4 *transformToParent = PushArray(temp.arena, Mat4, skeleton->count);
+    i32 previousId          = -1;
 
     for (i32 id = 0; id < (i32)skeleton->count; id++)
     {
@@ -860,11 +859,11 @@ int main(int argc, char *argv[])
                     });
 
                     // Write all of the models
-                    TempArena temp = ScratchStart(&scratch.arena, 1);
+                    TempArena modelTemp = ScratchStart(&scratch.arena, 1);
                     InputModel model;
 
                     // Find total number of meshes
-                    InputMesh *meshes = PushArrayNoZero(temp.arena, InputMesh, data->meshes_count);
+                    InputMesh *meshes = PushArrayNoZero(modelTemp.arena, InputMesh, data->meshes_count);
                     model.meshes      = meshes;
                     model.numMeshes   = data->meshes_count;
 
@@ -874,8 +873,87 @@ int main(int argc, char *argv[])
                         arenas[i] = ArenaAlloc();
                     }
 
+                    // Get any skeleton data
+                    jobsystem::KickJob(&counter, [data, folderName, modelTemp](jobsystem::JobArgs args) {
+                        TempArena temp = ScratchStart(0, 0);
+                        Skeleton *skeleton = PushStruct(temp.arena, Skeleton);
+                        for (size_t i = 0; i < data->skins_count; i++)
+                        {
+                            cgltf_skin &skin = data->skins[i];
+                            skeleton->count  = skin.joints_count;
+
+                            std::unordered_map<cgltf_node *, i32> nodeToIndex;
+                            skeleton->inverseBindPoses   = PushArrayNoZero(temp.arena, Mat4, skeleton->count);
+                            skeleton->names              = PushArrayNoZero(temp.arena, string, skeleton->count);
+                            skeleton->parents            = PushArrayNoZero(temp.arena, i32, skeleton->count);
+                            skeleton->transformsToParent = PushArrayNoZero(temp.arena, Mat4, skeleton->count);
+
+                            for (size_t jointIndex = 0; jointIndex < skeleton->count; jointIndex++)
+                            {
+                                cgltf_node *joint = skin.joints[jointIndex];
+                                cgltf_accessor_read_float(skin.inverse_bind_matrices, jointIndex, skeleton->inverseBindPoses[jointIndex].elements[0], 16);
+                                if (jointIndex == 0)
+                                {
+                                    cgltf_node_transform_world(joint, skeleton->transformsToParent[jointIndex].elements[0]);
+                                }
+                                else
+                                {
+                                    cgltf_node_transform_local(joint, skeleton->transformsToParent[jointIndex].elements[0]);
+                                }
+                                skeleton->names[jointIndex] = Str8C(joint->name);
+
+                                auto it              = nodeToIndex.find(joint->parent);
+                                i32 parentJointIndex = -1;
+                                Assert(it == nodeToIndex.end() ? jointIndex == 0 : 1); // only the root node should have no parent
+                                if (it != nodeToIndex.end())
+                                {
+                                    parentJointIndex = it->second;
+                                }
+                                skeleton->parents[jointIndex] = parentJointIndex;
+                                nodeToIndex[joint]            = jointIndex;
+                            }
+
+                            // Write the skeleton to file
+                            StringBuilder builder = {};
+                            builder.arena         = temp.arena;
+                            Put(&builder, skeletonVersionNumber);
+                            Put(&builder, skeleton->count);
+                            Printf("Num bones: %u\n", skeleton->count);
+
+                            u64 *stringDataOffsets = PushArrayNoZero(temp.arena, u64, skeleton->count);
+
+                            u64 nameOffset = PutArray(&builder, skeleton->names, skeleton->count);
+                            for (u32 i = 0; i < skeleton->count; i++)
+                            {
+                                string *name         = &skeleton->names[i];
+                                stringDataOffsets[i] = Put(&builder, *name);
+                            }
+
+                            PutArray(&builder, skeleton->parents, skeleton->count);
+                            PutArray(&builder, skeleton->inverseBindPoses, skeleton->count);
+                            PutArray(&builder, skeleton->transformsToParent, skeleton->count);
+
+                            string fileData = CombineBuilderNodes(&builder);
+                            for (u32 i = 0; i < skeleton->count; i++)
+                            {
+                                ConvertPointerToOffset(fileData.str, nameOffset + Offset(string, str), stringDataOffsets[i]);
+                                nameOffset += sizeof(string);
+                            }
+
+                            string skeletonFilename = PushStr8F(temp.arena, "data\\skeletons\\%S.skel", folderName);
+                            b32 success             = platform.WriteFile(skeletonFilename, fileData.str, (u32)fileData.size);
+                            // b32 success             = WriteEntireFile(&builder, skeletonFilename);
+                            if (!success)
+                            {
+                                Printf("Failed to write file %S\n", skeletonFilename);
+                                Assert(!"Failed");
+                            }
+                        }
+                        ScratchEnd(temp);
+                    });
+
                     jobsystem::KickJobs(
-                        &counter, data->meshes_count, 8, [&state, meshes, data, &arenas](jobsystem::JobArgs args) {
+                        &counter, data->meshes_count, 8, [&](jobsystem::JobArgs args) {
                             // Get the vertex/index attribute data
                             //
                             Arena *arena          = arenas[args.threadId];
@@ -889,6 +967,8 @@ int main(int argc, char *argv[])
                             mesh->totalIndexCount  = 0;
                             mesh->flags            = 0;
                             mesh->totalSubsets     = cgltfMesh->primitives_count;
+
+                            Init(&mesh->bounds);
 
                             for (size_t primitiveIndex = 0; primitiveIndex < cgltfMesh->primitives_count; primitiveIndex++)
                             {
@@ -931,17 +1011,17 @@ int main(int argc, char *argv[])
                                         }
 
                                         Assert(attribute->data->has_max && attribute->data->has_min);
-                                        V3 min;
-                                        min.x             = attribute->data->min[0];
-                                        min.y             = attribute->data->min[1];
-                                        min.z             = attribute->data->min[2];
-                                        mesh->bounds.minP = min;
+                                        V3 minP;
+                                        minP.x = attribute->data->min[0];
+                                        minP.y = attribute->data->min[1];
+                                        minP.z = attribute->data->min[2];
+                                        AddBounds(mesh->bounds, minP);
 
-                                        V3 max;
-                                        max.x             = attribute->data->max[0];
-                                        max.y             = attribute->data->max[1];
-                                        max.z             = attribute->data->max[2];
-                                        mesh->bounds.maxP = max;
+                                        V3 maxP;
+                                        maxP.x = attribute->data->max[0];
+                                        maxP.y = attribute->data->max[1];
+                                        maxP.z = attribute->data->max[2];
+                                        AddBounds(mesh->bounds, maxP);
                                     }
                                     else if (Str8C(attribute->name) == Str8Lit("NORMAL"))
                                     {
@@ -1010,16 +1090,15 @@ int main(int argc, char *argv[])
                                     subset->indices[indexIndex] = subset->indices[indexIndex] + baseVertex;
                                 }
                             }
-                            // ScratchEnd(temp);
                         },
                         jobsystem::Priority::High);
 
                     // Write the whole model to file
                     jobsystem::WaitJobs(&counter);
 
-                    jobsystem::KickJob(&counter, [&model, &temp, data, folderName](jobsystem::JobArgs args) {
+                    jobsystem::KickJob(&counter, [&model, &modelTemp, data, folderName](jobsystem::JobArgs args) {
                         StringBuilder builder = {};
-                        builder.arena         = temp.arena;
+                        builder.arena         = modelTemp.arena;
                         Put(&builder, model.numMeshes);
                         for (u32 meshIndex = 0; meshIndex < model.numMeshes; meshIndex++)
                         {
@@ -1120,7 +1199,7 @@ int main(int argc, char *argv[])
                         {
                             PutU64(&builder, 0);
                         }
-                        string modelFilename = PushStr8F(temp.arena, "data\\models\\%S.model", folderName);
+                        string modelFilename = PushStr8F(modelTemp.arena, "data\\models\\%S.model", folderName);
                         b32 success          = WriteEntireFile(&builder, modelFilename);
                         if (!success)
                         {
@@ -1128,87 +1207,7 @@ int main(int argc, char *argv[])
                             Assert(0);
                         }
 
-                        ScratchEnd(temp);
-                    });
-
-                    // Get any skeleton data
-                    jobsystem::KickJob(&counter, [data, folderName](jobsystem::JobArgs args) {
-                        TempArena temp = ScratchStart(0, 0);
-                        for (size_t i = 0; i < data->skins_count; i++)
-                        {
-                            Assert(data->skins_count == 1);
-                            cgltf_skin &skin   = data->skins[i];
-                            Skeleton &skeleton = *PushStruct(temp.arena, Skeleton);
-                            skeleton.count     = skin.joints_count;
-
-                            std::unordered_map<cgltf_node *, i32> nodeToIndex;
-                            skeleton.inverseBindPoses   = PushArrayNoZero(temp.arena, Mat4, skeleton.count);
-                            skeleton.names              = PushArrayNoZero(temp.arena, string, skeleton.count);
-                            skeleton.parents            = PushArrayNoZero(temp.arena, i32, skeleton.count);
-                            skeleton.transformsToParent = PushArrayNoZero(temp.arena, Mat4, skeleton.count);
-
-                            for (size_t jointIndex = 0; jointIndex < skeleton.count; jointIndex++)
-                            {
-                                cgltf_node *joint = skin.joints[jointIndex];
-                                cgltf_accessor_read_float(skin.inverse_bind_matrices, jointIndex, skeleton.inverseBindPoses[jointIndex].elements[0], 16);
-                                if (jointIndex == 0)
-                                {
-                                    cgltf_node_transform_world(joint, skeleton.transformsToParent[jointIndex].elements[0]);
-                                }
-                                else
-                                {
-                                    cgltf_node_transform_local(joint, skeleton.transformsToParent[jointIndex].elements[0]);
-                                }
-                                skeleton.names[jointIndex] = Str8C(joint->name);
-
-                                auto it              = nodeToIndex.find(joint->parent);
-                                i32 parentJointIndex = -1;
-                                Assert(it == nodeToIndex.end() ? jointIndex == 0 : 1); // only the root node should have no parent
-                                if (it != nodeToIndex.end())
-                                {
-                                    parentJointIndex = it->second;
-                                }
-                                skeleton.parents[jointIndex] = parentJointIndex;
-                                nodeToIndex[joint]           = jointIndex;
-                            }
-
-                            // Write the skeleton to file
-                            StringBuilder builder = {};
-                            builder.arena         = temp.arena;
-                            Put(&builder, skeletonVersionNumber);
-                            Put(&builder, skeleton.count);
-                            Printf("Num bones: %u\n", skeleton.count);
-
-                            u64 *stringDataOffsets = PushArrayNoZero(temp.arena, u64, skeleton.count);
-
-                            u64 nameOffset = PutArray(&builder, skeleton.names, skeleton.count);
-                            for (u32 i = 0; i < skeleton.count; i++)
-                            {
-                                string *name         = &skeleton.names[i];
-                                stringDataOffsets[i] = Put(&builder, *name);
-                            }
-
-                            PutArray(&builder, skeleton.parents, skeleton.count);
-                            PutArray(&builder, skeleton.inverseBindPoses, skeleton.count);
-                            PutArray(&builder, skeleton.transformsToParent, skeleton.count);
-
-                            string fileData = CombineBuilderNodes(&builder);
-                            for (u32 i = 0; i < skeleton.count; i++)
-                            {
-                                ConvertPointerToOffset(fileData.str, nameOffset + Offset(string, str), stringDataOffsets[i]);
-                                nameOffset += sizeof(string);
-                            }
-
-                            string skeletonFilename = PushStr8F(temp.arena, "data\\skeletons\\%S.skel", folderName);
-                            b32 success             = platform.WriteFile(skeletonFilename, fileData.str, (u32)fileData.size);
-                            // b32 success             = WriteEntireFile(&builder, skeletonFilename);
-                            if (!success)
-                            {
-                                Printf("Failed to write file %S\n", skeletonFilename);
-                                Assert(!"Failed");
-                            }
-                        }
-                        ScratchEnd(temp);
+                        ScratchEnd(modelTemp);
                     });
 
                     // Get any animations

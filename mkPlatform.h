@@ -8,6 +8,11 @@
 #include "mkString.h"
 #endif
 
+struct PerformanceCounter
+{
+    u64 counter;
+};
+
 struct OS_Handle
 {
     u64 handle;
@@ -169,6 +174,8 @@ void Print(char *fmt, ...);
 OS_Handle OS_WindowInit();
 
 f32 OS_NowSeconds();
+PerformanceCounter OS_StartCounter();
+f32 OS_GetMilliseconds(PerformanceCounter counter);
 
 u64 OS_GetLastWriteTime(string filename);
 string ReadEntireFile(string filename);

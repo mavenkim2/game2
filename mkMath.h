@@ -309,6 +309,14 @@ union UV4
         u32 x, y, z, w;
     };
     u32 elements[4];
+    u32 operator[](const i32 index) const
+    {
+        return elements[index];
+    }
+    u32 &operator[](const i32 index)
+    {
+        return elements[index];
+    }
 };
 
 union V4I32
@@ -1795,11 +1803,19 @@ inline Rect3 Rect3BottomLeft(V3 pos, V3 size)
     return result;
 }
 
-inline Rect3 Rect3Center(V3 pos, V3 size)
+inline Rect3 MakeRect3Center(V3 pos, V3 size)
 {
     Rect3 result;
     result.minP = pos - size / 2;
     result.maxP = pos + size / 2;
+    return result;
+}
+
+inline Rect3 MakeRect3CenterHalfWidth(V3 pos, V3 size)
+{
+    Rect3 result;
+    result.minP = pos - size;
+    result.maxP = pos + size;
     return result;
 }
 
@@ -1934,6 +1950,57 @@ internal b32 IntersectRayAABB(Ray &inRay, Rect3 &inAabb, f32 &outTmin, V3 &outPo
     }
     outPoint = inRay.mStartP + outTmin * inRay.mDir;
     return 1;
+}
+
+internal b32 IntersectFrustumAABB(Mat4 &mvp, Rect3 &aabb, f32 zNear, f32 zFar)
+{
+    f32 maxX0 = mvp[0][0] * aabb.maxX;
+    f32 minX0 = mvp[0][0] * aabb.minX;
+    f32 maxY0 = mvp[1][0] * aabb.maxY;
+    f32 minY0 = mvp[1][0] * aabb.minY;
+    f32 maxZ0 = mvp[2][0] * aabb.maxZ + mvp[3][0];
+    f32 minZ0 = mvp[2][0] * aabb.minZ + mvp[3][0];
+
+    f32 maxX1 = mvp[0][1] * aabb.maxX;
+    f32 minX1 = mvp[0][1] * aabb.minX;
+    f32 maxY1 = mvp[1][1] * aabb.maxY;
+    f32 minY1 = mvp[1][1] * aabb.minY;
+    f32 maxZ1 = mvp[2][1] * aabb.maxZ + mvp[3][1];
+    f32 minZ1 = mvp[2][1] * aabb.minZ + mvp[3][1];
+
+    f32 maxX2 = mvp[0][3] * aabb.maxX;
+    f32 minX2 = mvp[0][3] * aabb.minX;
+    f32 maxY2 = mvp[1][3] * aabb.maxY;
+    f32 minY2 = mvp[1][3] * aabb.minY;
+    f32 maxZ2 = mvp[2][3] * aabb.maxZ + mvp[3][3];
+    f32 minZ2 = mvp[2][3] * aabb.minZ + mvp[3][3];
+
+    // b32 intersects = 0;
+    b32 bits = 0;
+    for (u32 i = 0; i < 8; i++)
+    {
+        V4 corner;
+        corner.x = (i & 1) ? maxX0 : minX0;
+        corner.x += (i & 2) ? maxY0 : minY0;
+        corner.x += (i & 4) ? maxZ0 : minZ0;
+
+        corner.y = (i & 1) ? maxX1 : minX1;
+        corner.y += (i & 2) ? maxY1 : minY1;
+        corner.y += (i & 4) ? maxZ1 : minZ1;
+
+        corner.w = (i & 1) ? maxX2 : minX2;
+        corner.w += (i & 2) ? maxY2 : minY2;
+        corner.w += (i & 4) ? maxZ2 : minZ2;
+
+        bits |= (-corner.w <= corner.x) << 0;
+        bits |= (corner.x <= corner.w) << 1;
+        bits |= (-corner.w <= corner.y) << 2;
+        bits |= (corner.y <= corner.w) << 3;
+        bits |= (zNear <= corner.w) << 4;
+        bits |= (corner.w <= zFar) << 5;
+    }
+    b32 result = (bits == 63);
+    return result;
 }
 
 /*

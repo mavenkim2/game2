@@ -109,6 +109,12 @@ typedef OS_SLEEP(os_sleep);
 #define OS_NOW_SECONDS(name) f32 name()
 typedef OS_NOW_SECONDS(os_now_seconds);
 
+#define OS_START_COUNTER(name) PerformanceCounter name()
+typedef OS_START_COUNTER(os_start_counter);
+
+#define OS_GET_MILLISECONDS(name) f32 name(PerformanceCounter counter)
+typedef OS_GET_MILLISECONDS(os_get_milliseconds);
+
 #define OS_GET_MOUSE_POS(name) V2 name(OS_Handle handle)
 typedef OS_GET_MOUSE_POS(os_get_mouse_pos);
 
@@ -159,6 +165,8 @@ struct PlatformApi
     os_attributes_from_path *AttributesFromPath;
     os_sleep *Sleep;
     os_now_seconds *NowSeconds;
+    os_start_counter *StartCounter;
+    os_get_milliseconds *GetMilliseconds;
     os_get_mouse_pos *GetMousePos;
     os_toggle_cursor *ToggleCursor;
     os_get_center *GetCenter;
@@ -200,6 +208,8 @@ inline PlatformApi GetPlatform()
     platform_.AttributesFromPath = OS_AttributesFromPath;
     platform_.Sleep              = OS_Sleep;
     platform_.NowSeconds         = OS_NowSeconds;
+    platform_.StartCounter       = OS_StartCounter;
+    platform_.GetMilliseconds    = OS_GetMilliseconds;
     platform_.GetMousePos        = OS_GetMousePos;
     platform_.ToggleCursor       = OS_ToggleCursor;
     platform_.GetCenter          = OS_GetCenter;

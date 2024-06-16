@@ -9,11 +9,6 @@ RWStructuredBuffer<uint> commandCount : register(u1);
 [numthreads(64, 1, 1)]
 void main(uint3 dispatchThreadID : SV_DispatchThreadID)
 {
-    if (dispatchThreadID.x == 0)
-        commandCount[0] = 0;
-
-    GroupMemoryBarrierWithGroupSync();
-
     if (dispatchThreadID.x >= push.drawCount)
         return;
 
