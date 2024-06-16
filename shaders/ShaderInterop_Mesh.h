@@ -6,7 +6,7 @@
 #define CASCADE_PARAMS_BIND 0
 #define SHADOW_MAP_BIND     1
 
-#define BATCH_SIZE 256
+#define BATCH_SIZE          256
 #define SKINNING_GROUP_SIZE 64
 
 struct MeshParams
@@ -78,6 +78,9 @@ UNIFORM(CascadeParams, CASCADE_PARAMS_BIND)
     float4 rViewPos;
 };
 
+//////////////////////////////
+// Push constants
+//
 struct PushConstant
 {
     int meshParamsDescriptor;
@@ -97,22 +100,10 @@ struct TriangleCullPushConstant
     uint screenHeight;
 };
 
-// struct PushConstant
-// {
-//     // float4x4 meshTransform;
-//     int meshIndex;
-//     int meshParamsBuffer;
-//
-//     int cascadeNum;
-//
-//     int vertexPos;
-//     int vertexNor;
-//     int vertexTan;
-//     int vertexUv;
-//
-//     int albedo;
-//     int normal;
-// };
+struct DrawCompactionPushConstant
+{
+    uint drawCount;
+};
 
 struct SkinningPushConstants
 {

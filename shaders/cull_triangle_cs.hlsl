@@ -86,9 +86,9 @@ void main(uint3 groupID: SV_GroupID, uint3 groupThreadID: SV_GroupThreadID)
     }
     waveOffset = WaveReadLaneFirst(waveOffset) + batch.outputIndexOffset;
 
+    uint indexIndex = WavePrefixCountBits(!cull) * 3;
     if (!cull)
     {
-        uint indexIndex = WavePrefixSum(3);
         outputIndices[waveOffset + indexIndex + 0] = indices[0];
         outputIndices[waveOffset + indexIndex + 1] = indices[1];
         outputIndices[waveOffset + indexIndex + 2] = indices[2];

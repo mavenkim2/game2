@@ -384,7 +384,8 @@ struct mkGraphicsVulkan : mkGraphics
     void CreateSampler(Sampler *sampler, SamplerDesc desc) override;
     void BindResource(GPUResource *resource, ResourceType type, u32 slot, CommandList cmd, i32 subresource = -1) override;
     i32 GetDescriptorIndex(GPUResource *resource, ResourceType type, i32 subresourceIndex = -1) override;
-    i32 CreateSubresource(GPUBuffer *buffer, ResourceType type, u64 offset = 0ull, u64 size = ~0ull, Format format = Format::Null, const char *name = 0) override;
+    i32 CreateSubresource(GPUBuffer *buffer, ResourceType type, u64 offset = 0ull, u64 size = ~0ull, Format format = Format::Null,
+                          const char *name = 0) override;
     i32 CreateSubresource(Texture *texture, u32 baseLayer = 0, u32 numLayers = ~0u) override;
     void UpdateDescriptorSet(CommandList cmd);
     CommandList BeginCommandList(QueueType queue) override;
@@ -392,9 +393,9 @@ struct mkGraphicsVulkan : mkGraphics
     void BeginRenderPass(RenderPassImage *images, u32 count, CommandList cmd) override;
     void Draw(CommandList cmd, u32 vertexCount, u32 firstVertex) override;
     void DrawIndexed(CommandList cmd, u32 indexCount, u32 firstVertex, u32 baseVertex) override;
-
     void DrawIndexedIndirect(CommandList cmd, GPUBuffer *indirectBuffer, u32 drawCount, u32 offset = 0, u32 stride = 20) override;
-
+    void DrawIndexedIndirectCount(CommandList cmd, GPUBuffer *indirectBuffer, GPUBuffer *countBuffer,
+                                  u32 maxDrawCount, u32 indirectOffset = 0, u32 countOffset = 0, u32 stride = 20) override;
     void BindVertexBuffer(CommandList cmd, GPUBuffer **buffers, u32 count = 1, u32 *offsets = 0) override;
     void BindIndexBuffer(CommandList cmd, GPUBuffer *buffer, u64 offset = 0) override;
     void Dispatch(CommandList cmd, u32 groupCountX, u32 groupCountY, u32 groupCountZ) override;
@@ -408,7 +409,6 @@ struct mkGraphicsVulkan : mkGraphics
     void WaitForGPU() override;
     void Wait(CommandList waitFor, CommandList cmd) override;
     void Wait(CommandList wait) override;
-
     void Barrier(CommandList cmd, GPUBarrier *barriers, u32 count) override;
     b32 IsSignaled(FenceTicket ticket) override;
     b32 IsLoaded(GPUResource *resource) override;

@@ -864,6 +864,7 @@ PipelineState blockCompressPipeline;
 PipelineState skinPipeline;
 PipelineState triangleCullPipeline;
 PipelineState clearIndirectPipeline;
+PipelineState compactionPipeline;
 
 // Buffers
 graphics::GPUBuffer cascadeParamsBuffer;
@@ -881,9 +882,8 @@ graphics::GPUBuffer meshSubsetBuffer;
 graphics::GPUBuffer materialBufferUpload[device->cNumBuffers];
 graphics::GPUBuffer materialBuffer;
 
-// graphics::GPUBuffer instanceToDrawIDBuffer;
 graphics::GPUBuffer meshIndirectBuffer;
-// graphics::GPUBuffer meshIndirectBufferUpload[device->cNumBuffers];
+graphics::GPUBuffer meshIndirectCountBuffer;
 graphics::GPUBuffer meshIndexBuffer;
 
 u32 skinningBufferSize;
@@ -1109,26 +1109,20 @@ internal void Initialize()
         device->SetName(&materialBuffer, "Material buffer");
 
         // Indirect buffer
-#if 0
-        desc                = {};
-        desc.mSize          = kilobytes(4);
-        desc.mUsage         = MemoryUsage::CPU_TO_GPU;
-        desc.mResourceUsage = ResourceUsage::TransferSrc;
-
-        for (u32 i = 0; i < ArrayLength(meshIndirectBufferUpload); i++)
-        {
-            device->CreateBuffer(&meshIndirectBufferUpload[i], desc, 0);
-            string name = PushStr8F(temp.arena, "Indirect upload buffer %i", i);
-            device->SetName(&meshIndirectBufferUpload[i], name);
-        }
-#endif
-
         desc                = {};
         desc.mSize          = kilobytes(4);
         desc.mUsage         = MemoryUsage::GPU_ONLY;
         desc.mResourceUsage = ResourceUsage::StorageBuffer | ResourceUsage::IndirectBuffer;
         device->CreateBuffer(&meshIndirectBuffer, desc, 0);
         device->SetName(&meshIndirectBuffer, "Mesh indirect buffer");
+
+        // Indirect count buffer
+        desc                = {};
+        desc.mSize          = sizeof(uint);
+        desc.mUsage         = MemoryUsage::GPU_ONLY;
+        desc.mResourceUsage = ResourceUsage::StorageBuffer | ResourceUsage::IndirectBuffer;
+        device->CreateBuffer(&meshIndirectCountBuffer, desc, 0);
+        device->SetName(&meshIndirectCountBuffer, "Mesh indirect count buffer");
 
         // Mesh index buffer
         desc                = {};
@@ -1181,20 +1175,22 @@ internal void Initialize()
 
     // Initialize shaders
     {
-        shaders[ShaderType_Mesh_VS].mName          = "mesh_vs.hlsl";
-        shaders[ShaderType_Mesh_VS].stage          = ShaderStage::Vertex;
-        shaders[ShaderType_Mesh_FS].mName          = "mesh_fs.hlsl";
-        shaders[ShaderType_Mesh_FS].stage          = ShaderStage::Fragment;
-        shaders[ShaderType_ShadowMap_VS].mName     = "depth_vs.hlsl";
-        shaders[ShaderType_ShadowMap_VS].stage     = ShaderStage::Vertex;
-        shaders[ShaderType_BC1_CS].mName           = "blockcompress_cs.hlsl";
-        shaders[ShaderType_BC1_CS].stage           = ShaderStage::Compute;
-        shaders[ShaderType_Skin_CS].mName          = "skinning_cs.hlsl";
-        shaders[ShaderType_Skin_CS].stage          = ShaderStage::Compute;
-        shaders[ShaderType_TriangleCull_CS].mName  = "cull_triangle_cs.hlsl";
-        shaders[ShaderType_TriangleCull_CS].stage  = ShaderStage::Compute;
-        shaders[ShaderType_ClearIndirect_CS].mName = "clear_indirect_cs.hlsl";
-        shaders[ShaderType_ClearIndirect_CS].stage = ShaderStage::Compute;
+        shaders[ShaderType_Mesh_VS].mName           = "mesh_vs.hlsl";
+        shaders[ShaderType_Mesh_VS].stage           = ShaderStage::Vertex;
+        shaders[ShaderType_Mesh_FS].mName           = "mesh_fs.hlsl";
+        shaders[ShaderType_Mesh_FS].stage           = ShaderStage::Fragment;
+        shaders[ShaderType_ShadowMap_VS].mName      = "depth_vs.hlsl";
+        shaders[ShaderType_ShadowMap_VS].stage      = ShaderStage::Vertex;
+        shaders[ShaderType_BC1_CS].mName            = "blockcompress_cs.hlsl";
+        shaders[ShaderType_BC1_CS].stage            = ShaderStage::Compute;
+        shaders[ShaderType_Skin_CS].mName           = "skinning_cs.hlsl";
+        shaders[ShaderType_Skin_CS].stage           = ShaderStage::Compute;
+        shaders[ShaderType_TriangleCull_CS].mName   = "cull_triangle_cs.hlsl";
+        shaders[ShaderType_TriangleCull_CS].stage   = ShaderStage::Compute;
+        shaders[ShaderType_ClearIndirect_CS].mName  = "clear_indirect_cs.hlsl";
+        shaders[ShaderType_ClearIndirect_CS].stage  = ShaderStage::Compute;
+        shaders[ShaderType_DrawCompaction_CS].mName = "draw_compaction_cs.hlsl";
+        shaders[ShaderType_DrawCompaction_CS].stage = ShaderStage::Compute;
     }
 
     // Compile shaders
@@ -1256,9 +1252,13 @@ internal void Initialize()
         desc.compute = &shaders[ShaderType_TriangleCull_CS];
         device->CreateComputePipeline(&desc, &triangleCullPipeline, "Triangle culling compute");
 
-        // Clera indirect
+        // Clear indirect
         desc.compute = &shaders[ShaderType_ClearIndirect_CS];
         device->CreateComputePipeline(&desc, &clearIndirectPipeline, "Clear indirect compute");
+
+        // Draw call compaction
+        desc.compute = &shaders[ShaderType_DrawCompaction_CS];
+        device->CreateComputePipeline(&desc, &compactionPipeline, "Draw compaction compute");
     }
 }
 
@@ -1282,6 +1282,21 @@ internal void CullMeshBatches(CommandList cmdList)
     device->BindResource(&meshIndexBuffer, ResourceType::UAV, 1, cmdList);
     device->UpdateDescriptorSet(cmdList);
     device->Dispatch(cmdList, meshBatchCount, 1, 1);
+
+    {
+        GPUBarrier barrier = GPUBarrier::Memory(PipelineFlag_Compute, PipelineFlag_Compute,
+                                                AccessFlag_ShaderWrite, AccessFlag_ShaderRead | AccessFlag_ShaderWrite);
+        device->Barrier(cmdList, &barrier, 1);
+    }
+    DrawCompactionPushConstant dcpc;
+    dcpc.drawCount = meshBatchCount;
+
+    device->PushConstants(cmdList, sizeof(dcpc), &dcpc);
+    device->BindCompute(&compactionPipeline, cmdList);
+    device->BindResource(&meshIndirectBuffer, ResourceType::UAV, 0, cmdList);
+    device->BindResource(&meshIndirectCountBuffer, ResourceType::UAV, 1, cmdList);
+    device->UpdateDescriptorSet(cmdList);
+    device->Dispatch(cmdList, (meshBatchCount + 63) / 64, 1, 1);
 }
 
 internal void RenderMeshes(CommandList cmdList, RenderPassType type, i32 cascadeNum = -1)
@@ -1302,7 +1317,8 @@ internal void RenderMeshes(CommandList cmdList, RenderPassType type, i32 cascade
 
     device->PushConstants(cmdList, sizeof(pc), &pc);
     device->BindIndexBuffer(cmdList, &meshIndexBuffer);
-    device->DrawIndexedIndirect(cmdList, &meshIndirectBuffer, drawCount);
+    // device->DrawIndexedIndirect(cmdList, &meshIndirectBuffer, drawCount);
+    device->DrawIndexedIndirectCount(cmdList, &meshIndirectBuffer, &meshIndirectCountBuffer, drawCount);
 }
 
 internal void Render()

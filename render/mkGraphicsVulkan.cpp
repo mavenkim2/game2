@@ -3721,6 +3721,18 @@ void mkGraphicsVulkan::DrawIndexedIndirect(CommandList cmd, GPUBuffer *indirectB
     vkCmdDrawIndexedIndirect(commandList->GetCommandBuffer(), bufferVulkan->mBuffer, offset, drawCount, stride);
 }
 
+void mkGraphicsVulkan::DrawIndexedIndirectCount(CommandList cmd, GPUBuffer *indirectBuffer, GPUBuffer *countBuffer,
+                                                u32 maxDrawCount, u32 indirectOffset, u32 countOffset, u32 stride)
+{
+    CommandListVulkan *commandList        = ToInternal(cmd);
+    GPUBufferVulkan *indirectBufferVulkan = ToInternal(indirectBuffer);
+    GPUBufferVulkan *countBufferVulkan    = ToInternal(countBuffer);
+    Assert(commandList);
+
+    vkCmdDrawIndexedIndirectCount(commandList->GetCommandBuffer(), indirectBufferVulkan->mBuffer, indirectOffset,
+                                  countBufferVulkan->mBuffer, countOffset, maxDrawCount, stride);
+}
+
 void mkGraphicsVulkan::SetViewport(CommandList cmd, Viewport *viewport)
 {
     CommandListVulkan *commandList = ToInternal(cmd);
