@@ -21,8 +21,8 @@ void DebugState::BeginFrame()
         device->CreateQueryPool(&pipelineStatisticsPool, QueryType_PipelineStatistics, 4);
 
         GPUBufferDesc desc = {};
-        desc.mSize  = (u32)(sizeof(u64) * (timestampPool.queryCount + pipelineStatisticsPool.queryCount));
-        desc.mUsage = MemoryUsage::GPU_TO_CPU;
+        desc.mSize         = (u32)(sizeof(u64) * (timestampPool.queryCount + pipelineStatisticsPool.queryCount));
+        desc.mUsage        = MemoryUsage::GPU_TO_CPU;
 
         for (u32 i = 0; i < ArrayLength(queryResultBuffer); i++)
         {
@@ -30,7 +30,7 @@ void DebugState::BeginFrame()
         }
     }
 
-    CommandList cmd   = device->BeginCommandList(QueueType_Graphics);
+    commandList       = device->BeginCommandList(QueueType_Graphics);
     u32 currentBuffer = device->GetCurrentBuffer();
     u32 numRanges     = currentRangeIndex[currentBuffer].load();
 
@@ -57,10 +57,12 @@ void DebugState::BeginFrame()
         record->totalTimes[index] += range->timeElapsed;
     }
 
-    triangleCounts[currentBuffer] = mappedData[queryIndex.load() + 0];
+    u32 lastQuery                        = queryIndex.load();
+    pipelineStatistics[currentBuffer][0] = mappedData[lastQuery + 0];
+    pipelineStatistics[currentBuffer][1] = mappedData[lastQuery + 1];
 
-    device->ResetQuery(&timestampPool, cmd, 0, timestampPool.queryCount);
-    device->ResetQuery(&pipelineStatisticsPool, cmd, 0, pipelineStatisticsPool.queryCount);
+    device->ResetQuery(&timestampPool, commandList, 0, timestampPool.queryCount);
+    device->ResetQuery(&pipelineStatisticsPool, commandList, 0, pipelineStatisticsPool.queryCount);
     currentRangeIndex[currentBuffer].store(0);
     queryIndex.store(0);
 }
@@ -169,10 +171,20 @@ void DebugState::PrintDebugRecords()
             }
             avg /= size;
             avgInvocations /= size;
-            Printf("%s | Avg Time: %f | Avg Invocations: %f\n", record->functionName, avg, avgInvocations);
+            Printf("%s | Avg Time: %f ms | Avg Invocations: %f\n", record->functionName, avg, avgInvocations);
         }
     }
-    Printf("Triangle counts: %u\n\n", (triangleCounts[0] + triangleCounts[1]) / 2);
+
+    u64 triangleCount      = 0;
+    u64 clippingPrimitives = 0;
+    u32 length             = graphics::mkGraphics::cNumBuffers;
+    for (u32 i = 0; i < length; i++)
+    {
+        triangleCount += pipelineStatistics[i][0];
+        clippingPrimitives += pipelineStatistics[i][1];
+    }
+    Printf("Triangle counts: %u\n", triangleCount / length);
+    Printf("Clipping primitives: %u\n\n", clippingPrimitives / length);
 }
 
 Event::Event(char *filename, char *functionName, u32 lineNum, CommandList cmdList)

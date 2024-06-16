@@ -1307,7 +1307,7 @@ internal void RenderMeshes(CommandList cmdList, RenderPassType type, i32 cascade
 
 internal void Render()
 {
-    TIMED_FUNCTION();
+    // TIMED_FUNCTION();
     // TODO: eventually, this should not be accessed from here
     G_State *g_state         = engine->GetGameState();
     RenderState *renderState = engine->GetRenderState();
@@ -1315,6 +1315,8 @@ internal void Render()
     // Read through deferred block compress commands
     CommandList cmd;
     cmd = device->BeginCommandList(graphics::QueueType_Compute);
+    device->Wait(debugState.commandList, cmd);
+    u32 computeIndex = TIMED_GPU_RANGE_BEGIN(cmd);
 
     // Upload frame allocations
     {
@@ -1424,9 +1426,13 @@ internal void Render()
         CullMeshBatches(cmd);
     }
 
+    TIMED_GPU_RANGE_END(computeIndex);
+
     CommandList cmdList = device->BeginCommandList(QueueType_Graphics);
     device->Wait(cmd, cmdList);
-    TIMED_GPU(cmdList);
+
+    // TIMED_GPU(cmdList);
+    u32 rangeIndex = TIMED_GPU_RANGE_BEGIN(cmdList);
     debugState.BeginTriangleCount(cmdList);
 
     // Setup cascaded shadowmaps
@@ -1521,6 +1527,7 @@ internal void Render()
         RenderMeshes(cmdList, RenderPassType_Main);
         device->EndRenderPass(cmdList);
     }
+    TIMED_GPU_RANGE_END(rangeIndex);
     debugState.EndTriangleCount(cmdList);
     debugState.EndFrame(cmdList);
     device->SubmitCommandLists();

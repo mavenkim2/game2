@@ -57,9 +57,9 @@ void main(uint3 groupID: SV_GroupID, uint3 groupThreadID: SV_GroupThreadID)
     float2 screen = float2(push.screenWidth, push.screenHeight);
     float2 clipVertices[3] = 
     {
-        ((vertices[0].xy / vertices[0].w) * 0.5 + 0.5 * screen),
-        ((vertices[1].xy / vertices[1].w) * 0.5 + 0.5 * screen),
-        ((vertices[2].xy / vertices[2].w) * 0.5 + 0.5 * screen),
+        ((vertices[0].xy / vertices[0].w) * 0.5 + 0.5) * screen,
+        ((vertices[1].xy / vertices[1].w) * 0.5 + 0.5) * screen,
+        ((vertices[2].xy / vertices[2].w) * 0.5 + 0.5) * screen,
     };
 
     float2 edge1 = clipVertices[1] - clipVertices[0];
@@ -69,9 +69,10 @@ void main(uint3 groupID: SV_GroupID, uint3 groupThreadID: SV_GroupThreadID)
 #endif
 
     // Small triangle culling
-#if 0
+#if 1
     float2 aabbMin = min(clipVertices[0], min(clipVertices[1], clipVertices[2]));
     float2 aabbMax = max(clipVertices[0], max(clipVertices[1], clipVertices[2]));
+    // TODO: more robust handling of subpixel precision
     float subpixelPrecision = 1.0 / 256.0;
 
     cull = cull || (round(aabbMin.x - subpixelPrecision) == round(aabbMax.x) || round(aabbMin.y) == round(aabbMax.y + subpixelPrecision));

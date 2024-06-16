@@ -747,6 +747,7 @@ struct mkGraphics
     virtual void PushConstants(CommandList cmd, u32 size, void *data, u32 offset = 0)                                         = 0;
     virtual void WaitForGPU()                                                                                                 = 0;
     virtual void Wait(CommandList waitFor, CommandList cmd)                                                                   = 0;
+    virtual void Wait(CommandList wait)                                                                                       = 0;
     virtual void Barrier(CommandList cmd, GPUBarrier *barriers, u32 count)                                                    = 0;
     virtual b32 IsSignaled(FenceTicket ticket)                                                                                = 0;
     virtual b32 IsLoaded(GPUResource *resource)                                                                               = 0;

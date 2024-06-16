@@ -50,6 +50,7 @@ struct DebugState
 
     Arena *arena;
 
+    CommandList commandList;
     // Timing
     QueryPool timestampPool;
     Record records[totalNumSlots];
@@ -63,7 +64,7 @@ struct DebugState
 
     // Pipeline statistics
     QueryPool pipelineStatisticsPool;
-    u64 triangleCounts[graphics::mkGraphics::cNumBuffers];
+    u64 pipelineStatistics[graphics::mkGraphics::cNumBuffers][2];
 
     b8 initialized = 0;
 
@@ -87,8 +88,9 @@ struct Event
 // internal void D_CollateDebugRecords();
 #define TIMED_FUNCTION() debug::Event(__FILE__, FUNCTION_NAME, __LINE__);
 // TODO: if gpu commands occur cross different function calls, consider
-#define TIMED_GPU(cmd) debug::Event(__FILE__, FUNCTION_NAME, __LINE__, cmd);
-#define BEGIN_RANGE_CPU()
+#define TIMED_GPU(cmd)             debug::Event(__FILE__, FUNCTION_NAME, __LINE__, cmd);
+#define TIMED_GPU_RANGE_BEGIN(cmd) debugState.BeginRange(__FILE__, FUNCTION_NAME, __LINE__, cmd)
+#define TIMED_GPU_RANGE_END(index) debugState.EndRange(index)
 
 } // namespace debug
 

@@ -276,7 +276,7 @@ internal void PlayCurrentAnimation(AnimationPlayer *player, f32 dT, AnimationTra
 internal void SkinModelToAnimation(const AnimationPlayer *inPlayer, const LoadedSkeleton *skeleton,
                                    const AnimationTransform *transforms, Mat4 *outFinalTransforms)
 {
-    TIMED_FUNCTION();
+    // TIMED_FUNCTION();
 
     TempArena temp          = ScratchStart(0, 0);
     Mat4 *transformToParent = PushArray(temp.arena, Mat4, skeleton->count);

@@ -407,6 +407,7 @@ struct mkGraphicsVulkan : mkGraphics
     void PushConstants(CommandList cmd, u32 size, void *data, u32 offset = 0) override;
     void WaitForGPU() override;
     void Wait(CommandList waitFor, CommandList cmd) override;
+    void Wait(CommandList wait) override;
 
     void Barrier(CommandList cmd, GPUBarrier *barriers, u32 count) override;
     b32 IsSignaled(FenceTicket ticket) override;

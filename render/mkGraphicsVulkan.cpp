@@ -3990,6 +3990,12 @@ void mkGraphicsVulkan::Wait(CommandList waitFor, CommandList cmd)
     command->waitForCmds.push_back(waitFor);
 }
 
+void mkGraphicsVulkan::Wait(CommandList wait)
+{
+    CommandListVulkan *command = ToInternal(wait);
+    command->waitedOn.store(1);
+}
+
 void mkGraphicsVulkan::CreateQueryPool(QueryPool *pool, QueryType type, u32 queryCount)
 {
     pool->type                       = type;
@@ -4001,7 +4007,7 @@ void mkGraphicsVulkan::CreateQueryPool(QueryPool *pool, QueryType type, u32 quer
         case QueryType_PipelineStatistics:
         {
             createInfo.queryType          = VK_QUERY_TYPE_PIPELINE_STATISTICS;
-            createInfo.pipelineStatistics = VK_QUERY_PIPELINE_STATISTIC_CLIPPING_INVOCATIONS_BIT;
+            createInfo.pipelineStatistics = VK_QUERY_PIPELINE_STATISTIC_CLIPPING_INVOCATIONS_BIT | VK_QUERY_PIPELINE_STATISTIC_CLIPPING_PRIMITIVES_BIT;
         }
         break;
         case QueryType_Timestamp: createInfo.queryType = VK_QUERY_TYPE_TIMESTAMP; break;
