@@ -171,7 +171,7 @@ void DebugState::PrintDebugRecords()
             }
             avg /= size;
             avgInvocations /= size;
-            Printf("%s | Avg Time: %f ms | Avg Invocations: %f\n", record->functionName, avg, avgInvocations);
+            Printf("%s | Avg Total Time: %f ms | Avg Invocations: %f\n", record->functionName, avg, avgInvocations);
         }
     }
 

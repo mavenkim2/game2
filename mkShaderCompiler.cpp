@@ -1,31 +1,32 @@
 namespace shadercompiler
 {
 
-global ShaderCompiler compiler;
+global ShaderCompiler *compiler;
 
 internal void InitShaderCompiler()
 {
-    compiler.dll.mSource        = "src/third_party/dxcompiler.dll";
-    compiler.dll.mFunctions     = (void **)&compiler.functions;
-    compiler.dll.mFunctionNames = (char **)functionTable;
-    compiler.dll.mFunctionCount = ArrayLength(functionTable);
+    compiler                     = new ShaderCompiler();
+    compiler->dll.mSource        = "src/third_party/dxcompiler.dll";
+    compiler->dll.mFunctions     = (void **)&compiler->functions;
+    compiler->dll.mFunctionNames = (char **)functionTable;
+    compiler->dll.mFunctionCount = ArrayLength(functionTable);
 
-    platform.LoadDLLNoTemp(&compiler.dll);
-    Assert(compiler.dll.mValid);
+    platform.LoadDLLNoTemp(&compiler->dll);
+    Assert(compiler->dll.mValid);
 
-    HRESULT hr = compiler.functions.DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&compiler.dxcCompiler));
+    HRESULT hr = compiler->functions.DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&compiler->dxcCompiler));
     Assert(SUCCEEDED(hr));
 
-    hr = compiler.dxcCompiler->QueryInterface(IID_PPV_ARGS(&compiler.info));
+    hr = compiler->dxcCompiler->QueryInterface(IID_PPV_ARGS(&compiler->info));
     Assert(SUCCEEDED(hr));
 
-    hr = compiler.functions.DxcCreateInstance(CLSID_DxcUtils, IID_PPV_ARGS(&compiler.dxcUtils));
+    hr = compiler->functions.DxcCreateInstance(CLSID_DxcUtils, IID_PPV_ARGS(&compiler->dxcUtils));
     Assert(SUCCEEDED(hr));
-    hr = compiler.functions.DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&compiler.dxcCompiler));
+    hr = compiler->functions.DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&compiler->dxcCompiler));
     Assert(SUCCEEDED(hr));
-    Assert(compiler.dxcCompiler);
+    Assert(compiler->dxcCompiler);
 
-    hr = compiler.dxcUtils->CreateDefaultIncludeHandler(&compiler.defaultIncludeHandler);
+    hr = compiler->dxcUtils->CreateDefaultIncludeHandler(&compiler->defaultIncludeHandler);
     Assert(SUCCEEDED(hr));
 }
 
@@ -55,7 +56,7 @@ internal void CompileShader(Arena *arena, CompileInput *input, CompileOutput *ou
     CComPtr<IDxcBlobUtf8> blob;
 
     CComPtr<IDxcIncludeHandler> dxcIncludeHandler;
-    compiler.dxcUtils->CreateDefaultIncludeHandler(&dxcIncludeHandler);
+    compiler->dxcUtils->CreateDefaultIncludeHandler(&dxcIncludeHandler);
 
     list<const wchar_t *> args;
     args.push_back(L"nologo");
@@ -147,13 +148,13 @@ internal void CompileShader(Arena *arena, CompileInput *input, CompileOutput *ou
         }
     } customIncludeHandler;
     customIncludeHandler.arena             = arena;
-    customIncludeHandler.dxcIncludeHandler = compiler.defaultIncludeHandler;
+    customIncludeHandler.dxcIncludeHandler = compiler->defaultIncludeHandler;
     customIncludeHandler.input             = input;
     customIncludeHandler.output            = output;
 
     CComPtr<IDxcResult> compileResult;
-    compiler.dxcCompiler->Compile(&sourceBuffer, args.data(), (u32)args.size(), &customIncludeHandler,
-                                  IID_PPV_ARGS(&compileResult));
+    compiler->dxcCompiler->Compile(&sourceBuffer, args.data(), (u32)args.size(), &customIncludeHandler,
+                                   IID_PPV_ARGS(&compileResult));
 
     CComPtr<IDxcBlobUtf8> errors = 0;
     HRESULT hr                   = compileResult->GetOutput(DXC_OUT_ERRORS, IID_PPV_ARGS(&errors), 0);
@@ -174,6 +175,7 @@ internal void CompileShader(Arena *arena, CompileInput *input, CompileOutput *ou
         output->shaderData.str  = PushArray(arena, u8, output->shaderData.size);
         MemoryCopy(output->shaderData.str, shader->GetBufferPointer(), output->shaderData.size);
     }
+    // customIncludeHandler.dxcIncludeHandler->Release();
 }
 
 } // namespace shadercompiler

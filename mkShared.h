@@ -336,7 +336,7 @@ typedef G_INIT(g_initialize);
 #define G_UPDATE(name) void name(f32 dt)
 typedef G_UPDATE(g_update);
 
-#define G_FLUSH(name) void name(void)
+#define G_FLUSH(name) void name(b32 reload)
 typedef G_FLUSH(g_flush);
 
 #if INTERNAL

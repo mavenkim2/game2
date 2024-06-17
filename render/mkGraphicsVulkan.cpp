@@ -2705,6 +2705,88 @@ void mkGraphicsVulkan::UpdateDescriptorSet(CommandList cmd)
 
     for (auto &layoutBinding : pipelineVulkan->mLayoutBindings)
     {
+        auto writeDescriptor = [&](VkWriteDescriptorSet &descriptorWrite) {
+            u32 mappedBinding = layoutBinding.binding;
+            b8 isUav          = 0;
+            b8 isTexture      = 0;
+            switch (layoutBinding.descriptorType)
+            {
+                case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER: break;
+                case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
+                {
+                    isTexture = 1;
+                    mappedBinding -= VK_BINDING_SHIFT_T;
+                }
+                break;
+                case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:
+                {
+                    mappedBinding -= VK_BINDING_SHIFT_U;
+                    isTexture = 1;
+                    isUav     = 1;
+                }
+                break;
+                case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:
+                {
+                    if (mappedBinding < VK_BINDING_SHIFT_U) mappedBinding -= VK_BINDING_SHIFT_T;
+                    else
+                    {
+                        mappedBinding -= VK_BINDING_SHIFT_U;
+                        isUav = 1;
+                    }
+                }
+                break;
+                default: Assert(0);
+            }
+            BindedResource *bindedResource;
+            if (isUav) bindedResource = &command->uavTable[mappedBinding];
+            else bindedResource = &command->srvTable[mappedBinding];
+
+            GPUResource *resource = bindedResource->resource;
+
+            if (isTexture)
+            {
+                VkImageView view;
+                if (!bindedResource->IsValid() || !resource->IsTexture())
+                {
+                    view = mNullImageView2D;
+                }
+                else
+                {
+                    Texture *tex           = (Texture *)(resource);
+                    TextureVulkan *texture = ToInternal(tex);
+                    view                   = texture->mSubresource.mImageView;
+                }
+                imageInfos.emplace_back();
+                VkDescriptorImageInfo &imageInfo = imageInfos.back();
+                imageInfo.imageView              = view;
+                imageInfo.imageLayout            = isUav ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+                descriptorWrite.pImageInfo = &imageInfo;
+            }
+            else
+            {
+                bufferInfos.emplace_back();
+                if (!bindedResource->IsValid() || !resource->IsBuffer())
+                {
+                    VkDescriptorBufferInfo &info = bufferInfos.back();
+                    info.buffer                  = mNullBuffer;
+                    info.offset                  = 0;
+                    info.range                   = VK_WHOLE_SIZE;
+                }
+                else
+                {
+                    GPUBufferVulkan *bufferVulkan = ToInternal((GPUBuffer *)resource);
+                    i32 subresourceIndex =
+                        bindedResource->subresourceIndex == -1 ? (isUav ? bufferVulkan->subresourceUav : bufferVulkan->subresourceSrv)
+                                                               : bindedResource->subresourceIndex;
+                    Assert(subresourceIndex != -1);
+                    bufferInfos.back() = bufferVulkan->subresources[subresourceIndex].info;
+                }
+
+                descriptorWrite.pBufferInfo = &bufferInfos.back();
+            }
+        };
+
         if (layoutBinding.pImmutableSamplers != 0)
         {
             continue;
@@ -2721,116 +2803,7 @@ void mkGraphicsVulkan::UpdateDescriptorSet(CommandList cmd)
             descriptorWrite.descriptorType        = layoutBinding.descriptorType;
             // These next two are for descriptor arrays?
             descriptorWrite.dstArrayElement = 0;
-
-            switch (layoutBinding.descriptorType)
-            {
-                case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
-                {
-                    u32 mappedBinding = layoutBinding.binding;
-                    Assert(mappedBinding < cMaxBindings);
-                    BindedResource *bindedResource = &command->srvTable[mappedBinding];
-                    GPUResource *resource          = bindedResource->resource;
-
-                    bufferInfos.emplace_back();
-                    if (!bindedResource->IsValid() || !resource->IsBuffer())
-                    {
-                        VkDescriptorBufferInfo &info = bufferInfos.back();
-                        info.buffer                  = mNullBuffer;
-                        info.offset                  = 0;
-                        info.range                   = VK_WHOLE_SIZE;
-                    }
-                    else
-                    {
-                        GPUBufferVulkan *bufferVulkan = ToInternal((GPUBuffer *)resource);
-                        i32 subresourceIndex          = bindedResource->subresourceIndex == -1 ? bufferVulkan->subresourceSrv : bindedResource->subresourceIndex;
-                        Assert(subresourceIndex != -1);
-                        bufferInfos.back() = bufferVulkan->subresources[subresourceIndex].info;
-                    }
-
-                    descriptorWrite.pBufferInfo = &bufferInfos.back();
-                }
-                break;
-                case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
-                {
-                    u32 mappedBinding = layoutBinding.binding - VK_BINDING_SHIFT_T;
-                    Assert(mappedBinding < cMaxBindings);
-
-                    BindedResource *bindedResource = &command->srvTable[layoutBinding.binding - VK_BINDING_SHIFT_T];
-                    GPUResource *resource          = bindedResource->resource;
-
-                    VkImageView view;
-                    if (!bindedResource->IsValid() || !resource->IsTexture())
-                    {
-                        view = mNullImageView2D;
-                    }
-                    else
-                    {
-                        Texture *tex           = (Texture *)(resource);
-                        TextureVulkan *texture = ToInternal(tex);
-                        view                   = texture->mSubresource.mImageView;
-                    }
-                    imageInfos.emplace_back();
-                    VkDescriptorImageInfo &imageInfo = imageInfos.back();
-                    imageInfo.imageView              = view;
-                    imageInfo.imageLayout            = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-                    descriptorWrite.pImageInfo = &imageInfo;
-                }
-                break;
-                case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:
-                {
-                    u32 mappedBinding = layoutBinding.binding - VK_BINDING_SHIFT_U;
-                    Assert(mappedBinding < cMaxBindings);
-
-                    BindedResource *bindedResource = &command->uavTable[mappedBinding];
-                    GPUResource *resource          = bindedResource->resource;
-                    VkImageView view;
-                    if (!bindedResource->IsValid() || !resource->IsTexture())
-                    {
-                        view = mNullImageView2D;
-                    }
-                    else
-                    {
-                        Texture *tex           = (Texture *)(resource);
-                        TextureVulkan *texture = ToInternal(tex);
-                        view                   = texture->mSubresource.mImageView;
-                    }
-                    imageInfos.emplace_back();
-                    VkDescriptorImageInfo &imageInfo = imageInfos.back();
-                    imageInfo.imageView              = view;
-                    imageInfo.imageLayout            = VK_IMAGE_LAYOUT_GENERAL;
-
-                    descriptorWrite.pImageInfo = &imageInfo;
-                }
-                break;
-                case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:
-                {
-                    u32 mappedBinding = layoutBinding.binding - VK_BINDING_SHIFT_U;
-                    Assert(mappedBinding < cMaxBindings);
-
-                    BindedResource *bindedResource = &command->uavTable[mappedBinding];
-                    GPUResource *resource          = bindedResource->resource;
-                    bufferInfos.emplace_back();
-                    if (!bindedResource->IsValid() || !resource->IsBuffer())
-                    {
-                        VkDescriptorBufferInfo &info = bufferInfos.back();
-                        info.buffer                  = mNullBuffer;
-                        info.offset                  = 0;
-                        info.range                   = VK_WHOLE_SIZE;
-                    }
-                    else
-                    {
-                        GPUBufferVulkan *bufferVulkan = ToInternal((GPUBuffer *)resource);
-                        i32 subresourceIndex          = bindedResource->subresourceIndex == -1 ? bufferVulkan->subresourceUav : bindedResource->subresourceIndex;
-                        Assert(subresourceIndex != -1);
-                        bufferInfos.back() = bufferVulkan->subresources[subresourceIndex].info;
-                    }
-                    descriptorWrite.pBufferInfo = &bufferInfos.back();
-                }
-                break;
-                default:
-                    Assert(!"Not implemented");
-            }
+            writeDescriptor(descriptorWrite);
         }
     }
     VkPipelineBindPoint bindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;

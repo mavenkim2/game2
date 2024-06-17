@@ -882,6 +882,8 @@ graphics::GPUBuffer meshSubsetBuffer;
 graphics::GPUBuffer materialBufferUpload[device->cNumBuffers];
 graphics::GPUBuffer materialBuffer;
 
+// TODO: I'm not certain if the draw compaction shader works properly on all hardware using only one buffer to both read/write from
+graphics::GPUBuffer indirectScratchBuffer;
 graphics::GPUBuffer meshIndirectBuffer;
 graphics::GPUBuffer meshIndirectCountBuffer;
 graphics::GPUBuffer meshIndexBuffer;
@@ -1116,6 +1118,10 @@ internal void Initialize()
         device->CreateBuffer(&meshIndirectBuffer, desc, 0);
         device->SetName(&meshIndirectBuffer, "Mesh indirect buffer");
 
+        desc.mResourceUsage = ResourceUsage::StorageBuffer | ResourceUsage::UniformBuffer;
+        device->CreateBuffer(&indirectScratchBuffer, desc, 0);
+        device->SetName(&indirectScratchBuffer, "Indirect scratch buffer");
+
         // Indirect count buffer
         desc                = {};
         desc.mSize          = sizeof(uint);
@@ -1278,7 +1284,7 @@ internal void CullMeshBatches(CommandList cmdList)
     pc.screenHeight           = (u32)platform.GetWindowDimension(shared->windowHandle).y;
     device->PushConstants(cmdList, sizeof(pc), &pc);
     device->BindCompute(&triangleCullPipeline, cmdList);
-    device->BindResource(&meshIndirectBuffer, ResourceType::UAV, 0, cmdList);
+    device->BindResource(&indirectScratchBuffer, ResourceType::UAV, 0, cmdList);
     device->BindResource(&meshIndexBuffer, ResourceType::UAV, 1, cmdList);
     device->UpdateDescriptorSet(cmdList);
     device->Dispatch(cmdList, meshBatchCount, 1, 1);
@@ -1293,8 +1299,9 @@ internal void CullMeshBatches(CommandList cmdList)
 
     device->PushConstants(cmdList, sizeof(dcpc), &dcpc);
     device->BindCompute(&compactionPipeline, cmdList);
-    device->BindResource(&meshIndirectBuffer, ResourceType::UAV, 0, cmdList);
-    device->BindResource(&meshIndirectCountBuffer, ResourceType::UAV, 1, cmdList);
+    device->BindResource(&indirectScratchBuffer, ResourceType::SRV, 0, cmdList);
+    device->BindResource(&meshIndirectCountBuffer, ResourceType::UAV, 0, cmdList);
+    device->BindResource(&meshIndirectBuffer, ResourceType::UAV, 1, cmdList);
     device->UpdateDescriptorSet(cmdList);
     device->Dispatch(cmdList, (meshBatchCount + 63) / 64, 1, 1);
 }
@@ -1317,7 +1324,6 @@ internal void RenderMeshes(CommandList cmdList, RenderPassType type, i32 cascade
 
     device->PushConstants(cmdList, sizeof(pc), &pc);
     device->BindIndexBuffer(cmdList, &meshIndexBuffer);
-    // device->DrawIndexedIndirect(cmdList, &meshIndirectBuffer, drawCount);
     device->DrawIndexedIndirectCount(cmdList, &meshIndirectBuffer, &meshIndirectCountBuffer, drawCount);
 }
 
@@ -1345,7 +1351,7 @@ internal void Render()
             device->Barrier(cmd, barriers, ArrayLength(barriers));
         }
         device->BindCompute(&clearIndirectPipeline, cmd);
-        device->BindResource(&meshIndirectBuffer, ResourceType::UAV, 0, cmd);
+        device->BindResource(&indirectScratchBuffer, ResourceType::UAV, 0, cmd);
         device->UpdateDescriptorSet(cmd);
         device->Dispatch(cmd, (meshBatchCount + BATCH_SIZE - 1) / BATCH_SIZE, 1, 1);
 
@@ -1463,16 +1469,6 @@ internal void Render()
 
         R_CascadedShadowMap(&testLight, cascadeParams.rLightViewProjectionMatrices, cascadeParams.rCascadeDistances.elements);
         device->FrameAllocate(&cascadeParamsBuffer, &cascadeParams, cmdList, sizeof(cascadeParams));
-    }
-
-    {
-        // GPUBarrier barriers[] = {
-        //     GPUBarrier::Memory(PipelineFlag_Transfer, PipelineFlag_VertexShader,
-        //                        AccessFlag_TransferWrite, AccessFlag_ShaderRead | AccessFlag_UniformRead),
-        //     GPUBarrier::Buffer(&meshIndirectBuffer, PipelineFlag_Transfer, PipelineFlag_Indirect,
-        //                        AccessFlag_TransferWrite, AccessFlag_IndirectRead),
-        // };
-        // device->Barrier(cmdList, barriers, ArrayLength(barriers));
     }
 
     // Shadow pass :)

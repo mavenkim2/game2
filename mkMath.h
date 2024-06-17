@@ -2003,6 +2003,101 @@ internal b32 IntersectFrustumAABB(Mat4 &mvp, Rect3 &aabb, f32 zNear, f32 zFar)
     return result;
 }
 
+struct Plane
+{
+    V4 n;
+};
+
+// order: left, right, bottom, top, near, far
+internal void ExtractPlanes(Plane *planes, Mat4 &vp)
+{
+    V4 row0 = GetRow(vp, 0);
+    V4 row1 = GetRow(vp, 1);
+    V4 row2 = GetRow(vp, 2);
+    V4 row3 = GetRow(vp, 3);
+
+    planes[0].n = row3 + row0;
+    planes[1].n = row3 - row0;
+    planes[2].n = row3 + row1;
+    planes[3].n = row3 - row1;
+    planes[4].n = row2;
+    planes[5].n = row3 - row2;
+
+    for (u32 i = 0; i < 6; i++)
+    {
+        f32 oneOverLength = Length(planes[i].n.xyz);
+        Assert(oneOverLength != 0);
+        oneOverLength = 1 / (oneOverLength);
+        planes[i].n *= oneOverLength;
+    }
+}
+
+#define _mm_madd_ps(a, b, c) _mm_add_ps(_mm_mul_ps(a, b), c)
+
+internal void IntersectFrustumAABB(Plane *planes, f32 *aabbArray, b32 *out)
+{
+#ifdef SSE42
+    // f32 minXArray[] = {aabb[0].minX, aabb[1].minX, aabb[2].minX, aabb[3].minX};
+    // f32 minYArray[] = {aabb[0].minY, aabb[1].minY, aabb[2].minY, aabb[3].minY};
+    // f32 minZArray[] = {aabb[0].minZ, aabb[1].minZ, aabb[2].minZ, aabb[3].minZ};
+    // f32 maxXArray[] = {aabb[0].maxX, aabb[1].maxX, aabb[2].maxX, aabb[3].maxX};
+    // f32 maxYArray[] = {aabb[0].maxY, aabb[1].maxY, aabb[2].maxY, aabb[3].maxY};
+    // f32 maxZArray[] = {aabb[0].maxZ, aabb[1].maxZ, aabb[2].maxZ, aabb[3].maxZ};
+
+    __m128 minX = _mm_load_ps(&aabbArray[0]);
+    __m128 minY = _mm_load_ps(&aabbArray[4]);
+    __m128 minZ = _mm_load_ps(&aabbArray[8]);
+    __m128 maxX = _mm_load_ps(&aabbArray[12]);
+    __m128 maxY = _mm_load_ps(&aabbArray[16]);
+    __m128 maxZ = _mm_load_ps(&aabbArray[20]);
+
+    // NOTE: need to compare against - plane.w * 2
+    __m128 centerY = _mm_add_ps(maxY, minY);
+    __m128 centerX = _mm_add_ps(maxX, minX);
+    __m128 centerZ = _mm_add_ps(maxZ, minZ);
+
+    __m128 extentX = _mm_sub_ps(maxX, minX);
+    __m128 extentY = _mm_sub_ps(maxY, minY);
+    __m128 extentZ = _mm_sub_ps(maxZ, minZ);
+
+    __m128 signMask = _mm_set1_ps(-0.f); // does this work????
+
+    __m128 results = _mm_set1_ps(1);
+
+    for (u32 i = 0; i < 6; i++)
+    {
+        __m128 planeX = _mm_set1_ps(planes[i].n.x);
+        __m128 planeY = _mm_set1_ps(planes[i].n.y);
+        __m128 planeZ = _mm_set1_ps(planes[i].n.z);
+        __m128 planeW = _mm_set1_ps(planes[i].n.w * -2);
+
+        // dot(center + extent, plane) > -plane.w
+        // NOTE: to see if the box is partially inside, need to maximize the dot product.
+        // dot(center + extent, plane) = dot(center, plane) + dot(extent, plane) <-- this needs to be maximized.
+        // this can be done by xor the extent with the sign bit of the plane, so the dot product is always +
+        __m128 dot;
+        __m128 t;
+
+        __m128 test = _mm_and_ps(planeX, signMask);
+        t           = _mm_add_ps(centerX, _mm_xor_ps(extentX, _mm_and_ps(planeX, signMask)));
+        dot         = _mm_mul_ps(t, planeX);
+        t           = _mm_add_ps(centerY, _mm_xor_ps(extentY, _mm_and_ps(planeY, signMask)));
+        dot         = _mm_madd_ps(t, planeY, dot);
+        t           = _mm_add_ps(centerZ, _mm_xor_ps(extentZ, _mm_and_ps(planeZ, signMask)));
+        dot         = _mm_madd_ps(t, planeZ, dot);
+
+        results = _mm_and_ps(results, _mm_cmpgt_ps(dot, planeW));
+    }
+    f32 finalResults[4];
+    _mm_store_ps(finalResults, results);
+    out[0] = (b32)finalResults[0];
+    out[1] = (b32)finalResults[1];
+    out[2] = (b32)finalResults[2];
+    out[3] = (b32)finalResults[3];
+
+#endif
+}
+
 /*
  * TRIANGLE
  */

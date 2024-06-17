@@ -160,14 +160,26 @@ THREAD_ENTRY_POINT(JobThreadEntryPoint)
 
 void EndJobsystem()
 {
-    gTerminateJobs = 1;
-    std::atomic_thread_fence(std::memory_order_release);
     while (!Pop(jobSystem.highPriorityQueue, 0) || !Pop(jobSystem.lowPriorityQueue, 0)) continue;
 
+    gTerminateJobs = 1;
+    std::atomic_thread_fence(std::memory_order_release);
     platform.ReleaseSemaphores(jobSystem.readSemaphore, jobSystem.threadCount);
     for (size_t i = 0; i < jobSystem.threadCount; i++)
     {
         platform.ThreadJoin(jobSystem.threads[i]);
     }
 }
+
+void ForceQuit()
+{
+    gTerminateJobs = 1;
+    std::atomic_thread_fence(std::memory_order_release);
+    platform.ReleaseSemaphores(jobSystem.readSemaphore, jobSystem.threadCount);
+    for (size_t i = 0; i < jobSystem.threadCount; i++)
+    {
+        platform.ThreadJoin(jobSystem.threads[i]);
+    }
+}
+
 } // namespace jobsystem

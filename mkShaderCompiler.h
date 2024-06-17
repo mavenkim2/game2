@@ -39,12 +39,13 @@ struct ShaderCompiler
 
     void Destroy()
     {
-        dxcCompiler->Release();
-        info->Release();
-        dxcUtils->Release();
-        defaultIncludeHandler->Release();
+        // dxcCompiler->Release();
+        // info->Release();
+        // dxcUtils->Release();
+        // defaultIncludeHandler->Release();
     }
 
+    ShaderCompiler() {}
     ~ShaderCompiler() {}
 };
 

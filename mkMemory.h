@@ -28,8 +28,8 @@ struct TempArena
     u64 pos;
 };
 
-internal Arena *ArenaAlloc(u64 resSize, u64 cmtSize);
-internal Arena *ArenaAlloc(u64 size);
+internal Arena *ArenaAlloc(u64 resSize, u64 cmtSize, u64 align);
+internal Arena *ArenaAlloc(u64 size, u64 align = 8);
 internal Arena *ArenaAlloc();
 internal void *ArenaPushNoZero(Arena *arena, u64 size);
 internal void *ArenaPush(Arena *arena, u64 size);
@@ -48,7 +48,7 @@ internal void ArenaClear(Arena *arena);
 #define PushStruct(arena, type)             (type *)PushArray(arena, type, 1)
 
 // #define ScratchBegin(arena) TempBegin(arena)
-#define ScratchEnd(temp)    TempEnd(temp)
+#define ScratchEnd(temp) TempEnd(temp)
 
 #define IsZero(instance) CheckZero(sizeof(instance), (u8 *)(&instance))
 

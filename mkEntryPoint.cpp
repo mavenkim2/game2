@@ -118,7 +118,7 @@ MAIN()
         if (gameDLL.mLastWriteTime != gameDLLWriteTime)
         {
             gameMem.mIsHotloaded = 1;
-            gameFunctions.G_Flush();
+            gameFunctions.G_Flush(1);
             OS_UnloadDLL(&gameDLL);
             OS_LoadDLL(&gameDLL);
             gameFunctions.G_Initialize(&gameMem);
@@ -151,7 +151,7 @@ MAIN()
         }
     }
 
-    gameFunctions.G_Flush();
+    // gameFunctions.G_Flush(0);
     OS_UnloadDLL(&gameDLL);
     // OS_UnloadDLL(&renderDLL);
 

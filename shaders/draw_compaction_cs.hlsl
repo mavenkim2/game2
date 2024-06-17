@@ -3,8 +3,9 @@
 
 [[vk::push_constant]] DrawCompactionPushConstant push;
 
-RWStructuredBuffer<DrawIndexedIndirectCommand> indirectCommands : register(u0);
-RWStructuredBuffer<uint> commandCount : register(u1);
+StructuredBuffer<DrawIndexedIndirectCommand> indirectCommands : register(t0);
+RWStructuredBuffer<uint> commandCount : register(u0);
+RWStructuredBuffer<DrawIndexedIndirectCommand> outputIndirectCommands : register(u1);
 
 [numthreads(64, 1, 1)]
 void main(uint3 dispatchThreadID : SV_DispatchThreadID)
@@ -25,6 +26,6 @@ void main(uint3 dispatchThreadID : SV_DispatchThreadID)
 
     if (hasDraw)
     {
-        indirectCommands[waveDrawOffset + drawIndex] = cmd;
+        outputIndirectCommands[waveDrawOffset + drawIndex] = cmd;
     }
 }

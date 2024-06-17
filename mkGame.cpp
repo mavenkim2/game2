@@ -86,8 +86,6 @@ internal Manifold NarrowPhaseAABBCollision(const Rect3 a, const Rect3 b)
     return manifold;
 }
 
-// RendererApi renderer;
-
 void G_State::Insert(string name, u32 index)
 {
     u32 sid              = AddSID(name);
@@ -123,15 +121,20 @@ u32 G_State::GetIndex(string name)
 // simply waits for all threads to finish executing
 G_FLUSH(G_Flush)
 {
-    // JS_Flush();
-    shadercompiler::compiler.Destroy();
+    delete shadercompiler::compiler;
     AS_Flush();
-    jobsystem::EndJobsystem();
+    if (reload)
+    {
+        jobsystem::EndJobsystem();
+    }
+    else
+    {
+        jobsystem::ForceQuit();
+    }
 }
 
 G_INIT(G_Init)
 {
-    // renderer = ioPlatformMemory->mRenderer;
     if (ioPlatformMemory->mIsHotloaded || !ioPlatformMemory->mIsLoaded)
     {
         engine    = ioPlatformMemory->mEngine;
@@ -158,7 +161,7 @@ G_INIT(G_Init)
         // F_Init();
         D_Init();
 
-        Arena *frameArena     = ArenaAlloc();
+        Arena *frameArena     = ArenaAlloc(ARENA_RESERVE_SIZE, 16);
         Arena *permanentArena = ArenaAlloc();
 
         G_State *g_state = PushStruct(permanentArena, G_State);
@@ -644,11 +647,8 @@ DLL G_UPDATE(G_Update)
         }
         if (totalIndirectSize > indirectBuffer->mDesc.mSize)
         {
-            // for (u32 frame = 0; frame < device->cNumBuffers; frame++)
-            // {
-            //     device->ResizeBuffer(&render::meshIndirectBufferUpload[frame], totalIndirectSize * 2);
-            // }
             device->ResizeBuffer(indirectBuffer, totalIndirectSize * 2);
+            device->ResizeBuffer(&render::indirectScratchBuffer, totalIndirectSize * 2);
         }
         if (totalMeshIndexSize > indexBuffer->mDesc.mSize)
         {
@@ -710,6 +710,47 @@ DLL G_UPDATE(G_Update)
         }
     }
 
+    // Frustum culling
+    Plane planes[6];
+    ExtractPlanes(planes, renderState->transform);
+    u32 meshCountAligned    = AlignPow2(totalMeshCount, 4);
+    b32 *frustumCullResults = PushArrayNoZero(g_state->frameArena, b32, meshCountAligned);
+
+    b32 *testResults = PushArrayNoZero(g_state->frameArena, b32, meshCountAligned);
+    // MemorySet(frustumCullResults, 1, sizeof(frustumCullResults[0]) * totalMeshCount);
+    f32 *boundingBoxes = PushArrayNoZero(g_state->frameArena, f32, 6 * meshCountAligned);
+
+    u32 meshCount = 0;
+    for (MeshIter iter = gameScene->BeginMeshIter(); !gameScene->End(&iter); gameScene->Next(&iter))
+    {
+        Mesh *mesh    = gameScene->Get(&iter);
+        Entity entity = gameScene->GetEntity(&iter);
+
+        Mat4 transform         = frameTransforms[gameScene->transforms.GetIndex(entity)];
+        Rect3 worldSpaceBounds = Transform(transform, mesh->bounds);
+
+        u32 startIndex                                   = meshCount / 4 * 24;
+        boundingBoxes[startIndex + (meshCount & 3) + 0]  = worldSpaceBounds.minX;
+        boundingBoxes[startIndex + (meshCount & 3) + 4]  = worldSpaceBounds.minY;
+        boundingBoxes[startIndex + (meshCount & 3) + 8]  = worldSpaceBounds.minZ;
+        boundingBoxes[startIndex + (meshCount & 3) + 12] = worldSpaceBounds.maxX;
+        boundingBoxes[startIndex + (meshCount & 3) + 16] = worldSpaceBounds.maxY;
+        boundingBoxes[startIndex + (meshCount & 3) + 20] = worldSpaceBounds.maxZ;
+
+        meshCount++;
+
+        // Debug
+    }
+    {
+        Assert(meshCount == totalMeshCount);
+        for (u32 i = 0; i < meshCountAligned; i += 4)
+        {
+            u32 rangeId = TIMED_CPU_RANGE_NAME_BEGIN("Frustum cull");
+            IntersectFrustumAABB(planes, &boundingBoxes[6 * i], &frustumCullResults[i]);
+            TIMED_RANGE_END(rangeId);
+        }
+    }
+
     u32 activeMeshCount       = 0;
     u32 activeMeshSubsetCount = 0;
     u32 activeMeshBatchCount  = 0;
@@ -720,27 +761,24 @@ DLL G_UPDATE(G_Update)
         mesh->meshIndex = -1;
         if (!mesh->IsRenderable()) continue;
 
-        // TODO: support instancing. simd for frustum/box test
+        if (!frustumCullResults[iter.globalIndex]) continue;
         Mat4 transform = frameTransforms[gameScene->transforms.GetIndex(entity)];
-        // Rect3 bounds   = Transform(transform, mesh->bounds);
-        Mat4 mvp = renderState->transform * transform;
+        Mat4 mvp       = renderState->transform * transform;
 
+#if 0
         LoadedSkeleton *skeleton = gameScene->skeletons.GetFromEntity(entity);
         Rect3 bounds             = mesh->bounds;
-        // TODO: one of the skinned meshes is being rendered still even when not on screen
         if (skeleton)
         {
             bounds = skeleton->aabb;
         }
-
-        // TODO: for whatever reason this doesn't work :)
         u32 rangeId = TIMED_CPU_RANGE_NAME_BEGIN("Frustum cull");
         if (!IntersectFrustumAABB(mvp, mesh->bounds, renderState->nearZ, renderState->farZ)) continue;
         TIMED_RANGE_END(rangeId);
+#endif
 
         mesh->meshIndex = activeMeshCount++;
         mesh->aabbIndex = gameScene->aabbCount++;
-        // gameScene->aabbs[mesh->aabbIndex] = Transform(transform, mesh->bounds);
 
         // draw ID, instance ID. each mesh params corresponds with one instance ID. each geo
         // corresponds with one draw ID. each subset corresponds with one draw ID.
@@ -787,8 +825,6 @@ DLL G_UPDATE(G_Update)
         }
     }
     render::meshBatchCount = activeMeshBatchCount;
-
-    // Assert(checkMeshCount == totalMeshCount);
 
     // DebugDrawSkeleton(g_state->model, transform1, skinningMappedData);
     // SkinModelToBindPose(g_state->model, skinningMatrices1);

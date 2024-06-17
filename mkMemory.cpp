@@ -4,7 +4,7 @@
 #include "platform_inc.h"
 #endif
 
-internal Arena *ArenaAlloc(u64 resSize, u64 cmtSize)
+internal Arena *ArenaAlloc(u64 resSize, u64 cmtSize, u64 align)
 {
     u64 pageSize = platform.PageSize();
     resSize      = AlignPow2(resSize, pageSize);
@@ -33,15 +33,15 @@ internal Arena *ArenaAlloc(u64 resSize, u64 cmtSize)
     return arena;
 }
 
-internal Arena *ArenaAlloc(u64 size)
+internal Arena *ArenaAlloc(u64 size, u64 align)
 {
-    Arena *result = ArenaAlloc(size, ARENA_COMMIT_SIZE);
+    Arena *result = ArenaAlloc(size, ARENA_COMMIT_SIZE, align);
     return result;
 }
 
 internal Arena *ArenaAlloc()
 {
-    Arena *result = ArenaAlloc(ARENA_RESERVE_SIZE, ARENA_COMMIT_SIZE);
+    Arena *result = ArenaAlloc(ARENA_RESERVE_SIZE, ARENA_COMMIT_SIZE, 8);
     return result;
 }
 
@@ -60,7 +60,7 @@ internal void *ArenaPushNoZero(Arena *arena, u64 size)
         else
         {
             u64 newBlockSize = size + ARENA_HEADER_SIZE;
-            newArena         = ArenaAlloc(newBlockSize, newBlockSize);
+            newArena         = ArenaAlloc(newBlockSize, ARENA_COMMIT_SIZE, arena->align);
         }
         if (newArena)
         {
@@ -116,7 +116,7 @@ internal void ArenaPopTo(Arena *arena, u64 pos)
     }
     Assert(current);
     arena->current = current;
-    u64 newPos = pos - current->basePos;
+    u64 newPos     = pos - current->basePos;
     Assert(newPos <= current->pos);
     current->pos = newPos;
 }
