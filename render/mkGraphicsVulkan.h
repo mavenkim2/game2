@@ -34,49 +34,49 @@ namespace graphics
 
 struct mkGraphicsVulkan : mkGraphics
 {
-    Arena *mArena;
-    Mutex mArenaMutex = {};
+    Arena *arena;
+    Mutex arenaMutex = {};
     DeviceCapabilities capabilities;
 
     //////////////////////////////
     // API State
     //
-    VkInstance mInstance;
+    VkInstance instance;
     VkPhysicalDevice physicalDevice;
-    VkDevice mDevice;
-    VkDebugUtilsMessengerEXT mDebugMessenger;
-    list<VkQueueFamilyProperties2> mQueueFamilyProperties;
-    list<u32> mFamilies;
-    u32 mGraphicsFamily = VK_QUEUE_FAMILY_IGNORED;
-    u32 mComputeFamily  = VK_QUEUE_FAMILY_IGNORED;
-    u32 mCopyFamily     = VK_QUEUE_FAMILY_IGNORED;
+    VkDevice device;
+    VkDebugUtilsMessengerEXT debugMessenger;
+    list<VkQueueFamilyProperties2> queueFamilyProperties;
+    list<u32> families;
+    u32 graphicsFamily = VK_QUEUE_FAMILY_IGNORED;
+    u32 computeFamily  = VK_QUEUE_FAMILY_IGNORED;
+    u32 copyFamily     = VK_QUEUE_FAMILY_IGNORED;
 
-    VkPhysicalDeviceProperties2 mDeviceProperties;
-    VkPhysicalDeviceVulkan11Properties mProperties11;
-    VkPhysicalDeviceVulkan12Properties mProperties12;
-    VkPhysicalDeviceVulkan13Properties mProperties13;
+    VkPhysicalDeviceProperties2 deviceProperties;
+    VkPhysicalDeviceVulkan11Properties properties11;
+    VkPhysicalDeviceVulkan12Properties properties12;
+    VkPhysicalDeviceVulkan13Properties properties13;
     VkPhysicalDeviceMeshShaderPropertiesEXT meshShaderProperties;
     VkPhysicalDeviceFragmentShadingRatePropertiesKHR variableShadingRateProperties;
 
-    VkPhysicalDeviceFeatures2 mDeviceFeatures;
-    VkPhysicalDeviceVulkan11Features mFeatures11;
-    VkPhysicalDeviceVulkan12Features mFeatures12;
-    VkPhysicalDeviceVulkan13Features mFeatures13;
+    VkPhysicalDeviceFeatures2 deviceFeatures;
+    VkPhysicalDeviceVulkan11Features features11;
+    VkPhysicalDeviceVulkan12Features features12;
+    VkPhysicalDeviceVulkan13Features features13;
     VkPhysicalDeviceMeshShaderFeaturesEXT meshShaderFeatures;
     VkPhysicalDeviceFragmentShadingRateFeaturesKHR variableShadingRateFeatures;
 
-    VkPhysicalDeviceMemoryProperties2 mMemProperties;
+    VkPhysicalDeviceMemoryProperties2 memProperties;
 
     //////////////////////////////
     // Queues, command pools & buffers, fences
     //
     struct CommandQueue
     {
-        VkQueue mQueue;
-        Mutex mLock = {};
-    } mQueues[QueueType_Count];
+        VkQueue queue;
+        Mutex lock = {};
+    } queues[QueueType_Count];
 
-    VkFence mFrameFences[cNumBuffers][QueueType_Count] = {};
+    VkFence frameFences[cNumBuffers][QueueType_Count] = {};
 
     struct CommandListVulkan
     {
@@ -120,7 +120,7 @@ struct mkGraphicsVulkan : mkGraphics
     u32 numCommandLists = 0;
     list<CommandListVulkan *> commandLists;
     // list<CommandListVulkan *> computeCommandLists;
-    TicketMutex mCommandMutex = {};
+    TicketMutex commandMutex = {};
 
     CommandListVulkan &GetCommandList(CommandList cmd)
     {
@@ -130,32 +130,32 @@ struct mkGraphicsVulkan : mkGraphics
 
     u32 GetCurrentBuffer() override
     {
-        return mFrameCount % cNumBuffers;
+        return frameCount % cNumBuffers;
     }
 
     u32 GetNextBuffer()
     {
-        return (mFrameCount + 1) % cNumBuffers;
+        return (frameCount + 1) % cNumBuffers;
     }
 
-    b32 mDebugUtils = false;
+    b32 debugUtils = false;
 
     // Shaders
     // VkPipelineShaderStage
     struct SwapchainVulkan
     {
-        VkSwapchainKHR mSwapchain = VK_NULL_HANDLE;
-        VkSurfaceKHR mSurface;
-        VkExtent2D mExtent;
+        VkSwapchainKHR swapchain = VK_NULL_HANDLE;
+        VkSurfaceKHR surface;
+        VkExtent2D extent;
 
-        list<VkImage> mImages;
-        list<VkImageView> mImageViews;
+        list<VkImage> images;
+        list<VkImageView> imageViews;
 
-        list<VkSemaphore> mAcquireSemaphores;
-        VkSemaphore mReleaseSemaphore = VK_NULL_HANDLE;
+        list<VkSemaphore> acquireSemaphores;
+        VkSemaphore releaseSemaphore = VK_NULL_HANDLE;
 
-        u32 mAcquireSemaphoreIndex = 0;
-        u32 mImageIndex;
+        u32 acquireSemaphoreIndex = 0;
+        u32 imageIndex;
 
         SwapchainVulkan *next;
     };
@@ -163,25 +163,25 @@ struct mkGraphicsVulkan : mkGraphics
     //////////////////////////////
     // Descriptors
     //
-    VkDescriptorPool mPool;
+    VkDescriptorPool pool;
 
     //////////////////////////////
     // Pipelines
     //
-    list<VkDynamicState> mDynamicStates;
-    VkPipelineDynamicStateCreateInfo mDynamicStateInfo;
+    list<VkDynamicState> dynamicStates;
+    VkPipelineDynamicStateCreateInfo dynamicStateInfo;
 
     // TODO: the descriptor sets shouldn't be here.
     struct PipelineStateVulkan
     {
-        VkPipeline mPipeline;
-        list<VkDescriptorSetLayoutBinding> mLayoutBindings;
-        list<VkDescriptorSetLayout> mDescriptorSetLayouts;
-        list<VkDescriptorSet> mDescriptorSets;
+        VkPipeline pipeline;
+        list<VkDescriptorSetLayoutBinding> layoutBindings;
+        list<VkDescriptorSetLayout> descriptorSetLayouts;
+        list<VkDescriptorSet> descriptorSets;
         // u32 mCurrentSet = 0;
-        VkPipelineLayout mPipelineLayout;
+        VkPipelineLayout pipelineLayout;
 
-        VkPushConstantRange mPushConstantRange = {};
+        VkPushConstantRange pushConstantRange = {};
         PipelineStateVulkan *next;
     };
 
@@ -200,8 +200,8 @@ struct mkGraphicsVulkan : mkGraphics
     //
     struct GPUBufferVulkan
     {
-        VkBuffer mBuffer;
-        VmaAllocation mAllocation;
+        VkBuffer buffer;
+        VmaAllocation allocation;
 
         struct Subresource
         {
@@ -237,30 +237,32 @@ struct mkGraphicsVulkan : mkGraphics
 
     struct TextureVulkan
     {
-        VkImage mImage            = VK_NULL_HANDLE;
+        VkImage image            = VK_NULL_HANDLE;
         VkBuffer stagingBuffer    = VK_NULL_HANDLE;
-        VmaAllocation mAllocation = VK_NULL_HANDLE;
+        VmaAllocation allocation = VK_NULL_HANDLE;
 
         struct Subresource
         {
-            VkImageView mImageView = VK_NULL_HANDLE;
-            u32 mBaseLayer;
-            u32 mNumLayers;
+            VkImageView imageView = VK_NULL_HANDLE;
+            u32 baseLayer;
+            u32 numLayers;
+            u32 baseMip;
+            u32 numMips;
             i32 descriptorIndex;
 
             b32 IsValid()
             {
-                return mImageView != VK_NULL_HANDLE;
+                return imageView != VK_NULL_HANDLE;
             }
         };
-        Subresource mSubresource;        // whole view
-        list<Subresource> mSubresources; // sub views
+        Subresource subresource;        // whole view
+        list<Subresource> subresources; // sub views
         TextureVulkan *next;
     };
 
     struct SamplerVulkan
     {
-        VkSampler mSampler;
+        VkSampler sampler;
         SamplerVulkan *next;
     };
 
@@ -268,19 +270,19 @@ struct mkGraphicsVulkan : mkGraphics
     // Allocation/Deferred cleanup
     //
 
-    VmaAllocator mAllocator;
-    Mutex mCleanupMutex = {};
-    list<VkSemaphore> mCleanupSemaphores[cNumBuffers];
-    list<VkSwapchainKHR> mCleanupSwapchains[cNumBuffers];
-    list<VkImageView> mCleanupImageViews[cNumBuffers];
+    VmaAllocator allocator;
+    Mutex cleanupMutex = {};
+    list<VkSemaphore> cleanupSemaphores[cNumBuffers];
+    list<VkSwapchainKHR> cleanupSwapchains[cNumBuffers];
+    list<VkImageView> cleanupImageViews[cNumBuffers];
     list<VkBufferView> cleanupBufferViews[cNumBuffers];
 
     struct CleanupBuffer
     {
-        VkBuffer mBuffer;
-        VmaAllocation mAllocation;
+        VkBuffer buffer;
+        VmaAllocation allocation;
     };
-    list<CleanupBuffer> mCleanupBuffers[cNumBuffers];
+    list<CleanupBuffer> cleanupBuffers[cNumBuffers];
     struct CleanupTexture
     {
         VkImage image;
@@ -294,11 +296,11 @@ struct mkGraphicsVulkan : mkGraphics
     // Frame allocators
     struct FrameData
     {
-        GPUBuffer mBuffer;
-        std::atomic<u64> mOffset = 0;
+        GPUBuffer buffer;
+        std::atomic<u64> offset = 0;
         // u64 mTotalSize           = 0;
-        u32 mAlignment = 0;
-    } mFrameAllocator[cNumBuffers];
+        u32 alignment = 0;
+    } frameAllocator[cNumBuffers];
 
     // The gpu buffer should already be created
     void FrameAllocate(GPUBuffer *inBuf, void *inData, CommandList cmd, u64 inSize = ~0, u64 inOffset = 0);
@@ -363,10 +365,10 @@ struct mkGraphicsVulkan : mkGraphics
         return (FenceVulkan *)(fence->internalState);
     }
 
-    VkQueryPool ToInternal(QueryPool *pool)
+    VkQueryPool ToInternal(QueryPool *queryPool)
     {
-        Assert(pool->IsValid());
-        return (VkQueryPool)(pool->internalState);
+        Assert(queryPool->IsValid());
+        return (VkQueryPool)(queryPool->internalState);
     }
 
     mkGraphicsVulkan(ValidationMode validationMode, GPUDevicePreference preference);
@@ -386,7 +388,7 @@ struct mkGraphicsVulkan : mkGraphics
     i32 GetDescriptorIndex(GPUResource *resource, ResourceType type, i32 subresourceIndex = -1) override;
     i32 CreateSubresource(GPUBuffer *buffer, ResourceType type, u64 offset = 0ull, u64 size = ~0ull, Format format = Format::Null,
                           const char *name = 0) override;
-    i32 CreateSubresource(Texture *texture, u32 baseLayer = 0, u32 numLayers = ~0u) override;
+    i32 CreateSubresource(Texture *texture, u32 baseLayer = 0, u32 numLayers = ~0u, u32 baseMip = 0, u32 numMips = ~0u) override;
     void UpdateDescriptorSet(CommandList cmd);
     CommandList BeginCommandList(QueueType queue) override;
     void BeginRenderPass(Swapchain *inSwapchain, RenderPassImage *images, u32 count, CommandList inCommandList) override;
@@ -414,11 +416,11 @@ struct mkGraphicsVulkan : mkGraphics
     b32 IsLoaded(GPUResource *resource) override;
 
     // Query pool
-    void CreateQueryPool(QueryPool *pool, QueryType type, u32 queryCount) override;
-    void BeginQuery(QueryPool *pool, CommandList cmd, u32 queryIndex) override;
-    void EndQuery(QueryPool *pool, CommandList cmd, u32 queryIndex) override;
-    void ResolveQuery(QueryPool *pool, CommandList cmd, GPUBuffer *buffer, u32 queryIndex, u32 count, u32 destOffset) override;
-    void ResetQuery(QueryPool *pool, CommandList cmd, u32 index, u32 count) override;
+    void CreateQueryPool(QueryPool *queryPool, QueryType type, u32 queryCount) override;
+    void BeginQuery(QueryPool *queryPool, CommandList cmd, u32 queryIndex) override;
+    void EndQuery(QueryPool *queryPool, CommandList cmd, u32 queryIndex) override;
+    void ResolveQuery(QueryPool *queryPool, CommandList cmd, GPUBuffer *buffer, u32 queryIndex, u32 count, u32 destOffset) override;
+    void ResetQuery(QueryPool *queryPool, CommandList cmd, u32 index, u32 count) override;
     u32 GetCount(Fence f) override;
 
     // Debug
@@ -443,21 +445,21 @@ private:
     Mutex mTransferMutex = {};
     struct TransferCommand
     {
-        VkCommandPool mCmdPool            = VK_NULL_HANDLE; // command pool to issue transfer request
-        VkCommandBuffer mCmdBuffer        = VK_NULL_HANDLE;
-        VkCommandPool mTransitionPool     = VK_NULL_HANDLE; // command pool to issue transfer request
-        VkCommandBuffer mTransitionBuffer = VK_NULL_HANDLE;
+        VkCommandPool cmdPool            = VK_NULL_HANDLE; // command pool to issue transfer request
+        VkCommandBuffer cmdBuffer        = VK_NULL_HANDLE;
+        VkCommandPool transitionPool     = VK_NULL_HANDLE; // command pool to issue transfer request
+        VkCommandBuffer transitionBuffer = VK_NULL_HANDLE;
         // VkFence mFence                               = VK_NULL_HANDLE; // signals cpu that transfer is complete
         Fence fence;
-        VkSemaphore mSemaphores[QueueType_Count - 1] = {}; // graphics, compute
+        VkSemaphore semaphores[QueueType_Count - 1] = {}; // graphics, compute
         RingAllocation *ringAllocation;
 
         const b32 IsValid()
         {
-            return mCmdPool != VK_NULL_HANDLE;
+            return cmdPool != VK_NULL_HANDLE;
         }
     };
-    list<TransferCommand> mTransferFreeList;
+    list<TransferCommand> transferFreeList;
 
     TransferCommand Stage(u64 size);
 
@@ -532,20 +534,20 @@ private:
     //////////////////////////////
     // Default samplers
     //
-    VkSampler mNullSampler;
+    VkSampler nullSampler;
 
     // Linear wrap, nearest wrap, cmp > clamp to edge
     list<VkSampler> immutableSamplers;
     // VkSampler mLinearSampler;
     // VkSampler mNearestSampler;
 
-    VkImage mNullImage2D;
-    VmaAllocation mNullImage2DAllocation;
-    VkImageView mNullImageView2D;
-    VkImageView mNullImageView2DArray;
+    VkImage nullImage2D;
+    VmaAllocation nullImage2DAllocation;
+    VkImageView nullImageView2D;
+    VkImageView nullImageView2DArray;
 
-    VkBuffer mNullBuffer;
-    VmaAllocation mNullBufferAllocation;
+    VkBuffer nullBuffer;
+    VmaAllocation nullBufferAllocation;
 
     //////////////////////////////
     // Debug

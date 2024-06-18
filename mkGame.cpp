@@ -597,7 +597,7 @@ DLL G_UPDATE(G_Update)
     GPUBuffer *indirectBuffer = &render::meshIndirectBuffer;
     GPUBuffer *indexBuffer    = &render::meshIndexBuffer;
     {
-        if (totalSkinningSize > skinningUpload->mDesc.mSize)
+        if (totalSkinningSize > skinningUpload->desc.size)
         {
             for (u32 frame = 0; frame < device->cNumBuffers; frame++)
             {
@@ -605,7 +605,7 @@ DLL G_UPDATE(G_Update)
             }
             device->ResizeBuffer(skinningBuffer, totalSkinningSize * 2);
         }
-        if (totalMeshParamsSize > meshParamsUpload->mDesc.mSize)
+        if (totalMeshParamsSize > meshParamsUpload->desc.size)
         {
             for (u32 frame = 0; frame < device->cNumBuffers; frame++)
             {
@@ -613,7 +613,7 @@ DLL G_UPDATE(G_Update)
             }
             device->ResizeBuffer(meshParamsBuffer, totalMeshParamsSize * 2);
         }
-        if (totalMeshGeometrySize > meshGeometryUpload->mDesc.mSize)
+        if (totalMeshGeometrySize > meshGeometryUpload->desc.size)
         {
             for (u32 frame = 0; frame < device->cNumBuffers; frame++)
             {
@@ -621,7 +621,7 @@ DLL G_UPDATE(G_Update)
             }
             device->ResizeBuffer(meshGeometryBuffer, totalMeshGeometrySize * 2);
         }
-        if (totalMeshBatchSize > meshBatchUpload->mDesc.mSize)
+        if (totalMeshBatchSize > meshBatchUpload->desc.size)
         {
             for (u32 frame = 0; frame < device->cNumBuffers; frame++)
             {
@@ -629,7 +629,7 @@ DLL G_UPDATE(G_Update)
             }
             device->ResizeBuffer(meshBatchBuffer, totalMeshBatchSize * 2);
         }
-        if (totalMeshSubsetSize > meshSubsetUpload->mDesc.mSize)
+        if (totalMeshSubsetSize > meshSubsetUpload->desc.size)
         {
             for (u32 frame = 0; frame < device->cNumBuffers; frame++)
             {
@@ -637,7 +637,7 @@ DLL G_UPDATE(G_Update)
             }
             device->ResizeBuffer(meshSubsetBuffer, totalMeshSubsetSize * 2);
         }
-        if (totalMaterialSize > materialUpload->mDesc.mSize)
+        if (totalMaterialSize > materialUpload->desc.size)
         {
             for (u32 frame = 0; frame < device->cNumBuffers; frame++)
             {
@@ -645,12 +645,12 @@ DLL G_UPDATE(G_Update)
             }
             device->ResizeBuffer(materialBuffer, totalMaterialSize * 2);
         }
-        if (totalIndirectSize > indirectBuffer->mDesc.mSize)
+        if (totalIndirectSize > indirectBuffer->desc.size)
         {
             device->ResizeBuffer(indirectBuffer, totalIndirectSize * 2);
             device->ResizeBuffer(&render::indirectScratchBuffer, totalIndirectSize * 2);
         }
-        if (totalMeshIndexSize > indexBuffer->mDesc.mSize)
+        if (totalMeshIndexSize > indexBuffer->desc.size)
         {
             device->ResizeBuffer(indexBuffer, totalMeshIndexSize * 2);
         }
@@ -665,12 +665,12 @@ DLL G_UPDATE(G_Update)
     render::meshIndirectBufferSize = totalIndirectSize;
     render::drawCount              = totalMeshBatchCount;
 
-    Mat4 *skinningMappedData               = (Mat4 *)skinningUpload->mMappedData;
-    MeshParams *meshParamsMappedData       = (MeshParams *)meshParamsUpload->mMappedData;
-    MeshGeometry *meshGeometryMappedData   = (MeshGeometry *)meshGeometryUpload->mMappedData;
-    MeshBatch *meshBatchMappedData         = (MeshBatch *)meshBatchUpload->mMappedData;
-    ShaderMaterial *materialMappedData     = (ShaderMaterial *)materialUpload->mMappedData;
-    ShaderMeshSubset *meshSubsetMappedData = (ShaderMeshSubset *)meshSubsetUpload->mMappedData;
+    Mat4 *skinningMappedData               = (Mat4 *)skinningUpload->mappedData;
+    MeshParams *meshParamsMappedData       = (MeshParams *)meshParamsUpload->mappedData;
+    MeshGeometry *meshGeometryMappedData   = (MeshGeometry *)meshGeometryUpload->mappedData;
+    MeshBatch *meshBatchMappedData         = (MeshBatch *)meshBatchUpload->mappedData;
+    ShaderMaterial *materialMappedData     = (ShaderMaterial *)materialUpload->mappedData;
+    ShaderMeshSubset *meshSubsetMappedData = (ShaderMeshSubset *)meshSubsetUpload->mappedData;
 
     for (SkeletonIter iter = gameScene->BeginSkelIter(); !gameScene->End(&iter); gameScene->Next(&iter))
     {

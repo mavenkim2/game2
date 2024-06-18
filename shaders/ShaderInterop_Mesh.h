@@ -9,6 +9,8 @@
 #define BATCH_SIZE          256
 #define SKINNING_GROUP_SIZE 64
 
+#define BATCH_GROUP_SIZE 64
+
 struct MeshParams
 {
     float4x4 transform;
@@ -32,7 +34,6 @@ struct MeshGeometry
 struct MeshBatch
 {
     // uint baseVertex;
-
     uint subsetID;
     uint drawID;
     uint indexOffset;

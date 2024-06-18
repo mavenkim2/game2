@@ -51,15 +51,15 @@ internal void WriteImageToDDS(Texture *input, string name)
     file.magic   = MakeFourCC('D', 'D', 'S', ' ');
 
     file.header.size              = sizeof(DDSHeader);
-    file.header.width             = input->mDesc.mWidth;
-    file.header.height            = input->mDesc.mHeight;
-    file.header.mipMapCount       = input->mDesc.mNumMips;
-    file.header.depth             = input->mDesc.mDepth;
+    file.header.width             = input->desc.width;
+    file.header.height            = input->desc.height;
+    file.header.mipMapCount       = input->desc.numMips;
+    file.header.depth             = input->desc.depth;
     file.header.pitchOrLinearSize = 0; // unused
     file.header.flags             = HeaderFlagBits_Caps | HeaderFlagBits_Width | HeaderFlagBits_Height | HeaderFlagBits_PixelFormat;
     file.header.caps              = DDSCaps_Texture;
 
-    switch (input->mDesc.mFormat)
+    switch (input->desc.format)
     {
         case Format::BC1_RGB_UNORM:
         {
@@ -486,6 +486,102 @@ internal void OptimizeMesh(InputMesh::MeshSubset *mesh)
 }
 
 //////////////////////////////
+// Mesh cluster
+//
+//
+struct TriangleAdjacency
+{
+    u32 *counts;
+    u32 *offsets;
+    u32 *data;
+};
+
+struct Cone
+{
+    V3 pos;
+    V3 normal;
+};
+
+const u32 clusterTriangleCount = 256;
+internal void BuildCluster(InputMesh::MeshSubset *subset)
+{
+    TempArena temp = ScratchStart(0, 0);
+    TriangleAdjacency adjacency;
+    u32 faceCount = subset->indexCount / 3;
+    // Build vertex->triangle index adjacency list
+    {
+        adjacency.counts  = PushArray(temp.arena, u32, subset->vertexCount);
+        adjacency.offsets = PushArray(temp.arena, u32, subset->vertexCount);
+        adjacency.data    = PushArray(temp.arena, u32, subset->indexCount);
+
+        // Map each vertex to an adjacency list of triangles
+        for (u32 i = 0; i < subset->indexCount; i++)
+        {
+            u32 index = subset->indices[i];
+            Assert(index < subset->vertexCount);
+
+            adjacency.counts[index]++;
+        }
+
+        u32 offset = 0;
+        for (u32 i = 0; i < subset->vertexCount; i++)
+        {
+            adjacency.offsets[i] = offset;
+            offset += adjacency.counts[i];
+        }
+
+        Assert(offset == subset->indexCount);
+
+        for (u32 i = 0; i < faceCount; i++)
+        {
+            u32 a = subset->indices[i * 3 + 0];
+            u32 b = subset->indices[i * 3 + 1];
+            u32 c = subset->indices[i * 3 + 2];
+
+            adjacency.data[adjacency.offsets[a]++] = i;
+            adjacency.data[adjacency.offsets[b]++] = i;
+            adjacency.data[adjacency.offsets[c]++] = i;
+        }
+
+        for (u32 i = 0; i < subset->vertexCount; i++)
+        {
+            adjacency.offsets[i] -= adjacency.counts[i];
+        }
+    }
+
+    Cone *cones  = PushArray(temp.arena, Cone, faceCount);
+    f32 meshArea = 0.f;
+    // Find the normal and center of each triangle
+    {
+        for (u32 i = 0; i < faceCount; i++)
+        {
+            u32 a = subset->indices[i * 3 + 0];
+            u32 b = subset->indices[i * 3 + 1];
+            u32 c = subset->indices[i * 3 + 2];
+
+            V3 p0 = subset->positions[a];
+            V3 p1 = subset->positions[b];
+            V3 p2 = subset->positions[c];
+
+            cones[i].pos = (p0 + p1 + p2) / 3;
+
+            V3 normal  = Cross(p1 - p0, p2 - p0);
+            f32 length = Length(normal);
+            meshArea += length;
+            length          = length == 0.f ? 0.f : 1.f / length;
+            cones[i].normal = normal * length;
+        }
+    }
+    Assert(faceCount != 0.f);
+    f32 triangleAvgArea       = meshArea * 0.5f / faceCount;
+    f32 clusterExpectedRadius = SquareRoot(triangleAvgArea * clusterTriangleCount) * 0.5f;
+
+    struct KDTreeNode
+    {
+    };
+}
+
+//////////////////////////////
 // Bounds
 //
 internal void SkinModelToBindPose(Skeleton *skeleton, Mat4 *outFinalTransforms)
@@ -574,7 +670,7 @@ int main(int argc, char *argv[])
     // Initialize compute shaders
     mkGraphicsVulkan device(ValidationMode::Verbose, GPUDevicePreference::Discrete);
     Shader bc1;
-    bc1.mName = "blockcompress_cs.hlsl";
+    bc1.name = "blockcompress_cs.hlsl";
     bc1.stage = ShaderStage::Compute;
 
     PipelineState bc1Pipeline;
@@ -586,7 +682,7 @@ int main(int argc, char *argv[])
     {
         shadercompiler::InitShaderCompiler();
         shadercompiler::CompileInput input;
-        input.shaderName = bc1.mName;
+        input.shaderName = bc1.name;
         input.stage      = bc1.stage;
 
         shadercompiler::CompileOutput output;
@@ -716,9 +812,9 @@ int main(int argc, char *argv[])
                                 Texture src;
                                 {
                                     TextureDesc srcDesc;
-                                    srcDesc.mWidth        = width;
-                                    srcDesc.mHeight       = height;
-                                    srcDesc.mFormat       = format;
+                                    srcDesc.width        = width;
+                                    srcDesc.height       = height;
+                                    srcDesc.format       = format;
                                     srcDesc.mInitialUsage = ResourceUsage::SampledImage;
                                     device.CreateTexture(&src, srcDesc, texData);
                                     device.SetName(&src, "src");
@@ -728,17 +824,17 @@ int main(int argc, char *argv[])
                                 u32 blockSize = GetBlockSize(bcFormat);
                                 {
                                     TextureDesc dstDesc;
-                                    dstDesc.mWidth        = src.mDesc.mWidth / blockSize;
-                                    dstDesc.mHeight       = src.mDesc.mHeight / blockSize;
-                                    dstDesc.mFormat       = Format::R32G32_UINT;
+                                    dstDesc.width        = src.desc.width / blockSize;
+                                    dstDesc.height       = src.desc.height / blockSize;
+                                    dstDesc.format       = Format::R32G32_UINT;
                                     dstDesc.mInitialUsage = ResourceUsage::StorageImage;
                                     dstDesc.mFutureUsages = ResourceUsage::TransferSrc;
 
-                                    if (!uav.IsValid() || uav.mDesc.mWidth < dstDesc.mWidth || uav.mDesc.mHeight < dstDesc.mHeight)
+                                    if (!uav.IsValid() || uav.desc.width < dstDesc.width || uav.desc.height < dstDesc.height)
                                     {
                                         TextureDesc bcDesc = dstDesc;
-                                        bcDesc.mWidth      = (u32)GetNextPowerOfTwo(dstDesc.mWidth);
-                                        bcDesc.mHeight     = (u32)GetNextPowerOfTwo(dstDesc.mHeight);
+                                        bcDesc.width      = (u32)GetNextPowerOfTwo(dstDesc.width);
+                                        bcDesc.height     = (u32)GetNextPowerOfTwo(dstDesc.height);
 
                                         device.CreateTexture(&uav, bcDesc, 0);
                                         device.SetName(&uav, "UAV");
@@ -751,9 +847,9 @@ int main(int argc, char *argv[])
                                 numReadbackTextures++;
                                 {
                                     TextureDesc readBackDesc;
-                                    readBackDesc.mWidth  = width;
-                                    readBackDesc.mHeight = height;
-                                    readBackDesc.mFormat = bcFormat;
+                                    readBackDesc.width  = width;
+                                    readBackDesc.height = height;
+                                    readBackDesc.format = bcFormat;
                                     readBackDesc.mUsage  = MemoryUsage::GPU_TO_CPU;
 
                                     device.CreateTexture(readback, readBackDesc, 0);
@@ -766,7 +862,7 @@ int main(int argc, char *argv[])
                                 device.BindResource(&src, ResourceType::SRV, 0, cmd);
 
                                 device.UpdateDescriptorSet(cmd);
-                                device.Dispatch(cmd, (src.mDesc.mWidth + 7) / 8, (src.mDesc.mHeight + 7) / 8, 1);
+                                device.Dispatch(cmd, (src.desc.width + 7) / 8, (src.desc.height + 7) / 8, 1);
                                 device.DeleteTexture(&src);
 
                                 // Copy from uav to output
@@ -779,7 +875,7 @@ int main(int argc, char *argv[])
                                 rect.minX = 0;
                                 rect.minY = 0;
                                 rect.minZ = 0;
-                                rect.maxP = {src.mDesc.mWidth / blockSize, src.mDesc.mHeight / blockSize, src.mDesc.mDepth};
+                                rect.maxP = {src.desc.width / blockSize, src.desc.height / blockSize, src.desc.depth};
 
                                 device.CopyTexture(cmd, readback, &uav, &rect);
 
@@ -875,7 +971,7 @@ int main(int argc, char *argv[])
 
                     // Get any skeleton data
                     jobsystem::KickJob(&counter, [data, folderName, modelTemp](jobsystem::JobArgs args) {
-                        TempArena temp = ScratchStart(0, 0);
+                        TempArena temp     = ScratchStart(0, 0);
                         Skeleton *skeleton = PushStruct(temp.arena, Skeleton);
                         for (size_t i = 0; i < data->skins_count; i++)
                         {

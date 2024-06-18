@@ -578,21 +578,21 @@ internal void AS_LoadAsset(AS_Asset *asset)
                 newScene->skeletons.Link(entities[i], skeletonHandle);
             }
             GPUBufferDesc desc;
-            desc.mResourceUsage = ResourceUsage::MegaBuffer | ResourceUsage::UniformTexelBuffer | ResourceUsage::IndexBuffer | ResourceUsage::UniformBuffer;
+            desc.resourceUsage = ResourceUsage::MegaBuffer | ResourceUsage::UniformTexelBuffer | ResourceUsage::IndexBuffer | ResourceUsage::UniformBuffer;
             u64 alignment       = device->GetMinAlignment(&desc);
 
             Assert(IsPow2(alignment));
-            desc.mSize = AlignPow2(sizeof(mesh->positions[0]) * vertexCount, alignment) + Align(sizeof(mesh->normals[0]) * vertexCount, alignment) + Align(sizeof(mesh->tangents[0]) * vertexCount, alignment);
+            desc.size = AlignPow2(sizeof(mesh->positions[0]) * vertexCount, alignment) + Align(sizeof(mesh->normals[0]) * vertexCount, alignment) + Align(sizeof(mesh->tangents[0]) * vertexCount, alignment);
             if (mesh->uvs)
             {
-                desc.mSize += AlignPow2(sizeof(mesh->uvs[0]) * vertexCount, alignment);
+                desc.size += AlignPow2(sizeof(mesh->uvs[0]) * vertexCount, alignment);
             }
             if (mesh->boneIds)
             {
-                desc.mSize += AlignPow2(sizeof(mesh->boneIds[0]) * vertexCount, alignment);
-                desc.mSize += AlignPow2(sizeof(mesh->boneWeights[0]) * vertexCount, alignment);
+                desc.size += AlignPow2(sizeof(mesh->boneIds[0]) * vertexCount, alignment);
+                desc.size += AlignPow2(sizeof(mesh->boneWeights[0]) * vertexCount, alignment);
             }
-            desc.mSize += AlignPow2(sizeof(mesh->indices[0]) * indexCount, alignment);
+            desc.size += AlignPow2(sizeof(mesh->indices[0]) * indexCount, alignment);
 
             auto initCallback = [&](void *dest) {
                 u64 currentOffset = 0;
@@ -681,22 +681,22 @@ internal void AS_LoadAsset(AS_Asset *asset)
             if (mesh->boneIds)
             {
                 GPUBufferDesc streamDesc;
-                streamDesc.mResourceUsage = ResourceUsage::MegaBuffer | ResourceUsage::StorageBuffer | ResourceUsage::UniformTexelBuffer;
+                streamDesc.resourceUsage = ResourceUsage::MegaBuffer | ResourceUsage::StorageBuffer | ResourceUsage::UniformTexelBuffer;
 
                 alignment = device->GetMinAlignment(&streamDesc);
                 Assert(IsPow2(alignment));
 
                 mesh->soPosView.offset = 0;
                 mesh->soPosView.size   = sizeof(mesh->positions[0]) * vertexCount;
-                streamDesc.mSize       = AlignPow2(mesh->soPosView.size, alignment);
+                streamDesc.size       = AlignPow2(mesh->soPosView.size, alignment);
 
-                mesh->soNorView.offset = streamDesc.mSize;
+                mesh->soNorView.offset = streamDesc.size;
                 mesh->soNorView.size   = sizeof(mesh->normals[0]) * vertexCount;
-                streamDesc.mSize += AlignPow2(mesh->soNorView.size, alignment);
+                streamDesc.size += AlignPow2(mesh->soNorView.size, alignment);
 
-                mesh->soTanView.offset = streamDesc.mSize;
+                mesh->soTanView.offset = streamDesc.size;
                 mesh->soTanView.size   = sizeof(mesh->tangents[0]) * vertexCount;
-                streamDesc.mSize += AlignPow2(mesh->soTanView.size, alignment);
+                streamDesc.size += AlignPow2(mesh->soTanView.size, alignment);
 
                 // Load positions
                 device->CreateBuffer(&mesh->streamBuffer, streamDesc, 0);
@@ -846,12 +846,12 @@ internal void AS_LoadAsset(AS_Asset *asset)
         Assert(nComponents >= 1);
 
         TextureDesc desc;
-        desc.mWidth        = width;
-        desc.mHeight       = height;
-        desc.mFormat       = format;
-        desc.mInitialUsage = ResourceUsage::SampledImage;
-        desc.mTextureType  = TextureDesc::TextureType::Texture2D;
-        desc.mSampler      = TextureDesc::DefaultSampler::Linear;
+        desc.width        = width;
+        desc.height       = height;
+        desc.format       = format;
+        desc.initialUsage = ResourceUsage::SampledImage;
+        desc.textureType  = TextureDesc::TextureType::Texture2D;
+        desc.sampler      = TextureDesc::DefaultSampler::Linear;
 
         device->CreateTexture(&asset->texture, desc, texData);
         device->SetName(&asset->texture, (const char *)asset->path.str);
@@ -922,11 +922,11 @@ internal void LoadDDS(AS_Asset *asset)
     u8 *data = memory + offset;
 
     TextureDesc bcDesc;
-    bcDesc.mWidth        = file->header.width;
-    bcDesc.mHeight       = file->header.height;
-    bcDesc.mDepth        = file->header.depth;
-    bcDesc.mFormat       = format;
-    bcDesc.mInitialUsage = ResourceUsage::SampledImage;
+    bcDesc.width        = file->header.width;
+    bcDesc.height       = file->header.height;
+    bcDesc.depth        = file->header.depth;
+    bcDesc.format       = format;
+    bcDesc.initialUsage = ResourceUsage::SampledImage;
     device->CreateTexture(&asset->texture, bcDesc, data);
     device->SetName(&asset->texture, (const char *)asset->path.str);
 }

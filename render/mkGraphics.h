@@ -55,6 +55,7 @@ enum class Format
     B8G8R8A8_UNORM,
     B8G8R8A8_SRGB,
 
+    R32_SFLOAT,
     R32_UINT,
     R32G32_UINT,
     R8G8_UNORM,
@@ -151,10 +152,10 @@ enum class InputRate
 
 struct InputLayout
 {
-    list<Format> mElements;
-    u32 mBinding;
-    u32 mStride;
-    InputRate mRate;
+    list<Format> elements;
+    u32 binding;
+    u32 stride;
+    InputRate rate;
 };
 
 struct Viewport
@@ -191,6 +192,16 @@ enum class ResourceUsage
 
     MegaBuffer  = 1 << 13, // e.g. subviews contain meaningful data, not the whole buffer itself
     NotBindless = 1 << 14,
+};
+
+enum ImageUsage
+{
+    ImageUsage_None         = 0,
+    ImageUsage_Sampled      = 1 << 0,
+    ImageUsage_Storage      = 1 << 1,
+    ImageUsage_TransferSrc  = 1 << 2,
+    ImageUsage_TransferDst  = 1 << 3,
+    ImageUsage_DepthStencil = 1 << 4,
 };
 
 typedef u32 PipelineFlag;
@@ -355,18 +366,18 @@ struct GPUResource : GraphicsObject
         Null,
         Buffer,
         Image,
-    } mResourceType;
+    } resourceType;
 
     FenceTicket ticket;
 
     inline b32 IsTexture()
     {
-        return mResourceType == ResourceType::Image;
+        return resourceType == ResourceType::Image;
     }
 
     inline b32 IsBuffer()
     {
-        return mResourceType == ResourceType::Buffer;
+        return resourceType == ResourceType::Buffer;
     }
 };
 
@@ -383,16 +394,16 @@ struct BindedResource
 
 struct Swapchain : GraphicsObject
 {
-    SwapchainDesc mDesc;
+    SwapchainDesc desc;
     const SwapchainDesc GetDesc()
     {
-        return mDesc;
+        return desc;
     }
 };
 
 struct Shader : GraphicsObject
 {
-    string mName;
+    string name;
     ShaderStage stage;
 };
 
@@ -412,8 +423,8 @@ struct RasterizationState
         Back,
         Front,
         FrontAndBack,
-    } mCullMode       = CullMode::None;
-    b32 mFrontFaceCCW = 1;
+    } cullMode         = CullMode::None;
+    b32 isFrontFaceCCW = 1;
     // TODO: depth bias
 };
 
@@ -431,13 +442,13 @@ struct RasterizationState
 // struct PushConstantRange
 // {
 //     u32 mOffset;
-//     u32 mSize = 0;
+//     u32 size = 0;
 // };
 
 struct PipelineStateDesc
 {
-    Format mDepthStencilFormat    = Format::Null;
-    Format mColorAttachmentFormat = Format::Null;
+    Format depthStencilFormat    = Format::Null;
+    Format colorAttachmentFormat = Format::Null;
     union
     {
         Shader *shaders[ShaderStage::Count];
@@ -449,27 +460,27 @@ struct PipelineStateDesc
             Shader *compute;
         };
     };
-    RasterizationState *mRasterState;
-    list<InputLayout *> mInputLayouts;
+    RasterizationState *rasterState;
+    list<InputLayout *> inputLayouts;
 };
 
 struct PipelineState : GraphicsObject
 {
-    PipelineStateDesc mDesc;
+    PipelineStateDesc desc;
 };
 
 struct GPUBufferDesc
 {
-    u64 mSize;
+    u64 size;
     // BindFlag mFlags    = 0;
-    MemoryUsage mUsage = MemoryUsage::GPU_ONLY;
-    ResourceUsage mResourceUsage;
+    MemoryUsage usage = MemoryUsage::GPU_ONLY;
+    ResourceUsage resourceUsage;
 };
 
 struct GPUBuffer : GPUResource
 {
-    GPUBufferDesc mDesc;
-    void *mMappedData;
+    GPUBufferDesc desc;
+    void *mappedData;
 };
 
 struct GPUBarrier
@@ -496,7 +507,7 @@ struct GPUBarrier
                              AccessFlag inAccessBefore, AccessFlag inAccessAfter)
     {
         GPUBarrier barrier;
-        Assert(resource->mResourceType == GPUResource::ResourceType::Buffer);
+        Assert(resource->resourceType == GPUResource::ResourceType::Buffer);
 
         barrier.type         = Type::Buffer;
         barrier.resource     = resource;
@@ -525,7 +536,7 @@ struct GPUBarrier
                             AccessFlag inAccessAfter, ImageLayout inLayoutBefore, ImageLayout inLayoutAfter)
     {
         GPUBarrier barrier;
-        Assert(resource->mResourceType == GPUResource::ResourceType::Image);
+        Assert(resource->resourceType == GPUResource::ResourceType::Image);
         barrier.type         = Type::Image;
         barrier.resource     = resource;
         barrier.stageBefore  = inStageBefore;
@@ -546,22 +557,22 @@ struct TextureDesc
         Texture2DArray,
         // Texture3D,
         Cubemap,
-    } mTextureType              = TextureType::Texture2D;
-    u32 mWidth                  = 1;
-    u32 mHeight                 = 1;
-    u32 mDepth                  = 1;
-    u32 mNumMips                = 1;
-    u32 mNumLayers              = 1;
-    Format mFormat              = Format::Null;
-    MemoryUsage mUsage          = MemoryUsage::GPU_ONLY;
-    ResourceUsage mInitialUsage = ResourceUsage::None;
-    ResourceUsage mFutureUsages = ResourceUsage::None;
+    } textureType              = TextureType::Texture2D;
+    u32 width                  = 1;
+    u32 height                 = 1;
+    u32 depth                  = 1;
+    u32 numMips                = 1;
+    u32 numLayers              = 1;
+    Format format              = Format::Null;
+    MemoryUsage usage          = MemoryUsage::GPU_ONLY;
+    ResourceUsage initialUsage = ResourceUsage::None;
+    ResourceUsage futureUsages = ResourceUsage::None;
     enum class DefaultSampler
     {
         None,
         Nearest,
         Linear,
-    } mSampler = DefaultSampler::None;
+    } sampler = DefaultSampler::None;
 };
 
 struct TextureMappedData
@@ -572,24 +583,24 @@ struct TextureMappedData
 
 struct Texture : GPUResource
 {
-    TextureDesc mDesc;
+    TextureDesc desc;
     TextureMappedData mappedData;
 };
 
 struct SamplerDesc
 {
-    Filter mMag              = Filter::Nearest;
-    Filter mMin              = Filter::Nearest;
-    Filter mMipMode          = Filter::Nearest;
-    SamplerMode mMode        = SamplerMode::Wrap;
-    BorderColor mBorderColor = BorderColor::TransparentBlack;
-    CompareOp mCompareOp     = CompareOp::None;
-    u32 mMaxAnisotropy       = 0;
+    Filter mag              = Filter::Nearest;
+    Filter min              = Filter::Nearest;
+    Filter mipMode          = Filter::Nearest;
+    SamplerMode mode        = SamplerMode::Wrap;
+    BorderColor borderColor = BorderColor::TransparentBlack;
+    CompareOp compareOp     = CompareOp::None;
+    u32 maxAnisotropy       = 0;
 };
 
 struct Sampler : GraphicsObject
 {
-    SamplerDesc mDesc;
+    SamplerDesc desc;
 };
 
 struct RenderPassImage
@@ -597,23 +608,23 @@ struct RenderPassImage
     enum class RenderImageType
     {
         Depth,
-    } mImageType;
-    Texture *mTexture;
+    } imageType;
+    Texture *texture;
 
-    ResourceUsage mLayoutBefore = ResourceUsage::None;
-    ResourceUsage mLayout       = ResourceUsage::None;
-    ResourceUsage mLayoutAfter  = ResourceUsage::None;
-    i32 mSubresource            = -1;
+    ResourceUsage layoutBefore = ResourceUsage::None;
+    ResourceUsage layout       = ResourceUsage::None;
+    ResourceUsage layoutAfter  = ResourceUsage::None;
+    i32 subresource            = -1;
 
     static RenderPassImage DepthStencil(Texture *texture, ResourceUsage layoutBefore, ResourceUsage layoutAfter, i32 subresource = -1)
     {
         RenderPassImage image;
-        image.mImageType    = RenderImageType::Depth;
-        image.mTexture      = texture;
-        image.mLayoutBefore = layoutBefore;
-        image.mLayout       = ResourceUsage::DepthStencil;
-        image.mLayoutAfter  = layoutAfter;
-        image.mSubresource  = subresource;
+        image.imageType    = RenderImageType::Depth;
+        image.texture      = texture;
+        image.layoutBefore = layoutBefore;
+        image.layout       = ResourceUsage::DepthStencil;
+        image.layoutAfter  = layoutAfter;
+        image.subresource  = subresource;
         return image;
     }
 };
@@ -665,14 +676,14 @@ inline u32 GetBlockSize(Format format)
 inline u32 GetTextureSize(TextureDesc desc)
 {
     u32 size      = 0;
-    u32 blockSize = GetBlockSize(desc.mFormat);
-    u32 stride    = GetFormatSize(desc.mFormat);
-    const u32 x   = desc.mWidth / blockSize;
-    const u32 y   = desc.mHeight / blockSize;
+    u32 blockSize = GetBlockSize(desc.format);
+    u32 stride    = GetFormatSize(desc.format);
+    const u32 x   = desc.width / blockSize;
+    const u32 y   = desc.height / blockSize;
 
-    Assert(desc.mNumMips == 1);
-    Assert(desc.mNumLayers == 1);
-    Assert(desc.mDepth == 1);
+    Assert(desc.numMips == 1);
+    Assert(desc.numLayers == 1);
+    Assert(desc.depth == 1);
     size += x * y * stride;
 
     return size;
@@ -682,7 +693,7 @@ struct mkGraphics
 {
     static const i32 cNumBuffers = 2;
     f64 cTimestampPeriod;
-    u64 mFrameCount = 0;
+    u64 frameCount = 0;
 
     inline f64 GetTimestampPeriod() { return cTimestampPeriod; }
     virtual u64 GetMinAlignment(GPUBufferDesc *inDesc)                                                             = 0;
@@ -702,15 +713,15 @@ struct mkGraphics
         }
         else
         {
-            CopyFunction func = [&](void *dest) { MemoryCopy(dest, inData, inDesc.mSize); };
+            CopyFunction func = [&](void *dest) { MemoryCopy(dest, inData, inDesc.size); };
             CreateBufferCopy(inBuffer, inDesc, func);
         }
     }
 
     void ResizeBuffer(GPUBuffer *buffer, u32 newSize)
     {
-        GPUBufferDesc desc = buffer->mDesc;
-        desc.mSize         = newSize;
+        GPUBufferDesc desc = buffer->desc;
+        desc.size          = newSize;
         DeleteBuffer(buffer);
         CreateBuffer(buffer, desc, 0);
     }
@@ -725,7 +736,8 @@ struct mkGraphics
     virtual i32 GetDescriptorIndex(GPUResource *resource, ResourceType type, i32 subresourceIndex = -1)                       = 0;
     virtual i32 CreateSubresource(GPUBuffer *buffer, ResourceType type, u64 offset = 0ull, u64 size = ~0ull,
                                   Format format = Format::Null, const char *name = 0)                                         = 0;
-    virtual i32 CreateSubresource(Texture *texture, u32 baseLayer = 0, u32 numLayers = ~0u)                                   = 0;
+    virtual i32 CreateSubresource(Texture *texture, u32 baseLayer = 0, u32 numLayers = ~0u,
+                                  u32 baseMip = 0, u32 numMips = ~0u)                                                         = 0;
     virtual void UpdateDescriptorSet(CommandList cmd)                                                                         = 0;
     virtual CommandList BeginCommandList(QueueType queue)                                                                     = 0;
     virtual void BeginRenderPass(Swapchain *inSwapchain, RenderPassImage *images, u32 count, CommandList inCommandList)       = 0;
@@ -752,11 +764,11 @@ struct mkGraphics
     virtual void Barrier(CommandList cmd, GPUBarrier *barriers, u32 count)                                                    = 0;
     virtual b32 IsSignaled(FenceTicket ticket)                                                                                = 0;
     virtual b32 IsLoaded(GPUResource *resource)                                                                               = 0;
-    virtual void CreateQueryPool(QueryPool *pool, QueryType type, u32 queryCount)                                             = 0;
-    virtual void BeginQuery(QueryPool *pool, CommandList cmd, u32 queryIndex)                                                 = 0;
-    virtual void EndQuery(QueryPool *pool, CommandList cmd, u32 queryIndex)                                                   = 0;
-    virtual void ResolveQuery(QueryPool *pool, CommandList cmd, GPUBuffer *buffer, u32 queryIndex, u32 count, u32 destOffset) = 0;
-    virtual void ResetQuery(QueryPool *pool, CommandList cmd, u32 index, u32 count)                                           = 0;
+    virtual void CreateQueryPool(QueryPool *queryPool, QueryType type, u32 queryCount)                                        = 0;
+    virtual void BeginQuery(QueryPool *queryPool, CommandList cmd, u32 queryIndex)                                                 = 0;
+    virtual void EndQuery(QueryPool *queryPool, CommandList cmd, u32 queryIndex)                                                   = 0;
+    virtual void ResolveQuery(QueryPool *queryPool, CommandList cmd, GPUBuffer *buffer, u32 queryIndex, u32 count, u32 destOffset) = 0;
+    virtual void ResetQuery(QueryPool *queryPool, CommandList cmd, u32 index, u32 count)                                           = 0;
     virtual u32 GetCount(Fence f)                                                                                             = 0;
     virtual void SetName(GPUResource *resource, const char *name)                                                             = 0;
     virtual void SetName(GPUResource *resource, string name)                                                                  = 0;

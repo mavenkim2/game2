@@ -792,11 +792,7 @@ inline V3 NormalizeOrZero(V3 a)
 {
     V3 result  = {};
     f32 length = Length(a);
-    if (length == 0)
-    {
-        return result;
-    }
-    result = a * (1.f / length);
+    result     = length == 0 ? result : a * (1.f / length);
     return result;
 }
 
@@ -2178,6 +2174,28 @@ inline u32 GetHighestBit(u64 num)
 inline u64 GetNextPowerOfTwo(u64 num)
 {
     u64 result = 1ULL << (GetHighestBit(Max(1, num) - 1) + 1);
+    return result;
+}
+
+inline u32 GetPreviousPowerOfTwo(u32 num)
+{
+    u32 result = 1;
+    while (result * 2 < num)
+    {
+        result *= 2;
+    }
+    return result;
+}
+
+inline u32 GetNumMips(u32 width, u32 height)
+{
+    u32 result = 1;
+    while (width > 1 || height > 1)
+    {
+        result++;
+        width /= 2;
+        height /= 2;
+    }
     return result;
 }
 

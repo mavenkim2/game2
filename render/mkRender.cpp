@@ -906,6 +906,9 @@ RasterizationState rasterizers[RasterType_Count];
 Texture depthBufferMain;
 Texture shadowDepthBuffer;
 list<i32> shadowSlices;
+i32 depthPyramidSubresources[16];
+
+Texture depthPyramid;
 
 struct DeferredBlockCompressCmd
 {
@@ -989,33 +992,33 @@ internal void Initialize()
 
         TempArena temp = ScratchStart(0, 0);
         GPUBufferDesc desc;
-        desc.mSize          = kilobytes(64);
-        desc.mResourceUsage = ResourceUsage::UniformBuffer | ResourceUsage::NotBindless;
+        desc.size          = kilobytes(64);
+        desc.resourceUsage = ResourceUsage::UniformBuffer | ResourceUsage::NotBindless;
         device->CreateBuffer(&cascadeParamsBuffer, desc, 0);
 
         // Skinning
-        desc                = {};
-        desc.mSize          = kilobytes(4);
-        desc.mUsage         = MemoryUsage::CPU_TO_GPU;
-        desc.mResourceUsage = ResourceUsage::TransferSrc;
+        desc               = {};
+        desc.size          = kilobytes(4);
+        desc.usage         = MemoryUsage::CPU_TO_GPU;
+        desc.resourceUsage = ResourceUsage::TransferSrc;
         for (u32 i = 0; i < ArrayLength(skinningBufferUpload); i++)
         {
             device->CreateBuffer(&skinningBufferUpload[i], desc, 0);
             device->SetName(&skinningBufferUpload[i], "Skinning upload buffer");
         }
 
-        desc                = {};
-        desc.mSize          = kilobytes(4);
-        desc.mUsage         = MemoryUsage::GPU_ONLY;
-        desc.mResourceUsage = ResourceUsage::UniformBuffer;
+        desc               = {};
+        desc.size          = kilobytes(4);
+        desc.usage         = MemoryUsage::GPU_ONLY;
+        desc.resourceUsage = ResourceUsage::UniformBuffer;
         device->CreateBuffer(&skinningBuffer, desc, 0);
         device->SetName(&skinningBuffer, "Skinning buffer");
 
         // Mesh params
-        desc                = {};
-        desc.mSize          = kilobytes(4);
-        desc.mUsage         = MemoryUsage::CPU_TO_GPU;
-        desc.mResourceUsage = ResourceUsage::TransferSrc; // ResourceUsage::UniformBuffer;
+        desc               = {};
+        desc.size          = kilobytes(4);
+        desc.usage         = MemoryUsage::CPU_TO_GPU;
+        desc.resourceUsage = ResourceUsage::TransferSrc; // ResourceUsage::UniformBuffer;
         for (u32 i = 0; i < ArrayLength(meshParamsBufferUpload); i++)
         {
             device->CreateBuffer(&meshParamsBufferUpload[i], desc, 0);
@@ -1023,18 +1026,18 @@ internal void Initialize()
             device->SetName(&meshParamsBufferUpload[i], name);
         }
 
-        desc                = {};
-        desc.mSize          = kilobytes(4);
-        desc.mUsage         = MemoryUsage::GPU_ONLY;
-        desc.mResourceUsage = ResourceUsage::UniformBuffer;
+        desc               = {};
+        desc.size          = kilobytes(4);
+        desc.usage         = MemoryUsage::GPU_ONLY;
+        desc.resourceUsage = ResourceUsage::UniformBuffer;
         device->CreateBuffer(&meshParamsBuffer, desc, 0);
         device->SetName(&meshParamsBuffer, "Mesh params buffer");
 
         // Mesh geometry
-        desc                = {};
-        desc.mSize          = kilobytes(4);
-        desc.mUsage         = MemoryUsage::CPU_TO_GPU;
-        desc.mResourceUsage = ResourceUsage::TransferSrc;
+        desc               = {};
+        desc.size          = kilobytes(4);
+        desc.usage         = MemoryUsage::CPU_TO_GPU;
+        desc.resourceUsage = ResourceUsage::TransferSrc;
 
         for (u32 i = 0; i < ArrayLength(meshGeometryBufferUpload); i++)
         {
@@ -1043,18 +1046,18 @@ internal void Initialize()
             device->SetName(&meshGeometryBufferUpload[i], name);
         }
 
-        desc                = {};
-        desc.mSize          = kilobytes(4);
-        desc.mUsage         = MemoryUsage::GPU_ONLY;
-        desc.mResourceUsage = ResourceUsage::UniformBuffer;
+        desc               = {};
+        desc.size          = kilobytes(4);
+        desc.usage         = MemoryUsage::GPU_ONLY;
+        desc.resourceUsage = ResourceUsage::UniformBuffer;
         device->CreateBuffer(&meshGeometryBuffer, desc, 0);
         device->SetName(&meshGeometryBuffer, "Mesh geometry buffer");
 
         // Mesh batches
-        desc                = {};
-        desc.mSize          = kilobytes(4);
-        desc.mUsage         = MemoryUsage::CPU_TO_GPU;
-        desc.mResourceUsage = ResourceUsage::TransferSrc;
+        desc               = {};
+        desc.size          = kilobytes(4);
+        desc.usage         = MemoryUsage::CPU_TO_GPU;
+        desc.resourceUsage = ResourceUsage::TransferSrc;
 
         for (u32 i = 0; i < ArrayLength(meshBatchBufferUpload); i++)
         {
@@ -1063,18 +1066,18 @@ internal void Initialize()
             device->SetName(&meshBatchBufferUpload[i], name);
         }
 
-        desc                = {};
-        desc.mSize          = kilobytes(4);
-        desc.mUsage         = MemoryUsage::GPU_ONLY;
-        desc.mResourceUsage = ResourceUsage::UniformBuffer;
+        desc               = {};
+        desc.size          = kilobytes(4);
+        desc.usage         = MemoryUsage::GPU_ONLY;
+        desc.resourceUsage = ResourceUsage::UniformBuffer;
         device->CreateBuffer(&meshBatchBuffer, desc, 0);
         device->SetName(&meshBatchBuffer, "Mesh batch buffer");
 
         // Mesh subset
-        desc                = {};
-        desc.mSize          = kilobytes(4);
-        desc.mUsage         = MemoryUsage::CPU_TO_GPU;
-        desc.mResourceUsage = ResourceUsage::TransferSrc;
+        desc               = {};
+        desc.size          = kilobytes(4);
+        desc.usage         = MemoryUsage::CPU_TO_GPU;
+        desc.resourceUsage = ResourceUsage::TransferSrc;
 
         for (u32 i = 0; i < ArrayLength(meshSubsetBufferUpload); i++)
         {
@@ -1083,18 +1086,18 @@ internal void Initialize()
             device->SetName(&meshSubsetBufferUpload[i], name);
         }
 
-        desc                = {};
-        desc.mSize          = kilobytes(4);
-        desc.mUsage         = MemoryUsage::GPU_ONLY;
-        desc.mResourceUsage = ResourceUsage::UniformBuffer;
+        desc               = {};
+        desc.size          = kilobytes(4);
+        desc.usage         = MemoryUsage::GPU_ONLY;
+        desc.resourceUsage = ResourceUsage::UniformBuffer;
         device->CreateBuffer(&meshSubsetBuffer, desc, 0);
         device->SetName(&meshSubsetBuffer, "Mesh subset buffer");
 
         // Material buffer
-        desc                = {};
-        desc.mSize          = kilobytes(4);
-        desc.mUsage         = MemoryUsage::CPU_TO_GPU;
-        desc.mResourceUsage = ResourceUsage::TransferSrc;
+        desc               = {};
+        desc.size          = kilobytes(4);
+        desc.usage         = MemoryUsage::CPU_TO_GPU;
+        desc.resourceUsage = ResourceUsage::TransferSrc;
 
         for (u32 i = 0; i < ArrayLength(materialBufferUpload); i++)
         {
@@ -1103,99 +1106,116 @@ internal void Initialize()
             device->SetName(&materialBufferUpload[i], name);
         }
 
-        desc                = {};
-        desc.mSize          = kilobytes(4);
-        desc.mUsage         = MemoryUsage::GPU_ONLY;
-        desc.mResourceUsage = ResourceUsage::UniformBuffer;
+        desc               = {};
+        desc.size          = kilobytes(4);
+        desc.usage         = MemoryUsage::GPU_ONLY;
+        desc.resourceUsage = ResourceUsage::UniformBuffer;
         device->CreateBuffer(&materialBuffer, desc, 0);
         device->SetName(&materialBuffer, "Material buffer");
 
         // Indirect buffer
-        desc                = {};
-        desc.mSize          = kilobytes(4);
-        desc.mUsage         = MemoryUsage::GPU_ONLY;
-        desc.mResourceUsage = ResourceUsage::StorageBuffer | ResourceUsage::IndirectBuffer;
+        desc               = {};
+        desc.size          = kilobytes(4);
+        desc.usage         = MemoryUsage::GPU_ONLY;
+        desc.resourceUsage = ResourceUsage::StorageBuffer | ResourceUsage::IndirectBuffer;
         device->CreateBuffer(&meshIndirectBuffer, desc, 0);
         device->SetName(&meshIndirectBuffer, "Mesh indirect buffer");
 
-        desc.mResourceUsage = ResourceUsage::StorageBuffer | ResourceUsage::UniformBuffer;
+        desc.resourceUsage = ResourceUsage::StorageBuffer | ResourceUsage::UniformBuffer;
         device->CreateBuffer(&indirectScratchBuffer, desc, 0);
         device->SetName(&indirectScratchBuffer, "Indirect scratch buffer");
 
         // Indirect count buffer
-        desc                = {};
-        desc.mSize          = sizeof(uint);
-        desc.mUsage         = MemoryUsage::GPU_ONLY;
-        desc.mResourceUsage = ResourceUsage::StorageBuffer | ResourceUsage::IndirectBuffer;
+        desc               = {};
+        desc.size          = sizeof(uint);
+        desc.usage         = MemoryUsage::GPU_ONLY;
+        desc.resourceUsage = ResourceUsage::StorageBuffer | ResourceUsage::IndirectBuffer;
         device->CreateBuffer(&meshIndirectCountBuffer, desc, 0);
         device->SetName(&meshIndirectCountBuffer, "Mesh indirect count buffer");
 
         // Mesh index buffer
-        desc                = {};
-        desc.mSize          = kilobytes(4);
-        desc.mUsage         = MemoryUsage::GPU_ONLY;
-        desc.mResourceUsage = ResourceUsage::StorageBuffer | ResourceUsage::IndexBuffer;
+        desc               = {};
+        desc.size          = kilobytes(4);
+        desc.usage         = MemoryUsage::GPU_ONLY;
+        desc.resourceUsage = ResourceUsage::StorageBuffer | ResourceUsage::IndexBuffer;
         device->CreateBuffer(&meshIndexBuffer, desc, 0);
         device->SetName(&meshIndexBuffer, "Mesh index buffer");
 
         // instance to draw id buffer
         // desc        = {};
-        // desc.mSize  = kilobytes(4);
-        // desc.mUsage = MemoryUsage::GPU_ONLY;
+        // desc.size  = kilobytes(4);
+        // desc.usage = MemoryUsage::GPU_ONLY;
     }
 
     // Initialize render targets/depth buffers
     {
         TextureDesc desc;
-        desc.mWidth        = swapchain.mDesc.width;
-        desc.mHeight       = swapchain.mDesc.height;
-        desc.mInitialUsage = ResourceUsage::DepthStencil;
-        desc.mFormat       = Format::D32_SFLOAT_S8_UINT;
+        desc.width        = swapchain.desc.width;
+        desc.height       = swapchain.desc.height;
+        desc.initialUsage = ResourceUsage::DepthStencil;
+        desc.format       = Format::D32_SFLOAT_S8_UINT;
 
         device->CreateTexture(&depthBufferMain, desc, 0);
 
         // Shadows
-        desc.mWidth        = 1024;
-        desc.mHeight       = 1024;
-        desc.mInitialUsage = ResourceUsage::SampledImage; // TODO: this is weird.
-        desc.mFutureUsages = ResourceUsage::DepthStencil;
-        desc.mFormat       = Format::D32_SFLOAT;
-        desc.mNumLayers    = cNumCascades;
-        desc.mSampler      = TextureDesc::DefaultSampler::Nearest;
-        desc.mTextureType  = TextureDesc::TextureType::Texture2DArray;
+        desc.width        = 1024;
+        desc.height       = 1024;
+        desc.initialUsage = ResourceUsage::SampledImage; // TODO: this is weird.
+        desc.futureUsages = ResourceUsage::DepthStencil;
+        desc.format       = Format::D32_SFLOAT;
+        desc.numLayers    = cNumCascades;
+        desc.sampler      = TextureDesc::DefaultSampler::Nearest;
+        desc.textureType  = TextureDesc::TextureType::Texture2DArray;
 
         device->CreateTexture(&shadowDepthBuffer, desc, 0);
 
-        for (u32 i = 0; i < shadowDepthBuffer.mDesc.mNumLayers; i++)
+        for (u32 i = 0; i < shadowDepthBuffer.desc.numLayers; i++)
         {
             shadowSlices.push_back(device->CreateSubresource(&shadowDepthBuffer, i, 1));
         }
+
+#if 0
+        desc              = {};
+        desc.width        = GetPreviousPowerOfTwo(swapchain.desc.width);
+        desc.height       = GetPreviousPowerOfTwo(swapchain.desc.height);
+        desc.initialUsage = ResourceUsage::StorageImage;
+        desc.futureUsages = ResourceUsage::SampledImage | ResourceUsage::TransferSrc;
+        desc.format       = Format::R32_SFLOAT;
+        desc.numMips      = GetNumMips(desc.width, desc.height);
+
+        device->CreateTexture(&depthPyramid, desc, 0);
+
+        for (u32 i = 0; i < depthPyramid.desc.numMips; i++)
+        {
+            depthPyramidSubresources[i] = device->CreateSubresource(&depthPyramid, 0, ~0u, i, 1);
+        }
+#endif
     }
 
     // Initialize rasterization state
     {
-        rasterizers[RasterType_CCW_CullBack].mCullMode  = RasterizationState::CullMode::Back;
-        rasterizers[RasterType_CCW_CullFront].mCullMode = RasterizationState::CullMode::Front;
-        rasterizers[RasterType_CCW_CullNone].mCullMode  = RasterizationState::CullMode::None;
+        rasterizers[RasterType_CCW_CullBack].cullMode  = RasterizationState::CullMode::Back;
+        rasterizers[RasterType_CCW_CullFront].cullMode = RasterizationState::CullMode::Front;
+        rasterizers[RasterType_CCW_CullNone].cullMode  = RasterizationState::CullMode::None;
     }
 
     // Initialize shaders
     {
-        shaders[ShaderType_Mesh_VS].mName           = "mesh_vs.hlsl";
+        shaders[ShaderType_Mesh_VS].name            = "mesh_vs.hlsl";
         shaders[ShaderType_Mesh_VS].stage           = ShaderStage::Vertex;
-        shaders[ShaderType_Mesh_FS].mName           = "mesh_fs.hlsl";
+        shaders[ShaderType_Mesh_FS].name            = "mesh_fs.hlsl";
         shaders[ShaderType_Mesh_FS].stage           = ShaderStage::Fragment;
-        shaders[ShaderType_ShadowMap_VS].mName      = "depth_vs.hlsl";
+        shaders[ShaderType_ShadowMap_VS].name       = "depth_vs.hlsl";
         shaders[ShaderType_ShadowMap_VS].stage      = ShaderStage::Vertex;
-        shaders[ShaderType_BC1_CS].mName            = "blockcompress_cs.hlsl";
+        shaders[ShaderType_BC1_CS].name             = "blockcompress_cs.hlsl";
         shaders[ShaderType_BC1_CS].stage            = ShaderStage::Compute;
-        shaders[ShaderType_Skin_CS].mName           = "skinning_cs.hlsl";
+        shaders[ShaderType_Skin_CS].name            = "skinning_cs.hlsl";
         shaders[ShaderType_Skin_CS].stage           = ShaderStage::Compute;
-        shaders[ShaderType_TriangleCull_CS].mName   = "cull_triangle_cs.hlsl";
+        shaders[ShaderType_TriangleCull_CS].name    = "cull_triangle_cs.hlsl";
         shaders[ShaderType_TriangleCull_CS].stage   = ShaderStage::Compute;
-        shaders[ShaderType_ClearIndirect_CS].mName  = "clear_indirect_cs.hlsl";
+        shaders[ShaderType_ClearIndirect_CS].name   = "clear_indirect_cs.hlsl";
         shaders[ShaderType_ClearIndirect_CS].stage  = ShaderStage::Compute;
-        shaders[ShaderType_DrawCompaction_CS].mName = "draw_compaction_cs.hlsl";
+        shaders[ShaderType_DrawCompaction_CS].name  = "draw_compaction_cs.hlsl";
         shaders[ShaderType_DrawCompaction_CS].stage = ShaderStage::Compute;
     }
 
@@ -1205,7 +1225,7 @@ internal void Initialize()
         for (u32 i = 0; i < ShaderType_Count; i++)
         {
             shadercompiler::CompileInput input;
-            input.shaderName = shaders[i].mName;
+            input.shaderName = shaders[i].name;
             input.stage      = shaders[i].stage;
 
             shadercompiler::CompileOutput output;
@@ -1220,29 +1240,29 @@ internal void Initialize()
     // Initialize pipelines
     {
         InputLayout &inputLayout = inputLayouts[IL_Type_MeshVertex];
-        inputLayout.mElements    = {
+        inputLayout.elements     = {
             Format::R32G32B32_SFLOAT, Format::R32G32B32_SFLOAT, Format::R32G32_SFLOAT, Format::R32G32B32_SFLOAT,
             Format::R32G32B32A32_UINT, Format::R32G32B32A32_SFLOAT};
 
-        inputLayout.mBinding = 0;
-        inputLayout.mStride  = sizeof(MeshVertex);
-        inputLayout.mRate    = InputRate::Vertex;
+        inputLayout.binding = 0;
+        inputLayout.stride  = sizeof(MeshVertex);
+        inputLayout.rate    = InputRate::Vertex;
 
         // Main
-        PipelineStateDesc desc      = {};
-        desc.mDepthStencilFormat    = Format::D32_SFLOAT_S8_UINT;
-        desc.mColorAttachmentFormat = Format::R8G8B8A8_SRGB;
-        desc.vs                     = &shaders[ShaderType_Mesh_VS];
-        desc.fs                     = &shaders[ShaderType_Mesh_FS];
-        // desc.mRasterState           = &rasterizers[RasterType_CCW_CullBack];
-        desc.mRasterState = &rasterizers[RasterType_CCW_CullNone];
+        PipelineStateDesc desc     = {};
+        desc.depthStencilFormat    = Format::D32_SFLOAT_S8_UINT;
+        desc.colorAttachmentFormat = Format::R8G8B8A8_SRGB;
+        desc.vs                    = &shaders[ShaderType_Mesh_VS];
+        desc.fs                    = &shaders[ShaderType_Mesh_FS];
+        // desc.rasterState           = &rasterizers[RasterType_CCW_CullBack];
+        desc.rasterState = &rasterizers[RasterType_CCW_CullNone];
         device->CreatePipeline(&desc, &pipelineState, "Main pass");
 
         // Shadows
-        desc                     = {};
-        desc.mDepthStencilFormat = Format::D32_SFLOAT;
-        desc.vs                  = &shaders[ShaderType_ShadowMap_VS];
-        desc.mRasterState        = &rasterizers[RasterType_CCW_CullNone];
+        desc                    = {};
+        desc.depthStencilFormat = Format::D32_SFLOAT;
+        desc.vs                 = &shaders[ShaderType_ShadowMap_VS];
+        desc.rasterState        = &rasterizers[RasterType_CCW_CullNone];
         device->CreatePipeline(&desc, &shadowMapPipeline, "Depth pass");
 
         // Block compress compute
@@ -1280,12 +1300,13 @@ internal void CullMeshBatches(CommandList cmdList)
     pc.meshBatchDescriptor    = device->GetDescriptorIndex(&meshBatchBuffer, ResourceType::SRV);
     pc.meshGeometryDescriptor = device->GetDescriptorIndex(&meshGeometryBuffer, ResourceType::SRV);
     pc.meshParamsDescriptor   = device->GetDescriptorIndex(&meshParamsBuffer, ResourceType::SRV);
-    pc.screenWidth            = (u32)platform.GetWindowDimension(shared->windowHandle).x;
-    pc.screenHeight           = (u32)platform.GetWindowDimension(shared->windowHandle).y;
+    pc.screenWidth            = (u32)swapchain.desc.width;
+    pc.screenHeight           = (u32)swapchain.desc.height;
     device->PushConstants(cmdList, sizeof(pc), &pc);
     device->BindCompute(&triangleCullPipeline, cmdList);
     device->BindResource(&indirectScratchBuffer, ResourceType::UAV, 0, cmdList);
     device->BindResource(&meshIndexBuffer, ResourceType::UAV, 1, cmdList);
+    device->BindResource(&depthPyramid, ResourceType::SRV, 0, cmdList);
     device->UpdateDescriptorSet(cmdList);
     device->Dispatch(cmdList, meshBatchCount, 1, 1);
 
@@ -1473,7 +1494,7 @@ internal void Render()
 
     // Shadow pass :)
     {
-        for (u32 shadowSlice = 0; shadowSlice < shadowDepthBuffer.mDesc.mNumLayers; shadowSlice++)
+        for (u32 shadowSlice = 0; shadowSlice < shadowDepthBuffer.desc.numLayers; shadowSlice++)
         {
             RenderPassImage images[] = {
                 RenderPassImage::DepthStencil(&shadowDepthBuffer,
@@ -1486,8 +1507,8 @@ internal void Render()
             device->UpdateDescriptorSet(cmdList);
 
             Viewport viewport;
-            viewport.width  = (f32)shadowDepthBuffer.mDesc.mWidth;
-            viewport.height = (f32)shadowDepthBuffer.mDesc.mHeight;
+            viewport.width  = (f32)shadowDepthBuffer.desc.width;
+            viewport.height = (f32)shadowDepthBuffer.desc.height;
 
             device->SetViewport(cmdList, &viewport);
             Rect2 scissor;
@@ -1581,21 +1602,21 @@ void DeferBlockCompress(graphics::Texture input, graphics::Texture output)
 void BlockCompressImage(graphics::Texture *input, graphics::Texture *output, CommandList cmd)
 {
     // Texture reused
-    u32 blockSize = GetBlockSize(output->mDesc.mFormat);
+    u32 blockSize = GetBlockSize(output->desc.format);
     static thread_global Texture bc1Uav;
     TextureDesc desc;
-    desc.mWidth        = input->mDesc.mWidth / blockSize;
-    desc.mHeight       = input->mDesc.mHeight / blockSize;
-    desc.mFormat       = Format::R32G32_UINT;
-    desc.mInitialUsage = ResourceUsage::StorageImage;
-    desc.mFutureUsages = ResourceUsage::TransferSrc;
-    desc.mTextureType  = TextureDesc::TextureType::Texture2D;
+    desc.width        = input->desc.width / blockSize;
+    desc.height       = input->desc.height / blockSize;
+    desc.format       = Format::R32G32_UINT;
+    desc.initialUsage = ResourceUsage::StorageImage;
+    desc.futureUsages = ResourceUsage::TransferSrc;
+    desc.textureType  = TextureDesc::TextureType::Texture2D;
 
-    if (!bc1Uav.IsValid() || bc1Uav.mDesc.mWidth < desc.mWidth || bc1Uav.mDesc.mHeight < desc.mHeight)
+    if (!bc1Uav.IsValid() || bc1Uav.desc.width < desc.width || bc1Uav.desc.height < desc.height)
     {
         TextureDesc bcDesc = desc;
-        bcDesc.mWidth      = (u32)GetNextPowerOfTwo(desc.mWidth);
-        bcDesc.mHeight     = (u32)GetNextPowerOfTwo(desc.mHeight);
+        bcDesc.width       = (u32)GetNextPowerOfTwo(desc.width);
+        bcDesc.height      = (u32)GetNextPowerOfTwo(desc.height);
 
         device->CreateTexture(&bc1Uav, bcDesc, 0);
         device->SetName(&bc1Uav, "BC1 UAV");
@@ -1608,7 +1629,7 @@ void BlockCompressImage(graphics::Texture *input, graphics::Texture *output, Com
     device->BindResource(input, ResourceType::SRV, 0, cmd);
 
     device->UpdateDescriptorSet(cmd);
-    device->Dispatch(cmd, (desc.mWidth + 7) / 8, (desc.mHeight + 7) / 8, 1);
+    device->Dispatch(cmd, (desc.width + 7) / 8, (desc.height + 7) / 8, 1);
 
     // Copy from uav to output
     {

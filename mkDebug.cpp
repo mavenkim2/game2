@@ -21,8 +21,8 @@ void DebugState::BeginFrame()
         device->CreateQueryPool(&pipelineStatisticsPool, QueryType_PipelineStatistics, 4);
 
         GPUBufferDesc desc = {};
-        desc.mSize         = (u32)(sizeof(u64) * (timestampPool.queryCount + pipelineStatisticsPool.queryCount));
-        desc.mUsage        = MemoryUsage::GPU_TO_CPU;
+        desc.size         = (u32)(sizeof(u64) * (timestampPool.queryCount + pipelineStatisticsPool.queryCount));
+        desc.usage        = MemoryUsage::GPU_TO_CPU;
 
         for (u32 i = 0; i < ArrayLength(queryResultBuffer); i++)
         {
@@ -42,7 +42,7 @@ void DebugState::BeginFrame()
         record->totalTimes[index]     = 0;
     }
 
-    u64 *mappedData = (u64 *)queryResultBuffer[currentBuffer].mMappedData;
+    u64 *mappedData = (u64 *)queryResultBuffer[currentBuffer].mappedData;
     for (u32 rangeIndex = 0; rangeIndex < numRanges; rangeIndex++)
     {
         Range *range   = &ranges[currentBuffer][rangeIndex];
