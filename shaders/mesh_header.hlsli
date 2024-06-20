@@ -21,9 +21,9 @@ struct FragmentInput
     precise float4 pos : SV_POSITION;
     nointerpolation uint instanceID : INSTANCE_ID;
 #ifdef MESH_PASS
-    float2 uv : TEXCOORD;
-    float4 viewFragPos : VIEW_FRAG_POS;
     float4 worldFragPos : WORLD_FRAG_POS;
+    float2 uv : TEXCOORD;
+    float viewFragZ : VIEW_FRAG_POS;
     // TODO: calculate tbn in fragment shader
     float3x3 tbn : TBN;
 #endif
@@ -35,9 +35,9 @@ FragmentInput main(VertexInput input)
 {
     FragmentInput output;
 
-    ShaderMeshSubset subset = bindlessMeshSubsets[push.subsetDescriptor][input.instanceID];
-    MeshParams params = bindlessMeshParams[push.meshParamsDescriptor][subset.meshIndex];
-    MeshGeometry geo = bindlessMeshGeometry[push.geometryDescriptor][subset.meshIndex];
+    MeshCluster cluster = bindlessMeshClusters[push.meshClusterDescriptor][input.instanceID];
+    MeshParams params = bindlessMeshParams[push.meshParamsDescriptor][cluster.meshIndex];
+    MeshGeometry geo = bindlessMeshGeometry[push.geometryDescriptor][cluster.meshIndex];
 
     float3 pos = GetFloat3(geo.vertexPos, input.vertexID);
 
@@ -46,26 +46,21 @@ FragmentInput main(VertexInput input)
     float3 n = GetFloat3(geo.vertexNor, input.vertexID);
     float3 tangent = GetFloat3(geo.vertexTan, input.vertexID);
 #endif
-
-    float4x4 modelToWorldMatrix = params.modelMatrix;
-    float4 modelSpacePos;
-    modelSpacePos = float4(pos, 1.0);
-#ifdef MESH_PASS
-    output.pos = mul(params.transform, modelSpacePos);
-#endif
-#ifdef SHADOW_PASS
-    output.pos = mul(rLightViewProjectionMatrices[push.cascadeNum] * modelToWorldMatrix, float4(pos, 1.0));
-#endif
-
+    float4 modelSpacePos = float4(pos, 1.0);
 #ifdef MESH_PASS
     output.uv = uv;
-    output.viewFragPos = mul(params.modelViewMatrix, modelSpacePos);
-    output.worldFragPos = mul(modelToWorldMatrix, modelSpacePos);
+    output.worldFragPos = mul(params.modelToWorld, modelSpacePos);
+    output.pos = mul(push.viewProjection, output.worldFragPos);
+    output.viewFragZ = output.pos.w;
 
-    float3 tN = normalize(mul((float3x3)(modelToWorldMatrix), n));
-    float3 tT = normalize(mul((float3x3)(modelToWorldMatrix), tangent));
+    float3x3 normalMatrix = (float3x3)params.modelToWorld;
+    float3 tN = normalize(mul(normalMatrix, n));
+    float3 tT = normalize(mul(normalMatrix, tangent));
     float3 tB = cross(tN, tT);
     output.tbn = float3x3(tT, tB, tN);
+#endif
+#ifdef SHADOW_PASS
+    output.pos = mul(rLightViewProjectionMatrices[push.cascadeNum] * params.modelToWorld, float4(pos, 1.0));
 #endif
 
     output.instanceID = input.instanceID;
@@ -84,8 +79,8 @@ float4 main(FragmentInput fragment) : SV_Target
     float3 albedo = float3(1, 1, 1);
     float3 normal = float3(1, 1, 1);
 
-    ShaderMeshSubset subset = bindlessMeshSubsets[push.subsetDescriptor][fragment.instanceID];
-    ShaderMaterial material = bindlessMaterials[push.materialDescriptor][subset.materialIndex];
+    MeshCluster cluster = bindlessMeshClusters[push.meshClusterDescriptor][fragment.instanceID];
+    ShaderMaterial material = bindlessMaterials[push.materialDescriptor][cluster.materialIndex];
     
     if (material.albedo >= 0)
     {
@@ -95,7 +90,7 @@ float4 main(FragmentInput fragment) : SV_Target
     {
         normal = normalize(bindlessTextures[material.normal].Sample(samplerLinearWrap, fragment.uv).rgb * 2 - 1);
     }
-    float viewZ = abs(fragment.viewFragPos.z);
+    float viewZ = abs(fragment.viewFragZ);
 
     int shadowIndex = 3;
     for (int i = 0; i < 3; i++)

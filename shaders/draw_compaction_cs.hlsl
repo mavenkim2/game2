@@ -1,5 +1,5 @@
 #include "globals.hlsli"
-#include "ShaderInterop_Mesh.h"
+#include "ShaderInterop_Culling.h"
 
 [[vk::push_constant]] DrawCompactionPushConstant push;
 

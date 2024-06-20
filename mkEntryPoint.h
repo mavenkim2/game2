@@ -13,7 +13,6 @@
 #include "mkShaderCompiler.h"
 #include "mkAsset.h"
 #include "mkScene.h"
-
 #include "mkShared.h"
 
 #if VULKAN

@@ -262,8 +262,13 @@ inline i32 AtomicAddI32(i32 volatile *dest, i32 addend)
 
 struct TicketMutex
 {
-    std::atomic<u64> ticket = 0;
-    std::atomic<u64> serving = 0;
+    std::atomic<u64> ticket;
+    std::atomic<u64> serving;
+    void Init()
+    {
+        ticket.store(0);
+        serving.store(0);
+    }
     // u64 volatile ticket;
     // u64 volatile serving;
 };

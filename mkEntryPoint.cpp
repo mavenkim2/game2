@@ -6,8 +6,6 @@
 #include "mkMemory.cpp"
 #include "mkString.cpp"
 
-#include "mkScene.cpp"
-
 #if VULKAN
 #include "render/mkGraphicsVulkan.cpp"
 #endif
@@ -87,9 +85,7 @@ MAIN()
     Engine engineLocal;
     engine = &engineLocal;
 
-    Arena *sceneArena = ArenaAlloc();
     scene::Scene sceneLocal;
-    sceneLocal.Init(sceneArena);
 
     GamePlatformMemory gameMem;
     gameMem.mIsLoaded    = 0;

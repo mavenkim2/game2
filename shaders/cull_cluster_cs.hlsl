@@ -1,0 +1,95 @@
+#include "globals.hlsli"
+#include "ShaderInterop_Mesh.h"
+#include "ShaderInterop_Culling.h"
+
+[[vk::push_constant]] ClusterCullPushConstants push;
+
+StructuredBuffer<MeshChunk> meshChunks : register(t0);
+//Texture2D depthPyramid : register(t3);
+
+//RWStructuredBuffer<uint> clusterVisibility : register(u0);
+RWStructuredBuffer<DispatchIndirect> dispatchIndirect : register(u0);
+RWStructuredBuffer<uint> outputMeshClusterIndex : register(u1);
+
+[numthreads(CLUSTER_CULL_GROUP_SIZE, 1, 1)]
+void main(uint3 dispatchThreadID : SV_DispatchThreadID, uint3 groupID : SV_GroupID, uint3 groupThreadID : SV_GroupThreadID)
+{
+#if 1
+    uint chunkID = groupID.x;
+    uint chunkCount = dispatchIndirect[CLUSTER_DISPATCH_OFFSET].groupCountX;
+    if (chunkID >= chunkCount)
+        return;
+#else
+    uint clusterID = dispatchThreadID.x;
+    if (clusterID >= push.clusterCount)
+        return;
+#endif
+
+#if 1
+    MeshChunk chunk = meshChunks[chunkID];
+    uint clusterID = groupThreadID.x;
+    if (clusterID >= chunk.numClusters)
+        return;
+    clusterID = chunk.clusterOffset + clusterID;
+#endif
+
+    MeshCluster cluster = bindlessMeshClusters[push.meshClusterDescriptor][clusterID];
+
+    MeshParams params = bindlessMeshParams[push.meshParamsDescriptor][cluster.meshIndex];
+    float4x4 mvp = push.viewProjection * params.modelToWorld;
+
+    bool skip = false;
+    bool visible = true;
+
+#if 0
+    uint clusterVisibilityResult = clusterVisibility[clusterID >> 5];
+    uint isClusterVisible = clusterVisibilityResult & (1u << (clusterID & 31));
+
+    // In the first pass, only render objects visible last frame
+    if (!push.isSecondPass && isClusterVisible == 0)
+        visible = false;
+
+    // In the second pass, don't render objects that were previously rendered
+    if (push.isSecondPass && chunk.wasVisibleLastFrame && isClusterVisible)
+        skip = true;
+#endif
+
+    float4 aabb;
+    float minZ;
+    visible = true;
+    //visible = ProjectBoxAndFrustumCull(cluster.minP, cluster.maxP, mvp, push.nearZ, push.farZ,
+    //                                   push.isSecondPass, push.p22, push.p23, aabb, minZ);
+#if 0
+    if (visible && push.isSecondPass)
+    {
+        float width = (aabb.z - aabb.x) * push.pyramidWidth;
+        float height = (aabb.w - aabb.y) * push.pyramidHeight;
+        
+        int lod = ceil(log2(max(width, height)));
+        float depth = SampleLevel(samplerNearestClamp, depthPyramid, lod).x;
+
+        visible = visible && minBoxZ < depth;
+    }
+    if (push.isSecondPass)
+    {
+        if (visible)
+            InterlockedOr(clusterVisibility[clusterID >> 5], (1u << (clusterID & 31)));
+        else 
+            InterlockedAnd(clusterVisibility[clusterID >> 5], ~(1u << (clusterID & 31)));
+    }
+#endif
+
+    uint numVisibleClusters = WaveActiveCountBits(visible && !skip);
+    uint clusterOffset;
+    if (WaveIsFirstLane() && numVisibleClusters > 0)
+    {
+        InterlockedAdd(dispatchIndirect[TRIANGLE_DISPATCH_OFFSET].groupCountX, numVisibleClusters, clusterOffset);
+    }
+    clusterOffset = WaveReadLaneFirst(clusterOffset);
+    uint waveClusterOffset = WavePrefixCountBits(visible && !skip);
+
+    if (visible && !skip)
+    {
+        outputMeshClusterIndex[clusterOffset + waveClusterOffset] = clusterID;
+    }
+}

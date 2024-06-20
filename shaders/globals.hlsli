@@ -24,8 +24,7 @@ static const uint BINDLESS_STORAGE_TEXEL_BUFFER_SET = 4;
 
 [[vk::binding(0, BINDLESS_STORAGE_BUFFER_SET)]] StructuredBuffer<MeshParams> bindlessMeshParams[];
 [[vk::binding(0, BINDLESS_STORAGE_BUFFER_SET)]] StructuredBuffer<MeshGeometry> bindlessMeshGeometry[];
-[[vk::binding(0, BINDLESS_STORAGE_BUFFER_SET)]] StructuredBuffer<MeshBatch> bindlessMeshBatches[];
-[[vk::binding(0, BINDLESS_STORAGE_BUFFER_SET)]] StructuredBuffer<ShaderMeshSubset> bindlessMeshSubsets[];
+[[vk::binding(0, BINDLESS_STORAGE_BUFFER_SET)]] StructuredBuffer<MeshCluster> bindlessMeshClusters[];
 [[vk::binding(0, BINDLESS_STORAGE_BUFFER_SET)]] StructuredBuffer<ShaderMaterial> bindlessMaterials[];
 #else
 #error not supported
@@ -149,18 +148,16 @@ bool ProjectBoxAndFrustumCull(float3 bMin, float3 bMax, float4x4 mvp, float near
 
     // frustum culling
     bool visible = true;
-    visible = visible && (-p0.w <= p0.x && p0.x <= p0.w) && (-p0.w <= p0.y && p0.y <= p0.w) && (nearZ <= p0.w && p0.w <= farZ);
-    visible = visible && (-p1.w <= p1.x && p1.x <= p1.w) && (-p1.w <= p1.y && p1.y <= p1.w) && (nearZ <= p1.w && p1.w <= farZ);
-    visible = visible && (-p2.w <= p2.x && p2.x <= p2.w) && (-p2.w <= p2.y && p2.y <= p2.w) && (nearZ <= p2.w && p2.w <= farZ);
-    visible = visible && (-p3.w <= p3.x && p3.x <= p3.w) && (-p3.w <= p3.y && p3.y <= p3.w) && (nearZ <= p3.w && p3.w <= farZ);
-
-    visible = visible && (-p4.w <= p4.x && p4.x <= p4.w) && (-p4.w <= p4.y && p4.y <= p4.w) && (nearZ <= p4.w && p4.w <= farZ);
-    visible = visible && (-p5.w <= p5.x && p5.x <= p5.w) && (-p5.w <= p5.y && p5.y <= p5.w) && (nearZ <= p5.w && p5.w <= farZ);
-    visible = visible && (-p6.w <= p6.x && p6.x <= p6.w) && (-p6.w <= p6.y && p6.y <= p6.w) && (nearZ <= p6.w && p6.w <= farZ);
-    visible = visible && (-p7.w <= p7.x && p7.x <= p7.w) && (-p7.w <= p7.y && p7.y <= p7.w) && (nearZ <= p7.w && p7.w <= farZ);
+    visible = visible && (p0.x >= -p0.w || p1.x >= -p1.w || p2.x >= -p2.w || p3.x >= -p3.w || p4.x >= -p4.w || p5.x >= -p5.w || p6.x >= -p6.w || p7.x >= -p7.w);
+    visible = visible && (p0.y >= -p0.w || p1.y >= -p1.w || p2.y >= -p2.w || p3.y >= -p3.w || p4.y >= -p4.w || p5.y >= -p5.w || p6.y >= -p6.w || p7.y >= -p7.w);
+    visible = visible && (p0.x <= p0.w || p1.x <= p1.w || p2.x <= p2.w || p3.x <= p3.w || p4.x <= p4.w || p5.x <= p5.w || p6.x <= p6.w || p7.x <= p7.w);
+    visible = visible && (p0.y <= p0.w || p1.y <= p1.w || p2.y <= p2.w || p3.y <= p3.w || p4.y <= p4.w || p5.y <= p5.w || p6.y <= p6.w || p7.y <= p7.w);
+    visible = visible && (p0.w >= nearZ || p1.w >= nearZ || p2.w >= nearZ || p3.w >= nearZ || p4.w >= nearZ || p5.w >= nearZ || p6.w >= nearZ || p7.w >= nearZ);
+    visible = visible && (p0.w <= farZ || p1.w <= farZ || p2.w <= farZ || p3.w <= farZ || p4.w <= farZ || p5.w <= farZ || p6.w <= farZ || p7.w <= farZ);
 
     minZ = 0;
     aabb = 0;
+#if 0
     if (visible && isSecondPass)
     {
         // view space z
@@ -177,6 +174,7 @@ bool ProjectBoxAndFrustumCull(float3 bMin, float3 bMax, float4x4 mvp, float near
         minZ = minW * p22 + p23; // [2][2] and [2][3] in perspective projection matrix
         aabb = aabb * 0.5 + 0.5;
     }
+#endif
     return visible;
 }
 

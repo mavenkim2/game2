@@ -238,7 +238,7 @@ struct mkGraphicsVulkan : mkGraphics
     struct TextureVulkan
     {
         VkImage image            = VK_NULL_HANDLE;
-        VkBuffer stagingBuffer    = VK_NULL_HANDLE;
+        VkBuffer stagingBuffer   = VK_NULL_HANDLE;
         VmaAllocation allocation = VK_NULL_HANDLE;
 
         struct Subresource
@@ -303,7 +303,9 @@ struct mkGraphicsVulkan : mkGraphics
     } frameAllocator[cNumBuffers];
 
     // The gpu buffer should already be created
-    void FrameAllocate(GPUBuffer *inBuf, void *inData, CommandList cmd, u64 inSize = ~0, u64 inOffset = 0);
+    FrameAllocation FrameAllocate(u64 size) override;
+    void FrameAllocate(GPUBuffer *inBuf, void *inData, CommandList cmd, u64 inSize = ~0, u64 srcOffset = 0) override;
+    void CommitFrameAllocation(CommandList cmd, FrameAllocation &alloc, GPUBuffer *dstBuffer, u64 dstOffset = 0) override;
 
     //////////////////////////////
     // Functions
@@ -377,8 +379,10 @@ struct mkGraphicsVulkan : mkGraphics
     void CreatePipeline(PipelineStateDesc *inDesc, PipelineState *outPS, string name) override;
     void CreateComputePipeline(PipelineStateDesc *inDesc, PipelineState *outPS, string name) override;
     void CreateShader(Shader *shader, string shaderData) override;
+    void AddPCTemp(Shader *shader, u32 offset, u32 size) override;
     void CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDesc, CopyFunction initCallback) override;
     void CopyBuffer(CommandList cmd, GPUBuffer *dest, GPUBuffer *src, u32 size) override;
+    void ClearBuffer(CommandList cmd, GPUBuffer *dst) override;
     void CopyTexture(CommandList cmd, Texture *dst, Texture *src, Rect3U32 *rect = 0) override;
     void DeleteBuffer(GPUBuffer *buffer) override;
     void CreateTexture(Texture *outTexture, TextureDesc desc, void *inData) override;
@@ -401,6 +405,7 @@ struct mkGraphicsVulkan : mkGraphics
     void BindVertexBuffer(CommandList cmd, GPUBuffer **buffers, u32 count = 1, u32 *offsets = 0) override;
     void BindIndexBuffer(CommandList cmd, GPUBuffer *buffer, u64 offset = 0) override;
     void Dispatch(CommandList cmd, u32 groupCountX, u32 groupCountY, u32 groupCountZ) override;
+    void DispatchIndirect(CommandList cmd, GPUBuffer *buffer, u32 offset = 0) override;
     void SetViewport(CommandList cmd, Viewport *viewport) override;
     void SetScissor(CommandList cmd, Rect2 scissor) override;
     void EndRenderPass(CommandList cmd) override;
@@ -424,6 +429,8 @@ struct mkGraphicsVulkan : mkGraphics
     u32 GetCount(Fence f) override;
 
     // Debug
+    void BeginEvent(CommandList cmd, string name) override;
+    void EndEvent(CommandList cmd) override;
     void SetName(GPUResource *resource, const char *name) override;
     void SetName(GPUResource *resource, string name) override;
 

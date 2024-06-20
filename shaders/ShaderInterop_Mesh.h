@@ -6,20 +6,18 @@
 #define CASCADE_PARAMS_BIND 0
 #define SHADOW_MAP_BIND     1
 
-#define BATCH_SIZE          256
 #define SKINNING_GROUP_SIZE 64
-
-#define BATCH_GROUP_SIZE 64
+#define CLUSTER_SIZE        256
 
 struct MeshParams
 {
-    float4x4 transform;
-    float4x4 modelViewMatrix;
-    float4x4 modelMatrix;
+    // float4x4 transform;
+    // float4x4 modelViewMatrix;
+    float4x4 modelToWorld;
     float3 minP;
-    float _pad0;
+    uint clusterOffset;
     float3 maxP;
-    float _pad1;
+    uint clusterCount;
 };
 
 struct MeshGeometry
@@ -31,26 +29,26 @@ struct MeshGeometry
     int vertexInd;
 };
 
-struct MeshBatch
+struct MeshChunk
 {
-    // uint baseVertex;
-    uint subsetID;
-    uint drawID;
+    uint numClusters;
+    uint clusterOffset;
+    uint wasVisibleLastFrame;
+};
+
+struct MeshCluster
+{
+    float3 minP;
+    uint meshIndex;
+    float3 maxP;
     uint indexOffset;
     uint indexCount;
-
-    // uint firstBatch;
-    uint meshIndex;
-
-    uint outputIndexOffset;
-    // uint materialIndex;
-};
-
-struct ShaderMeshSubset
-{
-    uint meshIndex;
     uint materialIndex;
+    uint2 _pad;
 };
+
+// an instance in a shader uses only one material, but in the cpu app code it can have multiple materials, so
+// multiple instances are spawned
 
 struct ShaderMaterial
 {
@@ -84,26 +82,13 @@ UNIFORM(CascadeParams, CASCADE_PARAMS_BIND)
 //
 struct PushConstant
 {
+    float4x4 viewProjection;
+
     int meshParamsDescriptor;
-    int subsetDescriptor;
+    int meshClusterDescriptor;
     int materialDescriptor;
     int geometryDescriptor;
-
     int cascadeNum;
-};
-
-struct TriangleCullPushConstant
-{
-    int meshBatchDescriptor;
-    int meshGeometryDescriptor;
-    int meshParamsDescriptor;
-    uint screenWidth;
-    uint screenHeight;
-};
-
-struct DrawCompactionPushConstant
-{
-    uint drawCount;
 };
 
 struct SkinningPushConstants

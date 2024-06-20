@@ -21,6 +21,7 @@
  */
 #include "../shaders/ShaderInterop.h"
 #include "../shaders/ShaderInterop_Mesh.h"
+#include "../shaders/ShaderInterop_Culling.h"
 #include "../mkCrack.h"
 #ifdef LSP_INCLUDE
 #include "../mkShaderCompiler.h"
@@ -467,6 +468,11 @@ struct RenderState
 
 namespace render
 {
+enum UploadTypes
+{
+    UploadType_MeshClusters,
+    UploadType_Count,
+};
 void DeferBlockCompress(graphics::Texture input, graphics::Texture output);
 void BlockCompressImage(graphics::Texture *input, graphics::Texture *output, graphics::CommandList cmd);
 } // namespace render

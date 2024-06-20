@@ -302,6 +302,23 @@ union U16V4
     u16 elements[4];
 };
 
+union UV2
+{
+    struct
+    {
+        u32 x, y;
+    };
+    u32 elements[2];
+    u32 operator[](const i32 index) const
+    {
+        return elements[index];
+    }
+    u32 &operator[](const i32 index)
+    {
+        return elements[index];
+    }
+};
+
 union UV4
 {
     struct

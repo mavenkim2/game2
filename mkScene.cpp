@@ -3,6 +3,7 @@
 #include "mkAsset.h"
 #include "mkScene.h"
 #include "mkMemory.h"
+#include "shaders/ShaderInterop_Mesh.h"
 #endif
 
 namespace scene
@@ -211,7 +212,7 @@ b32 MaterialManager::Remove(u32 sid)
         MaterialComponent *material = GetFromHandle(handle);
         material->flags             = material->flags & ~MaterialFlag_Valid;
         RemoveFromList(handle);
-        result  = 1;
+        result = 1;
     }
     return result;
 }
@@ -226,7 +227,7 @@ b32 MaterialManager::Remove(MaterialHandle handle)
         RemoveFromNameMap(material->sid);
         material->flags = material->flags & ~MaterialFlag_Valid;
         RemoveFromList(handle);
-        result  = 1;
+        result = 1;
     }
     return result;
 }
@@ -299,10 +300,10 @@ void MeshManager::Init(Scene *inScene)
     freeSlotNodes  = 0;
 }
 
-Mesh *MeshManager::Create(Entity entity)
+Mesh *MeshManager::Create(Entity entity, u32 *outGlobalIndex)
 {
     MeshChunkNode *chunkNode;
-    u32 localIndex;
+    u32 globalIndex;
 
     MeshFreeNode *freeNode = freePositions;
     MeshHandle handle;
@@ -310,26 +311,29 @@ Mesh *MeshManager::Create(Entity entity)
     {
         StackPop(freePositions);
         handle = freeNode->handle;
-        UnpackHandle(handle, &chunkNode, &localIndex);
+        UnpackHandle(handle, &chunkNode, &globalIndex);
         StackPush(freeNodes, freeNode);
     }
     else
     {
-        u32 index  = meshWritePos++;
-        localIndex = index & meshChunkMask;
-        chunkNode  = last;
+        globalIndex = meshWritePos++;
+        chunkNode   = last;
 
-        if (chunkNode == 0 || localIndex == 0)
+        if (chunkNode == 0 || (globalIndex & meshChunkMask) == 0)
         {
             // NOTE: if a struct is initialized w/ an array, it won't have the default values set
             MeshChunkNode *newChunkNode = PushStruct(parentScene->arena, MeshChunkNode);
             QueuePush(first, last, newChunkNode);
             chunkNode = newChunkNode;
         }
-        handle = CreateHandle(chunkNode, localIndex);
+        handle = CreateHandle(chunkNode, globalIndex);
     }
 
-    chunkNode->entities[localIndex] = entity;
+    if (outGlobalIndex)
+    {
+        *outGlobalIndex = globalIndex;
+    }
+    chunkNode->entities[globalIndex & meshChunkMask] = entity;
 
     // Add to hash
     MeshSlot *slot         = &meshSlots[entity & meshSlotMask];
@@ -347,7 +351,7 @@ Mesh *MeshManager::Create(Entity entity)
     QueuePush(slot->first, slot->last, slotNode);
     totalNumMeshes++;
 
-    Mesh *result = &chunkNode->meshes[localIndex];
+    Mesh *result = &chunkNode->meshes[globalIndex & meshChunkMask];
     result->flags |= MeshFlags_Valid;
 
     return result;
@@ -1197,6 +1201,8 @@ Entity Scene::CreateEntity()
 
 void Scene::Merge(Scene *other)
 {
+    using namespace render;
+    using namespace graphics;
     // Merge materials
     for (MaterialIter iter = other->BeginMatIter(); !other->End(&iter); other->Next(&iter))
     {
@@ -1240,28 +1246,79 @@ void Scene::Merge(Scene *other)
     }
 
     // Merge the meshes
+    u32 totalClusterCount = 0;
+    for (MeshIter iter = other->BeginMeshIter(); !other->End(&iter); other->Next(&iter))
+    {
+        Mesh *mesh = other->Get(&iter);
+        for (u32 subsetIndex = 0; subsetIndex < mesh->numSubsets; subsetIndex++)
+        {
+            Mesh::MeshSubset *subset = &mesh->subsets[subsetIndex];
+            totalClusterCount += (subset->indexCount + CLUSTER_SIZE * 3 - 1) / (CLUSTER_SIZE * 3);
+        }
+    }
+
+    FrameAllocation *allocation = &uploads[UploadType_MeshClusters];
+    *allocation                 = device->FrameAllocate(sizeof(MeshCluster) * totalClusterCount);
+    MeshCluster *meshClusters   = (MeshCluster *)allocation->ptr;
+    u32 clusterIndex            = 0;
     Assert(other->meshes.GetTotal() == other->meshes.GetEndPos());
     for (MeshIter iter = other->BeginMeshIter(); !other->End(&iter); other->Next(&iter))
     {
-        Mesh *mesh       = other->Get(&iter);
+        u32 meshIndex;
         Entity oldEntity = other->GetEntity(&iter);
+        Mesh *mesh       = other->Get(&iter);
 
         Entity newEntity = entityMap[oldEntity];
-        Mesh *newMesh    = meshes.Create(newEntity);
+        Mesh *newMesh    = meshes.Create(newEntity, &meshIndex);
         *newMesh         = std::move(*mesh); // does this work?
 
         // Remap materials
+        // Upload subsets to gpu
         {
-            for (u32 subsetIndex = 0; subsetIndex < mesh->numSubsets; subsetIndex++)
+            u32 numClusters = 0;
+            for (u32 subsetIndex = 0; subsetIndex < newMesh->numSubsets; subsetIndex++)
             {
-                Mesh::MeshSubset *subset = &mesh->subsets[subsetIndex];
+                Mesh::MeshSubset *subset = &newMesh->subsets[subsetIndex];
                 MaterialComponent *mat   = other->materials.GetFromHandle(subset->materialHandle);
                 Assert(mat);
                 u32 sid               = mat->sid;
                 MaterialHandle handle = materials.GetHandle(sid);
                 Assert(materials.IsValidHandle(handle));
                 newMesh->subsets[subsetIndex].materialHandle = handle;
+
+                // TODO: store this data in file
+                u32 totalIndexCount = subset->indexStart;
+                for (u32 indexIndex = 0; indexIndex < subset->indexCount; indexIndex += CLUSTER_SIZE * 3)
+                {
+                    u32 indexCount         = Min(CLUSTER_SIZE * 3, subset->indexCount - indexIndex);
+                    MeshCluster *cluster   = &meshClusters[clusterIndex++];
+                    cluster->minP          = {FLT_MAX, FLT_MAX, FLT_MAX};
+                    cluster->maxP          = {FLT_MIN, FLT_MIN, FLT_MIN};
+                    cluster->indexOffset   = totalIndexCount;
+                    cluster->indexCount    = indexCount;
+                    cluster->meshIndex     = meshIndex;
+                    cluster->materialIndex = materials.GetIndex(handle);
+                    cluster->minP          = {};
+                    cluster->maxP          = {};
+
+                    numClusters++;
+                    totalIndexCount += indexCount;
+
+#if 0
+                    for (u32 i = 0; i < CLUSTER_SIZE * 3; i++)
+                    {
+                        V3 pos          = newMesh->positions[indexIndex + i];
+                        cluster->minP.x = Min(cluster->minP.x, pos.x);
+                        cluster->minP.y = Min(cluster->minP.y, pos.y);
+                        cluster->minP.z = Min(cluster->minP.z, pos.z);
+                        cluster->maxP.x = Max(cluster->maxP.x, pos.x);
+                        cluster->maxP.y = Max(cluster->maxP.y, pos.y);
+                        cluster->maxP.z = Max(cluster->maxP.z, pos.z);
+                    }
+#endif
+                }
             }
+            newMesh->clusterCount = numClusters;
         }
         // Remap skeletons
         {

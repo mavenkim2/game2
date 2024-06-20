@@ -155,14 +155,15 @@ G_INIT(G_Init)
     if (!ioPlatformMemory->mIsLoaded)
     {
         ioPlatformMemory->mIsLoaded = 1;
+        Arena *frameArena           = ArenaAlloc(ARENA_RESERVE_SIZE, 16);
+        Arena *permanentArena       = ArenaAlloc();
+        Arena *sceneArena           = ArenaAlloc();
 
         jobsystem::InitializeJobsystem();
         AS_Init();
+        gameScene->Init(sceneArena);
         // F_Init();
         D_Init();
-
-        Arena *frameArena     = ArenaAlloc(ARENA_RESERVE_SIZE, 16);
-        Arena *permanentArena = ArenaAlloc();
 
         G_State *g_state = PushStruct(permanentArena, G_State);
         engine->SetGameState(g_state);
@@ -516,11 +517,10 @@ DLL G_UPDATE(G_Update)
     renderState->camera = g_state->camera;
     // Update
     gameScene->ProcessRequests();
-    u32 totalMatrixCount     = 0;
-    u32 totalMeshCount       = gameScene->meshes.GetTotal();
-    u32 totalMeshBatchCount  = 0;
-    u32 totalMeshSubsetCount = 0;
-    u32 totalMaterialCount   = gameScene->materials.GetEndPos();
+    u32 totalMatrixCount      = 0;
+    u32 totalMeshCount        = gameScene->meshes.GetTotal();
+    u32 totalMeshClusterCount = 0;
+    u32 totalMaterialCount    = gameScene->materials.GetEndPos();
 
     // Process component system requests
 
@@ -557,23 +557,18 @@ DLL G_UPDATE(G_Update)
     {
         Mesh *mesh = gameScene->Get(&iter);
         Assert(mesh->numSubsets >= 1);
-        for (u32 subsetIndex = 0; subsetIndex < mesh->numSubsets; subsetIndex++)
-        {
-            totalMeshBatchCount += (mesh->subsets[subsetIndex].indexCount + (BATCH_SIZE * 3 - 1)) / (BATCH_SIZE * 3);
-            totalMeshSubsetCount++;
-        }
+        totalMeshClusterCount += mesh->clusterCount;
     }
+    render::meshClusterCount = totalMeshClusterCount;
 
     // Resize
     u32 totalSkinningSize     = totalMatrixCount * sizeof(Mat4);
     u32 totalMeshParamsSize   = totalMeshCount * sizeof(MeshParams);
     u32 totalMeshGeometrySize = totalMeshCount * sizeof(MeshGeometry);
-    u32 totalMeshBatchSize    = totalMeshBatchCount * sizeof(MeshBatch);
-    u32 totalMeshSubsetSize   = totalMeshSubsetCount * sizeof(ShaderMeshSubset);
     u32 totalMaterialSize     = totalMaterialCount * sizeof(ShaderMaterial);
-    // u32 totalIndirectSize     = totalMeshSubsetCount * sizeof(DrawIndexedIndirectCommand);
-    u32 totalIndirectSize  = totalMeshBatchCount * sizeof(DrawIndexedIndirectCommand);
-    u32 totalMeshIndexSize = totalMeshBatchCount * sizeof(u32) * BATCH_SIZE * 3;
+    u32 totalIndirectSize     = totalMeshClusterCount * sizeof(DrawIndexedIndirectCommand);
+    u32 totalMeshIndexSize    = totalMeshClusterCount * sizeof(u32) * CLUSTER_SIZE * 3;
+    u32 totalClusterIndexSize = totalMeshClusterCount * sizeof(u32);
 
     GPUBuffer *skinningUpload = &render::skinningBufferUpload[device->GetCurrentBuffer()];
     GPUBuffer *skinningBuffer = &render::skinningBuffer;
@@ -584,12 +579,7 @@ DLL G_UPDATE(G_Update)
     GPUBuffer *meshGeometryUpload = &render::meshGeometryBufferUpload[device->GetCurrentBuffer()];
     GPUBuffer *meshGeometryBuffer = &render::meshGeometryBuffer;
 
-    GPUBuffer *meshBatchUpload = &render::meshBatchBufferUpload[device->GetCurrentBuffer()];
-    GPUBuffer *meshBatchBuffer = &render::meshBatchBuffer;
-
-    GPUBuffer *meshSubsetUpload = &render::meshSubsetBufferUpload[device->GetCurrentBuffer()];
-    GPUBuffer *meshSubsetBuffer = &render::meshSubsetBuffer;
-
+    // TODO: uploading the clusters should happen when the scene loads them
     GPUBuffer *materialUpload = &render::materialBufferUpload[device->GetCurrentBuffer()];
     GPUBuffer *materialBuffer = &render::materialBuffer;
 
@@ -621,22 +611,6 @@ DLL G_UPDATE(G_Update)
             }
             device->ResizeBuffer(meshGeometryBuffer, totalMeshGeometrySize * 2);
         }
-        if (totalMeshBatchSize > meshBatchUpload->desc.size)
-        {
-            for (u32 frame = 0; frame < device->cNumBuffers; frame++)
-            {
-                device->ResizeBuffer(&render::meshBatchBufferUpload[frame], totalMeshBatchSize * 2);
-            }
-            device->ResizeBuffer(meshBatchBuffer, totalMeshBatchSize * 2);
-        }
-        if (totalMeshSubsetSize > meshSubsetUpload->desc.size)
-        {
-            for (u32 frame = 0; frame < device->cNumBuffers; frame++)
-            {
-                device->ResizeBuffer(&render::meshSubsetBufferUpload[frame], totalMeshSubsetSize * 2);
-            }
-            device->ResizeBuffer(meshSubsetBuffer, totalMeshSubsetSize * 2);
-        }
         if (totalMaterialSize > materialUpload->desc.size)
         {
             for (u32 frame = 0; frame < device->cNumBuffers; frame++)
@@ -654,23 +628,22 @@ DLL G_UPDATE(G_Update)
         {
             device->ResizeBuffer(indexBuffer, totalMeshIndexSize * 2);
         }
+        if (totalClusterIndexSize > render::meshClusterIndexBuffer.desc.size)
+        {
+            device->ResizeBuffer(&render::meshClusterIndexBuffer, totalClusterIndexSize * 2);
+        }
     }
 
     render::skinningBufferSize     = totalSkinningSize;
     render::meshParamsBufferSize   = totalMeshParamsSize;
     render::meshGeometryBufferSize = totalMeshGeometrySize;
-    render::meshBatchBufferSize    = totalMeshBatchSize;
-    render::meshSubsetBufferSize   = totalMeshSubsetSize;
     render::materialBufferSize     = totalMaterialSize;
     render::meshIndirectBufferSize = totalIndirectSize;
-    render::drawCount              = totalMeshBatchCount;
 
-    Mat4 *skinningMappedData               = (Mat4 *)skinningUpload->mappedData;
-    MeshParams *meshParamsMappedData       = (MeshParams *)meshParamsUpload->mappedData;
-    MeshGeometry *meshGeometryMappedData   = (MeshGeometry *)meshGeometryUpload->mappedData;
-    MeshBatch *meshBatchMappedData         = (MeshBatch *)meshBatchUpload->mappedData;
-    ShaderMaterial *materialMappedData     = (ShaderMaterial *)materialUpload->mappedData;
-    ShaderMeshSubset *meshSubsetMappedData = (ShaderMeshSubset *)meshSubsetUpload->mappedData;
+    Mat4 *skinningMappedData             = (Mat4 *)skinningUpload->mappedData;
+    MeshParams *meshParamsMappedData     = (MeshParams *)meshParamsUpload->mappedData;
+    MeshGeometry *meshGeometryMappedData = (MeshGeometry *)meshGeometryUpload->mappedData;
+    ShaderMaterial *materialMappedData   = (ShaderMaterial *)materialUpload->mappedData;
 
     for (SkeletonIter iter = gameScene->BeginSkelIter(); !gameScene->End(&iter); gameScene->Next(&iter))
     {
@@ -751,19 +724,18 @@ DLL G_UPDATE(G_Update)
         }
     }
 
-    u32 activeMeshCount       = 0;
-    u32 activeMeshSubsetCount = 0;
-    u32 activeMeshBatchCount  = 0;
+    u32 totalClusterCount = 0;
     for (MeshIter iter = gameScene->BeginMeshIter(); !gameScene->End(&iter); gameScene->Next(&iter))
     {
         Mesh *mesh      = gameScene->Get(&iter);
         Entity entity   = gameScene->GetEntity(&iter);
         mesh->meshIndex = -1;
-        if (!mesh->IsRenderable()) continue;
 
-        if (!frustumCullResults[iter.globalIndex]) continue;
+        // if (!mesh->IsRenderable()) continue;
+        // if (!frustumCullResults[iter.globalIndex]) continue;
+
         Mat4 transform = frameTransforms[gameScene->transforms.GetIndex(entity)];
-        Mat4 mvp       = renderState->transform * transform;
+        // Mat4 mvp       = renderState->transform * transform;
 
 #if 0
         LoadedSkeleton *skeleton = gameScene->skeletons.GetFromEntity(entity);
@@ -777,18 +749,16 @@ DLL G_UPDATE(G_Update)
         TIMED_RANGE_END(rangeId);
 #endif
 
-        mesh->meshIndex = activeMeshCount++;
-        mesh->aabbIndex = gameScene->aabbCount++;
+        mesh->meshIndex = iter.globalIndex;
 
-        // draw ID, instance ID. each mesh params corresponds with one instance ID. each geo
-        // corresponds with one draw ID. each subset corresponds with one draw ID.
+        MeshParams *meshParams    = &meshParamsMappedData[mesh->meshIndex];
+        meshParams->modelToWorld  = transform;
+        meshParams->minP          = mesh->bounds.minP; // mesh space
+        meshParams->maxP          = mesh->bounds.maxP;
+        meshParams->clusterOffset = totalClusterCount;
+        meshParams->clusterCount  = mesh->clusterCount;
 
-        MeshParams *meshParams      = &meshParamsMappedData[mesh->meshIndex];
-        meshParams->transform       = mvp;
-        meshParams->modelViewMatrix = renderState->viewMatrix * transform;
-        meshParams->modelMatrix     = transform;
-        meshParams->minP            = mesh->bounds.minP; // mesh space
-        meshParams->maxP            = mesh->bounds.maxP;
+        totalClusterCount += mesh->clusterCount;
 
         MeshGeometry *geometry = &meshGeometryMappedData[mesh->meshIndex];
         geometry->vertexPos    = mesh->posDescriptor;
@@ -796,35 +766,10 @@ DLL G_UPDATE(G_Update)
         geometry->vertexTan    = mesh->tanDescriptor;
         geometry->vertexUv     = mesh->vertexUvView.srvDescriptor;
         geometry->vertexInd    = mesh->indexView.srvDescriptor;
-
-        for (u32 subsetIndex = 0; subsetIndex < mesh->numSubsets; subsetIndex++)
-        {
-            Mesh::MeshSubset *subset = &mesh->subsets[subsetIndex];
-
-            ShaderMeshSubset *shaderMeshSubset = &meshSubsetMappedData[activeMeshSubsetCount];
-            shaderMeshSubset->materialIndex    = gameScene->materials.GetIndex(subset->materialHandle);
-            shaderMeshSubset->meshIndex        = mesh->meshIndex;
-
-            u32 subsetID = activeMeshSubsetCount++;
-
-            u32 totalIndexCount = subset->indexStart;
-            for (u32 indexIndex = 0; indexIndex < subset->indexCount; indexIndex += BATCH_SIZE * 3)
-            {
-                u32 indexCount                 = Min(BATCH_SIZE * 3, subset->indexCount - indexIndex);
-                MeshBatch *mappedBatch         = &meshBatchMappedData[activeMeshBatchCount];
-                mappedBatch->subsetID          = subsetID;
-                mappedBatch->meshIndex         = mesh->meshIndex;
-                mappedBatch->drawID            = activeMeshBatchCount;
-                mappedBatch->indexOffset       = totalIndexCount;
-                mappedBatch->indexCount        = indexCount;
-                mappedBatch->outputIndexOffset = activeMeshBatchCount * BATCH_SIZE * 3;
-                totalIndexCount += indexCount;
-
-                activeMeshBatchCount++;
-            }
-        }
     }
-    render::meshBatchCount = activeMeshBatchCount;
+
+    Assert(totalClusterCount == totalMeshClusterCount);
+    render::meshClusterCount = totalClusterCount;
 
     // DebugDrawSkeleton(g_state->model, transform1, skinningMappedData);
     // SkinModelToBindPose(g_state->model, skinningMatrices1);

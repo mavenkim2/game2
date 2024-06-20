@@ -268,17 +268,17 @@ private:
     //////////////////////////////
     // Handles
     //
-    inline MeshHandle CreateHandle(MeshChunkNode *chunkNode, u32 localIndex)
+    inline MeshHandle CreateHandle(MeshChunkNode *chunkNode, u32 globalIndex)
     {
         MeshHandle handle;
         handle.u64[0] = (u64)chunkNode;
-        handle.u32[2] = localIndex;
+        handle.u32[2] = globalIndex;
         return handle;
     }
-    inline void UnpackHandle(MeshHandle handle, MeshChunkNode **chunkNode, u32 *localIndex)
+    inline void UnpackHandle(MeshHandle handle, MeshChunkNode **chunkNode, u32 *globalIndex)
     {
-        *chunkNode  = (MeshChunkNode *)handle.u64[0];
-        *localIndex = handle.u32[2];
+        *chunkNode   = (MeshChunkNode *)handle.u64[0];
+        *globalIndex = handle.u32[2];
     }
 
 public:
@@ -292,8 +292,8 @@ public:
         if (IsValidHandle(handle))
         {
             MeshChunkNode *chunkNode = (MeshChunkNode *)handle.u64[0];
-            u32 localIndex           = handle.u32[2];
-            result                   = &chunkNode->meshes[localIndex];
+            u32 globalIndex          = handle.u32[2];
+            result                   = &chunkNode->meshes[globalIndex & meshChunkMask];
         }
         return result;
     }
@@ -301,7 +301,7 @@ public:
 public:
     struct Scene *parentScene;
     void Init(Scene *inScene);
-    Mesh *Create(Entity entity);
+    Mesh *Create(Entity entity, u32 *outGlobalIndex = 0);
     b8 Remove(Entity entity);
     Mesh *Get(Entity entity);
 

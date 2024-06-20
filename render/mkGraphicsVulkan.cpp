@@ -38,6 +38,7 @@ VkFormat ConvertFormat(Format value)
         case Format::B8G8R8A8_UNORM: return VK_FORMAT_B8G8R8A8_UNORM;
         case Format::B8G8R8A8_SRGB: return VK_FORMAT_B8G8R8A8_SRGB;
 
+        case Format::R32_SFLOAT: return VK_FORMAT_R32_SFLOAT;
         case Format::R32_UINT: return VK_FORMAT_R32_UINT;
         case Format::R8G8_UNORM: return VK_FORMAT_R8G8_UNORM;
         case Format::R32G32_UINT: return VK_FORMAT_R32G32_UINT;
@@ -54,6 +55,7 @@ VkFormat ConvertFormat(Format value)
         case Format::D24_UNORM_S8_UINT: return VK_FORMAT_D24_UNORM_S8_UINT;
 
         case Format::BC1_RGB_UNORM: return VK_FORMAT_BC1_RGBA_UNORM_BLOCK;
+
         default: Assert(0); return VK_FORMAT_UNDEFINED;
     }
 }
@@ -940,13 +942,13 @@ mkGraphicsVulkan::mkGraphicsVulkan(ValidationMode validationMode, GPUDevicePrefe
         for (u32 i = 0; i < cNumBuffers; i++)
         {
             CreateBuffer(&frameAllocator[i].buffer, desc, 0);
-            frameAllocator[i].alignment = 8;
+            frameAllocator[i].alignment = 16;
         }
     }
 
     // Initialize ring buffer
     {
-        u32 ringBufferSize = megabytes(256);
+        u32 ringBufferSize = megabytes(128);
         GPUBufferDesc desc;
         desc.usage         = MemoryUsage::CPU_TO_GPU;
         desc.size          = ringBufferSize;
@@ -963,6 +965,7 @@ mkGraphicsVulkan::mkGraphicsVulkan(ValidationMode validationMode, GPUDevicePrefe
             stagingRingAllocator.allocationReadPos                       = 0;
             stagingRingAllocator.allocationWritePos                      = 0;
             stagingRingAllocator.alignment                               = 16;
+            stagingRingAllocator.lock.Init();
         }
     }
 
@@ -1378,6 +1381,7 @@ void mkGraphicsVulkan::CreateShader(Shader *shader, string shaderData)
         result = spirv_reflect::spvReflectEnumerateDescriptorBindings(&module, &bindingCount, descriptorBindings.data());
         Assert(result == spirv_reflect::SPV_REFLECT_RESULT_SUCCESS);
 
+        // TODO: why is the reflection returning no push constants for Cluster Cull???
         u32 pushConstantCount = 0;
         result                = spirv_reflect::spvReflectEnumeratePushConstantBlocks(&module, &pushConstantCount, 0);
         Assert(result == spirv_reflect::SPV_REFLECT_RESULT_SUCCESS);
@@ -1419,6 +1423,14 @@ void mkGraphicsVulkan::CreateShader(Shader *shader, string shaderData)
 
         spvReflectDestroyShaderModule(&module);
     }
+}
+
+void mkGraphicsVulkan::AddPCTemp(Shader *shader, u32 offset, u32 size)
+{
+    ShaderVulkan *shaderVulkan                 = ToInternal(shader);
+    shaderVulkan->pushConstantRange.offset     = offset;
+    shaderVulkan->pushConstantRange.size       = size;
+    shaderVulkan->pushConstantRange.stageFlags = VK_SHADER_STAGE_ALL;
 }
 
 void mkGraphicsVulkan::CreatePipeline(PipelineStateDesc *inDesc, PipelineState *outPS, string name)
@@ -1960,6 +1972,14 @@ void mkGraphicsVulkan::CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDes
     if (HasFlags(inDesc.resourceUsage, ResourceUsage::IndirectBuffer))
     {
         createInfo.usage |= VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
+    }
+    if (HasFlags(inDesc.resourceUsage, ResourceUsage::TransferSrc))
+    {
+        createInfo.usage |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    }
+    if (HasFlags(inDesc.resourceUsage, ResourceUsage::TransferDst))
+    {
+        createInfo.usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     }
 
     // Sharing
@@ -2819,6 +2839,38 @@ void mkGraphicsVulkan::UpdateDescriptorSet(CommandList cmd)
     vkCmdBindDescriptorSets(command->GetCommandBuffer(), bindPoint, pipelineVulkan->pipelineLayout, 0, 1, descriptorSet, 0, 0);
 }
 
+FrameAllocation mkGraphicsVulkan::FrameAllocate(u64 size)
+{
+    FrameAllocation alloc;
+    FrameData *currentFrameData = &frameAllocator[GetCurrentBuffer()];
+
+    // Is power of 2
+    Assert(IsPow2(currentFrameData->alignment));
+
+    u64 alignedSize = AlignPow2(size, (u64)currentFrameData->alignment);
+    u64 offset      = currentFrameData->offset.fetch_add(alignedSize);
+    Assert(offset + alignedSize < currentFrameData->buffer.desc.size);
+
+    void *ptr    = (void *)((size_t)currentFrameData->buffer.mappedData + offset);
+    alloc.ptr    = ptr;
+    alloc.offset = offset;
+    alloc.size   = size;
+    return alloc;
+}
+
+void mkGraphicsVulkan::CommitFrameAllocation(CommandList cmd, FrameAllocation &alloc, GPUBuffer *dstBuffer, u64 dstOffset)
+{
+    CommandListVulkan *command    = ToInternal(cmd);
+    GPUBufferVulkan *bufferVulkan = ToInternal(dstBuffer);
+    FrameData *currentFrameData   = &frameAllocator[GetCurrentBuffer()];
+
+    VkBufferCopy copy;
+    copy.srcOffset = alloc.offset;
+    copy.dstOffset = dstOffset;
+    copy.size      = alloc.size;
+    vkCmdCopyBuffer(command->GetCommandBuffer(), ToInternal(&currentFrameData->buffer)->buffer, bufferVulkan->buffer, 1, &copy);
+}
+
 void mkGraphicsVulkan::FrameAllocate(GPUBuffer *inBuf, void *inData, CommandList cmd, u64 inSize, u64 inOffset)
 {
     CommandListVulkan *command  = ToInternal(cmd);
@@ -3165,16 +3217,26 @@ void mkGraphicsVulkan::CopyBuffer(CommandList cmd, GPUBuffer *dst, GPUBuffer *sr
 {
     CommandListVulkan *command = ToInternal(cmd);
 
-    VkBufferCopy copy = {};
-    copy.size         = size;
-    copy.dstOffset    = 0;
-    copy.srcOffset    = 0;
+    if (size > 0)
+    {
+        VkBufferCopy copy = {};
+        copy.size         = size;
+        copy.dstOffset    = 0;
+        copy.srcOffset    = 0;
 
-    vkCmdCopyBuffer(command->GetCommandBuffer(),
-                    ToInternal(src)->buffer,
-                    ToInternal(dst)->buffer,
-                    1,
-                    &copy);
+        vkCmdCopyBuffer(command->GetCommandBuffer(),
+                        ToInternal(src)->buffer,
+                        ToInternal(dst)->buffer,
+                        1,
+                        &copy);
+    }
+}
+
+void mkGraphicsVulkan::ClearBuffer(CommandList cmd, GPUBuffer *dst)
+{
+    CommandListVulkan *command    = ToInternal(cmd);
+    GPUBufferVulkan *bufferVulkan = ToInternal(dst);
+    vkCmdFillBuffer(command->GetCommandBuffer(), bufferVulkan->buffer, 0, VK_WHOLE_SIZE, 0);
 }
 
 void mkGraphicsVulkan::CopyTexture(CommandList cmd, Texture *dst, Texture *src, Rect3U32 *rect)
@@ -3673,6 +3735,15 @@ void mkGraphicsVulkan::Dispatch(CommandList cmd, u32 groupCountX, u32 groupCount
     vkCmdDispatch(commandList->GetCommandBuffer(), groupCountX, groupCountY, groupCountZ);
 }
 
+void mkGraphicsVulkan::DispatchIndirect(CommandList cmd, GPUBuffer *buffer, u32 offset)
+{
+    CommandListVulkan *commandList = ToInternal(cmd);
+    GPUBufferVulkan *bufferVulkan  = ToInternal(buffer);
+    Assert(commandList);
+
+    vkCmdDispatchIndirect(commandList->GetCommandBuffer(), bufferVulkan->buffer, offset);
+}
+
 void mkGraphicsVulkan::Draw(CommandList cmd, u32 vertexCount, u32 firstVertex)
 {
     CommandListVulkan *commandList = ToInternal(cmd);
@@ -3987,8 +4058,8 @@ void mkGraphicsVulkan::Wait(CommandList wait)
 
 void mkGraphicsVulkan::CreateQueryPool(QueryPool *queryPool, QueryType type, u32 queryCount)
 {
-    queryPool->type                       = type;
-    queryPool->queryCount                 = queryCount;
+    queryPool->type                  = type;
+    queryPool->queryCount            = queryCount;
     VkQueryPoolCreateInfo createInfo = {VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
     createInfo.queryCount            = queryCount;
     switch (type)
@@ -4093,6 +4164,29 @@ void mkGraphicsVulkan::SetName(GPUResource *resource, const char *name)
         return;
     }
     VK_CHECK(vkSetDebugUtilsObjectNameEXT(device, &info));
+}
+
+void mkGraphicsVulkan::BeginEvent(CommandList cmd, string name)
+{
+    if (!debugUtils)
+        return;
+
+    CommandListVulkan *commandVulkan = ToInternal(cmd);
+
+    VkDebugUtilsLabelEXT label = {VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT};
+    label.pLabelName           = (const char *)name.str;
+    label.color[0]             = 0.f;
+    label.color[1]             = 0.f;
+    label.color[2]             = 0.f;
+    label.color[3]             = 0.f;
+
+    vkCmdBeginDebugUtilsLabelEXT(commandVulkan->GetCommandBuffer(), &label);
+}
+
+void mkGraphicsVulkan::EndEvent(CommandList cmd)
+{
+    CommandListVulkan *commandVulkan = ToInternal(cmd);
+    vkCmdEndDebugUtilsLabelEXT(commandVulkan->GetCommandBuffer());
 }
 
 void mkGraphicsVulkan::SetName(GPUResource *resource, string name)

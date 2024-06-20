@@ -16,6 +16,7 @@ using float3   = V3;
 using float2   = V2;
 using uint4    = UV4;
 using uint     = u32;
+using uint2    = UV2;
 
 // #define GET_UNIFORM_BIND_SLOT(name) __UNIFORM_BIND_SLOT__##name##__
 #define UNIFORM(name, slot) \
