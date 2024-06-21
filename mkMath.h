@@ -285,6 +285,7 @@ union V4
         f32 __a;
     };
     f32 elements[4];
+    __m128 m128;
 
     f32 operator[](const i32 index) const
     {

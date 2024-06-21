@@ -9,11 +9,11 @@
 #define SKINNING_GROUP_SIZE 64
 #define CLUSTER_SIZE        256
 
-struct MeshParams
+STRUCT(MeshParams)
 {
     // float4x4 transform;
     // float4x4 modelViewMatrix;
-    float4x4 modelToWorld;
+    float4x4 localToWorld;
     float3 minP;
     uint clusterOffset;
     float3 maxP;
@@ -82,7 +82,7 @@ UNIFORM(CascadeParams, CASCADE_PARAMS_BIND)
 //
 struct PushConstant
 {
-    float4x4 viewProjection;
+    float4x4 worldToClip;
 
     int meshParamsDescriptor;
     int meshClusterDescriptor;

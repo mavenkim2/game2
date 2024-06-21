@@ -18,7 +18,7 @@ void main(uint3 dispatchThreadID : SV_DispatchThreadID)
         return;
 
     MeshParams params = bindlessMeshParams[push.meshParamsDescriptor][meshIndex];
-    float4x4 mvp = push.viewProjection * params.modelToWorld;
+    float4x4 mvp = mul(push.worldToClip, params.localToWorld);
 
     float4 aabb;
     float minBoxZ;
@@ -49,7 +49,6 @@ void main(uint3 dispatchThreadID : SV_DispatchThreadID)
     // lines :)
     // If it's the first pass, or if it's the second pass and the object wasn't drawn in the first pass
 
-    visible = true;
     if (visible)// && (push.isSecondPass == 0))// || drawVisibility[instanceIndex] == 0))
     {
         uint chunkCount = (params.clusterCount + CHUNK_GROUP_SIZE - 1) / CHUNK_GROUP_SIZE;

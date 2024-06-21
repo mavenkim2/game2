@@ -870,8 +870,10 @@ PipelineState clusterCullPipeline;
 PipelineState dispatchPrepPipeline;
 
 // TODO: fold the below into here
-global FrameAllocation uploads[UploadType_Count];
+// this should probably just be a linked list
+global FrameAllocation uploads[UploadType_Count][4];
 global u64 currentOffsets[UploadType_Count];
+global u32 numUploads[UploadType_Count];
 graphics::GPUBuffer buffers[UploadType_Count];
 
 // Buffers
@@ -1162,7 +1164,7 @@ internal void Initialize()
 
         // Chunk dispatch indirect buffer
         desc               = {};
-        desc.size          = sizeof(DispatchIndirect) * 2;
+        desc.size          = sizeof(DispatchIndirect) * 3;
         desc.usage         = MemoryUsage::GPU_ONLY;
         desc.resourceUsage = ResourceUsage::StorageBuffer | ResourceUsage::UniformBuffer | ResourceUsage::IndirectBuffer;
         device->CreateBuffer(&dispatchIndirectBuffer, desc, 0);
@@ -1323,7 +1325,7 @@ internal void CullInstances(CommandList cmdList)
         device->BeginEvent(cmdList, "Instance Cull");
         u32 numInstances = gameScene->meshes.GetTotal();
         InstanceCullPushConstants pc;
-        pc.viewProjection       = renderState->transform;
+        pc.worldToClip          = renderState->transform;
         pc.pyramidWidth         = (f32)depthPyramid.desc.width;
         pc.pyramidHeight        = (f32)depthPyramid.desc.height;
         pc.nearZ                = renderState->nearZ;
@@ -1377,7 +1379,7 @@ internal void CullInstances(CommandList cmdList)
     {
         device->BeginEvent(cmdList, "Cluster Cull");
         ClusterCullPushConstants pc;
-        pc.viewProjection        = renderState->transform;
+        pc.worldToClip           = renderState->transform;
         pc.pyramidWidth          = (f32)depthPyramid.desc.width;
         pc.pyramidHeight         = (f32)depthPyramid.desc.height;
         pc.nearZ                 = renderState->nearZ;
@@ -1386,7 +1388,6 @@ internal void CullInstances(CommandList cmdList)
         pc.p23                   = renderState->projection[3][2];
         pc.isSecondPass          = 0;
         pc.meshClusterDescriptor = device->GetDescriptorIndex(&buffers[UploadType_MeshClusters], ResourceType::SRV);
-        pc.clusterCount          = meshClusterCount;
         device->BindCompute(&clusterCullPipeline, cmdList);
         device->PushConstants(cmdList, sizeof(pc), &pc);
         device->BindResource(&meshChunkBuffer, ResourceType::SRV, 0, cmdList);
@@ -1433,7 +1434,7 @@ internal void CullInstances(CommandList cmdList)
     {
         device->BeginEvent(cmdList, "Triangle Culling");
         TriangleCullPushConstant pc;
-        pc.viewProjection         = renderState->transform;
+        pc.worldToClip            = renderState->transform;
         pc.meshGeometryDescriptor = meshGeometryDescriptor;
         pc.meshParamsDescriptor   = meshParamsDescriptor;
         pc.meshClusterDescriptor  = meshClusterDescriptor;
@@ -1443,7 +1444,6 @@ internal void CullInstances(CommandList cmdList)
         device->BindCompute(&triangleCullPipeline, cmdList);
         device->PushConstants(cmdList, sizeof(pc), &pc);
         device->BindResource(&meshClusterIndexBuffer, ResourceType::SRV, 0, cmdList);
-        device->BindResource(&dispatchIndirectBuffer, ResourceType::SRV, 1, cmdList);
         device->BindResource(&indirectScratchBuffer, ResourceType::UAV, 0, cmdList);
         device->BindResource(&meshIndexBuffer, ResourceType::UAV, 1, cmdList);
         // device->BindResource(&depthPyramid, ResourceType::SRV, 0, cmdList);
@@ -1453,10 +1453,32 @@ internal void CullInstances(CommandList cmdList)
         device->EndEvent(cmdList);
     }
 
+    // {
+    //     GPUBarrier barrier = GPUBarrier::Buffer(&dispatchIndirectBuffer, PipelineFlag_Compute, PipelineFlag_Compute,
+    //                                             AccessFlag_ShaderWrite, AccessFlag_ShaderRead | AccessFlag_ShaderWrite);
+    //     device->Barrier(cmdList, &barrier, 1);
+    // }
+
+    // {
+    //     device->BeginEvent(cmdList, "Draw Compaction Dispatch Preparation");
+    //     DispatchPrepPushConstant pc;
+    //     pc.index = DRAW_COMPACTION_DISPATCH_OFFSET;
+    //     device->BindCompute(&dispatchPrepPipeline, cmdList);
+    //     device->PushConstants(cmdList, sizeof(pc), &pc);
+    //     device->BindResource(&dispatchIndirectBuffer, ResourceType::UAV, 0, cmdList);
+    //     device->UpdateDescriptorSet(cmdList);
+    //     device->Dispatch(cmdList, 1, 1, 1);
+    //     device->EndEvent(cmdList);
+    // }
+    //
     {
-        GPUBarrier barrier = GPUBarrier::Buffer(&indirectScratchBuffer, PipelineFlag_Compute, PipelineFlag_Compute,
-                                                AccessFlag_ShaderWrite, AccessFlag_ShaderRead);
-        device->Barrier(cmdList, &barrier, 1);
+        GPUBarrier barriers[] = {
+            // GPUBarrier::Buffer(&dispatchIndirectBuffer, PipelineFlag_Compute, PipelineFlag_Indirect,
+            //                    AccessFlag_ShaderWrite, AccessFlag_IndirectRead),
+            GPUBarrier::Buffer(&indirectScratchBuffer, PipelineFlag_Compute, PipelineFlag_Compute,
+                               AccessFlag_ShaderWrite, AccessFlag_ShaderRead),
+        };
+        device->Barrier(cmdList, barriers, ArrayLength(barriers));
     }
 
     // Draw compaction
@@ -1472,6 +1494,8 @@ internal void CullInstances(CommandList cmdList)
         device->BindResource(&meshIndirectBuffer, ResourceType::UAV, 1, cmdList);
         device->UpdateDescriptorSet(cmdList);
         device->Dispatch(cmdList, (meshClusterCount + 63) / 64, 1, 1);
+        // device->DispatchIndirect(cmdList, &dispatchIndirectBuffer,
+        //                          DRAW_COMPACTION_DISPATCH_OFFSET * sizeof(DispatchIndirect) + Offset(DispatchIndirect, groupCountX));
         device->EndEvent(cmdList);
     }
 }
@@ -1483,7 +1507,7 @@ internal void RenderMeshes(CommandList cmdList, RenderPassType type, i32 cascade
 
     RenderState *state = engine->GetRenderState();
     PushConstant pc;
-    pc.viewProjection        = state->transform;
+    pc.worldToClip           = state->transform;
     pc.meshParamsDescriptor  = device->GetDescriptorIndex(&meshParamsBuffer, ResourceType::SRV);
     pc.meshClusterDescriptor = device->GetDescriptorIndex(&buffers[UploadType_MeshClusters], ResourceType::SRV);
     pc.materialDescriptor    = device->GetDescriptorIndex(&materialBuffer, ResourceType::SRV);
@@ -1529,24 +1553,27 @@ internal void Render()
 
         for (u32 i = 0; i < UploadType_Count; i++)
         {
-            FrameAllocation *alloc = &uploads[i];
-            if (alloc->ptr)
+            for (u32 uploadIndex = 0; uploadIndex < ArrayLength(uploads[0]); uploadIndex++)
             {
-                if (alloc->size + currentOffsets[i] > buffers[i].desc.size)
+                FrameAllocation *alloc = &uploads[i][uploadIndex];
+                if (alloc->ptr)
                 {
-                    GPUBufferDesc desc = buffers[i].desc;
-                    desc.size          = (desc.size + alloc->size) * 2;
-                    GPUBuffer newBuffer;
-                    device->CreateBuffer(&newBuffer, desc, 0);
+                    if (alloc->size + currentOffsets[i] > buffers[i].desc.size)
+                    {
+                        GPUBufferDesc desc = buffers[i].desc;
+                        desc.size          = (desc.size + alloc->size) * 2;
+                        GPUBuffer newBuffer;
+                        device->CreateBuffer(&newBuffer, desc, 0);
 
-                    device->CopyBuffer(cmd, &newBuffer, &buffers[i], SafeTruncateU64(currentOffsets[i]));
-                    device->DeleteBuffer(&buffers[i]);
-                    buffers[i] = newBuffer;
+                        device->CopyBuffer(cmd, &newBuffer, &buffers[i], SafeTruncateU64(currentOffsets[i]));
+                        device->DeleteBuffer(&buffers[i]);
+                        buffers[i] = newBuffer;
+                    }
+                    device->CommitFrameAllocation(cmd, *alloc, &buffers[i], currentOffsets[i]);
+                    currentOffsets[i] += alloc->size;
+
+                    alloc->ptr = 0;
                 }
-                device->CommitFrameAllocation(cmd, *alloc, &buffers[i], currentOffsets[i]);
-                currentOffsets[i] += alloc->size;
-
-                alloc->ptr = 0;
             }
         }
 
@@ -1557,11 +1584,12 @@ internal void Render()
 
         // device->ClearBuffer(cmd, &meshChunkBuffer);
         // device->ClearBuffer(cmd, &meshClusterIndexBuffer);
+        // device->ClearBuffer(cmd, &meshIndirectBuffer);
         u32 zero = 0;
         device->FrameAllocate(&meshIndirectCountBuffer, &zero, cmd);
 
         TempArena temp                                 = ScratchStart(0, 0);
-        DispatchIndirect *indirect                     = PushArray(temp.arena, DispatchIndirect, 2);
+        DispatchIndirect *indirect                     = PushArray(temp.arena, DispatchIndirect, 3);
         indirect[CLUSTER_DISPATCH_OFFSET].groupCountX  = 0;
         indirect[CLUSTER_DISPATCH_OFFSET].groupCountY  = 1;
         indirect[CLUSTER_DISPATCH_OFFSET].groupCountZ  = 1;

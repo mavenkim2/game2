@@ -282,6 +282,7 @@ private:
     }
 
 public:
+    u32 totalNumClusters;
     inline b8 IsValidHandle(MeshHandle handle)
     {
         return handle.u64[0] != 0;

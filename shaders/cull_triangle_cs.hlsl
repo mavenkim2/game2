@@ -5,7 +5,6 @@
 [[vk::push_constant]] TriangleCullPushConstant push;
 
 StructuredBuffer<uint> meshClusterIndices : register(t0);
-StructuredBuffer<DispatchIndirect> dispatchIndirect : register(t1);
 
 RWStructuredBuffer<DrawIndexedIndirectCommand> indirectCommands : register(u0);
 RWStructuredBuffer<uint> outputIndices : register(u1);
@@ -14,9 +13,6 @@ RWStructuredBuffer<uint> outputIndices : register(u1);
 void main(uint3 groupID : SV_GroupID, uint3 groupThreadID: SV_GroupThreadID, uint groupIndex : SV_GroupIndex)
 {
     uint clusterID = meshClusterIndices[groupID.x];//groupIndex];
-    uint clusterCount = dispatchIndirect[TRIANGLE_DISPATCH_OFFSET].groupCountX;
-    if (clusterID >= clusterCount)
-        return;
 
     MeshCluster cluster = bindlessMeshClusters[push.meshClusterDescriptor][clusterID];
     MeshGeometry geo = bindlessMeshGeometry[push.meshGeometryDescriptor][cluster.meshIndex];
@@ -35,9 +31,9 @@ void main(uint3 groupID : SV_GroupID, uint3 groupThreadID: SV_GroupThreadID, uin
 
     float4 vertices[3] = 
     {
-        mul(push.viewProjection, mul(params.modelToWorld, float4(GetFloat3(geo.vertexPos, indices[0]), 1.0))),
-        mul(push.viewProjection, mul(params.modelToWorld, float4(GetFloat3(geo.vertexPos, indices[1]), 1.0))),
-        mul(push.viewProjection, mul(params.modelToWorld, float4(GetFloat3(geo.vertexPos, indices[2]), 1.0))),
+        mul(push.worldToClip, mul(params.localToWorld, float4(GetFloat3(geo.vertexPos, indices[0]), 1.0))),
+        mul(push.worldToClip, mul(params.localToWorld, float4(GetFloat3(geo.vertexPos, indices[1]), 1.0))),
+        mul(push.worldToClip, mul(params.localToWorld, float4(GetFloat3(geo.vertexPos, indices[2]), 1.0))),
     };
 
     bool cull = false;
@@ -91,6 +87,7 @@ void main(uint3 groupID : SV_GroupID, uint3 groupThreadID: SV_GroupThreadID, uin
 
     uint indexAppendCount = WaveActiveCountBits(!cull) * 3;
     uint waveOffset = 0;
+    //uint drawOffset = 0;
     if (WaveIsFirstLane() && indexAppendCount > 0)
     {
         InterlockedAdd(indirectCommands[clusterID].indexCount, indexAppendCount, waveOffset);

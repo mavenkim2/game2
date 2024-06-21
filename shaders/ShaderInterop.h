@@ -22,11 +22,14 @@ using uint2    = UV2;
 #define UNIFORM(name, slot) \
     struct alignas(16) name
 
+#define STRUCT(name) struct alignas(16) name
+
 // static const int GET_UNIFORM_BIND_SLOT(name) = slot; \
 
 #else
 #define GET_UNIFORM_BIND_SLOT(name)
 #define UNIFORM(name, slot) cbuffer name : register(GLUE(b, slot))
+#define STRUCT(name) struct name
 #define SLOT(type, slot)    GLUE(type, slot)
 #endif
 

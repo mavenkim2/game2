@@ -6,13 +6,14 @@
 
 #define CLUSTER_DISPATCH_OFFSET  0
 #define TRIANGLE_DISPATCH_OFFSET 1
+#define DRAW_COMPACTION_DISPATCH_OFFSET 2
 
 // NOTE: each chunk contains multiple clusters. this is mostly just for efficient usage of resources in compute shaders.
 // (at least that's what I think this is for). otherwise, each thread on the instance culling shader would have to write
 // all of the batches manually, (40k triangles -> ~150+ batches), which would be slow
 struct InstanceCullPushConstants
 {
-    float4x4 viewProjection;
+    float4x4 worldToClip;
     float pyramidWidth;
     float pyramidHeight;
     float nearZ;
@@ -26,7 +27,7 @@ struct InstanceCullPushConstants
 
 struct ClusterCullPushConstants
 {
-    float4x4 viewProjection;
+    float4x4 worldToClip;
     float pyramidWidth;
     float pyramidHeight;
     float nearZ;
@@ -36,7 +37,6 @@ struct ClusterCullPushConstants
     uint isSecondPass;
     int meshClusterDescriptor;
     int meshParamsDescriptor;
-    uint clusterCount; // temp
 };
 
 struct DispatchIndirect
@@ -49,7 +49,7 @@ struct DispatchIndirect
 
 struct TriangleCullPushConstant
 {
-    float4x4 viewProjection;
+    float4x4 worldToClip;
     int meshGeometryDescriptor;
     int meshParamsDescriptor;
     int meshClusterDescriptor;

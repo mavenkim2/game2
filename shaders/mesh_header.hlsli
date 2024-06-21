@@ -49,18 +49,18 @@ FragmentInput main(VertexInput input)
     float4 modelSpacePos = float4(pos, 1.0);
 #ifdef MESH_PASS
     output.uv = uv;
-    output.worldFragPos = mul(params.modelToWorld, modelSpacePos);
-    output.pos = mul(push.viewProjection, output.worldFragPos);
+    output.worldFragPos = mul(params.localToWorld, modelSpacePos);
+    output.pos = mul(push.worldToClip, output.worldFragPos);
     output.viewFragZ = output.pos.w;
 
-    float3x3 normalMatrix = (float3x3)params.modelToWorld;
+    float3x3 normalMatrix = (float3x3)params.localToWorld;
     float3 tN = normalize(mul(normalMatrix, n));
     float3 tT = normalize(mul(normalMatrix, tangent));
     float3 tB = cross(tN, tT);
     output.tbn = float3x3(tT, tB, tN);
 #endif
 #ifdef SHADOW_PASS
-    output.pos = mul(rLightViewProjectionMatrices[push.cascadeNum] * params.modelToWorld, float4(pos, 1.0));
+    output.pos = mul(rLightViewProjectionMatrices[push.cascadeNum] * params.localToWorld, float4(pos, 1.0));
 #endif
 
     output.instanceID = input.instanceID;

@@ -289,15 +289,16 @@ inline MaterialComponent *MaterialManager::Get(MaterialIter *iter)
 
 void MeshManager::Init(Scene *inScene)
 {
-    parentScene    = inScene;
-    meshSlots      = PushArray(parentScene->arena, MeshSlot, numMeshSlots);
-    first          = 0;
-    last           = 0;
-    meshWritePos   = 0;
-    totalNumMeshes = 0;
-    freePositions  = 0;
-    freeNodes      = 0;
-    freeSlotNodes  = 0;
+    parentScene      = inScene;
+    meshSlots        = PushArray(parentScene->arena, MeshSlot, numMeshSlots);
+    first            = 0;
+    last             = 0;
+    meshWritePos     = 0;
+    totalNumMeshes   = 0;
+    freePositions    = 0;
+    freeNodes        = 0;
+    freeSlotNodes    = 0;
+    totalNumClusters = 0;
 }
 
 Mesh *MeshManager::Create(Entity entity, u32 *outGlobalIndex)
@@ -1257,10 +1258,12 @@ void Scene::Merge(Scene *other)
         }
     }
 
-    FrameAllocation *allocation = &uploads[UploadType_MeshClusters];
-    *allocation                 = device->FrameAllocate(sizeof(MeshCluster) * totalClusterCount);
-    MeshCluster *meshClusters   = (MeshCluster *)allocation->ptr;
-    u32 clusterIndex            = 0;
+    Assert(numUploads[UploadType_MeshClusters] < ArrayLength(uploads[0]));
+    FrameAllocation *allocation = &uploads[UploadType_MeshClusters][numUploads[UploadType_MeshClusters]];
+    numUploads[UploadType_MeshClusters]++;
+    *allocation               = device->FrameAllocate(sizeof(MeshCluster) * totalClusterCount);
+    MeshCluster *meshClusters = (MeshCluster *)allocation->ptr;
+    u32 clusterIndex          = 0;
     Assert(other->meshes.GetTotal() == other->meshes.GetEndPos());
     for (MeshIter iter = other->BeginMeshIter(); !other->End(&iter); other->Next(&iter))
     {
@@ -1318,7 +1321,9 @@ void Scene::Merge(Scene *other)
 #endif
                 }
             }
-            newMesh->clusterCount = numClusters;
+            newMesh->clusterOffset = meshes.totalNumClusters;
+            newMesh->clusterCount  = numClusters;
+            meshes.totalNumClusters += numClusters;
         }
         // Remap skeletons
         {

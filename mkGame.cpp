@@ -752,10 +752,10 @@ DLL G_UPDATE(G_Update)
         mesh->meshIndex = iter.globalIndex;
 
         MeshParams *meshParams    = &meshParamsMappedData[mesh->meshIndex];
-        meshParams->modelToWorld  = transform;
+        meshParams->localToWorld  = transform;
         meshParams->minP          = mesh->bounds.minP; // mesh space
         meshParams->maxP          = mesh->bounds.maxP;
-        meshParams->clusterOffset = totalClusterCount;
+        meshParams->clusterOffset = mesh->clusterOffset;
         meshParams->clusterCount  = mesh->clusterCount;
 
         totalClusterCount += mesh->clusterCount;

@@ -12,31 +12,24 @@ RWStructuredBuffer<DispatchIndirect> dispatchIndirect : register(u0);
 RWStructuredBuffer<uint> outputMeshClusterIndex : register(u1);
 
 [numthreads(CLUSTER_CULL_GROUP_SIZE, 1, 1)]
-void main(uint3 dispatchThreadID : SV_DispatchThreadID, uint3 groupID : SV_GroupID, uint3 groupThreadID : SV_GroupThreadID)
+void main(uint3 groupID : SV_GroupID, uint3 groupThreadID : SV_GroupThreadID)
 {
-#if 1
     uint chunkID = groupID.x;
     uint chunkCount = dispatchIndirect[CLUSTER_DISPATCH_OFFSET].groupCountX;
     if (chunkID >= chunkCount)
         return;
-#else
-    uint clusterID = dispatchThreadID.x;
-    if (clusterID >= push.clusterCount)
-        return;
-#endif
 
-#if 1
     MeshChunk chunk = meshChunks[chunkID];
     uint clusterID = groupThreadID.x;
     if (clusterID >= chunk.numClusters)
         return;
+
     clusterID = chunk.clusterOffset + clusterID;
-#endif
 
     MeshCluster cluster = bindlessMeshClusters[push.meshClusterDescriptor][clusterID];
 
     MeshParams params = bindlessMeshParams[push.meshParamsDescriptor][cluster.meshIndex];
-    float4x4 mvp = push.viewProjection * params.modelToWorld;
+    float4x4 mvp = mul(push.worldToClip, params.localToWorld);
 
     bool skip = false;
     bool visible = true;
@@ -84,6 +77,7 @@ void main(uint3 dispatchThreadID : SV_DispatchThreadID, uint3 groupID : SV_Group
     if (WaveIsFirstLane() && numVisibleClusters > 0)
     {
         InterlockedAdd(dispatchIndirect[TRIANGLE_DISPATCH_OFFSET].groupCountX, numVisibleClusters, clusterOffset);
+        InterlockedAdd(dispatchIndirect[DRAW_COMPACTION_DISPATCH_OFFSET].commandCount, numVisibleClusters);
     }
     clusterOffset = WaveReadLaneFirst(clusterOffset);
     uint waveClusterOffset = WavePrefixCountBits(visible && !skip);

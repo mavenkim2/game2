@@ -120,6 +120,16 @@ bool ProjectSphere(float3 center, float radius, float nearZ, float p00, float p1
     return true;
 }
 
+float min3(float a, float b, float c)
+{
+    return min(min(a, b), c);
+}
+
+float4 min3(float4 a, float4 b, float4 c)
+{
+    return min(min(a, b), c);
+}
+
 bool ProjectBoxAndFrustumCull(float3 bMin, float3 bMax, float4x4 mvp, float nearZ, float farZ, 
                               uint isSecondPass, float p22, float p23, out float4 aabb, out float minZ)
 {
@@ -130,33 +140,33 @@ bool ProjectBoxAndFrustumCull(float3 bMin, float3 bMax, float4x4 mvp, float near
     float4 sY = mul(mvp, float4(0, bMax.y - bMin.y, 0, 0));
     float4 sZ = mul(mvp, float4(0, 0, bMax.z - bMin.z, 0));
 
-    // TODO: is this even faster than the above?
-    //float4 sX = float3(mvp[0][0], mvp[1][0], mvp[2][0], mvp[3][0]) * (bMax.x - bMin.x);
-    //float4 sY = float3(mvp[0][1], mvp[1][1], mvp[2][1], mvp[3][1]) * (bMax.y - bMin.y);
-    //float4 sZ = float3(mvp[0][2], mvp[1][2], mvp[2][2], mvp[3][2]) * (bMax.z - bMin.z);
-
-    // TODO: can do a 3x4 * 4x1 multiply, since the z value remains unused
+    float4 planesMin = 1.f;
+    // If the min of p.x - p.w > 0, then all points are past the right clip plane.
+    // If the min of -p.x - p.w > 0, then -p.x > p.w -> p.x < -p.w for all points.
+#define PLANEMIN(a, b) planesMin = min3(planesMin, float4(a.xy, -a.xy) - a.w, float4(b.xy, -b.xy) - b.w)
+    
     float4 p0 = mul(mvp, float4(bMin.x, bMin.y, bMin.z, 1.0));
     float4 p1 = p0 + sZ;
-    float4 p2 = p1 + sY;
-    float4 p3 = p0 + sY;
+    PLANEMIN(p0, p1);
 
-    float4 p4 = p0 + sX;
-    float4 p5 = p4 + sZ;
-    float4 p6 = p5 + sY;
-    float4 p7 = p4 + sY;
+    float4 p2 = p0 + sX;
+    float4 p3 = p1 + sX;
+    PLANEMIN(p2, p3);
+
+    float4 p4 = p2 + sY;
+    float4 p5 = p3 + sY;
+    PLANEMIN(p4, p5);
+
+    float4 p6 = p4 - sX;
+    float4 p7 = p5 - sX;
+    PLANEMIN(p6, p7);
 
     // frustum culling
-    bool visible = true;
-    visible = visible && (p0.x >= -p0.w || p1.x >= -p1.w || p2.x >= -p2.w || p3.x >= -p3.w || p4.x >= -p4.w || p5.x >= -p5.w || p6.x >= -p6.w || p7.x >= -p7.w);
-    visible = visible && (p0.y >= -p0.w || p1.y >= -p1.w || p2.y >= -p2.w || p3.y >= -p3.w || p4.y >= -p4.w || p5.y >= -p5.w || p6.y >= -p6.w || p7.y >= -p7.w);
-    visible = visible && (p0.x <= p0.w || p1.x <= p1.w || p2.x <= p2.w || p3.x <= p3.w || p4.x <= p4.w || p5.x <= p5.w || p6.x <= p6.w || p7.x <= p7.w);
-    visible = visible && (p0.y <= p0.w || p1.y <= p1.w || p2.y <= p2.w || p3.y <= p3.w || p4.y <= p4.w || p5.y <= p5.w || p6.y <= p6.w || p7.y <= p7.w);
-    visible = visible && (p0.w >= nearZ || p1.w >= nearZ || p2.w >= nearZ || p3.w >= nearZ || p4.w >= nearZ || p5.w >= nearZ || p6.w >= nearZ || p7.w >= nearZ);
-    visible = visible && (p0.w <= farZ || p1.w <= farZ || p2.w <= farZ || p3.w <= farZ || p4.w <= farZ || p5.w <= farZ || p6.w <= farZ || p7.w <= farZ);
+    bool visible = !(any(planesMin > 0.f));
 
     minZ = 0;
     aabb = 0;
+    return visible;
 #if 0
     if (visible && isSecondPass)
     {
@@ -174,7 +184,7 @@ bool ProjectBoxAndFrustumCull(float3 bMin, float3 bMax, float4x4 mvp, float near
         minZ = minW * p22 + p23; // [2][2] and [2][3] in perspective projection matrix
         aabb = aabb * 0.5 + 0.5;
     }
-#endif
     return visible;
+#endif
 }
 
