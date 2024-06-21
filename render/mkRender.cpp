@@ -1164,7 +1164,7 @@ internal void Initialize()
 
         // Chunk dispatch indirect buffer
         desc               = {};
-        desc.size          = sizeof(DispatchIndirect) * 3;
+        desc.size          = sizeof(DispatchIndirect) * NUM_DISPATCH_OFFSETS;
         desc.usage         = MemoryUsage::GPU_ONLY;
         desc.resourceUsage = ResourceUsage::StorageBuffer | ResourceUsage::UniformBuffer | ResourceUsage::IndirectBuffer;
         device->CreateBuffer(&dispatchIndirectBuffer, desc, 0);
@@ -1344,27 +1344,6 @@ internal void CullInstances(CommandList cmdList)
         device->EndEvent(cmdList);
     }
 
-#if 0
-    {
-        GPUBarrier barrier = GPUBarrier::Buffer(&dispatchIndirectBuffer, PipelineFlag_Compute, PipelineFlag_Compute,
-                                                AccessFlag_ShaderWrite, AccessFlag_ShaderRead | AccessFlag_ShaderWrite);
-        device->Barrier(cmdList, &barrier, 1);
-    }
-
-    // Prepare dispatch indirect args
-    {
-        DispatchPrepPushConstant pc;
-        pc.index = CLUSTER_DISPATCH_OFFSET;
-        device->BeginEvent(cmdList, "Cluster Dispatch Prep");
-        device->BindCompute(&dispatchPrepPipeline, cmdList);
-        device->PushConstants(cmdList, sizeof(pc), &pc);
-        device->BindResource(&dispatchIndirectBuffer, ResourceType::UAV, 0, cmdList);
-        device->UpdateDescriptorSet(cmdList);
-        device->Dispatch(cmdList, 1, 1, 1);
-        device->EndEvent(cmdList);
-    }
-#endif
-
     {
         GPUBarrier barriers[] = {
             GPUBarrier::Buffer(&dispatchIndirectBuffer, PipelineFlag_Compute, PipelineFlag_Compute | PipelineFlag_Indirect,
@@ -1400,26 +1379,6 @@ internal void CullInstances(CommandList cmdList)
         device->EndEvent(cmdList);
     }
 
-#if 0
-    {
-        GPUBarrier barrier = GPUBarrier::Buffer(&dispatchIndirectBuffer, PipelineFlag_Compute, PipelineFlag_Compute,
-                                                AccessFlag_ShaderWrite, AccessFlag_ShaderRead | AccessFlag_ShaderWrite);
-        device->Barrier(cmdList, &barrier, 1);
-    }
-
-    {
-        device->BeginEvent(cmdList, "Triangle Dispatch Prep");
-        DispatchPrepPushConstant pc;
-        pc.index = TRIANGLE_DISPATCH_OFFSET;
-        device->BindCompute(&dispatchPrepPipeline, cmdList);
-        device->PushConstants(cmdList, sizeof(pc), &pc);
-        device->BindResource(&dispatchIndirectBuffer, ResourceType::UAV, 0, cmdList);
-        device->UpdateDescriptorSet(cmdList);
-        device->Dispatch(cmdList, 1, 1, 1);
-        device->EndEvent(cmdList);
-    }
-#endif
-
     {
         GPUBarrier barriers[] = {
             GPUBarrier::Buffer(&dispatchIndirectBuffer, PipelineFlag_Compute, PipelineFlag_Compute | PipelineFlag_Indirect,
@@ -1453,28 +1412,8 @@ internal void CullInstances(CommandList cmdList)
         device->EndEvent(cmdList);
     }
 
-    // {
-    //     GPUBarrier barrier = GPUBarrier::Buffer(&dispatchIndirectBuffer, PipelineFlag_Compute, PipelineFlag_Compute,
-    //                                             AccessFlag_ShaderWrite, AccessFlag_ShaderRead | AccessFlag_ShaderWrite);
-    //     device->Barrier(cmdList, &barrier, 1);
-    // }
-
-    // {
-    //     device->BeginEvent(cmdList, "Draw Compaction Dispatch Preparation");
-    //     DispatchPrepPushConstant pc;
-    //     pc.index = DRAW_COMPACTION_DISPATCH_OFFSET;
-    //     device->BindCompute(&dispatchPrepPipeline, cmdList);
-    //     device->PushConstants(cmdList, sizeof(pc), &pc);
-    //     device->BindResource(&dispatchIndirectBuffer, ResourceType::UAV, 0, cmdList);
-    //     device->UpdateDescriptorSet(cmdList);
-    //     device->Dispatch(cmdList, 1, 1, 1);
-    //     device->EndEvent(cmdList);
-    // }
-    //
     {
         GPUBarrier barriers[] = {
-            // GPUBarrier::Buffer(&dispatchIndirectBuffer, PipelineFlag_Compute, PipelineFlag_Indirect,
-            //                    AccessFlag_ShaderWrite, AccessFlag_IndirectRead),
             GPUBarrier::Buffer(&indirectScratchBuffer, PipelineFlag_Compute, PipelineFlag_Compute,
                                AccessFlag_ShaderWrite, AccessFlag_ShaderRead),
         };
@@ -1494,8 +1433,6 @@ internal void CullInstances(CommandList cmdList)
         device->BindResource(&meshIndirectBuffer, ResourceType::UAV, 1, cmdList);
         device->UpdateDescriptorSet(cmdList);
         device->Dispatch(cmdList, (meshClusterCount + 63) / 64, 1, 1);
-        // device->DispatchIndirect(cmdList, &dispatchIndirectBuffer,
-        //                          DRAW_COMPACTION_DISPATCH_OFFSET * sizeof(DispatchIndirect) + Offset(DispatchIndirect, groupCountX));
         device->EndEvent(cmdList);
     }
 }
@@ -1582,9 +1519,6 @@ internal void Render()
         GPUBuffer *currentMeshGeoUpload   = &meshGeometryBufferUpload[device->GetCurrentBuffer()];
         GPUBuffer *currentMaterialUpload  = &materialBufferUpload[device->GetCurrentBuffer()];
 
-        // device->ClearBuffer(cmd, &meshChunkBuffer);
-        // device->ClearBuffer(cmd, &meshClusterIndexBuffer);
-        // device->ClearBuffer(cmd, &meshIndirectBuffer);
         u32 zero = 0;
         device->FrameAllocate(&meshIndirectCountBuffer, &zero, cmd);
 

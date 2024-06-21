@@ -1,4 +1,5 @@
 #include "globals.hlsli"
+#include "cull.hlsli"
 #include "ShaderInterop_Mesh.h"
 #include "ShaderInterop_Culling.h"
 
@@ -72,18 +73,12 @@ void main(uint3 groupID : SV_GroupID, uint3 groupThreadID : SV_GroupThreadID)
     }
 #endif
 
-    uint numVisibleClusters = WaveActiveCountBits(visible && !skip);
+    bool isClusterVisible = visible && !skip;
     uint clusterOffset;
-    if (WaveIsFirstLane() && numVisibleClusters > 0)
-    {
-        InterlockedAdd(dispatchIndirect[TRIANGLE_DISPATCH_OFFSET].groupCountX, numVisibleClusters, clusterOffset);
-        InterlockedAdd(dispatchIndirect[DRAW_COMPACTION_DISPATCH_OFFSET].commandCount, numVisibleClusters);
-    }
-    clusterOffset = WaveReadLaneFirst(clusterOffset);
-    uint waveClusterOffset = WavePrefixCountBits(visible && !skip);
+    WaveInterlockedAddScalarTest(dispatchIndirect[TRIANGLE_DISPATCH_OFFSET].groupCountX, isClusterVisible, 1, clusterOffset);
 
-    if (visible && !skip)
+    if (isClusterVisible)
     {
-        outputMeshClusterIndex[clusterOffset + waveClusterOffset] = clusterID;
+        outputMeshClusterIndex[clusterOffset] = clusterID;
     }
 }

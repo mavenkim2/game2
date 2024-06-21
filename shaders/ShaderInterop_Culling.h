@@ -6,7 +6,7 @@
 
 #define CLUSTER_DISPATCH_OFFSET  0
 #define TRIANGLE_DISPATCH_OFFSET 1
-#define DRAW_COMPACTION_DISPATCH_OFFSET 2
+#define NUM_DISPATCH_OFFSETS 2
 
 // NOTE: each chunk contains multiple clusters. this is mostly just for efficient usage of resources in compute shaders.
 // (at least that's what I think this is for). otherwise, each thread on the instance culling shader would have to write

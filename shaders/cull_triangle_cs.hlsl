@@ -85,21 +85,14 @@ void main(uint3 groupID : SV_GroupID, uint3 groupThreadID: SV_GroupThreadID, uin
     cull = cull || isTriangleBehindNearPlane;
 #endif
 
-    uint indexAppendCount = WaveActiveCountBits(!cull) * 3;
-    uint waveOffset = 0;
-    //uint drawOffset = 0;
-    if (WaveIsFirstLane() && indexAppendCount > 0)
-    {
-        InterlockedAdd(indirectCommands[clusterID].indexCount, indexAppendCount, waveOffset);
-    }
-    waveOffset = WaveReadLaneFirst(waveOffset) + clusterID * CLUSTER_SIZE * 3;
-
-    uint indexIndex = WavePrefixCountBits(!cull) * 3;
+    uint indexOffset = 0;
+    WaveInterlockedAddScalarTest(indirectCommands[clusterID].indexCount, !cull, 3, indexOffset);
+    indexOffset += clusterID * CLUSTER_SIZE * 3;
     if (!cull)
     {
-        outputIndices[waveOffset + indexIndex + 0] = indices[0];
-        outputIndices[waveOffset + indexIndex + 1] = indices[1];
-        outputIndices[waveOffset + indexIndex + 2] = indices[2];
+        outputIndices[indexOffset + 0] = indices[0];
+        outputIndices[indexOffset + 1] = indices[1];
+        outputIndices[indexOffset + 2] = indices[2];
     }
 
     if (groupThreadID.x == 0)

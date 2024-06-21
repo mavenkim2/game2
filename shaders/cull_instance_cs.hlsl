@@ -1,6 +1,7 @@
 #include "globals.hlsli"
 #include "ShaderInterop_Mesh.h"
 #include "ShaderInterop_Culling.h"
+#include "cull.hlsli"
 
 [[vk::push_constant]] InstanceCullPushConstants push;
 
@@ -54,7 +55,7 @@ void main(uint3 dispatchThreadID : SV_DispatchThreadID)
         uint chunkCount = (params.clusterCount + CHUNK_GROUP_SIZE - 1) / CHUNK_GROUP_SIZE;
         uint chunkStartIndex;
 
-        InterlockedAdd(dispatchIndirectBuffer[CLUSTER_DISPATCH_OFFSET].groupCountX, chunkCount, chunkStartIndex);
+        WaveInterlockedAdd(dispatchIndirectBuffer[CLUSTER_DISPATCH_OFFSET].groupCountX, chunkCount, chunkStartIndex);
         for (uint i = 0; i < chunkCount; i++)
         {
             meshChunks[chunkStartIndex + i].clusterOffset = params.clusterOffset + i * CHUNK_GROUP_SIZE;

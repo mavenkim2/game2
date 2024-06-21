@@ -15,17 +15,11 @@ void main(uint3 dispatchThreadID : SV_DispatchThreadID)
 
     DrawIndexedIndirectCommand cmd = indirectCommands[dispatchThreadID.x];
     bool hasDraw = cmd.indexCount > 0;
-    uint numDrawCalls = WaveActiveCountBits(hasDraw);
-    uint waveDrawOffset = 0;
-    if (WaveIsFirstLane() && numDrawCalls > 0)
-    {
-        InterlockedAdd(commandCount[0], numDrawCalls, waveDrawOffset);
-    }
-    waveDrawOffset = WaveReadLaneFirst(waveDrawOffset);
-    uint drawIndex = WavePrefixCountBits(hasDraw);
 
+    uint drawOffset;
+    WaveInterlockedAddScalarTest(commandCount[0], hasDraw, 1, drawOffset);
     if (hasDraw)
     {
-        outputIndirectCommands[waveDrawOffset + drawIndex] = cmd;
+        outputIndirectCommands[drawOffset] = cmd;
     }
 }
