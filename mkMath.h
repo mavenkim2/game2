@@ -1485,11 +1485,12 @@ inline Mat4 Perspective4(f32 fov, f32 aspectRatio, f32 nearZ, f32 farZ, b32 lh =
     // Converts to right handed clip space (vulkan)
     if (lh == 0)
     {
-        // no longer flip n and f, rotate view matrix so that it aligns with ndc axis
-        result.elements[2][2] = -result.elements[2][2]; // farZ / depth;
-        result.elements[2][3] = 1.f;
+        // Rotate about X axis by 180 degrees
+        result.elements[1][1] = -result.elements[1][1];
+
+        // result.elements[2][2] = -result.elements[2][2]; // farZ / depth;
         // x right, y down, z into screen
-        result = result * Rotate4({1, 0, 0}, PI);
+        // result = result * Rotate4({1, 0, 0}, PI);
     }
     return result;
 }

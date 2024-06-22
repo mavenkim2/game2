@@ -21,11 +21,24 @@ void main(uint3 dispatchThreadID : SV_DispatchThreadID)
     MeshParams params = bindlessMeshParams[push.meshParamsDescriptor][meshIndex];
     float4x4 mvp = mul(push.worldToClip, params.localToWorld);
 
-    float4 aabb;
-    float minBoxZ;
+    bool skipFrustumCull = false;//(PASS == SECOND_PASS);
+    FrustumCullResults cullResults = ProjectBoxAndFrustumCull(params.minP, params.maxP, mvp,
+                                                              push.p22, push.p23, skipFrustumCull);
+    bool visible = cullResults.isVisible;
 
-    bool visible = ProjectBoxAndFrustumCull(params.minP, params.maxP, mvp, push.nearZ, push.farZ,
-                                            push.isSecondPass, push.p22, push.p23, aabb, minBoxZ);
+#if 0
+    #if PASS == FIRST_PASS
+    if (visible)
+    {
+        skipFrustumCull = true;
+        // use last frame's stuff
+        float4x4 lastFrameMvp = ?;
+        ProjectBoxAndFrustumCull(params.minP, params.maxP, ?, push.nearZ, push.farZ, 
+                                 skipFrustumCull, push.p22, push.p23, aabb, minBoz);
+    }
+    #endif // PASS == FIRST_PASS
+#endif
+
 #if 0
     if (visible && push.isSecondPass)
     {
@@ -33,7 +46,7 @@ void main(uint3 dispatchThreadID : SV_DispatchThreadID)
         float height = (aabb.w - aabb.y) * push.pyramidHeight;
 
         int lod = ceil(log2(max(width, height)));
-        float depth = SampleLevel(samplerNearestClamp, depthPyramid, lod).x;
+        float depth = depthPyramid.SampleLevel(samplerNearestClamp, depthPyramid, lod).x;
 
         visible = visible && minBoxZ < depth;
     }

@@ -1,6 +1,8 @@
 #include "ShaderInterop.h"
 #include "ShaderInterop_Mesh.h"
 
+#define INFINITE_FLOAT 1.#INF
+
 static const uint BINDLESS_TEXTURE_SET = 1;
 static const uint BINDLESS_UNIFORM_TEXEL_SET = 2;
 static const uint BINDLESS_STORAGE_BUFFER_SET = 3;
@@ -125,6 +127,21 @@ float min3(float a, float b, float c)
     return min(min(a, b), c);
 }
 
+float2 min3(float2 a, float2 b, float2 c)
+{
+    return min(min(a, b), c);
+}
+
+float max3(float a, float b, float c)
+{
+    return max(max(a, b), c);
+}
+
+float2 max3(float2 a, float2 b, float2 c)
+{
+    return max(max(a, b), c);
+}
+
 float4 min3(float4 a, float4 b, float4 c)
 {
     return min(min(a, b), c);
@@ -178,4 +195,13 @@ uint WaveGetActiveLaneIndexLast()
 }
 
 #else
+#define WaveInterlockedAddScalar(dest, value, outputIndex) InterlockedAdd(dest, value, outputIndex)
+#define WaveInterlockedAddScalarTest(dest, test, value, outputIndex) \
+{ \
+    if (test) \
+    { \
+        InterlockedAdd(dest, value, outputIndex); \
+    } \
+}
+#define WaveInterlockedAdd(dest, value, outputIndex) InterlockedAdd(dest, value, outputIndex)
 #endif
