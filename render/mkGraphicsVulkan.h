@@ -51,6 +51,7 @@ struct mkGraphicsVulkan : mkGraphics
     u32 computeFamily  = VK_QUEUE_FAMILY_IGNORED;
     u32 copyFamily     = VK_QUEUE_FAMILY_IGNORED;
 
+    VkPhysicalDeviceMemoryProperties2 memoryProperties;
     VkPhysicalDeviceProperties2 deviceProperties;
     VkPhysicalDeviceVulkan11Properties properties11;
     VkPhysicalDeviceVulkan12Properties properties12;
@@ -96,6 +97,7 @@ struct mkGraphicsVulkan : mkGraphics
 
         BindedResource srvTable[cMaxBindings] = {};
         BindedResource uavTable[cMaxBindings] = {};
+        Sampler *samTable[cMaxBindings]       = {};
 
         // Descriptor set
         // VkDescriptorSet mDescriptorSets[cNumBuffers][QueueType_Count];
@@ -355,12 +357,6 @@ struct mkGraphicsVulkan : mkGraphics
         return (ShaderVulkan *)(shader->internalState);
     }
 
-    // VkFence ToInternal(Fence fence)
-    // {
-    //     Assert(fence.IsValid());
-    //     return (VkFence)(fence.internalState);
-    // }
-
     FenceVulkan *ToInternal(Fence *fence)
     {
         Assert(fence->IsValid());
@@ -371,6 +367,12 @@ struct mkGraphicsVulkan : mkGraphics
     {
         Assert(queryPool->IsValid());
         return (VkQueryPool)(queryPool->internalState);
+    }
+
+    SamplerVulkan *ToInternal(Sampler *sampler)
+    {
+        Assert(sampler->IsValid());
+        return (SamplerVulkan *)(sampler->internalState);
     }
 
     mkGraphicsVulkan(ValidationMode validationMode, GPUDevicePreference preference);
@@ -384,18 +386,20 @@ struct mkGraphicsVulkan : mkGraphics
     void CopyBuffer(CommandList cmd, GPUBuffer *dest, GPUBuffer *src, u32 size) override;
     void ClearBuffer(CommandList cmd, GPUBuffer *dst) override;
     void CopyTexture(CommandList cmd, Texture *dst, Texture *src, Rect3U32 *rect = 0) override;
+    void CopyImage(CommandList cmd, Swapchain *dst, Texture *src) override;
     void DeleteBuffer(GPUBuffer *buffer) override;
     void CreateTexture(Texture *outTexture, TextureDesc desc, void *inData) override;
     void DeleteTexture(Texture *texture) override;
     void CreateSampler(Sampler *sampler, SamplerDesc desc) override;
+    void BindSampler(CommandList cmd, Sampler *sampler, u32 slot) override;
     void BindResource(GPUResource *resource, ResourceType type, u32 slot, CommandList cmd, i32 subresource = -1) override;
     i32 GetDescriptorIndex(GPUResource *resource, ResourceType type, i32 subresourceIndex = -1) override;
     i32 CreateSubresource(GPUBuffer *buffer, ResourceType type, u64 offset = 0ull, u64 size = ~0ull, Format format = Format::Null,
                           const char *name = 0) override;
     i32 CreateSubresource(Texture *texture, u32 baseLayer = 0, u32 numLayers = ~0u, u32 baseMip = 0, u32 numMips = ~0u) override;
-    void UpdateDescriptorSet(CommandList cmd);
+    void UpdateDescriptorSet(CommandList cmd, b8 isCompute = 0);
     CommandList BeginCommandList(QueueType queue) override;
-    void BeginRenderPass(Swapchain *inSwapchain, RenderPassImage *images, u32 count, CommandList inCommandList) override;
+    void BeginRenderPass(Swapchain *inSwapchain, CommandList inCommandList) override;
     void BeginRenderPass(RenderPassImage *images, u32 count, CommandList cmd) override;
     void Draw(CommandList cmd, u32 vertexCount, u32 firstVertex) override;
     void DrawIndexed(CommandList cmd, u32 indexCount, u32 firstVertex, u32 baseVertex) override;
@@ -409,6 +413,7 @@ struct mkGraphicsVulkan : mkGraphics
     void SetViewport(CommandList cmd, Viewport *viewport) override;
     void SetScissor(CommandList cmd, Rect2 scissor) override;
     void EndRenderPass(CommandList cmd) override;
+    void EndRenderPass(Swapchain *swapchain, CommandList cmd) override;
     void SubmitCommandLists() override;
     void BindPipeline(PipelineState *ps, CommandList cmd) override;
     void BindCompute(PipelineState *ps, CommandList cmd) override;
@@ -435,7 +440,7 @@ struct mkGraphicsVulkan : mkGraphics
     void SetName(GPUResource *resource, string name) override;
 
 private:
-    const i32 cPoolSize = 64;
+    const i32 cPoolSize = 128;
     b32 CreateSwapchain(Swapchain *inSwapchain);
 
     //////////////////////////////
@@ -565,6 +570,11 @@ private:
     void SetName(VkShaderModule handle, const char *name);
     void SetName(VkPipeline handle, const char *name);
     void SetName(VkQueue handle, const char *name);
+
+    //////////////////////////////
+    // Memory
+    //
+    i32 GetMemoryTypeIndex(u32 typeBits, VkMemoryPropertyFlags flags);
 };
 
 } // namespace graphics

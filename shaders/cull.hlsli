@@ -1,16 +1,3 @@
-#ifndef PASS
-#define PASS 0 
-#endif
-
-#define FIRST_PASS 1
-#define SECOND_PASS 2
-
-#if PASS == SECOND_PASS
-static const bool isSecondPass = true;
-#else
-static const bool isSecondPass = false;
-#endif
-
 Texture2D depthPyramid : register(t0);
 
 struct FrustumCullResults 
@@ -18,11 +5,13 @@ struct FrustumCullResults
     float4 aabb;
     float minZ;
     bool isVisible;
+    bool crossesNearPlane;
 };
 
 FrustumCullResults ProjectBoxAndFrustumCull(float3 bMin, float3 bMax, float4x4 mvp,
                                             float p22, float p23, bool skipFrustumCull)
 {
+    FrustumCullResults results;
     // precise box bounds
     // if the frustum check fails, then the screen space aabb isn't calculated
     // use the distributive property of matrices: if B = D + C, AB = AD + AC
@@ -64,21 +53,19 @@ FrustumCullResults ProjectBoxAndFrustumCull(float3 bMin, float3 bMax, float4x4 m
 
     bool visible = true;
 
-    //if (skipFrustumCull)
-    //{
+    if (skipFrustumCull)
+    {
         PLANEMIN(p0, p1);
         PLANEMIN(p2, p3);
         PLANEMIN(p4, p5);
         PLANEMIN(p6, p7);
         visible = !(any(planesMin > 0.f));
-    //}
-    if (!skipFrustumCull)
-    {
-        PROCESS(p0, p1);
-        PROCESS(p2, p3);
-        PROCESS(p4, p5);
-        PROCESS(p6, p7);
     }
+    // TODO: don't calculate the aabb on the first pass frustum cull with this frame's transforms
+    PROCESS(p0, p1);
+    PROCESS(p2, p3);
+    PROCESS(p4, p5);
+    PROCESS(p6, p7);
 
     // NOTE: w = -z in view space (zv). Azv + B = z in clip space (zc)
     float maxZ = -maxW * p22 + p23;
@@ -90,26 +77,61 @@ FrustumCullResults ProjectBoxAndFrustumCull(float3 bMin, float3 bMax, float4x4 m
     // partially = at least partially
     bool test = maxZ > minZ;//minW > 0;//maxZ > minZ;
     bool isPartiallyInsideNearPlane = maxZ > 0;
-    //bool isPartiallyOutsideNearPlane = minZ <= 0;
+    bool isPartiallyOutsideNearPlane = minZ <= 0;
     bool isPartiallyInsideFarPlane = minZ < minW;
     //bool isPartiallyOutsideFarPlane = maxZ >= minW;
 
     visible = visible && isPartiallyInsideFarPlane && isPartiallyInsideNearPlane;
     
-    FrustumCullResults results;
     results.aabb = aabb;
     results.minZ = saturate(minZ / minW);
     results.isVisible = visible;
+    results.crossesNearPlane = isPartiallyOutsideNearPlane;
 
     return results;
 }
 
-#if 0
-bool IsVisible(float4 rect)
+struct OcclusionResults
 {
-    rect = rect * 0.5f + 0.5f;
-    int2 mipLevel = firstbithigh(rect.zw - rect.xy);
+    bool wasOccluded;
+    bool isVisible;
+};
 
+OcclusionResults HZBOcclusionTest(FrustumCullResults cullResults, int2 screenSize)
+{
+    OcclusionResults results;
+    results.wasOccluded = false;
+    results.isVisible = false;
+    if (cullResults.isVisible && !cullResults.crossesNearPlane)
+    {
+        float4 rect = saturate(cullResults.aabb * 0.5f + 0.5f);
+        int4 pixels = (screenSize.xyxy * rect + 0.5f);
+        pixels.xy = max(pixels.xy, 0);
+        pixels.zw = min(pixels.zw, screenSize.xy - 1);
+        bool overlapsPixelCenter = any(pixels.zw >= pixels.xy);
+        pixels >>= 1;
+
+        // for n > 1, ceil(log2(n)) = floor(log2(n-1)) + 1
+        // floor(log2(n-1)) = firstbithigh(n-1)
+        // [pixels.xy, pixels.zw] is inclusive, so difference is n-1
+        int2 mipLevel = int2(firstbithigh(pixels.z - pixels.x), firstbithigh(pixels.w - pixels.y));
+        int lod = max(max(mipLevel.x, mipLevel.y) - 1, 0);
+
+        lod += any((pixels.zw >> lod) - (pixels.xy >> lod) > 1) ? 1 : 0;
+        pixels >>= lod;
+
+        int width, height, levels;
+        depthPyramid.GetDimensions(lod, width, height, levels);
+        int2 dim = int2(width, height);
+        int4 uv = (pixels + 0.5f) / dim.xyxy;
+
+        float depth00 = depthPyramid.SampleLevel(samplerNearestClamp, uv.xy, lod).r;
+        float depth01 = depthPyramid.SampleLevel(samplerNearestClamp, uv.zy, lod).r;
+        float depth10 = depthPyramid.SampleLevel(samplerNearestClamp, uv.zw, lod).r;
+        float depth11 = depthPyramid.SampleLevel(samplerNearestClamp, uv.xw, lod).r;
+        float maxDepth = max(max3(depth00, depth01, depth10), depth11);
+        results.isVisible = cullResults.minZ < maxDepth;
+        results.wasOccluded = !results.isVisible;
+    }
+    return results;
 }
-#endif
-

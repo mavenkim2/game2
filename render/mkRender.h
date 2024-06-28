@@ -442,6 +442,10 @@ struct RenderState
     Mat4 transform;
     Mat4 projection;
 
+    Mat4 prevWorldToClip;
+    float prevP22;
+    float prevP23;
+
     i32 width;
     i32 height;
 

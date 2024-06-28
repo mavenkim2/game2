@@ -35,8 +35,8 @@ static const uint BINDLESS_STORAGE_TEXEL_BUFFER_SET = 4;
 SamplerState samplerLinearWrap : register(s50);
 SamplerState samplerNearestWrap : register(s51);
 SamplerState samplerLinearClamp : register(s52);
-SamplerComparisonState samplerShadowMap : register(s53);
-SamplerState samplerNearestClamp : register(s54);
+SamplerState samplerNearestClamp : register(s53);
+SamplerComparisonState samplerShadowMap : register(s54);
 
 uint GetUint(int descriptor, int indexIndex)
 {
@@ -178,6 +178,18 @@ uint WaveGetActiveLaneIndexLast()
     if (WaveIsFirstLane() && __numToAdd__ > 0) \
     { \
         InterlockedAdd(dest, __numToAdd__, outputIndex); \
+    } \
+    outputIndex = WaveReadLaneFirst(outputIndex) + WavePrefixCountBits(test) * value; \
+}
+
+#define WaveInterlockedAddScalarInGroupsTest(dest, destGroups, numPerGroup, test, value, outputIndex) \
+{ \
+    uint __numToAdd__ = WaveActiveCountBits(test) * value; \
+    outputIndex = 0; \
+    if (WaveIsFirstLane() && __numToAdd__ > 0) \
+    { \
+        InterlockedAdd(dest, __numToAdd__, outputIndex); \
+        InterlockedMax(destGroups, (outputIndex + value + numPerGroup - 1)/numPerGroup); \
     } \
     outputIndex = WaveReadLaneFirst(outputIndex) + WavePrefixCountBits(test) * value; \
 }

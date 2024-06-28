@@ -53,6 +53,13 @@ struct CompileInput
 {
     graphics::ShaderStage stage;
     string shaderName;
+    string outName;
+    struct ShaderDefine
+    {
+        string val;
+    };
+    ShaderDefine *defines;
+    u32 numDefines;
 };
 
 struct CompileOutput

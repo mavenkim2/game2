@@ -578,8 +578,8 @@ internal void AS_LoadAsset(AS_Asset *asset)
                 newScene->skeletons.Link(entities[i], skeletonHandle);
             }
             GPUBufferDesc desc;
-            desc.resourceUsage = ResourceUsage::MegaBuffer | ResourceUsage::UniformTexelBuffer | ResourceUsage::IndexBuffer | ResourceUsage::UniformBuffer;
-            u64 alignment       = device->GetMinAlignment(&desc);
+            desc.resourceUsage = ResourceUsage_Bindless | ResourceUsage_StorageBuffer | ResourceUsage_IndexBuffer | ResourceUsage_UniformTexel;
+            u64 alignment      = device->GetMinAlignment(&desc);
 
             Assert(IsPow2(alignment));
             desc.size = AlignPow2(sizeof(mesh->positions[0]) * vertexCount, alignment) + Align(sizeof(mesh->normals[0]) * vertexCount, alignment) + Align(sizeof(mesh->tangents[0]) * vertexCount, alignment);
@@ -681,14 +681,14 @@ internal void AS_LoadAsset(AS_Asset *asset)
             if (mesh->boneIds)
             {
                 GPUBufferDesc streamDesc;
-                streamDesc.resourceUsage = ResourceUsage::MegaBuffer | ResourceUsage::StorageBuffer | ResourceUsage::UniformTexelBuffer;
+                streamDesc.resourceUsage = ResourceUsage_Bindless | ResourceUsage_StorageBuffer | ResourceUsage_UniformTexel;
 
                 alignment = device->GetMinAlignment(&streamDesc);
                 Assert(IsPow2(alignment));
 
                 mesh->soPosView.offset = 0;
                 mesh->soPosView.size   = sizeof(mesh->positions[0]) * vertexCount;
-                streamDesc.size       = AlignPow2(mesh->soPosView.size, alignment);
+                streamDesc.size        = AlignPow2(mesh->soPosView.size, alignment);
 
                 mesh->soNorView.offset = streamDesc.size;
                 mesh->soNorView.size   = sizeof(mesh->normals[0]) * vertexCount;
@@ -849,7 +849,8 @@ internal void AS_LoadAsset(AS_Asset *asset)
         desc.width        = width;
         desc.height       = height;
         desc.format       = format;
-        desc.initialUsage = ResourceUsage::SampledImage;
+        desc.initialUsage = ResourceUsage_Bindless;
+        desc.futureUsages = ResourceUsage_SampledImage;
         desc.textureType  = TextureDesc::TextureType::Texture2D;
         desc.sampler      = TextureDesc::DefaultSampler::Linear;
 
@@ -926,7 +927,8 @@ internal void LoadDDS(AS_Asset *asset)
     bcDesc.height       = file->header.height;
     bcDesc.depth        = file->header.depth;
     bcDesc.format       = format;
-    bcDesc.initialUsage = ResourceUsage::SampledImage;
+    bcDesc.initialUsage = ResourceUsage_Bindless;
+    bcDesc.futureUsages = ResourceUsage_SampledImage;
     device->CreateTexture(&asset->texture, bcDesc, data);
     device->SetName(&asset->texture, (const char *)asset->path.str);
 }

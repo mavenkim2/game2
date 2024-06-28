@@ -35,7 +35,7 @@ internal wchar_t *ConvertToWide(Arena *arena, string input)
     // u32 wideSize    = (u32)(input.size * 2);
     i32 wideSize = MultiByteToWideChar(CP_UTF8, 0, (char *)input.str, -1, 0, 0);
     Assert(wideSize > 0);
-    wchar_t *out   = (wchar_t *)PushArray(arena, u8, wideSize);
+    wchar_t *out   = (wchar_t *)PushArray(arena, wchar_t, wideSize);
     u32 resultSize = MultiByteToWideChar(CP_UTF8, 0, (char *)input.str, -1, out, wideSize);
     return out;
 }
@@ -66,6 +66,12 @@ internal void CompileShader(Arena *arena, CompileInput *input, CompileOutput *ou
     // b, s, t, u
     // args.push_back(L"-I");
     // args.push_back(ConvertToWide(temp.arena, shaderDirectory));
+    for (u32 i = 0; i < input->numDefines; i++)
+    {
+        CompileInput::ShaderDefine *define = &input->defines[i];
+        args.push_back(L"-D");
+        args.push_back(ConvertToWide(temp.arena, define->val));
+    }
     args.push_back(L"-fvk-s-shift");
     args.push_back(L"100"); // NOTE: if changed, the respective constants in mkgraphicsvulkan must be changed as well
     args.push_back(L"0");
@@ -101,14 +107,21 @@ internal void CompileShader(Arena *arena, CompileInput *input, CompileOutput *ou
 
     // Output target name
     args.push_back(L"-Fo");
-    string outputName = PushStr8F(temp.arena, "%S.spv\0", RemoveFileExtension(input->shaderName));
+    string outputName;
+    if (input->outName.size != 0)
+    {
+        outputName = PushStr8F(temp.arena, "%S.spv\0", input->outName);
+    }
+    else
+    {
+        outputName = PushStr8F(temp.arena, "%S.spv\0", RemoveFileExtension(input->shaderName));
+    }
     args.push_back(ConvertToWide(temp.arena, outputName));
 
     // Final argument is the source filename
     string filePath = PushStr8F(temp.arena, "%S%S\0", shaderDirectory, input->shaderName);
     args.push_back(ConvertToWide(temp.arena, filePath));
 
-    // TODO: can finally integrate shaders into the asset system
     string shaderCode = platform.ReadEntireFile(temp.arena, filePath);
     DxcBuffer sourceBuffer;
     sourceBuffer.Ptr      = shaderCode.str;

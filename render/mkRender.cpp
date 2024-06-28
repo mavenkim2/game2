@@ -865,9 +865,11 @@ PipelineState skinPipeline;
 PipelineState triangleCullPipeline;
 PipelineState clearIndirectPipeline;
 PipelineState compactionPipeline;
-PipelineState instanceCullPipeline;
+PipelineState instanceCullPass1Pipeline;
+PipelineState instanceCullPass2Pipeline;
 PipelineState clusterCullPipeline;
 PipelineState dispatchPrepPipeline;
+PipelineState generateMipsPipeline;
 
 // TODO: fold the below into here
 // this should probably just be a linked list
@@ -896,8 +898,9 @@ graphics::GPUBuffer meshIndirectCountBuffer;
 graphics::GPUBuffer meshIndexBuffer;
 graphics::GPUBuffer meshChunkBuffer;
 graphics::GPUBuffer dispatchIndirectBuffer;
-// graphics::GPUBuffer meshClusterBuffer;
+graphics::GPUBuffer viewsBuffer;
 graphics::GPUBuffer meshClusterIndexBuffer;
+graphics::GPUBuffer occludedInstanceBuffer;
 
 u32 skinningBufferSize;
 u32 meshParamsBufferSize;
@@ -907,12 +910,14 @@ u32 meshIndirectBufferSize;
 
 u32 meshClusterCount;
 
+Sampler samplerMax;
 InputLayout inputLayouts[IL_Type_Count];
-Shader shaders[ShaderType_Count];
+global Shader shaders[ShaderType_Count];
 RasterizationState rasterizers[RasterType_Count];
 
+Texture mainColorAttachment;
 Texture depthBufferMain;
-Texture shadowDepthBuffer;
+Texture shadowDepthMap;
 list<i32> shadowSlices;
 i32 depthPyramidSubresources[16];
 
@@ -966,28 +971,34 @@ internal void Initialize()
     arena = ArenaAlloc();
     // Initialize shaders
     {
-        shaders[ShaderType_Mesh_VS].name            = "mesh_vs.hlsl";
-        shaders[ShaderType_Mesh_VS].stage           = ShaderStage::Vertex;
-        shaders[ShaderType_Mesh_FS].name            = "mesh_fs.hlsl";
-        shaders[ShaderType_Mesh_FS].stage           = ShaderStage::Fragment;
-        shaders[ShaderType_ShadowMap_VS].name       = "depth_vs.hlsl";
-        shaders[ShaderType_ShadowMap_VS].stage      = ShaderStage::Vertex;
-        shaders[ShaderType_BC1_CS].name             = "blockcompress_cs.hlsl";
-        shaders[ShaderType_BC1_CS].stage            = ShaderStage::Compute;
-        shaders[ShaderType_Skin_CS].name            = "skinning_cs.hlsl";
-        shaders[ShaderType_Skin_CS].stage           = ShaderStage::Compute;
-        shaders[ShaderType_TriangleCull_CS].name    = "cull_triangle_cs.hlsl";
-        shaders[ShaderType_TriangleCull_CS].stage   = ShaderStage::Compute;
-        shaders[ShaderType_ClearIndirect_CS].name   = "clear_indirect_cs.hlsl";
-        shaders[ShaderType_ClearIndirect_CS].stage  = ShaderStage::Compute;
-        shaders[ShaderType_DrawCompaction_CS].name  = "draw_compaction_cs.hlsl";
-        shaders[ShaderType_DrawCompaction_CS].stage = ShaderStage::Compute;
-        shaders[ShaderType_InstanceCull_CS].name    = "cull_instance_cs.hlsl";
-        shaders[ShaderType_InstanceCull_CS].stage   = ShaderStage::Compute;
-        shaders[ShaderType_ClusterCull_CS].name     = "cull_cluster_cs.hlsl";
-        shaders[ShaderType_ClusterCull_CS].stage    = ShaderStage::Compute;
-        shaders[ShaderType_DispatchPrep_CS].name    = "dispatch_prep_cs.hlsl";
-        shaders[ShaderType_DispatchPrep_CS].stage   = ShaderStage::Compute;
+        shaders[ShaderType_Mesh_VS].name                 = "mesh_vs.hlsl";
+        shaders[ShaderType_Mesh_VS].stage                = ShaderStage::Vertex;
+        shaders[ShaderType_Mesh_FS].name                 = "mesh_fs.hlsl";
+        shaders[ShaderType_Mesh_FS].stage                = ShaderStage::Fragment;
+        shaders[ShaderType_ShadowMap_VS].name            = "depth_vs.hlsl";
+        shaders[ShaderType_ShadowMap_VS].stage           = ShaderStage::Vertex;
+        shaders[ShaderType_BC1_CS].name                  = "blockcompress_cs.hlsl";
+        shaders[ShaderType_BC1_CS].stage                 = ShaderStage::Compute;
+        shaders[ShaderType_Skin_CS].name                 = "skinning_cs.hlsl";
+        shaders[ShaderType_Skin_CS].stage                = ShaderStage::Compute;
+        shaders[ShaderType_TriangleCull_CS].name         = "cull_triangle_cs.hlsl";
+        shaders[ShaderType_TriangleCull_CS].stage        = ShaderStage::Compute;
+        shaders[ShaderType_ClearIndirect_CS].name        = "clear_indirect_cs.hlsl";
+        shaders[ShaderType_ClearIndirect_CS].stage       = ShaderStage::Compute;
+        shaders[ShaderType_DrawCompaction_CS].name       = "draw_compaction_cs.hlsl";
+        shaders[ShaderType_DrawCompaction_CS].stage      = ShaderStage::Compute;
+        shaders[ShaderType_InstanceCullPass1_CS].name    = "cull_instance_cs.hlsl";
+        shaders[ShaderType_InstanceCullPass1_CS].stage   = ShaderStage::Compute;
+        shaders[ShaderType_InstanceCullPass1_CS].outName = "cull_instance_pass1_cs";
+        shaders[ShaderType_InstanceCullPass2_CS].name    = "cull_instance_cs.hlsl";
+        shaders[ShaderType_InstanceCullPass2_CS].stage   = ShaderStage::Compute;
+        shaders[ShaderType_InstanceCullPass2_CS].outName = "cull_instance_pass2_cs";
+        shaders[ShaderType_ClusterCull_CS].name          = "cull_cluster_cs.hlsl";
+        shaders[ShaderType_ClusterCull_CS].stage         = ShaderStage::Compute;
+        shaders[ShaderType_DispatchPrep_CS].name         = "dispatch_prep_cs.hlsl";
+        shaders[ShaderType_DispatchPrep_CS].stage        = ShaderStage::Compute;
+        shaders[ShaderType_GenerateMips_CS].name         = "generate_mips_cs.hlsl";
+        shaders[ShaderType_GenerateMips_CS].stage        = ShaderStage::Compute;
     }
 
     // Compile shaders
@@ -996,13 +1007,32 @@ internal void Initialize()
         shadercompiler::InitShaderCompiler();
 
         jobsystem::KickJobs(&counter, ShaderType_Count, 2, [&](jobsystem::JobArgs args) {
-            shadercompiler::CompileInput input;
-            input.shaderName = shaders[args.jobId].name;
-            input.stage      = shaders[args.jobId].stage;
+            shadercompiler::CompileInput input = {};
+            input.shaderName                   = shaders[args.jobId].name;
+            input.stage                        = shaders[args.jobId].stage;
+            input.outName                      = shaders[args.jobId].outName;
 
             shadercompiler::CompileOutput output;
 
             TempArena temp = ScratchStart(0, 0);
+            switch (args.jobId)
+            {
+                case ShaderType_InstanceCullPass1_CS:
+                {
+                    input.defines        = PushStruct(temp.arena, shadercompiler::CompileInput::ShaderDefine);
+                    input.defines[0].val = PushStr8F(temp.arena, "PASS = %u", FIRST_PASS);
+                    input.numDefines     = 1;
+                }
+                break;
+                case ShaderType_InstanceCullPass2_CS:
+                {
+                    input.defines        = PushStruct(temp.arena, shadercompiler::CompileInput::ShaderDefine);
+                    input.defines[0].val = PushStr8F(temp.arena, "PASS = %u", SECOND_PASS);
+                    input.numDefines     = 1;
+                }
+                break;
+                default: break;
+            }
             shadercompiler::CompileShader(temp.arena, &input, &output);
             device->CreateShader(&shaders[args.jobId], output.shaderData);
             if (args.jobId == ShaderType_ClusterCull_CS)
@@ -1034,7 +1064,21 @@ internal void Initialize()
         device->CreateSwapchain((Window)shared->windowHandle.handle, &desc, &swapchain);
     }
 
+    // Initialize samplers
+    {
+        SamplerDesc desc;
+        desc.min           = Filter::Linear;
+        desc.mag           = Filter::Linear;
+        desc.mipMode       = Filter::Nearest;
+        desc.mode          = SamplerMode::ClampToEdge;
+        desc.maxLod        = 16.f;
+        desc.reductionMode = ReductionMode::Max;
+        device->CreateSampler(&samplerMax, desc);
+    }
+
     // Initialize buffers
+    // TODO IMPORTANT: automate the creation of all temporary shader resources (i.e. resources that are used every frame),
+    // and automate binding, barriers, etc.
     {
         skinningBufferSize     = 0;
         meshParamsBufferSize   = 0;
@@ -1046,14 +1090,14 @@ internal void Initialize()
         TempArena temp = ScratchStart(0, 0);
         GPUBufferDesc desc;
         desc.size          = kilobytes(64);
-        desc.resourceUsage = ResourceUsage::UniformBuffer | ResourceUsage::NotBindless;
+        desc.resourceUsage = ResourceUsage_UniformBuffer;
         device->CreateBuffer(&cascadeParamsBuffer, desc, 0);
 
         // Skinning
         desc               = {};
         desc.size          = kilobytes(4);
         desc.usage         = MemoryUsage::CPU_TO_GPU;
-        desc.resourceUsage = ResourceUsage::TransferSrc;
+        desc.resourceUsage = ResourceUsage_Buffer | ResourceUsage_TransferSrc;
         for (u32 i = 0; i < ArrayLength(skinningBufferUpload); i++)
         {
             device->CreateBuffer(&skinningBufferUpload[i], desc, 0);
@@ -1063,7 +1107,7 @@ internal void Initialize()
         desc               = {};
         desc.size          = kilobytes(4);
         desc.usage         = MemoryUsage::GPU_ONLY;
-        desc.resourceUsage = ResourceUsage::UniformBuffer;
+        desc.resourceUsage = ResourceUsage_ShaderGlobals;
         device->CreateBuffer(&skinningBuffer, desc, 0);
         device->SetName(&skinningBuffer, "Skinning buffer");
 
@@ -1071,7 +1115,7 @@ internal void Initialize()
         desc               = {};
         desc.size          = kilobytes(4);
         desc.usage         = MemoryUsage::CPU_TO_GPU;
-        desc.resourceUsage = ResourceUsage::TransferSrc; // ResourceUsage::UniformBuffer;
+        desc.resourceUsage = ResourceUsage_Buffer | ResourceUsage_TransferSrc;
         for (u32 i = 0; i < ArrayLength(meshParamsBufferUpload); i++)
         {
             device->CreateBuffer(&meshParamsBufferUpload[i], desc, 0);
@@ -1082,7 +1126,7 @@ internal void Initialize()
         desc               = {};
         desc.size          = kilobytes(4);
         desc.usage         = MemoryUsage::GPU_ONLY;
-        desc.resourceUsage = ResourceUsage::UniformBuffer;
+        desc.resourceUsage = ResourceUsage_ShaderGlobals;
         device->CreateBuffer(&meshParamsBuffer, desc, 0);
         device->SetName(&meshParamsBuffer, "Mesh params buffer");
 
@@ -1090,7 +1134,7 @@ internal void Initialize()
         desc               = {};
         desc.size          = kilobytes(4);
         desc.usage         = MemoryUsage::CPU_TO_GPU;
-        desc.resourceUsage = ResourceUsage::TransferSrc;
+        desc.resourceUsage = ResourceUsage_Buffer | ResourceUsage_TransferSrc;
 
         for (u32 i = 0; i < ArrayLength(meshGeometryBufferUpload); i++)
         {
@@ -1102,7 +1146,7 @@ internal void Initialize()
         desc               = {};
         desc.size          = kilobytes(4);
         desc.usage         = MemoryUsage::GPU_ONLY;
-        desc.resourceUsage = ResourceUsage::UniformBuffer;
+        desc.resourceUsage = ResourceUsage_ShaderGlobals;
         device->CreateBuffer(&meshGeometryBuffer, desc, 0);
         device->SetName(&meshGeometryBuffer, "Mesh geometry buffer");
 
@@ -1110,7 +1154,7 @@ internal void Initialize()
         desc               = {};
         desc.size          = kilobytes(4);
         desc.usage         = MemoryUsage::CPU_TO_GPU;
-        desc.resourceUsage = ResourceUsage::TransferSrc;
+        desc.resourceUsage = ResourceUsage_Buffer | ResourceUsage_TransferSrc;
 
         for (u32 i = 0; i < ArrayLength(materialBufferUpload); i++)
         {
@@ -1122,7 +1166,7 @@ internal void Initialize()
         desc               = {};
         desc.size          = kilobytes(4);
         desc.usage         = MemoryUsage::GPU_ONLY;
-        desc.resourceUsage = ResourceUsage::UniformBuffer;
+        desc.resourceUsage = ResourceUsage_ShaderGlobals;
         device->CreateBuffer(&materialBuffer, desc, 0);
         device->SetName(&materialBuffer, "Material buffer");
 
@@ -1130,11 +1174,10 @@ internal void Initialize()
         desc               = {};
         desc.size          = kilobytes(4);
         desc.usage         = MemoryUsage::GPU_ONLY;
-        desc.resourceUsage = ResourceUsage::StorageBuffer | ResourceUsage::IndirectBuffer;
+        desc.resourceUsage = ResourceUsage_StorageBuffer | ResourceUsage_StorageBufferRead | ResourceUsage_Indirect;
         device->CreateBuffer(&meshIndirectBuffer, desc, 0);
         device->SetName(&meshIndirectBuffer, "Mesh indirect buffer");
 
-        desc.resourceUsage = ResourceUsage::StorageBuffer | ResourceUsage::UniformBuffer;
         device->CreateBuffer(&indirectScratchBuffer, desc, 0);
         device->SetName(&indirectScratchBuffer, "Indirect scratch buffer");
 
@@ -1142,7 +1185,7 @@ internal void Initialize()
         desc               = {};
         desc.size          = sizeof(uint);
         desc.usage         = MemoryUsage::GPU_ONLY;
-        desc.resourceUsage = ResourceUsage::StorageBuffer | ResourceUsage::IndirectBuffer;
+        desc.resourceUsage = ResourceUsage_StorageBuffer | ResourceUsage_StorageBufferRead | ResourceUsage_Indirect | ResourceUsage_TransferDst;
         device->CreateBuffer(&meshIndirectCountBuffer, desc, 0);
         device->SetName(&meshIndirectCountBuffer, "Mesh indirect count buffer");
 
@@ -1150,7 +1193,7 @@ internal void Initialize()
         desc               = {};
         desc.size          = kilobytes(4);
         desc.usage         = MemoryUsage::GPU_ONLY;
-        desc.resourceUsage = ResourceUsage::StorageBuffer | ResourceUsage::IndexBuffer;
+        desc.resourceUsage = ResourceUsage_StorageBuffer | ResourceUsage_IndexBuffer;
         device->CreateBuffer(&meshIndexBuffer, desc, 0);
         device->SetName(&meshIndexBuffer, "Mesh index buffer");
 
@@ -1158,7 +1201,7 @@ internal void Initialize()
         desc               = {};
         desc.size          = kilobytes(4);
         desc.usage         = MemoryUsage::GPU_ONLY;
-        desc.resourceUsage = ResourceUsage::StorageBuffer | ResourceUsage::UniformBuffer;
+        desc.resourceUsage = ResourceUsage_StorageBuffer | ResourceUsage_StorageBufferRead;
         device->CreateBuffer(&meshChunkBuffer, desc, 0);
         device->SetName(&meshChunkBuffer, "Mesh chunk buffer");
 
@@ -1166,7 +1209,7 @@ internal void Initialize()
         desc               = {};
         desc.size          = sizeof(DispatchIndirect) * NUM_DISPATCH_OFFSETS;
         desc.usage         = MemoryUsage::GPU_ONLY;
-        desc.resourceUsage = ResourceUsage::StorageBuffer | ResourceUsage::UniformBuffer | ResourceUsage::IndirectBuffer;
+        desc.resourceUsage = ResourceUsage_StorageBuffer | ResourceUsage_Indirect | ResourceUsage_TransferDst;
         device->CreateBuffer(&dispatchIndirectBuffer, desc, 0);
         device->SetName(&dispatchIndirectBuffer, "Dispatch indirect buffer");
 
@@ -1174,7 +1217,7 @@ internal void Initialize()
         desc               = {};
         desc.size          = kilobytes(16);
         desc.usage         = MemoryUsage::GPU_ONLY;
-        desc.resourceUsage = ResourceUsage::UniformBuffer | ResourceUsage::TransferSrc;
+        desc.resourceUsage = ResourceUsage_Bindless | ResourceUsage_StorageBufferRead | ResourceUsage_TransferDst | ResourceUsage_TransferSrc;
         device->CreateBuffer(&buffers[UploadType_MeshClusters], desc, 0);
         device->SetName(&buffers[UploadType_MeshClusters], "Mesh Cluster Buffer");
 
@@ -1182,9 +1225,25 @@ internal void Initialize()
         desc               = {};
         desc.size          = kilobytes(4);
         desc.usage         = MemoryUsage::GPU_ONLY;
-        desc.resourceUsage = ResourceUsage::StorageBuffer | ResourceUsage::UniformBuffer;
+        desc.resourceUsage = ResourceUsage_StorageBuffer | ResourceUsage_StorageBufferRead;
         device->CreateBuffer(&meshClusterIndexBuffer, desc, 0);
         device->SetName(&meshClusterIndexBuffer, "Mesh Cluster Index Buffer");
+
+        // Views buffer
+        desc               = {};
+        desc.size          = kilobytes(4);
+        desc.usage         = MemoryUsage::GPU_ONLY;
+        desc.resourceUsage = ResourceUsage_StorageBufferRead;
+        device->CreateBuffer(&viewsBuffer, desc, 0);
+        device->SetName(&viewsBuffer, "Views Buffer");
+
+        // Occluded instance buffer
+        desc               = {};
+        desc.size          = kilobytes(4);
+        desc.usage         = MemoryUsage::GPU_ONLY;
+        desc.resourceUsage = ResourceUsage_StorageBuffer;
+        device->CreateBuffer(&occludedInstanceBuffer, desc, 0);
+        device->SetName(&occludedInstanceBuffer, "Occluded Instance Buffer");
     }
 
     // Initialize render targets/depth buffers
@@ -1192,37 +1251,51 @@ internal void Initialize()
         TextureDesc desc;
         desc.width        = swapchain.desc.width;
         desc.height       = swapchain.desc.height;
-        desc.initialUsage = ResourceUsage::DepthStencil;
-        desc.format       = Format::D32_SFLOAT_S8_UINT;
+        desc.initialUsage = ResourceUsage_DepthStencil | ResourceUsage_SampledImage;
+        desc.format       = Format::D32_SFLOAT;
 
         device->CreateTexture(&depthBufferMain, desc, 0);
+        device->SetName(&depthBufferMain, "Main Depth Buffer");
+
+        desc              = {};
+        desc.width        = swapchain.desc.width;
+        desc.height       = swapchain.desc.height;
+        desc.initialUsage = ResourceUsage_ColorAttachment;
+        desc.futureUsages = ResourceUsage_TransferSrc;
+        desc.format       = swapchain.desc.format;
+
+        device->CreateTexture(&mainColorAttachment, desc, 0);
+        device->SetName(&mainColorAttachment, "Main Color Attachment");
 
         // Shadows
         desc.width        = 1024;
         desc.height       = 1024;
-        desc.initialUsage = ResourceUsage::SampledImage; // TODO: this is weird.
-        desc.futureUsages = ResourceUsage::DepthStencil;
+        desc.initialUsage = ResourceUsage_SampledImage; // TODO: this doesn't seem correct
+        desc.futureUsages = ResourceUsage_DepthStencil;
         desc.format       = Format::D32_SFLOAT;
         desc.numLayers    = cNumCascades;
         desc.sampler      = TextureDesc::DefaultSampler::Nearest;
         desc.textureType  = TextureDesc::TextureType::Texture2DArray;
 
-        device->CreateTexture(&shadowDepthBuffer, desc, 0);
+        device->CreateTexture(&shadowDepthMap, desc, 0);
+        device->SetName(&shadowDepthMap, "Cascaded Shadow Depth Map");
 
-        for (u32 i = 0; i < shadowDepthBuffer.desc.numLayers; i++)
+        for (u32 i = 0; i < shadowDepthMap.desc.numLayers; i++)
         {
-            shadowSlices.push_back(device->CreateSubresource(&shadowDepthBuffer, i, 1));
+            shadowSlices.push_back(device->CreateSubresource(&shadowDepthMap, i, 1));
         }
 
-        desc              = {};
+        desc = {};
+        // TODO: should this be next or previous power of two?
         desc.width        = GetPreviousPowerOfTwo(swapchain.desc.width);
         desc.height       = GetPreviousPowerOfTwo(swapchain.desc.height);
-        desc.initialUsage = ResourceUsage::StorageImage;
-        desc.futureUsages = ResourceUsage::SampledImage | ResourceUsage::TransferSrc;
+        desc.initialUsage = ResourceUsage_SampledImage;
+        desc.futureUsages = ResourceUsage_StorageImage;
         desc.format       = Format::R32_SFLOAT;
         desc.numMips      = GetNumMips(desc.width, desc.height);
 
         device->CreateTexture(&depthPyramid, desc, 0);
+        device->SetName(&depthPyramid, "HZB Depth Pyramid");
 
         for (u32 i = 0; i < depthPyramid.desc.numMips; i++)
         {
@@ -1251,7 +1324,7 @@ internal void Initialize()
 
         // Main
         PipelineStateDesc desc     = {};
-        desc.depthStencilFormat    = Format::D32_SFLOAT_S8_UINT;
+        desc.depthStencilFormat    = Format::D32_SFLOAT;
         desc.colorAttachmentFormat = Format::R8G8B8A8_SRGB;
         desc.vs                    = &shaders[ShaderType_Mesh_VS];
         desc.fs                    = &shaders[ShaderType_Mesh_FS];
@@ -1288,8 +1361,11 @@ internal void Initialize()
         device->CreateComputePipeline(&desc, &compactionPipeline, "Draw compaction compute");
 
         // Instance cull
-        desc.compute = &shaders[ShaderType_InstanceCull_CS];
-        device->CreateComputePipeline(&desc, &instanceCullPipeline, "Instance cull compute");
+        desc.compute = &shaders[ShaderType_InstanceCullPass1_CS];
+        device->CreateComputePipeline(&desc, &instanceCullPass1Pipeline, "Instance Cull Pass 1 Pipeline");
+
+        desc.compute = &shaders[ShaderType_InstanceCullPass2_CS];
+        device->CreateComputePipeline(&desc, &instanceCullPass2Pipeline, "Instance Cull Pass 2 Pipeline");
 
         // Cluster cull
         desc.compute = &shaders[ShaderType_ClusterCull_CS];
@@ -1298,6 +1374,10 @@ internal void Initialize()
         // Dispatch prep
         desc.compute = &shaders[ShaderType_DispatchPrep_CS];
         device->CreateComputePipeline(&desc, &dispatchPrepPipeline, "Dispatch prep compute");
+
+        // Dispatch prep
+        desc.compute = &shaders[ShaderType_GenerateMips_CS];
+        device->CreateComputePipeline(&desc, &generateMipsPipeline, "Generate Mips Compute");
     }
 }
 
@@ -1307,49 +1387,71 @@ enum RenderPassType
     RenderPassType_Shadow,
 };
 
-internal void CullInstances(CommandList cmdList)
+internal void CullInstances(CommandList cmdList, bool isSecondPass)
 {
     i32 meshClusterDescriptor  = device->GetDescriptorIndex(&buffers[UploadType_MeshClusters], ResourceType::SRV);
     i32 meshGeometryDescriptor = device->GetDescriptorIndex(&meshGeometryBuffer, ResourceType::SRV);
     i32 meshParamsDescriptor   = device->GetDescriptorIndex(&meshParamsBuffer, ResourceType::SRV);
 
     RenderState *renderState = engine->GetRenderState();
-
     {
-        GPUBarrier barrier = GPUBarrier::Memory(PipelineFlag_Compute, PipelineFlag_Compute,
-                                                AccessFlag_ShaderRead, AccessFlag_ShaderWrite);
-        device->Barrier(cmdList, &barrier, 1);
+        GPUBarrier barriers[] = {
+            GPUBarrier::ComputeReadToWrite(&dispatchIndirectBuffer),
+            GPUBarrier::ComputeReadToWrite(&meshChunkBuffer),
+            GPUBarrier::ComputeReadToWrite(&occludedInstanceBuffer),
+        };
+        device->Barrier(cmdList, barriers, ArrayLength(barriers));
     }
     // Instance frustum/occlusion culling
     {
-        device->BeginEvent(cmdList, "Instance Cull");
+        if (!isSecondPass)
+        {
+            device->BeginEvent(cmdList, "Instance Cull First Pass");
+        }
+        else
+        {
+            device->BeginEvent(cmdList, "Instance Cull Second Pass");
+        }
         u32 numInstances = gameScene->meshes.GetTotal();
         InstanceCullPushConstants pc;
-        pc.worldToClip          = renderState->transform;
         pc.pyramidWidth         = (f32)depthPyramid.desc.width;
         pc.pyramidHeight        = (f32)depthPyramid.desc.height;
         pc.nearZ                = renderState->nearZ;
         pc.farZ                 = renderState->farZ;
-        pc.p22                  = renderState->projection[2][2];
-        pc.p23                  = renderState->projection[3][2];
-        pc.isSecondPass         = 0;
         pc.numInstances         = numInstances;
         pc.meshParamsDescriptor = meshParamsDescriptor;
-        device->BindCompute(&instanceCullPipeline, cmdList);
+        pc.screenSize.x         = (u32)swapchain.desc.width;
+        pc.screenSize.y         = (u32)swapchain.desc.height;
+        if (!isSecondPass)
+        {
+            device->BindCompute(&instanceCullPass1Pipeline, cmdList);
+        }
+        else
+        {
+            device->BindCompute(&instanceCullPass2Pipeline, cmdList);
+        }
         device->PushConstants(cmdList, sizeof(pc), &pc);
+        device->BindResource(&depthPyramid, ResourceType::SRV, 0, cmdList);
+        device->BindResource(&viewsBuffer, ResourceType::SRV, 1, cmdList);
         device->BindResource(&dispatchIndirectBuffer, ResourceType::UAV, 0, cmdList);
         device->BindResource(&meshChunkBuffer, ResourceType::UAV, 1, cmdList);
-        device->UpdateDescriptorSet(cmdList);
-        device->Dispatch(cmdList, (numInstances + INSTANCE_CULL_GROUP_SIZE - 1) / INSTANCE_CULL_GROUP_SIZE, 1, 1);
+        device->BindResource(&occludedInstanceBuffer, ResourceType::UAV, 2, cmdList);
+        if (!isSecondPass)
+        {
+            device->Dispatch(cmdList, (numInstances + INSTANCE_CULL_GROUP_SIZE - 1) / INSTANCE_CULL_GROUP_SIZE, 1, 1);
+        }
+        else
+        {
+            device->DispatchIndirect(cmdList, &dispatchIndirectBuffer,
+                                     sizeof(DispatchIndirect) * INSTANCE_SECOND_PASS_DISPATCH_OFFSET + Offset(DispatchIndirect, groupCountX));
+        }
         device->EndEvent(cmdList);
     }
 
     {
         GPUBarrier barriers[] = {
-            GPUBarrier::Buffer(&dispatchIndirectBuffer, PipelineFlag_Compute, PipelineFlag_Compute | PipelineFlag_Indirect,
-                               AccessFlag_ShaderWrite, AccessFlag_IndirectRead | AccessFlag_ShaderRead),
-            GPUBarrier::Buffer(&meshChunkBuffer, PipelineFlag_Compute, PipelineFlag_Compute,
-                               AccessFlag_ShaderWrite, AccessFlag_ShaderRead),
+            GPUBarrier::ComputeWriteToRead(&dispatchIndirectBuffer, ResourceUsage_None, ResourceUsage_Indirect),
+            GPUBarrier::ComputeWriteToRead(&meshChunkBuffer),
         };
         device->Barrier(cmdList, barriers, ArrayLength(barriers));
     }
@@ -1358,21 +1460,17 @@ internal void CullInstances(CommandList cmdList)
     {
         device->BeginEvent(cmdList, "Cluster Cull");
         ClusterCullPushConstants pc;
-        pc.worldToClip           = renderState->transform;
         pc.pyramidWidth          = (f32)depthPyramid.desc.width;
         pc.pyramidHeight         = (f32)depthPyramid.desc.height;
         pc.nearZ                 = renderState->nearZ;
         pc.farZ                  = renderState->farZ;
-        pc.p22                   = renderState->projection[2][2];
-        pc.p23                   = renderState->projection[3][2];
-        pc.isSecondPass          = 0;
         pc.meshClusterDescriptor = device->GetDescriptorIndex(&buffers[UploadType_MeshClusters], ResourceType::SRV);
         device->BindCompute(&clusterCullPipeline, cmdList);
         device->PushConstants(cmdList, sizeof(pc), &pc);
         device->BindResource(&meshChunkBuffer, ResourceType::SRV, 0, cmdList);
+        device->BindResource(&viewsBuffer, ResourceType::SRV, 1, cmdList);
         device->BindResource(&dispatchIndirectBuffer, ResourceType::UAV, 0, cmdList);
         device->BindResource(&meshClusterIndexBuffer, ResourceType::UAV, 1, cmdList);
-        device->UpdateDescriptorSet(cmdList);
         // device->Dispatch(cmdList, (meshClusterCount + CLUSTER_CULL_GROUP_SIZE - 1) / CLUSTER_CULL_GROUP_SIZE, 1, 1);
         device->DispatchIndirect(cmdList, &dispatchIndirectBuffer,
                                  CLUSTER_DISPATCH_OFFSET * sizeof(DispatchIndirect) + Offset(DispatchIndirect, groupCountX));
@@ -1381,10 +1479,8 @@ internal void CullInstances(CommandList cmdList)
 
     {
         GPUBarrier barriers[] = {
-            GPUBarrier::Buffer(&dispatchIndirectBuffer, PipelineFlag_Compute, PipelineFlag_Compute | PipelineFlag_Indirect,
-                               AccessFlag_ShaderWrite, AccessFlag_IndirectRead | AccessFlag_ShaderRead),
-            GPUBarrier::Buffer(&meshClusterIndexBuffer, PipelineFlag_Compute, PipelineFlag_Compute,
-                               AccessFlag_ShaderWrite, AccessFlag_ShaderRead),
+            GPUBarrier::ComputeWriteToRead(&dispatchIndirectBuffer, ResourceUsage_None, ResourceUsage_Indirect),
+            GPUBarrier::ComputeWriteToRead(&meshClusterIndexBuffer),
         };
         device->Barrier(cmdList, barriers, ArrayLength(barriers));
     }
@@ -1406,7 +1502,6 @@ internal void CullInstances(CommandList cmdList)
         device->BindResource(&indirectScratchBuffer, ResourceType::UAV, 0, cmdList);
         device->BindResource(&meshIndexBuffer, ResourceType::UAV, 1, cmdList);
         // device->BindResource(&depthPyramid, ResourceType::SRV, 0, cmdList);
-        device->UpdateDescriptorSet(cmdList);
         device->DispatchIndirect(cmdList, &dispatchIndirectBuffer,
                                  TRIANGLE_DISPATCH_OFFSET * sizeof(DispatchIndirect) + Offset(DispatchIndirect, groupCountX));
         device->EndEvent(cmdList);
@@ -1414,8 +1509,7 @@ internal void CullInstances(CommandList cmdList)
 
     {
         GPUBarrier barriers[] = {
-            GPUBarrier::Buffer(&indirectScratchBuffer, PipelineFlag_Compute, PipelineFlag_Compute,
-                               AccessFlag_ShaderWrite, AccessFlag_ShaderRead),
+            GPUBarrier::ComputeWriteToRead(&indirectScratchBuffer),
         };
         device->Barrier(cmdList, barriers, ArrayLength(barriers));
     }
@@ -1431,10 +1525,50 @@ internal void CullInstances(CommandList cmdList)
         device->BindResource(&indirectScratchBuffer, ResourceType::SRV, 0, cmdList);
         device->BindResource(&meshIndirectCountBuffer, ResourceType::UAV, 0, cmdList);
         device->BindResource(&meshIndirectBuffer, ResourceType::UAV, 1, cmdList);
-        device->UpdateDescriptorSet(cmdList);
         device->Dispatch(cmdList, (meshClusterCount + 63) / 64, 1, 1);
         device->EndEvent(cmdList);
     }
+} // namespace render
+
+internal void UpdateHZBPyramid(CommandList cmdList)
+{
+    device->BeginEvent(cmdList, "Update HZB");
+    u32 width          = depthPyramid.desc.width;
+    u32 height         = depthPyramid.desc.height;
+    i32 lastWriteIndex = 0;
+    device->BindCompute(&generateMipsPipeline, cmdList);
+    for (u32 i = 0; i < ArrayLength(depthPyramidSubresources) && width > 1 && height > 1; i++)
+    {
+        if (i == 0)
+        {
+            device->BindResource(&depthBufferMain, ResourceType::SRV, 0, cmdList);
+        }
+        else
+        {
+            device->BindResource(&depthPyramid, ResourceType::SRV, 0, cmdList, depthPyramidSubresources[i - 1]);
+        }
+        GPUBarrier barriers[] = {
+            GPUBarrier::Image(&depthPyramid, ResourceUsage_ComputeRead, ResourceUsage_ComputeWrite, depthPyramidSubresources[i]),
+            GPUBarrier::Image(&depthPyramid, ResourceUsage_ComputeWrite, ResourceUsage_ComputeRead, depthPyramidSubresources[i == 0 ? 0 : i - 1]),
+        };
+        lastWriteIndex = depthPyramidSubresources[i];
+        device->Barrier(cmdList, barriers, i != 0 ? ArrayLength(barriers) : 1);
+
+        device->BindResource(&depthPyramid, ResourceType::UAV, 0, cmdList, depthPyramidSubresources[i]);
+        device->BindSampler(cmdList, &samplerMax, 0);
+        width /= 2;
+        height /= 2;
+        device->Dispatch(cmdList, (width + 7) / 8, (height + 7) / 8, 1);
+    }
+
+    {
+        GPUBarrier barriers[] = {
+            GPUBarrier::Image(&depthPyramid, ResourceUsage_ComputeWrite, ResourceUsage_ComputeRead, lastWriteIndex),
+            GPUBarrier::Image(&depthBufferMain, ResourceUsage_ComputeRead, ResourceUsage_DepthStencil),
+        };
+        device->Barrier(cmdList, barriers, ArrayLength(barriers));
+    }
+    device->EndEvent(cmdList);
 }
 
 internal void RenderMeshes(CommandList cmdList, RenderPassType type, i32 cascadeNum = -1)
@@ -1475,18 +1609,22 @@ internal void Render()
 
     // Upload frame allocations
     {
-        // NOTE: WAR, only need execution dependency
+        // Uploads views
         {
-            GPUBarrier barriers[] = {
-                GPUBarrier::Memory(PipelineFlag_AllCommands, PipelineFlag_Transfer),
-                GPUBarrier::Memory(PipelineFlag_Indirect, PipelineFlag_Compute),
-            };
-            device->Barrier(cmd, barriers, ArrayLength(barriers));
+            GPUView view;
+            view.worldToClip     = renderState->transform;
+            view.prevWorldToClip = renderState->prevWorldToClip;
+            view.p22             = renderState->projection[2][2];
+            view.p23             = renderState->projection[3][2];
+            view.prevP22         = renderState->prevP22;
+            view.prevP22         = renderState->prevP23;
+
+            device->FrameAllocate(&viewsBuffer, &view, cmd, sizeof(view));
+
+            renderState->prevWorldToClip = renderState->transform;
+            renderState->prevP22         = renderState->projection[2][2];
+            renderState->prevP23         = renderState->projection[3][2];
         }
-        device->BindCompute(&clearIndirectPipeline, cmd);
-        device->BindResource(&indirectScratchBuffer, ResourceType::UAV, 0, cmd);
-        device->UpdateDescriptorSet(cmd);
-        device->Dispatch(cmd, (meshClusterCount + CLUSTER_SIZE - 1) / CLUSTER_SIZE, 1, 1);
 
         for (u32 i = 0; i < UploadType_Count; i++)
         {
@@ -1519,19 +1657,33 @@ internal void Render()
         GPUBuffer *currentMeshGeoUpload   = &meshGeometryBufferUpload[device->GetCurrentBuffer()];
         GPUBuffer *currentMaterialUpload  = &materialBufferUpload[device->GetCurrentBuffer()];
 
-        u32 zero = 0;
-        device->FrameAllocate(&meshIndirectCountBuffer, &zero, cmd);
+        // Indirect prep
+        {
+            // NOTE: WAR, only need execution dependency
+            {
+                GPUBarrier barriers[] = {
+                    GPUBarrier::Buffer(&indirectScratchBuffer, ResourceUsage_Indirect, ResourceUsage_Compute),
+                };
+                device->Barrier(cmd, barriers, ArrayLength(barriers));
+            }
+            device->BindCompute(&clearIndirectPipeline, cmd);
+            device->BindResource(&indirectScratchBuffer, ResourceType::UAV, 0, cmd);
+            device->Dispatch(cmd, (meshClusterCount + CLUSTER_SIZE - 1) / CLUSTER_SIZE, 1, 1);
 
-        TempArena temp                                 = ScratchStart(0, 0);
-        DispatchIndirect *indirect                     = PushArray(temp.arena, DispatchIndirect, 3);
-        indirect[CLUSTER_DISPATCH_OFFSET].groupCountX  = 0;
-        indirect[CLUSTER_DISPATCH_OFFSET].groupCountY  = 1;
-        indirect[CLUSTER_DISPATCH_OFFSET].groupCountZ  = 1;
-        indirect[TRIANGLE_DISPATCH_OFFSET].groupCountX = 0;
-        indirect[TRIANGLE_DISPATCH_OFFSET].groupCountY = 1;
-        indirect[TRIANGLE_DISPATCH_OFFSET].groupCountZ = 1;
-        device->FrameAllocate(&dispatchIndirectBuffer, indirect, cmd);
-        ScratchEnd(temp);
+            u32 zero = 0;
+            device->FrameAllocate(&meshIndirectCountBuffer, &zero, cmd);
+
+            TempArena temp                                 = ScratchStart(0, 0);
+            DispatchIndirect *indirect                     = PushArray(temp.arena, DispatchIndirect, 3);
+            indirect[CLUSTER_DISPATCH_OFFSET].groupCountX  = 0;
+            indirect[CLUSTER_DISPATCH_OFFSET].groupCountY  = 1;
+            indirect[CLUSTER_DISPATCH_OFFSET].groupCountZ  = 1;
+            indirect[TRIANGLE_DISPATCH_OFFSET].groupCountX = 0;
+            indirect[TRIANGLE_DISPATCH_OFFSET].groupCountY = 1;
+            indirect[TRIANGLE_DISPATCH_OFFSET].groupCountZ = 1;
+            device->FrameAllocate(&dispatchIndirectBuffer, indirect, cmd);
+            ScratchEnd(temp);
+        }
 
         // need to clear dispatchindirect buffer to 0
         if (skinningBufferSize)
@@ -1553,8 +1705,7 @@ internal void Render()
 
         {
             GPUBarrier barriers[] = {
-                GPUBarrier::Memory(PipelineFlag_Transfer, PipelineFlag_Compute,
-                                   AccessFlag_TransferWrite, AccessFlag_ShaderWrite | AccessFlag_ShaderRead),
+                GPUBarrier::Memory(ResourceUsage_TransferDst, ResourceUsage_ComputeRead | ResourceUsage_ComputeWrite),
             };
             device->Barrier(cmd, barriers, ArrayLength(barriers));
         }
@@ -1606,13 +1757,7 @@ internal void Render()
     }
 
     // Culling
-    {
-        GPUBarrier barrier = GPUBarrier::Memory(PipelineFlag_Compute, PipelineFlag_Compute,
-                                                AccessFlag_ShaderWrite, AccessFlag_ShaderRead);
-        device->Barrier(cmd, &barrier, 1);
-
-        CullInstances(cmd);
-    }
+    CullInstances(cmd, false);
 
     TIMED_RANGE_END(computeIndex);
 
@@ -1637,12 +1782,12 @@ internal void Render()
     }
 
     // Shadow pass :)
+    // TODO: find something async to do during this
     {
-        for (u32 shadowSlice = 0; shadowSlice < shadowDepthBuffer.desc.numLayers; shadowSlice++)
+        for (u32 shadowSlice = 0; shadowSlice < shadowDepthMap.desc.numLayers; shadowSlice++)
         {
             RenderPassImage images[] = {
-                RenderPassImage::DepthStencil(&shadowDepthBuffer,
-                                              ResourceUsage::SampledImage, ResourceUsage::SampledImage, shadowSlice),
+                RenderPassImage::DepthStencil(&shadowDepthMap, ResourceUsage_None, shadowSlice),
             };
 
             device->BeginRenderPass(images, ArrayLength(images), cmdList);
@@ -1651,8 +1796,8 @@ internal void Render()
             device->UpdateDescriptorSet(cmdList);
 
             Viewport viewport;
-            viewport.width  = (f32)shadowDepthBuffer.desc.width;
-            viewport.height = (f32)shadowDepthBuffer.desc.height;
+            viewport.width  = (f32)shadowDepthMap.desc.width;
+            viewport.height = (f32)shadowDepthMap.desc.height;
 
             device->SetViewport(cmdList, &viewport);
             Rect2 scissor;
@@ -1668,43 +1813,74 @@ internal void Render()
 
     // Main geo pass
 
-    {
-        // TIMED_GPU(cmdList);
-        // RenderPassImage images[] = {
-        //     RenderPassImage::DepthStencil(&depthBufferMain,
-        //                                   ResourceUsage::None, ResourceUsage::DepthStencil),
-        // };
-
+    auto render = [&](CommandList commandList, bool isFirstPass) {
         RenderPassImage images[] = {
-            {
-                RenderPassImage::RenderImageType::Depth,
-                &depthBufferMain,
-            },
+            RenderPassImage::DepthStencil(&depthBufferMain,
+                                          isFirstPass ? ResourceUsage_Reset : ResourceUsage_None,
+                                          -1,
+                                          isFirstPass ? LoadOp::Clear : LoadOp::Load,
+                                          StoreOp::Store),
+            RenderPassImage::Color(&mainColorAttachment,
+                                   isFirstPass ? ResourceUsage_Reset : ResourceUsage_None,
+                                   -1,
+                                   isFirstPass ? LoadOp::Clear : LoadOp::Load,
+                                   StoreOp::Store),
         };
 
-        device->BeginRenderPass(&swapchain, images, ArrayLength(images), cmdList);
-        device->BindPipeline(&pipelineState, cmdList);
-        device->BindResource(&cascadeParamsBuffer, ResourceType::SRV, CASCADE_PARAMS_BIND, cmdList);
-        device->BindResource(&shadowDepthBuffer, ResourceType::SRV, SHADOW_MAP_BIND, cmdList);
-        device->UpdateDescriptorSet(cmdList);
+        device->BeginRenderPass(images, ArrayLength(images), commandList);
+        device->BindPipeline(&pipelineState, commandList);
+        device->BindResource(&cascadeParamsBuffer, ResourceType::SRV, CASCADE_PARAMS_BIND, commandList);
+        device->BindResource(&shadowDepthMap, ResourceType::SRV, SHADOW_MAP_BIND, commandList);
+        device->UpdateDescriptorSet(commandList);
 
         Viewport viewport;
         viewport.width  = (f32)swapchain.GetDesc().width;
         viewport.height = (f32)swapchain.GetDesc().height;
 
-        device->SetViewport(cmdList, &viewport);
+        device->SetViewport(commandList, &viewport);
         Rect2 scissor;
         scissor.minP = {0, 0};
         scissor.maxP = {65536, 65536};
 
-        device->SetScissor(cmdList, scissor);
+        device->SetScissor(commandList, scissor);
 
         PushConstant pc;
         pc.meshParamsDescriptor = device->GetDescriptorIndex(&meshParamsBuffer, ResourceType::SRV);
 
-        RenderMeshes(cmdList, RenderPassType_Main);
-        device->EndRenderPass(cmdList);
+        RenderMeshes(commandList, RenderPassType_Main);
+        device->EndRenderPass(commandList);
+    };
+    // TODO: going to need to fix this absolute mess
+    render(cmdList, true);
+    {
+        GPUBarrier barrier = GPUBarrier::Image(&depthBufferMain, ResourceUsage_DepthStencil, ResourceUsage_ComputeRead);
+        device->Barrier(cmdList, &barrier, 1);
     }
+    // CommandList secondPassComputeCmdList = device->BeginCommandList(QueueType_Compute);
+    // device->Wait(cmdList, secondPassComputeCmdList);
+    UpdateHZBPyramid(cmdList);
+    CullInstances(cmdList, true);
+
+    // CommandList secondPassGraphicsCmdList = device->BeginCommandList(QueueType_Graphics);
+    // device->Wait(cmdList, secondPassGraphicsCmdList);
+    render(cmdList, false);
+    {
+        GPUBarrier barriers[] = {
+            GPUBarrier::Image(&mainColorAttachment, ResourceUsage_ColorAttachment, ResourceUsage_TransferSrc),
+        };
+        device->Barrier(cmdList, barriers, ArrayLength(barriers));
+    }
+    device->BeginRenderPass(&swapchain, cmdList);
+    device->CopyImage(cmdList, &swapchain, &mainColorAttachment);
+    device->EndRenderPass(&swapchain, cmdList);
+    {
+        GPUBarrier barrier = GPUBarrier::Image(&depthBufferMain, ResourceUsage_DepthStencil, ResourceUsage_ComputeRead);
+        device->Barrier(cmdList, &barrier, 1);
+    }
+    // CommandList secondPassComputeCmdList = device->BeginCommandList(QueueType_Compute); // QueueType_Graphics);
+    // device->Wait(secondPassGraphicsCmdList, secondPassComputeCmdList);
+    UpdateHZBPyramid(cmdList);
+
     TIMED_RANGE_END(rangeIndex);
     debugState.EndTriangleCount(cmdList);
     debugState.EndFrame(cmdList);
@@ -1714,7 +1890,7 @@ internal void Render()
     currentBuffer = currentFrame % ArrayLength(frameData);
 
     debugState.PrintDebugRecords();
-} // namespace render
+}
 
 void DeferBlockCompress(graphics::Texture input, graphics::Texture output)
 {
@@ -1752,8 +1928,8 @@ void BlockCompressImage(graphics::Texture *input, graphics::Texture *output, Com
     desc.width        = input->desc.width / blockSize;
     desc.height       = input->desc.height / blockSize;
     desc.format       = Format::R32G32_UINT;
-    desc.initialUsage = ResourceUsage::StorageImage;
-    desc.futureUsages = ResourceUsage::TransferSrc;
+    desc.initialUsage = ResourceUsage_StorageImage;
+    desc.futureUsages = ResourceUsage_TransferSrc;
     desc.textureType  = TextureDesc::TextureType::Texture2D;
 
     if (!bc1Uav.IsValid() || bc1Uav.desc.width < desc.width || bc1Uav.desc.height < desc.height)
@@ -1772,15 +1948,13 @@ void BlockCompressImage(graphics::Texture *input, graphics::Texture *output, Com
     device->BindResource(&bc1Uav, ResourceType::UAV, 0, cmd);
     device->BindResource(input, ResourceType::SRV, 0, cmd);
 
-    device->UpdateDescriptorSet(cmd);
     device->Dispatch(cmd, (desc.width + 7) / 8, (desc.height + 7) / 8, 1);
 
     // Copy from uav to output
     {
         GPUBarrier barriers[] = {
-            GPUBarrier::Image(&bc1Uav, PipelineFlag_Compute, PipelineFlag_Transfer,
-                              AccessFlag_ShaderWrite, AccessFlag_TransferRead,
-                              ImageLayout_General, ImageLayout_TransferSrc),
+
+            GPUBarrier::Image(&bc1Uav, ResourceUsage_ComputeWrite, ResourceUsage_TransferSrc),
         };
         device->Barrier(cmd, barriers, ArrayLength(barriers));
     }
@@ -1790,15 +1964,11 @@ void BlockCompressImage(graphics::Texture *input, graphics::Texture *output, Com
     // Transfer the block compressed texture to its initial format
     {
         GPUBarrier barriers[] = {
-            GPUBarrier::Image(&bc1Uav, PipelineFlag_Transfer, PipelineFlag_Compute,
-                              AccessFlag_TransferRead, AccessFlag_ShaderWrite,
-                              ImageLayout_TransferSrc, ImageLayout_General),
-            GPUBarrier::Image(output, PipelineFlag_Transfer, PipelineFlag_FragmentShader,
-                              AccessFlag_TransferWrite, AccessFlag_ShaderRead,
-                              ImageLayout_TransferDst, ImageLayout_ShaderRead),
+            GPUBarrier::Image(&bc1Uav, ResourceUsage_TransferSrc, ResourceUsage_ComputeWrite),
+            GPUBarrier::Image(output, ResourceUsage_TransferDst, PipelineStage_FragmentShader),
         };
         device->Barrier(cmd, barriers, ArrayLength(barriers));
     }
-}
+} // namespace render
 
 } // namespace render

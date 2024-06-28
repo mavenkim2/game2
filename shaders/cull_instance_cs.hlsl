@@ -5,52 +5,58 @@
 
 [[vk::push_constant]] InstanceCullPushConstants push;
 
-//Texture2D depthPyramid : register(t0);
+StructuredBuffer<GPUView> views : register(t1);
 
 RWStructuredBuffer<DispatchIndirect> dispatchIndirectBuffer : register(u0);
 RWStructuredBuffer<MeshChunk> meshChunks : register(u1);
-//RWStructuredBuffer<uint> drawVisibility: register(u2);
+RWStructuredBuffer<uint> occludedInstances : register(u2);
 
 [numthreads(INSTANCE_CULL_GROUP_SIZE, 1, 1)]
 void main(uint3 dispatchThreadID : SV_DispatchThreadID)
 {
+#ifndef PASS
+#error Pass is not defined.
+#endif
+
+#if PASS == FIRST_PASS
     uint meshIndex = dispatchThreadID.x;
     if (meshIndex > push.numInstances)
         return;
+#elif PASS == SECOND_PASS
+    if (dispatchThreadID.x > dispatchIndirectBuffer[INSTANCE_SECOND_PASS_DISPATCH_OFFSET].commandCount)
+        return;
+    uint meshIndex = occludedInstances[dispatchThreadID.x];
+#endif
 
     MeshParams params = bindlessMeshParams[push.meshParamsDescriptor][meshIndex];
-    float4x4 mvp = mul(push.worldToClip, params.localToWorld);
+    float4x4 mvp = mul(views[0].worldToClip, params.localToWorld);
 
-    bool skipFrustumCull = false;//(PASS == SECOND_PASS);
+    bool skipFrustumCull = 0;//(PASS == SECOND_PASS);
     FrustumCullResults cullResults = ProjectBoxAndFrustumCull(params.minP, params.maxP, mvp,
-                                                              push.p22, push.p23, skipFrustumCull);
+                                                              views[0].p22, views[0].p23, skipFrustumCull);
     bool visible = cullResults.isVisible;
 
-#if 0
-    #if PASS == FIRST_PASS
-    if (visible)
+
+#if PASS == FIRST_PASS
+    skipFrustumCull = false;
+    // use last frame's stuff
+    float4x4 lastFrameMvp = mul(views[0].prevWorldToClip, params.localToWorld); // TODO: prevlocaltoworld
+    FrustumCullResults lastFrameResults = ProjectBoxAndFrustumCull(params.minP, params.maxP, lastFrameMvp,
+                                                                   views[0].prevP22, views[0].prevP23, skipFrustumCull);
+    OcclusionResults occlusionResults = HZBOcclusionTest(lastFrameResults, push.screenSize);
+
+    uint occludedInstanceOffset;
+    WaveInterlockedAddScalarInGroupsTest(dispatchIndirectBuffer[INSTANCE_SECOND_PASS_DISPATCH_OFFSET].commandCount, 
+                                 dispatchIndirectBuffer[INSTANCE_SECOND_PASS_DISPATCH_OFFSET].groupCountX, 
+                                 64, occlusionResults.wasOccluded, 1, occludedInstanceOffset);
+    if (0)//occlusionResults.wasOccluded)
     {
-        skipFrustumCull = true;
-        // use last frame's stuff
-        float4x4 lastFrameMvp = ?;
-        ProjectBoxAndFrustumCull(params.minP, params.maxP, ?, push.nearZ, push.farZ, 
-                                 skipFrustumCull, push.p22, push.p23, aabb, minBoz);
+        occludedInstances[occludedInstanceOffset] = meshIndex;
     }
-    #endif // PASS == FIRST_PASS
-#endif
-
-#if 0
-    if (visible && push.isSecondPass)
-    {
-        float width = (aabb.z - aabb.x) * push.pyramidWidth;
-        float height = (aabb.w - aabb.y) * push.pyramidHeight;
-
-        int lod = ceil(log2(max(width, height)));
-        float depth = depthPyramid.SampleLevel(samplerNearestClamp, depthPyramid, lod).x;
-
-        visible = visible && minBoxZ < depth;
-    }
-#endif
+#elif PASS == SECOND_PASS
+    OcclusionResults occlusionResults = HZBOcclusionTest(cullResults, push.screenSize); 
+#endif // PASS == FIRST_PASS || PASS == SECOND_PASS
+    //visible = occlusionResults.isVisible;
 
     // my understanding of this process:
     // there is a hierarchiacl z buffer (hzb), which just contains mips of a depth buffer down sampled 2x 
@@ -63,7 +69,7 @@ void main(uint3 dispatchThreadID : SV_DispatchThreadID)
     // lines :)
     // If it's the first pass, or if it's the second pass and the object wasn't drawn in the first pass
 
-    if (visible)// && (push.isSecondPass == 0))// || drawVisibility[instanceIndex] == 0))
+    if (visible)
     {
         uint chunkCount = (params.clusterCount + CHUNK_GROUP_SIZE - 1) / CHUNK_GROUP_SIZE;
         uint chunkStartIndex;
@@ -76,9 +82,4 @@ void main(uint3 dispatchThreadID : SV_DispatchThreadID)
             meshChunks[chunkStartIndex + i].wasVisibleLastFrame = 0;//drawVisibility[instanceIndex];
         }
     }
-
-    //if (visible && push.isSecondPass)
-    //{
-    //    drawVisibility[instanceIndex] = visible ? 1 : 0;
-    //}
 }

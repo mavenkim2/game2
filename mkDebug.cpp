@@ -21,8 +21,9 @@ void DebugState::BeginFrame()
         device->CreateQueryPool(&pipelineStatisticsPool, QueryType_PipelineStatistics, 4);
 
         GPUBufferDesc desc = {};
-        desc.size         = (u32)(sizeof(u64) * (timestampPool.queryCount + pipelineStatisticsPool.queryCount));
-        desc.usage        = MemoryUsage::GPU_TO_CPU;
+        desc.size          = (u32)(sizeof(u64) * (timestampPool.queryCount + pipelineStatisticsPool.queryCount));
+        desc.usage         = MemoryUsage::GPU_TO_CPU;
+        desc.resourceUsage = ResourceUsage_Buffer;
 
         for (u32 i = 0; i < ArrayLength(queryResultBuffer); i++)
         {

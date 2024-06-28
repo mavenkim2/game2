@@ -1,6 +1,11 @@
 #ifndef MK_GRAPHICS_H
 #define MK_GRAPHICS_H
 
+#include "../mkCrack.h"
+#ifdef LSP_INCLUDE
+#include "mkTypes.h"
+#endif
+
 #include <atomic>
 #include <functional>
 
@@ -47,6 +52,65 @@ enum
     DeviceCapabilities_VariableShading,
 };
 
+typedef u32 ResourceUsage;
+enum : u32
+{
+    ResourceUsage_None     = 0,
+    ResourceUsage_Compute  = 1 << 0,
+    ResourceUsage_Graphics = 1 << 1,
+    ResourceUsage_Read     = 1 << 2, // read in the graphics pipeline
+    ResourceUsage_Write    = 1 << 3, // write in the graphics pipeline
+    ResourceUsage_Depth    = 1 << 4,
+    ResourceUsage_Stencil  = 1 << 5,
+    // ResourceUsage_SRV          = 1 << 7,
+    // ResourceUsage_UAV          = 1 << 8,
+    ResourceUsage_Buffer  = 1 << 6,
+    ResourceUsage_Texture = 1 << 7,
+
+    // Pipeline stages
+    ResourceUsage_Indirect       = 1 << 8,
+    ResourceUsage_Vertex         = 1 << 9,
+    ResourceUsage_Fragment       = 1 << 10,
+    ResourceUsage_Index          = 1 << 11,
+    ResourceUsage_Input          = 1 << 12,
+    ResourceUsage_Shader         = 1 << 13,
+    PipelineStage_VertexInput    = ResourceUsage_Vertex | ResourceUsage_Input,
+    PipelineStage_IndexInput     = ResourceUsage_Index | ResourceUsage_Input,
+    PipelineStage_VertexShader   = ResourceUsage_Vertex | ResourceUsage_Shader,
+    PipelineStage_FragmentShader = ResourceUsage_Fragment | ResourceUsage_Shader,
+
+    // Transfer
+    ResourceUsage_TransferSrc = 1 << 14,
+    ResourceUsage_TransferDst = 1 << 15,
+
+    // Bindless
+    ResourceUsage_Bindless = (1 << 16) | ResourceUsage_TransferDst,
+
+    // Attachments
+    ResourceUsage_ColorAttachment = 1 << 17,
+
+    ResourceUsage_ComputeRead  = ResourceUsage_Compute | ResourceUsage_Read,
+    ResourceUsage_ComputeWrite = ResourceUsage_Compute | ResourceUsage_Write,
+
+    ResourceUsage_VertexBuffer = ResourceUsage_Vertex | ResourceUsage_Buffer,
+    ResourceUsage_IndexBuffer  = ResourceUsage_Index | ResourceUsage_Buffer,
+
+    ResourceUsage_DepthStencil = ResourceUsage_Depth | ResourceUsage_Stencil | ResourceUsage_Read | ResourceUsage_Write,
+
+    ResourceUsage_UniformBuffer = (1 << 18) | ResourceUsage_Buffer,
+    ResourceUsage_UniformTexel  = (1 << 19) | ResourceUsage_Buffer,
+
+    ResourceUsage_StorageBufferRead = (1 << 20) | ResourceUsage_Buffer, // read only
+    ResourceUsage_StorageBuffer     = (1 << 21) | ResourceUsage_Buffer, // read write
+    ResourceUsage_StorageTexel      = (1 << 22) | ResourceUsage_Buffer,
+
+    ResourceUsage_SampledImage = (1 << 23) | ResourceUsage_Texture,
+    ResourceUsage_StorageImage = (1 << 24) | ResourceUsage_Texture,
+
+    ResourceUsage_ShaderGlobals = ResourceUsage_StorageBufferRead | ResourceUsage_Bindless,
+    ResourceUsage_Reset         = 0xffffffff,
+};
+
 enum class Format
 {
     Null,
@@ -86,55 +150,55 @@ enum class ResourceType
 };
 
 //	https://www.justsoftwaresolutions.co.uk/cplusplus/using-enum-classes-as-bitfields.html
-template <typename E>
-struct enable_bitmask_operators
-{
-    static constexpr bool enable = false;
-};
-template <typename E>
-constexpr typename std::enable_if<enable_bitmask_operators<E>::enable, E>::type operator|(E lhs, E rhs)
-{
-    typedef typename std::underlying_type<E>::type underlying;
-    return static_cast<E>(
-        static_cast<underlying>(lhs) | static_cast<underlying>(rhs));
-}
-template <typename E>
-constexpr typename std::enable_if<enable_bitmask_operators<E>::enable, E &>::type operator|=(E &lhs, E rhs)
-{
-    typedef typename std::underlying_type<E>::type underlying;
-    lhs = static_cast<E>(
-        static_cast<underlying>(lhs) | static_cast<underlying>(rhs));
-    return lhs;
-}
-template <typename E>
-constexpr typename std::enable_if<enable_bitmask_operators<E>::enable, E>::type operator&(E lhs, E rhs)
-{
-    typedef typename std::underlying_type<E>::type underlying;
-    return static_cast<E>(
-        static_cast<underlying>(lhs) & static_cast<underlying>(rhs));
-}
-template <typename E>
-constexpr typename std::enable_if<enable_bitmask_operators<E>::enable, E &>::type operator&=(E &lhs, E rhs)
-{
-    typedef typename std::underlying_type<E>::type underlying;
-    lhs = static_cast<E>(
-        static_cast<underlying>(lhs) & static_cast<underlying>(rhs));
-    return lhs;
-}
-template <typename E>
-constexpr typename std::enable_if<enable_bitmask_operators<E>::enable, E>::type operator~(E rhs)
-{
-    typedef typename std::underlying_type<E>::type underlying;
-    rhs = static_cast<E>(
-        ~static_cast<underlying>(rhs));
-    return rhs;
-}
-
-template <typename E>
-inline b32 HasFlags(E lhs, E rhs)
-{
-    return (lhs & rhs) == rhs;
-}
+// template <typename E>
+// struct enable_bitmask_operators
+// {
+//     static constexpr bool enable = false;
+// };
+// template <typename E>
+// constexpr typename std::enable_if<enable_bitmask_operators<E>::enable, E>::type operator|(E lhs, E rhs)
+// {
+//     typedef typename std::underlying_type<E>::type underlying;
+//     return static_cast<E>(
+//         static_cast<underlying>(lhs) | static_cast<underlying>(rhs));
+// }
+// template <typename E>
+// constexpr typename std::enable_if<enable_bitmask_operators<E>::enable, E &>::type operator|=(E &lhs, E rhs)
+// {
+//     typedef typename std::underlying_type<E>::type underlying;
+//     lhs = static_cast<E>(
+//         static_cast<underlying>(lhs) | static_cast<underlying>(rhs));
+//     return lhs;
+// }
+// template <typename E>
+// constexpr typename std::enable_if<enable_bitmask_operators<E>::enable, E>::type operator&(E lhs, E rhs)
+// {
+//     typedef typename std::underlying_type<E>::type underlying;
+//     return static_cast<E>(
+//         static_cast<underlying>(lhs) & static_cast<underlying>(rhs));
+// }
+// template <typename E>
+// constexpr typename std::enable_if<enable_bitmask_operators<E>::enable, E &>::type operator&=(E &lhs, E rhs)
+// {
+//     typedef typename std::underlying_type<E>::type underlying;
+//     lhs = static_cast<E>(
+//         static_cast<underlying>(lhs) & static_cast<underlying>(rhs));
+//     return lhs;
+// }
+// template <typename E>
+// constexpr typename std::enable_if<enable_bitmask_operators<E>::enable, E>::type operator~(E rhs)
+// {
+//     typedef typename std::underlying_type<E>::type underlying;
+//     rhs = static_cast<E>(
+//         ~static_cast<underlying>(rhs));
+//     return rhs;
+// }
+//
+// template <typename E>
+// inline b32 HasFlags(E lhs, E rhs)
+// {
+//     return (lhs & rhs) == rhs;
+// }
 
 enum class MemoryUsage
 {
@@ -169,30 +233,30 @@ struct Viewport
 };
 
 // typedef u32 ResourceUsage;
-enum class ResourceUsage
-{
-    None               = 0,
-    UniformBuffer      = 1 << 1,
-    UniformTexelBuffer = 1 << 2,
-    StorageBuffer      = 1 << 3,
-    StorageTexelBuffer = 1 << 4,
-
-    VertexBuffer = 1 << 5,
-    IndexBuffer  = 1 << 6,
-
-    TransferSrc = 1 << 7,
-    TransferDst = 1 << 8,
-
-    SampledImage = 1 << 9,
-    StorageImage = 1 << 10,
-
-    DepthStencil = 1 << 11,
-
-    IndirectBuffer = 1 << 12,
-
-    MegaBuffer  = 1 << 13, // e.g. subviews contain meaningful data, not the whole buffer itself
-    NotBindless = 1 << 14,
-};
+// enum class ResourceUsage
+// {
+//     None               = 0,
+//     UniformBuffer      = 1 << 1,
+//     UniformTexelBuffer = 1 << 2,
+//     StorageBuffer      = 1 << 3,
+//     StorageTexelBuffer = 1 << 4,
+//
+//     VertexBuffer = 1 << 5,
+//     IndexBuffer  = 1 << 6,
+//
+//     TransferSrc = 1 << 7,
+//     TransferDst = 1 << 8,
+//
+//     SampledImage = 1 << 9,
+//     StorageImage = 1 << 10,
+//
+//     DepthStencil = 1 << 11,
+//
+//     IndirectBuffer = 1 << 12,
+//
+//     MegaBuffer  = 1 << 13, // e.g. subviews contain meaningful data, not the whole buffer itself
+//     NotBindless = 1 << 14,
+// };
 
 enum ImageUsage
 {
@@ -215,6 +279,7 @@ enum : u32
     PipelineFlag_Transfer             = 1 << 4,
     PipelineFlag_Compute              = 1 << 5,
     PipelineFlag_FragmentShader       = 1 << 6,
+    PipelineFlag_Depth                = 1 << 7,
     PipelineFlag_AllCommands          = 1U << 31,
 };
 
@@ -230,16 +295,7 @@ enum
     AccessFlag_ShaderRead          = 1 << 5,
     AccessFlag_ShaderWrite         = 1 << 6,
     AccessFlag_IndirectRead        = 1 << 7,
-};
-
-enum ImageLayout
-{
-    ImageLayout_None,
-    ImageLayout_DepthStencilAttachment,
-    ImageLayout_ShaderRead,
-    ImageLayout_General,
-    ImageLayout_TransferSrc,
-    ImageLayout_TransferDst,
+    AccessFlag_DepthStencil        = 1 << 8,
 };
 
 // inline b32 HasFlags(u32 lhs, u32 rhs)
@@ -292,6 +348,7 @@ enum class ShaderStage
     Compute,
     Count,
 };
+ENUM_CLASS_FLAGS(ShaderStage)
 
 enum ShaderType
 {
@@ -303,9 +360,11 @@ enum ShaderType
     ShaderType_TriangleCull_CS,
     ShaderType_ClearIndirect_CS,
     ShaderType_DrawCompaction_CS,
-    ShaderType_InstanceCull_CS,
+    ShaderType_InstanceCullPass1_CS,
+    ShaderType_InstanceCullPass2_CS,
     ShaderType_ClusterCull_CS,
     ShaderType_DispatchPrep_CS,
+    ShaderType_GenerateMips_CS,
     ShaderType_Count,
 };
 
@@ -408,6 +467,7 @@ struct Shader : GraphicsObject
 {
     string name;
     ShaderStage stage;
+    string outName = {};
 };
 
 struct CommandList : GraphicsObject
@@ -497,57 +557,63 @@ struct GPUBarrier
 
     GPUResource *resource;
 
-    PipelineFlag stageBefore;
-    PipelineFlag stageAfter;
+    ResourceUsage usageBefore;
+    ResourceUsage usageAfter;
+    i32 subresource;
 
-    AccessFlag accessBefore;
-    AccessFlag accessAfter;
-
-    ImageLayout layoutBefore;
-    ImageLayout layoutAfter;
-
-    static GPUBarrier Buffer(GPUResource *resource, PipelineFlag inStageBefore, PipelineFlag inStageAfter,
-                             AccessFlag inAccessBefore, AccessFlag inAccessAfter)
+    static inline GPUBarrier Buffer(GPUResource *resource, ResourceUsage inUsageBefore, ResourceUsage inUsageAfter)
     {
         GPUBarrier barrier;
         Assert(resource->resourceType == GPUResource::ResourceType::Buffer);
 
-        barrier.type         = Type::Buffer;
-        barrier.resource     = resource;
-        barrier.stageBefore  = inStageBefore;
-        barrier.stageAfter   = inStageAfter;
-        barrier.accessBefore = inAccessBefore;
-        barrier.accessAfter  = inAccessAfter;
+        barrier.type        = Type::Buffer;
+        barrier.resource    = resource;
+        barrier.usageBefore = inUsageBefore;
+        barrier.usageAfter  = inUsageAfter;
 
         return barrier;
     }
 
-    static GPUBarrier Memory(PipelineFlag inStageBefore, PipelineFlag inStageAfter,
-                             AccessFlag inAccessBefore = AccessFlag_None, AccessFlag inAccessAfter = AccessFlag_None)
+    static inline GPUBarrier ComputeWriteToRead(GPUResource *resource, ResourceUsage additionalBefore = ResourceUsage_None,
+                                                ResourceUsage additionalAfter = ResourceUsage_None)
+    {
+        switch (resource->resourceType)
+        {
+            case GPUResource::ResourceType::Buffer: return Buffer(resource, ResourceUsage_ComputeWrite | additionalBefore, ResourceUsage_ComputeRead | additionalAfter);
+            case GPUResource::ResourceType::Image: return Image(resource, ResourceUsage_ComputeWrite | additionalBefore, ResourceUsage_ComputeRead | additionalAfter);
+            default: Assert(0); return Buffer(resource, ResourceUsage_ComputeRead, ResourceUsage_ComputeWrite);
+        }
+    }
+
+    static inline GPUBarrier ComputeReadToWrite(GPUResource *resource)
+    {
+        switch (resource->resourceType)
+        {
+            case GPUResource::ResourceType::Buffer: return Buffer(resource, ResourceUsage_ComputeRead, ResourceUsage_ComputeWrite);
+            case GPUResource::ResourceType::Image: return Image(resource, ResourceUsage_ComputeRead, ResourceUsage_ComputeWrite);
+            default: Assert(0); return Buffer(resource, ResourceUsage_ComputeRead, ResourceUsage_ComputeWrite);
+        }
+    }
+
+    static GPUBarrier Memory(ResourceUsage inUsageBefore, ResourceUsage inUsageAfter)
     {
         GPUBarrier barrier;
-        barrier.type         = Type::Memory;
-        barrier.resource     = 0;
-        barrier.stageBefore  = inStageBefore;
-        barrier.stageAfter   = inStageAfter;
-        barrier.accessBefore = inAccessBefore;
-        barrier.accessAfter  = inAccessAfter;
+        barrier.type        = Type::Memory;
+        barrier.resource    = 0;
+        barrier.usageBefore = inUsageBefore;
+        barrier.usageAfter  = inUsageAfter;
         return barrier;
     }
 
-    static GPUBarrier Image(GPUResource *resource, PipelineFlag inStageBefore, PipelineFlag inStageAfter, AccessFlag inAccessBefore,
-                            AccessFlag inAccessAfter, ImageLayout inLayoutBefore, ImageLayout inLayoutAfter)
+    static GPUBarrier Image(GPUResource *resource, ResourceUsage inUsageBefore, ResourceUsage inUsageAfter, i32 inSubresource = -1)
     {
         GPUBarrier barrier;
         Assert(resource->resourceType == GPUResource::ResourceType::Image);
-        barrier.type         = Type::Image;
-        barrier.resource     = resource;
-        barrier.stageBefore  = inStageBefore;
-        barrier.stageAfter   = inStageAfter;
-        barrier.accessBefore = inAccessBefore;
-        barrier.accessAfter  = inAccessAfter;
-        barrier.layoutBefore = inLayoutBefore;
-        barrier.layoutAfter  = inLayoutAfter;
+        barrier.type        = Type::Image;
+        barrier.resource    = resource;
+        barrier.usageBefore = inUsageBefore;
+        barrier.usageAfter  = inUsageAfter;
+        barrier.subresource = inSubresource;
         return barrier;
     }
 };
@@ -568,8 +634,8 @@ struct TextureDesc
     u32 numLayers              = 1;
     Format format              = Format::Null;
     MemoryUsage usage          = MemoryUsage::GPU_ONLY;
-    ResourceUsage initialUsage = ResourceUsage::None;
-    ResourceUsage futureUsages = ResourceUsage::None;
+    ResourceUsage initialUsage = ResourceUsage_None;
+    ResourceUsage futureUsages = ResourceUsage_None;
     enum class DefaultSampler
     {
         None,
@@ -590,15 +656,25 @@ struct Texture : GPUResource
     TextureMappedData mappedData;
 };
 
+enum class ReductionMode
+{
+    None,
+    Min,
+    Max,
+};
+
 struct SamplerDesc
 {
-    Filter mag              = Filter::Nearest;
-    Filter min              = Filter::Nearest;
-    Filter mipMode          = Filter::Nearest;
-    SamplerMode mode        = SamplerMode::Wrap;
-    BorderColor borderColor = BorderColor::TransparentBlack;
-    CompareOp compareOp     = CompareOp::None;
-    u32 maxAnisotropy       = 0;
+    Filter mag                  = Filter::Nearest;
+    Filter min                  = Filter::Nearest;
+    Filter mipMode              = Filter::Nearest;
+    SamplerMode mode            = SamplerMode::Wrap;
+    ReductionMode reductionMode = ReductionMode::None;
+    BorderColor borderColor     = BorderColor::TransparentBlack;
+    CompareOp compareOp         = CompareOp::None;
+    u32 maxAnisotropy           = 0;
+    f32 minLod                  = 0;
+    f32 maxLod                  = FLT_MAX;
 };
 
 struct Sampler : GraphicsObject
@@ -613,27 +689,61 @@ struct FrameAllocation
     u64 size;
 };
 
+enum class LoadOp
+{
+    Load,
+    Clear,
+    DontCare,
+};
+
+enum class StoreOp
+{
+    Store,
+    DontCare,
+    None,
+};
+
 struct RenderPassImage
 {
     enum class RenderImageType
     {
         Depth,
+        Color,
     } imageType;
     Texture *texture;
 
-    ResourceUsage layoutBefore = ResourceUsage::None;
-    ResourceUsage layout       = ResourceUsage::None;
-    ResourceUsage layoutAfter  = ResourceUsage::None;
-    i32 subresource            = -1;
+    ResourceUsage layoutBefore = ResourceUsage_None;
+    ResourceUsage layout       = ResourceUsage_None;
+    // ResourceUsage layoutAfter  = ResourceUsage_None;
+    LoadOp loadOp;
+    StoreOp storeOp;
+    i32 subresource = -1;
 
-    static RenderPassImage DepthStencil(Texture *texture, ResourceUsage layoutBefore, ResourceUsage layoutAfter, i32 subresource = -1)
+    static RenderPassImage DepthStencil(Texture *texture, ResourceUsage layoutBefore, i32 subresource = -1,
+                                        LoadOp inLoadOp = LoadOp::Clear, StoreOp inStoreOp = StoreOp::Store)
     {
         RenderPassImage image;
         image.imageType    = RenderImageType::Depth;
         image.texture      = texture;
         image.layoutBefore = layoutBefore;
-        image.layout       = ResourceUsage::DepthStencil;
-        image.layoutAfter  = layoutAfter;
+        image.layout       = ResourceUsage_DepthStencil;
+        // image.layoutAfter  = layoutAfter;
+        image.loadOp      = inLoadOp;
+        image.storeOp     = inStoreOp;
+        image.subresource = subresource;
+        return image;
+    }
+
+    static RenderPassImage Color(Texture *texture, ResourceUsage layoutBefore, i32 subresource = -1,
+                                 LoadOp inLoadOp = LoadOp::Clear, StoreOp inStoreOp = StoreOp::Store)
+    {
+        RenderPassImage image;
+        image.imageType    = RenderImageType::Color;
+        image.texture      = texture;
+        image.layoutBefore = layoutBefore;
+        image.layout       = ResourceUsage_ColorAttachment;
+        image.loadOp       = inLoadOp;
+        image.storeOp      = inStoreOp;
         image.subresource  = subresource;
         return image;
     }
@@ -742,19 +852,21 @@ struct mkGraphics
     virtual void ClearBuffer(CommandList cmd, GPUBuffer *dst)                                                                      = 0;
     virtual void CopyBuffer(CommandList cmd, GPUBuffer *dest, GPUBuffer *source, u32 size)                                         = 0;
     virtual void CopyTexture(CommandList cmd, Texture *dst, Texture *src, Rect3U32 *rect = 0)                                      = 0;
+    virtual void CopyImage(CommandList cmd, Swapchain *dst, Texture *src)                                                          = 0;
     virtual void DeleteBuffer(GPUBuffer *buffer)                                                                                   = 0;
     virtual void CreateTexture(Texture *outTexture, TextureDesc desc, void *inData)                                                = 0;
     virtual void DeleteTexture(Texture *texture)                                                                                   = 0;
     virtual void CreateSampler(Sampler *sampler, SamplerDesc desc)                                                                 = 0;
+    virtual void BindSampler(CommandList cmd, Sampler *sampler, u32 slot)                                                          = 0;
     virtual void BindResource(GPUResource *resource, ResourceType type, u32 slot, CommandList cmd, i32 subresource = -1)           = 0;
     virtual i32 GetDescriptorIndex(GPUResource *resource, ResourceType type, i32 subresourceIndex = -1)                            = 0;
     virtual i32 CreateSubresource(GPUBuffer *buffer, ResourceType type, u64 offset = 0ull, u64 size = ~0ull,
                                   Format format = Format::Null, const char *name = 0)                                              = 0;
     virtual i32 CreateSubresource(Texture *texture, u32 baseLayer = 0, u32 numLayers = ~0u,
                                   u32 baseMip = 0, u32 numMips = ~0u)                                                              = 0;
-    virtual void UpdateDescriptorSet(CommandList cmd)                                                                              = 0;
+    virtual void UpdateDescriptorSet(CommandList cmd, b8 isCompute = 0)                                                            = 0;
     virtual CommandList BeginCommandList(QueueType queue)                                                                          = 0;
-    virtual void BeginRenderPass(Swapchain *inSwapchain, RenderPassImage *images, u32 count, CommandList inCommandList)            = 0;
+    virtual void BeginRenderPass(Swapchain *inSwapchain, CommandList inCommandList)                                                = 0;
     virtual void BeginRenderPass(RenderPassImage *images, u32 count, CommandList cmd)                                              = 0;
     virtual void Draw(CommandList cmd, u32 vertexCount, u32 firstVertex)                                                           = 0;
     virtual void DrawIndexed(CommandList cmd, u32 indexCount, u32 firstVertex, u32 baseVertex)                                     = 0;
@@ -769,6 +881,7 @@ struct mkGraphics
     virtual void SetViewport(CommandList cmd, Viewport *viewport)                                                                  = 0;
     virtual void SetScissor(CommandList cmd, Rect2 scissor)                                                                        = 0;
     virtual void EndRenderPass(CommandList cmd)                                                                                    = 0;
+    virtual void EndRenderPass(Swapchain *swapchain, CommandList cmd)                                                              = 0;
     virtual void SubmitCommandLists()                                                                                              = 0;
     virtual void BindPipeline(PipelineState *ps, CommandList cmd)                                                                  = 0;
     virtual void BindCompute(PipelineState *ps, CommandList cmd)                                                                   = 0;
@@ -793,16 +906,16 @@ struct mkGraphics
     virtual u32 GetCurrentBuffer() = 0;
 };
 
-template <>
-struct enable_bitmask_operators<graphics::ResourceUsage>
-{
-    static const bool enable = true;
-};
-template <>
-struct enable_bitmask_operators<graphics::ShaderStage>
-{
-    static const bool enable = true;
-};
+// template <>
+// struct enable_bitmask_operators<graphics::ResourceUsage>
+// {
+//     static const bool enable = true;
+// };
+// template <>
+// struct enable_bitmask_operators<graphics::ShaderStage>
+// {
+//     static const bool enable = true;
+// };
 
 } // namespace graphics
 

@@ -6,7 +6,7 @@
 [[vk::push_constant]] ClusterCullPushConstants push;
 
 StructuredBuffer<MeshChunk> meshChunks : register(t0);
-//Texture2D depthPyramid : register(t3);
+StructuredBuffer<GPUView> views : register(t1);
 
 //RWStructuredBuffer<uint> clusterVisibility : register(u0);
 RWStructuredBuffer<DispatchIndirect> dispatchIndirect : register(u0);
@@ -30,7 +30,7 @@ void main(uint3 groupID : SV_GroupID, uint3 groupThreadID : SV_GroupThreadID)
     MeshCluster cluster = bindlessMeshClusters[push.meshClusterDescriptor][clusterID];
 
     MeshParams params = bindlessMeshParams[push.meshParamsDescriptor][cluster.meshIndex];
-    float4x4 mvp = mul(push.worldToClip, params.localToWorld);
+    float4x4 mvp = mul(views[0].worldToClip, params.localToWorld);
 
     bool skip = false;
     bool visible = true;

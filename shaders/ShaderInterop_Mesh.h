@@ -14,10 +14,21 @@ STRUCT(MeshParams)
     // float4x4 transform;
     // float4x4 modelViewMatrix;
     float4x4 localToWorld;
+    float4x4 prevLocalToWorld;
     float3 minP;
     uint clusterOffset;
     float3 maxP;
     uint clusterCount;
+};
+
+STRUCT(GPUView)
+{
+    float4x4 worldToClip;
+    float4x4 prevWorldToClip;
+    float p22;
+    float p23;
+    float prevP22;
+    float prevP23;
 };
 
 struct MeshGeometry
