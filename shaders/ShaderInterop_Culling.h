@@ -1,6 +1,6 @@
 #include "ShaderInterop.h"
 
-#define FIRST_PASS 1
+#define FIRST_PASS  1
 #define SECOND_PASS 2
 
 #define CHUNK_GROUP_SIZE         64
@@ -9,8 +9,9 @@
 
 #define CLUSTER_DISPATCH_OFFSET              0
 #define TRIANGLE_DISPATCH_OFFSET             1
-#define INSTANCE_SECOND_PASS_DISPATCH_OFFSET 2
-#define NUM_DISPATCH_OFFSETS                 3
+#define DRAW_COMPACTION_DISPATCH_OFFSET      2
+#define INSTANCE_SECOND_PASS_DISPATCH_OFFSET 3
+#define NUM_DISPATCH_OFFSETS                 4
 
 // NOTE: each chunk contains multiple clusters. this is mostly just for efficient usage of resources in compute shaders.
 // (at least that's what I think this is for). otherwise, each thread on the instance culling shader would have to write
@@ -63,4 +64,10 @@ struct DrawCompactionPushConstant
 struct DispatchPrepPushConstant
 {
     uint index;
+};
+
+struct CullingStatistics
+{
+    uint numFrustumCulled;
+    uint numOcclusionCulled;
 };

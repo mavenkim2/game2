@@ -849,8 +849,8 @@ internal void AS_LoadAsset(AS_Asset *asset)
         desc.width        = width;
         desc.height       = height;
         desc.format       = format;
-        desc.initialUsage = ResourceUsage_Bindless;
-        desc.futureUsages = ResourceUsage_SampledImage;
+        desc.initialUsage = ResourceUsage_SampledImage;
+        desc.futureUsages = ResourceUsage_Bindless;
         desc.textureType  = TextureDesc::TextureType::Texture2D;
         desc.sampler      = TextureDesc::DefaultSampler::Linear;
 
@@ -927,8 +927,8 @@ internal void LoadDDS(AS_Asset *asset)
     bcDesc.height       = file->header.height;
     bcDesc.depth        = file->header.depth;
     bcDesc.format       = format;
-    bcDesc.initialUsage = ResourceUsage_Bindless;
-    bcDesc.futureUsages = ResourceUsage_SampledImage;
+    bcDesc.initialUsage = ResourceUsage_SampledImage;
+    bcDesc.futureUsages = ResourceUsage_Bindless;
     device->CreateTexture(&asset->texture, bcDesc, data);
     device->SetName(&asset->texture, (const char *)asset->path.str);
 }

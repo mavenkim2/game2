@@ -29,6 +29,10 @@ struct FragmentInput
 #endif
 };
 
+#ifdef MESH_PASS
+Texture2DArray shadowMaps : register(SLOT(t, SHADOW_MAP_BIND));
+#endif
+
 #ifdef COMPILE_VS
 // Vertex shader
 FragmentInput main(VertexInput input)
@@ -48,9 +52,10 @@ FragmentInput main(VertexInput input)
 #endif
     float4 modelSpacePos = float4(pos, 1.0);
 #ifdef MESH_PASS
+    float4 worldSpacePos = mul(params.localToWorld, modelSpacePos);
     output.uv = uv;
-    output.worldFragPos = mul(params.localToWorld, modelSpacePos);
-    output.pos = mul(push.worldToClip, output.worldFragPos);
+    output.worldFragPos = worldSpacePos;
+    output.pos = mul(push.worldToClip, worldSpacePos);
     output.viewFragZ = output.pos.w;
 
     float3x3 normalMatrix = (float3x3)params.localToWorld;
@@ -66,10 +71,6 @@ FragmentInput main(VertexInput input)
     output.instanceID = input.instanceID;
     return output;
 }
-#endif
-
-#ifdef MESH_PASS
-Texture2DArray shadowMaps : register(SLOT(t, SHADOW_MAP_BIND));
 #endif
 
 // Pixel shader

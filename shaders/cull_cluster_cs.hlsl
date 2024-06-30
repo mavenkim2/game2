@@ -35,47 +35,20 @@ void main(uint3 groupID : SV_GroupID, uint3 groupThreadID : SV_GroupThreadID)
     bool skip = false;
     bool visible = true;
 
-#if 0
-    uint clusterVisibilityResult = clusterVisibility[clusterID >> 5];
-    uint isClusterVisible = clusterVisibilityResult & (1u << (clusterID & 31));
-
-    // In the first pass, only render objects visible last frame
-    if (!push.isSecondPass && isClusterVisible == 0)
-        visible = false;
-
-    // In the second pass, don't render objects that were previously rendered
-    if (push.isSecondPass && chunk.wasVisibleLastFrame && isClusterVisible)
-        skip = true;
-#endif
-
     float4 aabb;
     float minZ;
     visible = true;
     //visible = ProjectBoxAndFrustumCull(cluster.minP, cluster.maxP, mvp, push.nearZ, push.farZ,
     //                                   push.isSecondPass, push.p22, push.p23, aabb, minZ);
-#if 0
-    if (visible && push.isSecondPass)
-    {
-        float width = (aabb.z - aabb.x) * push.pyramidWidth;
-        float height = (aabb.w - aabb.y) * push.pyramidHeight;
-        
-        int lod = ceil(log2(max(width, height)));
-        float depth = SampleLevel(samplerNearestClamp, depthPyramid, lod).x;
-
-        visible = visible && minBoxZ < depth;
-    }
-    if (push.isSecondPass)
-    {
-        if (visible)
-            InterlockedOr(clusterVisibility[clusterID >> 5], (1u << (clusterID & 31)));
-        else 
-            InterlockedAnd(clusterVisibility[clusterID >> 5], ~(1u << (clusterID & 31)));
-    }
-#endif
 
     bool isClusterVisible = visible && !skip;
     uint clusterOffset;
-    WaveInterlockedAddScalarTest(dispatchIndirect[TRIANGLE_DISPATCH_OFFSET].groupCountX, isClusterVisible, 1, clusterOffset);
+    WaveInterlockedAddScalarInGroupsTest(dispatchIndirect[TRIANGLE_DISPATCH_OFFSET].groupCountX, 
+                                         dispatchIndirect[DRAW_COMPACTION_DISPATCH_OFFSET].groupCountX, 
+                                         64, 
+                                         isClusterVisible, 
+                                         1, 
+                                         clusterOffset);
 
     if (isClusterVisible)
     {

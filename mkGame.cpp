@@ -13,6 +13,7 @@
 #include "mkAsset.cpp"
 #include "mkAssetCache.cpp"
 #include "render/mkRender.cpp"
+#include "render/mkRenderGraph.cpp"
 #include "mkShaderCompiler.cpp"
 #include "mkDebug.cpp"
 #include "mkScene.cpp"

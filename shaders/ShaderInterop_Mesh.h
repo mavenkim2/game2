@@ -27,8 +27,6 @@ STRUCT(GPUView)
     float4x4 prevWorldToClip;
     float p22;
     float p23;
-    float prevP22;
-    float prevP23;
 };
 
 struct MeshGeometry

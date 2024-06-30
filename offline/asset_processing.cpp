@@ -670,7 +670,7 @@ int main(int argc, char *argv[])
     // Initialize compute shaders
     mkGraphicsVulkan device(ValidationMode::Verbose, GPUDevicePreference::Discrete);
     Shader bc1;
-    bc1.name = "blockcompress_cs.hlsl";
+    bc1.name  = "blockcompress_cs.hlsl";
     bc1.stage = ShaderStage::Compute;
 
     PipelineState bc1Pipeline;
@@ -812,9 +812,9 @@ int main(int argc, char *argv[])
                                 Texture src;
                                 {
                                     TextureDesc srcDesc;
-                                    srcDesc.width        = width;
-                                    srcDesc.height       = height;
-                                    srcDesc.format       = format;
+                                    srcDesc.width         = width;
+                                    srcDesc.height        = height;
+                                    srcDesc.format        = format;
                                     srcDesc.mInitialUsage = ResourceUsage::SampledImage;
                                     device.CreateTexture(&src, srcDesc, texData);
                                     device.SetName(&src, "src");
@@ -824,17 +824,17 @@ int main(int argc, char *argv[])
                                 u32 blockSize = GetBlockSize(bcFormat);
                                 {
                                     TextureDesc dstDesc;
-                                    dstDesc.width        = src.desc.width / blockSize;
-                                    dstDesc.height       = src.desc.height / blockSize;
-                                    dstDesc.format       = Format::R32G32_UINT;
+                                    dstDesc.width         = src.desc.width / blockSize;
+                                    dstDesc.height        = src.desc.height / blockSize;
+                                    dstDesc.format        = Format::R32G32_UINT;
                                     dstDesc.mInitialUsage = ResourceUsage::StorageImage;
                                     dstDesc.mFutureUsages = ResourceUsage::TransferSrc;
 
                                     if (!uav.IsValid() || uav.desc.width < dstDesc.width || uav.desc.height < dstDesc.height)
                                     {
                                         TextureDesc bcDesc = dstDesc;
-                                        bcDesc.width      = (u32)GetNextPowerOfTwo(dstDesc.width);
-                                        bcDesc.height     = (u32)GetNextPowerOfTwo(dstDesc.height);
+                                        bcDesc.width       = (u32)GetNextPowerOfTwo(dstDesc.width);
+                                        bcDesc.height      = (u32)GetNextPowerOfTwo(dstDesc.height);
 
                                         device.CreateTexture(&uav, bcDesc, 0);
                                         device.SetName(&uav, "UAV");
@@ -850,7 +850,7 @@ int main(int argc, char *argv[])
                                     readBackDesc.width  = width;
                                     readBackDesc.height = height;
                                     readBackDesc.format = bcFormat;
-                                    readBackDesc.mUsage  = MemoryUsage::GPU_TO_CPU;
+                                    readBackDesc.mUsage = MemoryUsage::GPU_TO_CPU;
 
                                     device.CreateTexture(readback, readBackDesc, 0);
                                     device.SetName(readback, "Readback");

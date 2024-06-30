@@ -56,16 +56,9 @@ typedef u32 ResourceUsage;
 enum : u32
 {
     ResourceUsage_None     = 0,
-    ResourceUsage_Compute  = 1 << 0,
     ResourceUsage_Graphics = 1 << 1,
-    ResourceUsage_Read     = 1 << 2, // read in the graphics pipeline
-    ResourceUsage_Write    = 1 << 3, // write in the graphics pipeline
     ResourceUsage_Depth    = 1 << 4,
     ResourceUsage_Stencil  = 1 << 5,
-    // ResourceUsage_SRV          = 1 << 7,
-    // ResourceUsage_UAV          = 1 << 8,
-    ResourceUsage_Buffer  = 1 << 6,
-    ResourceUsage_Texture = 1 << 7,
 
     // Pipeline stages
     ResourceUsage_Indirect       = 1 << 8,
@@ -89,23 +82,29 @@ enum : u32
     // Attachments
     ResourceUsage_ColorAttachment = 1 << 17,
 
-    ResourceUsage_ComputeRead  = ResourceUsage_Compute | ResourceUsage_Read,
-    ResourceUsage_ComputeWrite = ResourceUsage_Compute | ResourceUsage_Write,
+    ResourceUsage_ShaderRead  = 1 << 25,
+    ResourceUsage_UniformRead = 1 << 2,
 
-    ResourceUsage_VertexBuffer = ResourceUsage_Vertex | ResourceUsage_Buffer,
-    ResourceUsage_IndexBuffer  = ResourceUsage_Index | ResourceUsage_Buffer,
+    ResourceUsage_ComputeRead  = 1 << 3,
+    ResourceUsage_ComputeWrite = 1 << 26,
 
-    ResourceUsage_DepthStencil = ResourceUsage_Depth | ResourceUsage_Stencil | ResourceUsage_Read | ResourceUsage_Write,
+    ResourceUsage_VertexBuffer = (1 << 6) | ResourceUsage_Vertex,
+    ResourceUsage_IndexBuffer  = (1 << 7) | ResourceUsage_Index,
 
-    ResourceUsage_UniformBuffer = (1 << 18) | ResourceUsage_Buffer,
-    ResourceUsage_UniformTexel  = (1 << 19) | ResourceUsage_Buffer,
+    ResourceUsage_DepthStencil = ResourceUsage_Depth | ResourceUsage_Stencil,
 
-    ResourceUsage_StorageBufferRead = (1 << 20) | ResourceUsage_Buffer, // read only
-    ResourceUsage_StorageBuffer     = (1 << 21) | ResourceUsage_Buffer, // read write
-    ResourceUsage_StorageTexel      = (1 << 22) | ResourceUsage_Buffer,
+    ResourceUsage_UniformBuffer = (1 << 18),
+    ResourceUsage_UniformTexel  = (1 << 19),
 
-    ResourceUsage_SampledImage = (1 << 23) | ResourceUsage_Texture,
-    ResourceUsage_StorageImage = (1 << 24) | ResourceUsage_Texture,
+    ResourceUsage_StorageBufferRead = (1 << 20),
+    ResourceUsage_StorageBuffer     = (1 << 21),
+    ResourceUsage_StorageTexel      = (1 << 22),
+
+    ResourceUsage_SampledImage = (1 << 23),
+    ResourceUsage_StorageImage = (1 << 24),
+
+    ResourceUsage_ReadOnly  = ResourceUsage_ComputeRead | ResourceUsage_ShaderRead | ResourceUsage_SampledImage,
+    ResourceUsage_WriteOnly = ResourceUsage_ComputeWrite | ResourceUsage_StorageImage,
 
     ResourceUsage_ShaderGlobals = ResourceUsage_StorageBufferRead | ResourceUsage_Bindless,
     ResourceUsage_Reset         = 0xffffffff,
@@ -260,43 +259,46 @@ struct Viewport
 
 enum ImageUsage
 {
-    ImageUsage_None         = 0,
-    ImageUsage_Sampled      = 1 << 0,
-    ImageUsage_Storage      = 1 << 1,
-    ImageUsage_TransferSrc  = 1 << 2,
-    ImageUsage_TransferDst  = 1 << 3,
-    ImageUsage_DepthStencil = 1 << 4,
+    None         = 0,
+    Sampled      = 1 << 0,
+    Storage      = 1 << 1,
+    TransferSrc  = 1 << 2,
+    TransferDst  = 1 << 3,
+    DepthStencil = 1 << 4,
+    ShaderRead   = 1 << 5,
+    General      = 1 << 6,
 };
+ENUM_CLASS_FLAGS(ImageUsage)
 
-typedef u32 PipelineFlag;
-enum : u32
+enum class PipelineStage : u32
 {
-    PipelineFlag_None                 = 0,
-    PipelineFlag_Indirect             = 1 << 0,
-    PipelineFlag_IndexInput           = 1 << 1,
-    PipelineFlag_VertexAttributeInput = 1 << 2,
-    PipelineFlag_VertexShader         = 1 << 3,
-    PipelineFlag_Transfer             = 1 << 4,
-    PipelineFlag_Compute              = 1 << 5,
-    PipelineFlag_FragmentShader       = 1 << 6,
-    PipelineFlag_Depth                = 1 << 7,
-    PipelineFlag_AllCommands          = 1U << 31,
+    None                 = 0,
+    Indirect             = 1 << 0,
+    IndexInput           = 1 << 1,
+    VertexAttributeInput = 1 << 2,
+    VertexShader         = 1 << 3,
+    Transfer             = 1 << 4,
+    Compute              = 1 << 5,
+    FragmentShader       = 1 << 6,
+    Depth                = 1 << 7,
+    AllCommands          = 1u << 31,
 };
+ENUM_CLASS_FLAGS(PipelineStage)
 
-typedef u32 AccessFlag;
-enum
+enum class Access
 {
-    AccessFlag_None                = 0,
-    AccessFlag_VertexAttributeRead = 1 << 0,
-    AccessFlag_IndexRead           = 1 << 1,
-    AccessFlag_UniformRead         = 1 << 2,
-    AccessFlag_TransferRead        = 1 << 3,
-    AccessFlag_TransferWrite       = 1 << 4,
-    AccessFlag_ShaderRead          = 1 << 5,
-    AccessFlag_ShaderWrite         = 1 << 6,
-    AccessFlag_IndirectRead        = 1 << 7,
-    AccessFlag_DepthStencil        = 1 << 8,
+    None                = 0,
+    VertexAttributeRead = 1 << 0,
+    IndexRead           = 1 << 1,
+    UniformRead         = 1 << 2,
+    TransferRead        = 1 << 3,
+    TransferWrite       = 1 << 4,
+    ShaderRead          = 1 << 5,
+    ShaderWrite         = 1 << 6,
+    IndirectRead        = 1 << 7,
+    DepthStencil        = 1 << 8,
 };
+ENUM_CLASS_FLAGS(Access)
 
 // inline b32 HasFlags(u32 lhs, u32 rhs)
 // {
@@ -559,9 +561,26 @@ struct GPUBarrier
 
     ResourceUsage usageBefore;
     ResourceUsage usageAfter;
-    i32 subresource;
 
-    static inline GPUBarrier Buffer(GPUResource *resource, ResourceUsage inUsageBefore, ResourceUsage inUsageAfter)
+    i32 subresource;
+    b8 isVerbose = 0;
+
+    // Buffer
+    u32 offset = 0;
+    u64 size   = ~0ull;
+
+    // verbose
+    PipelineStage stageBefore;
+    PipelineStage stageAfter;
+
+    Access accessBefore;
+    Access accessAfter;
+
+    ImageUsage layoutBefore;
+    ImageUsage layoutAfter;
+
+    static inline GPUBarrier Buffer(GPUResource *resource, ResourceUsage inUsageBefore, ResourceUsage inUsageAfter,
+                                    u32 inOffset = 0, u64 inSize = ~0ull)
     {
         GPUBarrier barrier;
         Assert(resource->resourceType == GPUResource::ResourceType::Buffer);
@@ -570,6 +589,8 @@ struct GPUBarrier
         barrier.resource    = resource;
         barrier.usageBefore = inUsageBefore;
         barrier.usageAfter  = inUsageAfter;
+        barrier.offset      = inOffset;
+        barrier.size        = inSize;
 
         return barrier;
     }
@@ -609,6 +630,7 @@ struct GPUBarrier
     {
         GPUBarrier barrier;
         Assert(resource->resourceType == GPUResource::ResourceType::Image);
+        barrier.isVerbose   = 0;
         barrier.type        = Type::Image;
         barrier.resource    = resource;
         barrier.usageBefore = inUsageBefore;
@@ -616,6 +638,32 @@ struct GPUBarrier
         barrier.subresource = inSubresource;
         return barrier;
     }
+
+    static GPUBarrier Image(GPUResource *resource,
+                            ImageUsage inLayoutBefore,
+                            ImageUsage inLayoutAfter,
+                            PipelineStage inStageBefore,
+                            PipelineStage inStageAfter,
+                            Access inAccessBefore,
+                            Access inAccessAfter,
+                            i32 inSubresource = -1)
+    {
+        GPUBarrier barrier;
+        barrier.isVerbose = 1;
+        barrier.resource  = resource;
+        barrier.type      = Type::Image;
+
+        barrier.layoutBefore = inLayoutBefore;
+        barrier.layoutAfter  = inLayoutAfter;
+        barrier.stageBefore  = inStageBefore;
+        barrier.stageAfter   = inStageAfter;
+        barrier.accessBefore = inAccessBefore;
+        barrier.accessAfter  = inAccessAfter;
+        barrier.subresource  = inSubresource;
+        return barrier;
+    }
+
+    // static GPUBarrier Image(GPUResource *resource, Pipeline
 };
 
 struct TextureDesc
@@ -727,10 +775,9 @@ struct RenderPassImage
         image.texture      = texture;
         image.layoutBefore = layoutBefore;
         image.layout       = ResourceUsage_DepthStencil;
-        // image.layoutAfter  = layoutAfter;
-        image.loadOp      = inLoadOp;
-        image.storeOp     = inStoreOp;
-        image.subresource = subresource;
+        image.loadOp       = inLoadOp;
+        image.storeOp      = inStoreOp;
+        image.subresource  = subresource;
         return image;
     }
 

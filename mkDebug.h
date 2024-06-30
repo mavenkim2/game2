@@ -89,10 +89,10 @@ struct Event
 // internal void D_CollateDebugRecords();
 #define TIMED_FUNCTION() debug::Event(__FILE__, FUNCTION_NAME, __LINE__);
 // TODO: if gpu commands occur cross different function calls, consider
-#define TIMED_GPU(cmd)             debug::Event(__FILE__, FUNCTION_NAME, __LINE__, cmd);
-#define TIMED_GPU_RANGE_BEGIN(cmd) debugState.BeginRange(__FILE__, FUNCTION_NAME, __LINE__, cmd)
-#define TIMED_RANGE_END(index)     debugState.EndRange(index)
-#define TIMED_CPU_RANGE_BEGIN()    debugState.BeginRange(__FILE__, FUNCTION_NAME, __LINE__)
+#define TIMED_GPU(cmd)                   debug::Event(__FILE__, FUNCTION_NAME, __LINE__, cmd);
+#define TIMED_GPU_RANGE_BEGIN(cmd, name) debugState.BeginRange(__FILE__, name, __LINE__, cmd)
+#define TIMED_RANGE_END(index)           debugState.EndRange(index)
+#define TIMED_CPU_RANGE_BEGIN()          debugState.BeginRange(__FILE__, FUNCTION_NAME, __LINE__)
 
 #define TIMED_CPU_RANGE_NAME_BEGIN(name) debugState.BeginRange(__FILE__, name, __LINE__)
 

@@ -68,6 +68,10 @@ internal string SkipWhitespace(string str);
 internal b32 StartsWith(string a, string b);
 internal b32 MatchString(string a, string b, MatchFlags flags);
 internal u64 FindSubstring(string haystack, string needle, u64 startPos, MatchFlags flags);
+internal b8 Contains(string haystack, string needle, MatchFlags flags = MatchFlag_CaseInsensitive);
+internal u32 ConvertToUint(string word);
+internal string SkipToNextWord(string line);
+internal string GetFirstWord(string line);
 
 //////////////////////////////
 // File Path Helpers
@@ -146,10 +150,10 @@ inline void ConvertPointerToOffset(u8 *buffer, u64 location, u64 offset);
 inline u8 *ConvertOffsetToPointer(u8 *base, u64 offset);
 internal void PutLine(StringBuilder *builder, u32 indents, char *fmt, ...);
 
-#define PutPointerValue(builder, ptr)             Put(builder, ptr, sizeof(*ptr))
-#define PutStruct(builder, s)                     PutPointerValue(builder, &s);
-#define AppendArray(builder, ptr, count)          Put(builder, ptr, sizeof(*ptr) * count)
-#define PutArray(builder, array, count)           Put((builder), (array), sizeof((array)[0]) * (count));
+#define PutPointerValue(builder, ptr)    Put(builder, ptr, sizeof(*ptr))
+#define PutStruct(builder, s)            PutPointerValue(builder, &s);
+#define AppendArray(builder, ptr, count) Put(builder, ptr, sizeof(*ptr) * count)
+#define PutArray(builder, array, count)  Put((builder), (array), sizeof((array)[0]) * (count));
 
 #define GetPointerValue(tokenizer, ptr) Get(tokenizer, ptr, sizeof(*ptr))
 #define GetPointer(tokenizer, type)     (type *)GetPointer_(tokenizer)

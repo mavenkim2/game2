@@ -20,6 +20,7 @@
 #include "mkAssetCache.h"
 // #include "render/mkVertexCache.h"
 #include "render/mkRender.h"
+#include "render/mkRenderGraph.h"
 #include "mkScene.h"
 #include "mkShared.h"
 

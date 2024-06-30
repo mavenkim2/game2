@@ -76,19 +76,15 @@ VkImageLayout ConvertToImageLayout(ResourceUsage usage)
 
     if (usage == ResourceUsage_None || usage == ResourceUsage_Reset) return VK_IMAGE_LAYOUT_UNDEFINED;
     b32 hasDepth = HasFlags(usage, ResourceUsage_Depth);
-    b32 hasRead  = HasFlags(usage, ResourceUsage_Read);
-    b32 hasWrite = HasFlags(usage, ResourceUsage_Write);
     if (hasDepth)
     {
-        if (hasDepth && hasRead && hasWrite) return VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-        else if (hasDepth && hasRead) return VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL;
-        ERROR_ELSE()
+        return VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
     }
     if (HasFlags(usage, ResourceUsage_TransferSrc)) return VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
     if (HasFlags(usage, ResourceUsage_TransferDst)) return VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 
-    if (hasRead || HasFlags(usage, ResourceUsage_SampledImage)) return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    if (hasWrite || HasFlags(usage, ResourceUsage_StorageImage)) return VK_IMAGE_LAYOUT_GENERAL;
+    if (HasAnyFlags(usage, ResourceUsage_WriteOnly)) return VK_IMAGE_LAYOUT_GENERAL;
+    if (HasAnyFlags(usage, ResourceUsage_ReadOnly)) return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     if (HasFlags(usage, ResourceUsage_ColorAttachment)) return VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
     Assert(0);
@@ -97,10 +93,18 @@ VkImageLayout ConvertToImageLayout(ResourceUsage usage)
 #undef ERROR_ELSE
 }
 
+VkImageLayout ConvertImageLayout(ImageUsage usage)
+{
+    switch (usage)
+    {
+        case ImageUsage::ShaderRead: return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        case ImageUsage::General: return VK_IMAGE_LAYOUT_GENERAL;
+        default: Assert(0); return VK_IMAGE_LAYOUT_MAX_ENUM;
+    }
+}
+
 VkPipelineStageFlags2 ConvertToPipelineStage(ResourceUsage usage)
 {
-    b32 hasRead                    = HasFlags(usage, ResourceUsage_Read);
-    b32 hasWrite                   = HasFlags(usage, ResourceUsage_Write);
     VkPipelineStageFlags2 outFlags = VK_PIPELINE_STAGE_2_NONE;
     if (usage == ResourceUsage_Reset)
     {
@@ -110,7 +114,11 @@ VkPipelineStageFlags2 ConvertToPipelineStage(ResourceUsage usage)
     {
         outFlags |= VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
     }
-    if (HasFlags(usage, ResourceUsage_Compute))
+    if (HasFlags(usage, ResourceUsage_ColorAttachment))
+    {
+        outFlags |= VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+    }
+    if (HasAnyFlags(usage, ResourceUsage_ComputeRead | ResourceUsage_ComputeWrite))
     {
         outFlags |= VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
     }
@@ -134,6 +142,10 @@ VkPipelineStageFlags2 ConvertToPipelineStage(ResourceUsage usage)
     {
         outFlags |= VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT;
     }
+    if (HasFlags(usage, ResourceUsage_SampledImage))
+    {
+        outFlags |= VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+    }
     if (HasFlags(usage, PipelineStage_FragmentShader))
     {
         outFlags |= VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
@@ -141,20 +153,36 @@ VkPipelineStageFlags2 ConvertToPipelineStage(ResourceUsage usage)
     return outFlags;
 }
 
+VkPipelineStageFlags2 ConvertPipelineStage(PipelineStage stage)
+{
+    VkPipelineStageFlags2 outFlags = VK_PIPELINE_STAGE_2_NONE;
+    if (EnumHasAllFlags(stage, PipelineStage::Compute))
+    {
+        outFlags |= VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    }
+    else
+    {
+        Assert(0);
+    }
+    return outFlags;
+}
+
 // write after read
 inline b32 IsWAR(ResourceUsage before, ResourceUsage after)
 {
-    b32 result = HasFlags(before, ResourceUsage_Read) && HasFlags(after, ResourceUsage_Write) && !HasFlags(after, ResourceUsage_Read);
+    b32 result = HasAnyFlags(before, ResourceUsage_ReadOnly) && !HasAnyFlags(before, ResourceUsage_WriteOnly) &&
+                 HasAnyFlags(after, ResourceUsage_WriteOnly) && !HasAnyFlags(after, ResourceUsage_ReadOnly);
     return result;
 }
 
 VkAccessFlags2 ConvertToAccessMask(ResourceUsage usage)
 {
     VkAccessFlags2 outFlags = VK_ACCESS_2_NONE;
-    b32 hasCompute          = HasFlags(usage, ResourceUsage_Compute);
     b32 hasGraphics         = HasFlags(usage, ResourceUsage_Graphics);
-    b32 hasRead             = HasFlags(usage, ResourceUsage_Read);
-    b32 hasWrite            = HasFlags(usage, ResourceUsage_Write);
+    if (usage == ResourceUsage_Reset)
+    {
+        return VK_ACCESS_2_NONE;
+    }
     if (HasFlags(usage, ResourceUsage_TransferDst))
     {
         outFlags |= VK_ACCESS_2_TRANSFER_WRITE_BIT;
@@ -167,18 +195,42 @@ VkAccessFlags2 ConvertToAccessMask(ResourceUsage usage)
     {
         outFlags |= VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
     }
-    if (hasRead && (hasCompute || hasGraphics))
+    if (HasFlags(usage, ResourceUsage_UniformRead))
+    {
+        outFlags |= VK_ACCESS_2_UNIFORM_READ_BIT;
+    }
+    if (HasFlags(usage, ResourceUsage_ColorAttachment))
+    {
+        outFlags |= VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT;
+    }
+    if (HasAnyFlags(usage, ResourceUsage_ReadOnly))
     {
         outFlags |= VK_ACCESS_2_SHADER_READ_BIT;
     }
-    if (hasWrite && (hasCompute || hasGraphics))
+    if (HasAnyFlags(usage, ResourceUsage_WriteOnly))
+    {
+        outFlags |= VK_ACCESS_2_SHADER_WRITE_BIT;
+        // outFlags |= VK_ACCESS_2_SHADER_READ_BIT;
+    }
+    if (HasFlags(usage, ResourceUsage_Indirect))
+    {
+        outFlags |= VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
+    }
+    return outFlags;
+}
+
+VkAccessFlags2 ConvertAccessMask(Access access)
+{
+    VkAccessFlags2 outFlags = VK_ACCESS_2_NONE;
+    if (EnumHasAllFlags(access, Access::ShaderRead))
+    {
+        outFlags |= VK_ACCESS_2_SHADER_READ_BIT;
+    }
+    if (EnumHasAllFlags(access, Access::ShaderWrite))
     {
         outFlags |= VK_ACCESS_2_SHADER_WRITE_BIT;
     }
-    if (HasFlags(usage, ResourceUsage_Reset))
-    {
-        outFlags |= VK_ACCESS_2_NONE;
-    }
+    if (outFlags == VK_ACCESS_2_NONE) Assert(0);
     return outFlags;
 }
 
@@ -279,25 +331,45 @@ VkAttachmentStoreOp ConvertStoreOp(StoreOp op)
     }
 }
 
-inline VkImageMemoryBarrier2 ImageBarrier(Format format, mkGraphicsVulkan::TextureVulkan *textureVulkan,
-                                          ResourceUsage before, ResourceUsage after,
-                                          mkGraphicsVulkan::TextureVulkan::Subresource *subresource = 0)
+inline VkImageMemoryBarrier2 ImageBarrier(mkGraphicsVulkan *device, GPUBarrier *inBarrier)
 {
-    b32 isWar                           = IsWAR(before, after);
-    VkImageMemoryBarrier2 barrier       = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-    barrier.image                       = textureVulkan->image;
-    barrier.oldLayout                   = ConvertToImageLayout(before);
-    barrier.newLayout                   = ConvertToImageLayout(after);
-    barrier.srcStageMask                = ConvertToPipelineStage(before);
-    barrier.dstStageMask                = ConvertToPipelineStage(after);
-    barrier.srcAccessMask               = isWar ? VK_ACCESS_2_NONE : ConvertToAccessMask(before);
-    barrier.dstAccessMask               = isWar ? VK_ACCESS_2_NONE : ConvertToAccessMask(after);
+    Assert(inBarrier->resource->resourceType == GPUResource::ResourceType::Image);
+    Texture *texture                               = (Texture *)inBarrier->resource;
+    mkGraphicsVulkan::TextureVulkan *textureVulkan = device->ToInternal(texture);
+    Assert(textureVulkan->image != VK_NULL_HANDLE);
+    mkGraphicsVulkan::TextureVulkan::Subresource *subresource = (inBarrier->subresource != -1) ? &textureVulkan->subresources[inBarrier->subresource] : 0;
+
+    VkImageMemoryBarrier2 barrier = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+    barrier.image                 = textureVulkan->image;
+    if (!inBarrier->isVerbose)
+    {
+        ResourceUsage before = inBarrier->usageBefore;
+        ResourceUsage after  = inBarrier->usageAfter;
+
+        b32 isWar             = IsWAR(before, after);
+        barrier.oldLayout     = ConvertToImageLayout(before);
+        barrier.newLayout     = ConvertToImageLayout(after);
+        barrier.srcStageMask  = ConvertToPipelineStage(before);
+        barrier.dstStageMask  = ConvertToPipelineStage(after);
+        barrier.srcAccessMask = isWar ? VK_ACCESS_2_NONE : ConvertToAccessMask(before);
+        barrier.dstAccessMask = isWar ? VK_ACCESS_2_NONE : ConvertToAccessMask(after);
+    }
+    else
+    {
+        barrier.oldLayout     = ConvertImageLayout(inBarrier->layoutBefore);
+        barrier.newLayout     = ConvertImageLayout(inBarrier->layoutAfter);
+        barrier.srcStageMask  = ConvertPipelineStage(inBarrier->stageBefore);
+        barrier.dstStageMask  = ConvertPipelineStage(inBarrier->stageAfter);
+        barrier.srcAccessMask = ConvertAccessMask(inBarrier->accessBefore);
+        barrier.dstAccessMask = ConvertAccessMask(inBarrier->accessAfter);
+    }
+
     barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    if (IsFormatDepthSupported(format))
+    if (IsFormatDepthSupported(texture->desc.format))
     {
         barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
     }
-    if (IsFormatStencilSupported(format))
+    if (IsFormatStencilSupported(texture->desc.format))
     {
         barrier.subresourceRange.aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
     }
@@ -947,7 +1019,7 @@ mkGraphicsVulkan::mkGraphicsVulkan(ValidationMode validationMode, GPUDevicePrefe
         GPUBufferDesc desc;
         desc.usage         = MemoryUsage::CPU_TO_GPU;
         desc.size          = megabytes(32);
-        desc.resourceUsage = ResourceUsage_Buffer | ResourceUsage_TransferSrc;
+        desc.resourceUsage = ResourceUsage_TransferSrc;
         for (u32 i = 0; i < cNumBuffers; i++)
         {
             CreateBuffer(&frameAllocator[i].buffer, desc, 0);
@@ -961,7 +1033,7 @@ mkGraphicsVulkan::mkGraphicsVulkan(ValidationMode validationMode, GPUDevicePrefe
         GPUBufferDesc desc;
         desc.usage         = MemoryUsage::CPU_TO_GPU;
         desc.size          = ringBufferSize;
-        desc.resourceUsage = ResourceUsage_Buffer | ResourceUsage_TransferSrc;
+        desc.resourceUsage = ResourceUsage_TransferSrc;
 
         for (u32 i = 0; i < ArrayLength(stagingRingAllocators); i++)
         {
@@ -1299,6 +1371,10 @@ b32 mkGraphicsVulkan::CreateSwapchain(Swapchain *inSwapchain)
         VK_CHECK(vkGetSwapchainImagesKHR(device, swapchain->swapchain, &imageCount, 0));
         swapchain->images.resize(imageCount);
         VK_CHECK(vkGetSwapchainImagesKHR(device, swapchain->swapchain, &imageCount, swapchain->images.data()));
+        for (u32 i = 0; i < swapchain->images.size(); i++)
+        {
+            SetName((u64)swapchain->images[i], VK_OBJECT_TYPE_IMAGE, "Swapchain Image");
+        }
 
         // Create swap chain image views (determine how images are accessed)
 #if 0
@@ -1646,8 +1722,6 @@ void mkGraphicsVulkan::CreatePipeline(PipelineStateDesc *inDesc, PipelineState *
     depthStencil.minDepthBounds                        = 0.f;
     depthStencil.maxDepthBounds                        = 1.f;
 
-    // depthStencil.
-
     // Blending
     // Mixes old and new value
     VkPipelineColorBlendAttachmentState colorBlendAttachment = {};
@@ -1697,10 +1771,8 @@ void mkGraphicsVulkan::CreatePipeline(PipelineStateDesc *inDesc, PipelineState *
     pipelineLayoutInfo.sType                      = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipelineLayoutInfo.setLayoutCount             = (u32)ps->descriptorSetLayouts.size();
     pipelineLayoutInfo.pSetLayouts                = ps->descriptorSetLayouts.data();
-    // Push constants are kind of like compile time constants for shaders? except they don't have to be
-    // specified at shader creation, instead pipeline creation
-    pipelineLayoutInfo.pushConstantRangeCount = 0;
-    pipelineLayoutInfo.pPushConstantRanges    = 0;
+    pipelineLayoutInfo.pushConstantRangeCount     = 0;
+    pipelineLayoutInfo.pPushConstantRanges        = 0;
 
     VkPushConstantRange &range = ps->pushConstantRange;
     if (range.size > 0)
@@ -1751,7 +1823,6 @@ void mkGraphicsVulkan::CreatePipeline(PipelineStateDesc *inDesc, PipelineState *
 
     pipelineInfo.pNext = &renderingInfo;
 
-    // VkPipelineRenderingCreateInfo
     VK_CHECK(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, 0, &ps->pipeline));
     SetName(ps->pipeline, (const char *)name.str);
 }
@@ -1852,8 +1923,8 @@ void mkGraphicsVulkan::Barrier(CommandList cmd, GPUBarrier *barriers, u32 count)
                 VkBufferMemoryBarrier2 &bufferBarrier = bufferBarriers.back();
                 bufferBarrier.sType                   = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
                 bufferBarrier.buffer                  = bufferVulkan->buffer;
-                bufferBarrier.offset                  = 0;
-                bufferBarrier.size                    = buffer->desc.size;
+                bufferBarrier.offset                  = barrier->offset;
+                bufferBarrier.size                    = barrier->size;
                 bufferBarrier.srcStageMask            = ConvertToPipelineStage(barrier->usageBefore);
                 bufferBarrier.dstStageMask            = ConvertToPipelineStage(barrier->usageAfter);
                 bufferBarrier.srcAccessMask           = ConvertToAccessMask(barrier->usageBefore);
@@ -1875,13 +1946,8 @@ void mkGraphicsVulkan::Barrier(CommandList cmd, GPUBarrier *barriers, u32 count)
             break;
             case GPUBarrier::Type::Image:
             {
-                Texture *texture             = (Texture *)barrier->resource;
-                TextureVulkan *textureVulkan = ToInternal(texture);
-                Assert(textureVulkan->image != VK_NULL_HANDLE);
                 imageBarriers.emplace_back();
-                TextureVulkan::Subresource *subresource = (barrier->subresource != -1) ? &textureVulkan->subresources[barrier->subresource] : 0;
-                imageBarriers.back()                    = ImageBarrier(texture->desc.format, textureVulkan,
-                                                                       barrier->usageBefore, barrier->usageAfter, subresource);
+                imageBarriers.back() = ImageBarrier(this, barrier);
             }
             break;
         }
@@ -2036,7 +2102,6 @@ void mkGraphicsVulkan::CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDes
     createInfo.sType              = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     createInfo.size               = inBuffer->desc.size;
 
-    Assert(HasFlags(inDesc.resourceUsage, ResourceUsage_Buffer));
     if (HasFlags(inDesc.resourceUsage, ResourceUsage_Vertex))
     {
         createInfo.usage |= VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
@@ -2397,9 +2462,9 @@ void mkGraphicsVulkan::CreateTexture(Texture *outTexture, TextureDesc desc, void
             barrier.oldLayout     = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
             barrier.newLayout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             barrier.srcStageMask  = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-            barrier.dstStageMask  = ConvertToPipelineStage(&desc);
+            barrier.dstStageMask  = ConvertToPipelineStage(desc.initialUsage);
             barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-            barrier.dstAccessMask = ConvertToAccessMask(&desc);
+            barrier.dstAccessMask = ConvertToAccessMask(desc.initialUsage);
 
             dependencyInfo.imageMemoryBarrierCount = 1;
             dependencyInfo.pImageMemoryBarriers    = &barrier;
@@ -3066,7 +3131,7 @@ mkGraphicsVulkan::RingAllocation *mkGraphicsVulkan::RingAlloc(u64 size)
 mkGraphicsVulkan::RingAllocation *mkGraphicsVulkan::RingAllocInternal(u32 id, u64 size)
 {
     RingAllocator *ringAllocator = &stagingRingAllocators[id];
-    u64 ringBufferSize           = ringAllocator->ringBufferSize;
+    const u64 ringBufferSize     = ringAllocator->ringBufferSize;
 
     size = AlignPow2(size, (u64)ringAllocator->alignment);
     Assert(size <= ringBufferSize);
@@ -3080,7 +3145,7 @@ mkGraphicsVulkan::RingAllocation *mkGraphicsVulkan::RingAllocInternal(u32 id, u6
     {
         u32 writePos = ringAllocator->writePos;
         u32 readPos  = ringAllocator->readPos;
-        if (writePos >= readPos)
+        if (ringBufferSize - (writePos - readPos) >= 0)
         {
             // Normal default case: enough space for allocation b/t writePos and end of buffer
             if (ringBufferSize - writePos >= size)
@@ -3675,7 +3740,7 @@ void mkGraphicsVulkan::BeginRenderPass(Swapchain *inSwapchain, CommandList inCom
     barrier.image                           = swapchain->images[swapchain->imageIndex];
     barrier.oldLayout                       = VK_IMAGE_LAYOUT_UNDEFINED;
     barrier.newLayout                       = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL; // VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    barrier.srcStageMask                    = VK_PIPELINE_STAGE_2_TRANSFER_BIT;     // VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+    barrier.srcStageMask                    = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT; // VK_PIPELINE_STAGE_2_TRANSFER_BIT;     // VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
     barrier.dstStageMask                    = VK_PIPELINE_STAGE_2_TRANSFER_BIT;     // VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
     barrier.srcAccessMask                   = VK_ACCESS_2_NONE;
     barrier.dstAccessMask                   = VK_ACCESS_2_TRANSFER_WRITE_BIT; // VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
@@ -3700,7 +3765,8 @@ void mkGraphicsVulkan::BeginRenderPass(Swapchain *inSwapchain, CommandList inCom
     barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL; // VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
-    barrier.dstStageMask  = VK_PIPELINE_STAGE_2_NONE;
+    barrier.srcStageMask  = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    barrier.dstStageMask  = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
     barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT; // VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
     barrier.dstAccessMask = VK_ACCESS_2_NONE;
 
@@ -3780,7 +3846,8 @@ void mkGraphicsVulkan::BeginRenderPass(RenderPassImage *images, u32 count, Comma
         if (image->layoutBefore != ResourceUsage_None && image->layout != image->layoutBefore)
         {
             beginPassImageMemoryBarriers.emplace_back();
-            beginPassImageMemoryBarriers.back() = ImageBarrier(texture->desc.format, textureVulk, image->layoutBefore, image->layout);
+            GPUBarrier barrier                  = GPUBarrier::Image(texture, image->layoutBefore, image->layout);
+            beginPassImageMemoryBarriers.back() = ImageBarrier(this, &barrier);
         }
         // if (image->layout != ImageLayout_None && image->layoutAfter != ImageLayout_None && image->layout != image->layoutAfter)
         // {
@@ -3792,7 +3859,7 @@ void mkGraphicsVulkan::BeginRenderPass(RenderPassImage *images, u32 count, Comma
     info.colorAttachmentCount = colorAttachmentCount;
     info.pColorAttachments    = colorAttachments;
     info.pDepthAttachment     = &depthAttachment;
-    info.pStencilAttachment   = &stencilAttachment;
+    // info.pStencilAttachment   = &stencilAttachment;
 
     VkDependencyInfo dependencyInfo        = {};
     dependencyInfo.sType                   = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;

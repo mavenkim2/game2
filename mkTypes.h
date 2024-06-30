@@ -11,7 +11,7 @@
     }                                                                                                                                                     \
     inline Enum &operator&=(Enum &lhs, Enum rhs)                                                                                                          \
     {                                                                                                                                                     \
-        lhs = (Enum)((std::underlying_type<Enum>::type)lhs & (std::underlying_type<Enum>::type)rhs);                                                       \
+        lhs = (Enum)((std::underlying_type<Enum>::type)lhs & (std::underlying_type<Enum>::type)rhs);                                                      \
         return lhs;                                                                                                                                       \
     }                                                                                                                                                     \
     inline Enum &operator^=(Enum &lhs, Enum rhs)                                                                                                          \
@@ -28,28 +28,28 @@
 template <typename Enum>
 constexpr bool EnumHasAllFlags(Enum Flags, Enum Contains)
 {
-    using UnderlyingType = std::underlying_type<Enum>::type(Enum);
+    using UnderlyingType = std::underlying_type<Enum>::type;
     return ((UnderlyingType)Flags & (UnderlyingType)Contains) == (UnderlyingType)Contains;
 }
 
 template <typename Enum>
 constexpr bool EnumHasAnyFlags(Enum Flags, Enum Contains)
 {
-    using UnderlyingType = std::underlying_type<Enum>::type(Enum);
+    using UnderlyingType = std::underlying_type<Enum>::type;
     return ((UnderlyingType)Flags & (UnderlyingType)Contains) != 0;
 }
 
 template <typename Enum>
 void EnumAddFlags(Enum &Flags, Enum FlagsToAdd)
 {
-    using UnderlyingType = std::underlying_type<Enum>::type(Enum);
+    using UnderlyingType = std::underlying_type<Enum>::type;
     Flags                = (Enum)((UnderlyingType)Flags | (UnderlyingType)FlagsToAdd);
 }
 
 template <typename Enum>
 void EnumRemoveFlags(Enum &Flags, Enum FlagsToRemove)
 {
-    using UnderlyingType = std::underlying_type<Enum>::type(Enum);
+    using UnderlyingType = std::underlying_type<Enum>::type;
     Flags                = (Enum)((UnderlyingType)Flags & ~(UnderlyingType)FlagsToRemove);
 }
 
@@ -145,4 +145,8 @@ enum SkeletonFlag : u32
 inline b32 HasFlags(u32 lhs, u32 rhs)
 {
     return (lhs & rhs) == rhs;
+}
+inline b32 HasAnyFlags(u32 lhs, u32 rhs)
+{
+    return (lhs & rhs) != 0;
 }

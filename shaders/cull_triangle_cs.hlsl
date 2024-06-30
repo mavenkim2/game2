@@ -10,9 +10,9 @@ RWStructuredBuffer<DrawIndexedIndirectCommand> indirectCommands : register(u0);
 RWStructuredBuffer<uint> outputIndices : register(u1);
 
 [numthreads(CLUSTER_SIZE, 1, 1)]
-void main(uint3 groupID : SV_GroupID, uint3 groupThreadID: SV_GroupThreadID, uint groupIndex : SV_GroupIndex)
+void main(uint3 groupID : SV_GroupID, uint3 groupThreadID: SV_GroupThreadID)
 {
-    uint clusterID = meshClusterIndices[groupID.x];//groupIndex];
+    uint clusterID = meshClusterIndices[groupID.x];
 
     MeshCluster cluster = bindlessMeshClusters[push.meshClusterDescriptor][clusterID];
     MeshGeometry geo = bindlessMeshGeometry[push.meshGeometryDescriptor][cluster.meshIndex];

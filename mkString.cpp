@@ -84,7 +84,7 @@ internal u8 CharToLower(u8 c)
 }
 internal u8 CharToUpper(u8 c)
 {
-    u8 result = (c >= 'A' && c <= 'Z') ? ('a' + (c - 'A')) : c;
+    u8 result = (c >= 'a' && c <= 'z') ? ('A' + (c - 'a')) : c;
     return result;
 }
 internal b32 CharIsSlash(u8 c)
@@ -306,6 +306,40 @@ internal u64 FindSubstring(string haystack, string needle, u64 startPos, MatchFl
     return foundIndex;
 }
 
+internal b8 Contains(string haystack, string needle, MatchFlags flags)
+{
+    u64 index = FindSubstring(haystack, needle, 0, flags);
+    return index != haystack.size;
+}
+
+internal u32 ConvertToUint(string word)
+{
+    u32 result = 0;
+    while (CharIsDigit(*word.str))
+    {
+        result *= 10;
+        result += *word.str++ - '0';
+    }
+    return result;
+}
+
+internal string SkipToNextWord(string line)
+{
+    u32 index;
+    for (index = 0; index < line.size && line.str[index] != ' '; index++) continue;
+    Assert(index + 1 < line.size && line.str[index + 1] != ' ');
+    line = Substr8(line, index + 1, line.size);
+    return line;
+}
+
+internal string GetFirstWord(string line)
+{
+    u32 index;
+    for (index = 0; index < line.size && line.str[index] != ' '; index++) continue;
+    line = Substr8(line, 0, index);
+    return line;
+}
+
 //////////////////////////////
 // File path helpers
 //
@@ -469,6 +503,59 @@ internal string ReadLine(Tokenizer *tokenizer)
         result.size++;
     }
     return result;
+}
+
+internal string ReadWord(Tokenizer *tokenizer)
+{
+    string result;
+    result.str  = tokenizer->cursor;
+    result.size = 0;
+
+    while (!EndOfBuffer(tokenizer) && *tokenizer->cursor != ' ' && *tokenizer->cursor != '\n')
+    {
+        result.size++;
+        tokenizer->cursor++;
+    }
+    return result;
+}
+
+internal b8 GetBetweenPair(string &out, const string line, const u8 ch)
+{
+    u8 left = ch;
+    u8 right;
+    if (ch == '(')
+    {
+        right = ')';
+    }
+    else if (ch == '"')
+    {
+        right = '"';
+    }
+    else
+    {
+        Assert(0);
+    }
+
+    i32 startIndex = -1;
+    u32 endIndex   = (u32)line.size;
+    for (u32 i = 0; i < line.size; i++)
+    {
+        if (line.str[i] == left && startIndex == -1)
+        {
+            startIndex = i;
+        }
+        else if (line.str[i] == right && startIndex != -1)
+        {
+            endIndex = i;
+            break;
+        }
+    }
+    if (startIndex != -1)
+    {
+        out = Substr8(line, (u32)startIndex + 1, endIndex - 1);
+        return 1;
+    }
+    return 0;
 }
 
 inline f32 ReadFloat(Tokenizer *iter)

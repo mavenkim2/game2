@@ -182,6 +182,15 @@ uint WaveGetActiveLaneIndexLast()
     outputIndex = WaveReadLaneFirst(outputIndex) + WavePrefixCountBits(test) * value; \
 }
 
+#define WaveInterlockedAddScalarTestNoOutput(dest, test, value) \
+{ \
+    uint __numToAdd__ = WaveActiveCountBits(test) * value; \
+    if (WaveIsFirstLane() && __numToAdd__ > 0) \
+    { \
+        InterlockedAdd(dest, __numToAdd__); \
+    } \
+}
+
 #define WaveInterlockedAddScalarInGroupsTest(dest, destGroups, numPerGroup, test, value, outputIndex) \
 { \
     uint __numToAdd__ = WaveActiveCountBits(test) * value; \

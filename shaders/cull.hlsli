@@ -53,7 +53,7 @@ FrustumCullResults ProjectBoxAndFrustumCull(float3 bMin, float3 bMax, float4x4 m
 
     bool visible = true;
 
-    if (skipFrustumCull)
+    if (!skipFrustumCull)
     {
         PLANEMIN(p0, p1);
         PLANEMIN(p2, p3);
@@ -62,17 +62,15 @@ FrustumCullResults ProjectBoxAndFrustumCull(float3 bMin, float3 bMax, float4x4 m
         visible = !(any(planesMin > 0.f));
     }
     // TODO: don't calculate the aabb on the first pass frustum cull with this frame's transforms
+    // e.g. if (skipOcclusion)
     PROCESS(p0, p1);
     PROCESS(p2, p3);
     PROCESS(p4, p5);
     PROCESS(p6, p7);
 
-    // NOTE: w = -z in view space (zv). Azv + B = z in clip space (zc)
+    // NOTE: w = -z in view space. Min(z) = -(Max(-z)) and Max(z) = -(Min(-z))
     float maxZ = -maxW * p22 + p23;
     float minZ = -minW * p22 + p23;
-
-// it's because maxW and minW are the negative of the viewspace positions. so the view space positions are negative, 
-// but then -z makes them positive. and then they become negative again because p22 is negative. but
 
     // partially = at least partially
     bool test = maxZ > minZ;//minW > 0;//maxZ > minZ;
@@ -91,47 +89,44 @@ FrustumCullResults ProjectBoxAndFrustumCull(float3 bMin, float3 bMax, float4x4 m
     return results;
 }
 
-struct OcclusionResults
+bool HZBOcclusionTest(FrustumCullResults cullResults, int2 screenSize)
 {
-    bool wasOccluded;
-    bool isVisible;
-};
-
-OcclusionResults HZBOcclusionTest(FrustumCullResults cullResults, int2 screenSize)
-{
-    OcclusionResults results;
-    results.wasOccluded = false;
-    results.isVisible = false;
+    bool occluded = false;
     if (cullResults.isVisible && !cullResults.crossesNearPlane)
     {
+#if 0
         float4 rect = saturate(cullResults.aabb * 0.5f + 0.5f);
         int4 pixels = (screenSize.xyxy * rect + 0.5f);
         pixels.xy = max(pixels.xy, 0);
         pixels.zw = min(pixels.zw, screenSize.xy - 1);
         bool overlapsPixelCenter = any(pixels.zw >= pixels.xy);
-        pixels >>= 1;
 
-        // for n > 1, ceil(log2(n)) = floor(log2(n-1)) + 1
-        // floor(log2(n-1)) = firstbithigh(n-1)
-        // [pixels.xy, pixels.zw] is inclusive, so difference is n-1
-        int2 mipLevel = int2(firstbithigh(pixels.z - pixels.x), firstbithigh(pixels.w - pixels.y));
-        int lod = max(max(mipLevel.x, mipLevel.y) - 1, 0);
+        //if (overlapsPixelCenter)
+        //{
+            // for n > 1, ceil(log2(n)) = floor(log2(n-1)) + 1
+            // floor(log2(n-1)) = firstbithigh(n-1)
+            // [pixels.xy, pixels.zw] is inclusive, so difference is n-1
+            int2 mipLevel = int2(firstbithigh(pixels.z - pixels.x), firstbithigh(pixels.w - pixels.y));
+            int lod = max(max(mipLevel.x, mipLevel.y) - 1, 0);
 
-        lod += any((pixels.zw >> lod) - (pixels.xy >> lod) > 1) ? 1 : 0;
-        pixels >>= lod;
+            //lod += any((pixels.zw >> lod) - (pixels.xy >> lod) > 1) ? 1 : 0; // z-x and w-y shouldn't be > 1
+            pixels >>= lod;
 
-        int width, height, levels;
-        depthPyramid.GetDimensions(lod, width, height, levels);
-        int2 dim = int2(width, height);
-        int4 uv = (pixels + 0.5f) / dim.xyxy;
+            int width, height;
+            depthPyramid.GetDimensions(width, height);
+            int2 dim = int2(width, height);
+            int4 uv = (pixels + 0.5f) / dim.xyxy * pow(2, lod);
 
-        float depth00 = depthPyramid.SampleLevel(samplerNearestClamp, uv.xy, lod).r;
-        float depth01 = depthPyramid.SampleLevel(samplerNearestClamp, uv.zy, lod).r;
-        float depth10 = depthPyramid.SampleLevel(samplerNearestClamp, uv.zw, lod).r;
-        float depth11 = depthPyramid.SampleLevel(samplerNearestClamp, uv.xw, lod).r;
-        float maxDepth = max(max3(depth00, depth01, depth10), depth11);
-        results.isVisible = cullResults.minZ < maxDepth;
-        results.wasOccluded = !results.isVisible;
+            float depth00 = depthPyramid.SampleLevel(samplerNearestClamp, uv.xy, lod).r;
+            float depth01 = depthPyramid.SampleLevel(samplerNearestClamp, uv.zy, lod).r;
+            float depth10 = depthPyramid.SampleLevel(samplerNearestClamp, uv.zw, lod).r;
+            float depth11 = depthPyramid.SampleLevel(samplerNearestClamp, uv.xw, lod).r;
+
+            float maxDepth = max(max3(depth00, depth01, depth10), depth11);
+            occluded = cullResults.minZ > maxDepth;
+        //}
+#endif
+        
     }
-    return results;
+    return occluded;
 }
