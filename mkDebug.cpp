@@ -72,6 +72,10 @@ void DebugState::EndFrame(CommandList cmd)
     u32 currentBuffer = device->GetCurrentBuffer();
 
     u32 numTimestampQueries = queryIndex.load();
+    {
+        GPUBarrier barrier = GPUBarrier::Buffer(&queryResultBuffer[currentBuffer], ResourceUsage_TransferDst, ResourceUsage_TransferDst);
+        device->Barrier(cmd, &barrier, 1);
+    }
     device->ResolveQuery(&timestampPool, cmd, &queryResultBuffer[currentBuffer], 0, numTimestampQueries, 0);
     device->ResolveQuery(&pipelineStatisticsPool, cmd, &queryResultBuffer[currentBuffer], 0, 1, sizeof(u64) * numTimestampQueries);
 }
