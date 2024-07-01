@@ -44,10 +44,10 @@ struct AtomicFixedHashTable
     void BeginLock(u32 lockIndex);
     void EndLock(u32 lockIndex);
     u32 First(u32 key) const;
-    u32 FirstAndLock(u32 key) const;
+    u32 FirstAndLock(u32 key);
     u32 Next(u32 index) const;
     b8 IsValid(u32 index) const;
-    b8 IsValidLock(u32 key, u32 index) const;
+    b8 IsValidLock(u32 key, u32 index);
 
     void Add(u32 key, u32 index);
     void Remove(u32 key, u32 index);
@@ -68,14 +68,14 @@ inline b8 AtomicFixedHashTable<hashSize, indexSize>::IsValid(u32 index) const
 }
 
 template <u32 hashSize, u32 indexSize>
-inline b8 AtomicFixedHashTable<hashSize, indexSize>::IsValidLock(u32 key, u32 index) const
+inline b8 AtomicFixedHashTable<hashSize, indexSize>::IsValidLock(u32 key, u32 index)
 {
-    if (index == 0xffff)
+    if (index == 0xffffffff)
     {
         key &= (hashSize - 1);
         EndLock(key);
     }
-    return index != 0xffff;
+    return index != 0xffffffff;
 }
 
 template <u32 hashSize, u32 indexSize>
@@ -102,7 +102,7 @@ inline void AtomicFixedHashTable<hashSize, indexSize>::EndLock(u32 lockIndex)
 }
 
 template <u32 hashSize, u32 indexSize>
-inline u32 AtomicFixedHashTable<hashSize, indexSize>::FirstAndLock(u32 key) const
+inline u32 AtomicFixedHashTable<hashSize, indexSize>::FirstAndLock(u32 key)
 {
     key &= (hashSize - 1);
     BeginLock(key);

@@ -12,6 +12,7 @@ enum class ResourceType : u32
     RWStructuredBuffer,
 
     Texture2D,
+    Texture2DArray,
     RWTexture2D,
 
     // Buffer,
@@ -25,6 +26,7 @@ inline string ConvertResourceTypeToName(ResourceType type)
         case ResourceType::StructuredBuffer: return Str8Lit("ResourceType::StructuredBuffer");
         case ResourceType::RWStructuredBuffer: return Str8Lit("ResourceType::RWStructuredBuffer");
         case ResourceType::Texture2D: return Str8Lit("ResourceType::Texture2D");
+        case ResourceType::Texture2DArray: return Str8Lit("ResourceType::Texture2DArray");
         case ResourceType::RWTexture2D: return Str8Lit("ResourceType::RWTexture2D");
         default: Assert(0); return Str8Lit("Invalid");
     }

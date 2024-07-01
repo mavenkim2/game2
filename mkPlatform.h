@@ -224,6 +224,7 @@ u64 OS_ReadEntireFile(string path, void *out);
 string OS_ReadEntireFile(Arena *arena, string path);
 u32 OS_ReadFile(OS_Handle handle, void *out, u64 offset, u32 size);
 b32 OS_WriteFile(string filename, void *fileMemory, u32 fileSize);
+b8 OS_WriteFileIncremental(OS_Handle input, void *data, u32 size);
 
 /////////////////////////////////////////////////////
 // Threads

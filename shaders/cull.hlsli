@@ -98,6 +98,8 @@ bool HZBOcclusionTest(FrustumCullResults cullResults, int2 screenSize, out float
         int4 pixels = int4(screenSize.xyxy * rect + 0.5f);
         pixels.xy = max(pixels.xy, 0);
         pixels.zw = min(pixels.zw, screenSize.xy);
+
+        // TODO: deal with case where rectangles don't overlap any pixel centers (and thus aren't rasterized)
         //bool overlapsPixelCenter = any(pixels.zw >= pixels.xy);
 
         //if (overlapsPixelCenter)
@@ -105,7 +107,7 @@ bool HZBOcclusionTest(FrustumCullResults cullResults, int2 screenSize, out float
             // 2 pixels in mip 0 = (2^(k+1)) pixels in mip k
             // in order for n pixels in mip k to be covered by 2 pixels in mip 0: 
             // k = ceil(log2(n)) - 1
-            // for n > 1, ceil(log2(n)) - 1 = floor(log2(n-1)) + 1 - 1 = floor(log2(n-1))
+            // for n > 1, ceil(log2(n)) - 1 = (floor(log2(n-1)) + 1) - 1 = floor(log2(n-1))
             // floor(log2(n-1)) = firstbithigh(n-1)
 
             pixels >>= 1;

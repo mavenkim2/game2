@@ -663,6 +663,12 @@ internal u32 Hash(string str)
     return result;
 }
 
+internal u32 HashCombine(u32 hash1, u32 hash2)
+{
+    hash1 ^= hash2 + 0x9e3779b9 + (hash1 << 6) + (hash1 >> 2);
+    return hash1;
+}
+
 internal u32 AddSID(string str)
 {
     u32 sid = Hash(str);
@@ -784,6 +790,14 @@ internal b32 WriteEntireFile(StringBuilder *builder, string filename)
     string result = CombineBuilderNodes(builder);
     b32 success   = platform.WriteFile(filename, result.str, (u32)result.size);
     return success;
+}
+
+internal b32 WriteStringBuilders(StringBuilder *builders, u32 count, string filename)
+{
+    for (u32 i = 0; i < count; i++)
+    {
+        StringBuilder *builder = &builders[i];
+    }
 }
 
 inline u64 PutPointer(StringBuilder *builder, u64 address)

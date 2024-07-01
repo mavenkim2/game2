@@ -30,7 +30,8 @@ struct FragmentInput
 };
 
 #ifdef MESH_PASS
-Texture2DArray shadowMaps : register(SLOT(t, SHADOW_MAP_BIND));
+Texture2DArray shadowMaps : register(t1);
+//SLOT(t, SHADOW_MAP_BIND));
 #endif
 
 #ifdef COMPILE_VS

@@ -300,6 +300,20 @@ OS_WRITE_FILE(OS_WriteFile)
     return result;
 }
 
+b8 OS_WriteFileIncremental(OS_Handle input, void *data, u32 size)
+{
+    b8 result = false;
+    Assert(input.handle != 0);
+    HANDLE handle = (HANDLE)input.handle;
+    SetEndOfFile(handle);
+    DWORD bytesToWrite;
+    if (WriteFile(handle, data, size, &bytesToWrite, 0))
+    {
+        result = (size == bytesToWrite);
+    }
+    return result;
+}
+
 //////////////////////////////
 // File directory iteration
 //
