@@ -159,7 +159,7 @@ uint WaveGetActiveLaneIndexLast()
     return firstbithigh(activeMask.y ? activeMask.y : activeMask.x) + (activeMask.y ? 32 : 0);
 }
 #define WaveReadLaneLast(x) WaveReadLaneAt(x, WaveGetActiveLaneIndexLast())
-// Value constant for each thread in a wave
+// Value is constant for each thread in a wave
 #define WaveInterlockedAddScalar(dest, value, outputIndex) \
 { \
     uint __numToAdd__ = WaveActiveCountBits(true) * value; \
@@ -198,7 +198,7 @@ uint WaveGetActiveLaneIndexLast()
     if (WaveIsFirstLane() && __numToAdd__ > 0) \
     { \
         InterlockedAdd(dest, __numToAdd__, outputIndex); \
-        InterlockedMax(destGroups, (outputIndex + value + numPerGroup - 1)/numPerGroup); \
+        InterlockedMax(destGroups, (outputIndex + __numToAdd__ + numPerGroup - 1)/numPerGroup); \
     } \
     outputIndex = WaveReadLaneFirst(outputIndex) + WavePrefixCountBits(test) * value; \
 }

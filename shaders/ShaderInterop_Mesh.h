@@ -42,7 +42,6 @@ struct MeshChunk
 {
     uint numClusters;
     uint clusterOffset;
-    uint wasVisibleLastFrame;
 };
 
 struct MeshCluster

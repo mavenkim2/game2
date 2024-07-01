@@ -13,12 +13,18 @@ RWStructuredBuffer<DrawIndexedIndirectCommand> outputIndirectCommands : register
 [numthreads(64, 1, 1)]
 void main(uint3 dispatchThreadID : SV_DispatchThreadID)
 {
+#if 1
     uint clusterCount = dispatchIndirectBuffer[TRIANGLE_DISPATCH_OFFSET].groupCountX;
     uint clusterIndexIndex = dispatchThreadID.x;
     if (clusterIndexIndex >= clusterCount)
         return;
 
     uint clusterIndex = meshClusterIndices[clusterIndexIndex];
+#else
+    uint clusterIndex = dispatchThreadID.x;
+    if (clusterIndex >= push.drawCount)
+        return;
+#endif
 
     DrawIndexedIndirectCommand cmd = indirectCommands[clusterIndex];
     bool hasDraw = cmd.indexCount > 0;

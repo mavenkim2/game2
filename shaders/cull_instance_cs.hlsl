@@ -13,6 +13,7 @@ RWStructuredBuffer<uint> occludedInstances : register(u2);
 
 #if 1
 RWStructuredBuffer<CullingStatistics> cullingStats : register(u3);
+RWStructuredBuffer<float4> debugAABBs : register(u4);
 #endif
 
 [numthreads(INSTANCE_CULL_GROUP_SIZE, 1, 1)]
@@ -41,8 +42,10 @@ void main(uint3 dispatchThreadID : SV_DispatchThreadID)
     bool visible = cullResults.isVisible;
 #if 1
     WaveInterlockedAddScalarTestNoOutput(cullingStats[0].numFrustumCulled, !visible, 1);
+
 #endif
 
+    float4 outUv;
 #if PASS == FIRST_PASS
     if (visible)
     {
@@ -50,7 +53,15 @@ void main(uint3 dispatchThreadID : SV_DispatchThreadID)
         float4x4 lastFrameMvp = mul(views[0].prevWorldToClip, params.localToWorld); 
         FrustumCullResults lastFrameResults = ProjectBoxAndFrustumCull(params.minP, params.maxP, lastFrameMvp,
                                                                        views[0].p22, views[0].p23, skipFrustumCull);
-        bool wasOccluded = HZBOcclusionTest(lastFrameResults, push.screenSize);
+
+        bool wasOccluded = HZBOcclusionTest(lastFrameResults, push.screenSize, outUv);
+
+        uint outputAABBIndex;
+        WaveInterlockedAddScalarTest(cullingStats[0].numAABBs, wasOccluded, 1, outputAABBIndex);
+        if (wasOccluded)
+        {
+            debugAABBs[outputAABBIndex] = outUv;//cullResults.aabb;
+        }
 
         uint occludedInstanceOffset;
         WaveInterlockedAddScalarInGroupsTest(dispatchIndirectBuffer[INSTANCE_SECOND_PASS_DISPATCH_OFFSET].commandCount, 
@@ -69,7 +80,8 @@ void main(uint3 dispatchThreadID : SV_DispatchThreadID)
         visible = visible && !wasOccluded;
     }
 #elif PASS == SECOND_PASS
-    bool isOccluded = HZBOcclusionTest(cullResults, push.screenSize); 
+    
+    bool isOccluded = HZBOcclusionTest(cullResults, push.screenSize, outUv); 
 #if 1
     WaveInterlockedAddScalarTestNoOutput(cullingStats[0].numOcclusionCulled, isOccluded, 1);
 #endif
@@ -86,7 +98,6 @@ void main(uint3 dispatchThreadID : SV_DispatchThreadID)
         {
             meshChunks[chunkStartIndex + i].clusterOffset = params.clusterOffset + i * CHUNK_GROUP_SIZE;
             meshChunks[chunkStartIndex + i].numClusters = min(CHUNK_GROUP_SIZE, params.clusterCount - i * CHUNK_GROUP_SIZE);
-            meshChunks[chunkStartIndex + i].wasVisibleLastFrame = 0;//drawVisibility[instanceIndex];
         }
     }
 }

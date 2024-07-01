@@ -70,4 +70,5 @@ struct CullingStatistics
 {
     uint numFrustumCulled;
     uint numOcclusionCulled;
+    uint numAABBs;
 };

@@ -89,44 +89,51 @@ FrustumCullResults ProjectBoxAndFrustumCull(float3 bMin, float3 bMax, float4x4 m
     return results;
 }
 
-bool HZBOcclusionTest(FrustumCullResults cullResults, int2 screenSize)
+bool HZBOcclusionTest(FrustumCullResults cullResults, int2 screenSize, out float4 outUv)
 {
     bool occluded = false;
     if (cullResults.isVisible && !cullResults.crossesNearPlane)
     {
-#if 0
         float4 rect = saturate(cullResults.aabb * 0.5f + 0.5f);
-        int4 pixels = (screenSize.xyxy * rect + 0.5f);
+        int4 pixels = int4(screenSize.xyxy * rect + 0.5f);
         pixels.xy = max(pixels.xy, 0);
-        pixels.zw = min(pixels.zw, screenSize.xy - 1);
-        bool overlapsPixelCenter = any(pixels.zw >= pixels.xy);
+        pixels.zw = min(pixels.zw, screenSize.xy);
+        //bool overlapsPixelCenter = any(pixels.zw >= pixels.xy);
 
         //if (overlapsPixelCenter)
         //{
-            // for n > 1, ceil(log2(n)) = floor(log2(n-1)) + 1
+            // 2 pixels in mip 0 = (2^(k+1)) pixels in mip k
+            // in order for n pixels in mip k to be covered by 2 pixels in mip 0: 
+            // k = ceil(log2(n)) - 1
+            // for n > 1, ceil(log2(n)) - 1 = floor(log2(n-1)) + 1 - 1 = floor(log2(n-1))
             // floor(log2(n-1)) = firstbithigh(n-1)
-            // [pixels.xy, pixels.zw] is inclusive, so difference is n-1
-            int2 mipLevel = int2(firstbithigh(pixels.z - pixels.x), firstbithigh(pixels.w - pixels.y));
-            int lod = max(max(mipLevel.x, mipLevel.y) - 1, 0);
 
-            //lod += any((pixels.zw >> lod) - (pixels.xy >> lod) > 1) ? 1 : 0; // z-x and w-y shouldn't be > 1
+            pixels >>= 1;
+            int2 mipLevel = int2(firstbithigh(pixels.z - pixels.x - 1), firstbithigh(pixels.w - pixels.y - 1));
+            int lod = max(max(mipLevel.x, mipLevel.y), 0);
+
+            lod += any((pixels.zw >> lod) - (pixels.xy >> lod) > 1) ? 1 : 0; // z-x and w-y shouldn't be > 1
             pixels >>= lod;
 
-            int width, height;
+            float width, height;
             depthPyramid.GetDimensions(width, height);
-            int2 dim = int2(width, height);
-            int4 uv = (pixels + 0.5f) / dim.xyxy * pow(2, lod);
+            float2 texelSize = pow(2, lod) / float2(width, height);
+            float4 uv = (pixels + 0.5f) * texelSize.xyxy; // why + .5f?
 
-            float depth00 = depthPyramid.SampleLevel(samplerNearestClamp, uv.xy, lod).r;
-            float depth01 = depthPyramid.SampleLevel(samplerNearestClamp, uv.zy, lod).r;
-            float depth10 = depthPyramid.SampleLevel(samplerNearestClamp, uv.zw, lod).r;
-            float depth11 = depthPyramid.SampleLevel(samplerNearestClamp, uv.xw, lod).r;
+            outUv = uv;
 
-            float maxDepth = max(max3(depth00, depth01, depth10), depth11);
+            float4 depth;
+            depth.x = depthPyramid.SampleLevel(samplerNearestClamp, uv.xy, lod).r; // (-, -)
+            depth.y = depthPyramid.SampleLevel(samplerNearestClamp, uv.zy, lod).r; // (+, -)
+            depth.z = depthPyramid.SampleLevel(samplerNearestClamp, uv.zw, lod).r; // (+, +)
+            depth.w = depthPyramid.SampleLevel(samplerNearestClamp, uv.xw, lod).r; // (-, +)
+
+            depth.yz = (pixels.x == pixels.z) ? 1.f : depth.yz;
+            depth.zw = (pixels.y == pixels.w) ? 1.f : depth.zw;
+
+            float maxDepth = max(max3(depth.x, depth.y, depth.z), depth.w);
             occluded = cullResults.minZ > maxDepth;
         //}
-#endif
-        
     }
     return occluded;
 }

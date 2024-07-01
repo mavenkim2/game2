@@ -842,6 +842,7 @@ graphics::GPUBuffer meshClusterIndexBuffer;
 graphics::GPUBuffer occludedInstanceBuffer;
 
 graphics::GPUBuffer cullingStatisticsBuffer;
+graphics::GPUBuffer debugAABBs;
 
 u32 skinningBufferSize;
 u32 meshParamsBufferSize;
@@ -1193,6 +1194,13 @@ internal void Initialize()
         desc.resourceUsage = ResourceUsage_StorageBuffer;
         device->CreateBuffer(&cullingStatisticsBuffer, desc, 0);
         device->SetName(&cullingStatisticsBuffer, "Culling Statistics Buffer");
+
+        desc               = {};
+        desc.size          = kilobytes(32);
+        desc.usage         = MemoryUsage::GPU_TO_CPU;
+        desc.resourceUsage = ResourceUsage_StorageBuffer;
+        device->CreateBuffer(&debugAABBs, desc, 0);
+        device->SetName(&debugAABBs, "Debug AABBs Buffer");
     }
 
     // Initialize render targets/depth buffers
@@ -1336,6 +1344,11 @@ enum RenderPassType
     RenderPassType_Shadow,
 };
 
+internal void DebugRectangle(CommandList cmdList)
+{
+    // device->BindPipeline()
+}
+
 internal void CullInstances(CommandList cmdList, bool isSecondPass)
 {
     i32 meshClusterDescriptor  = device->GetDescriptorIndex(&buffers[UploadType_MeshClusters], ResourceType::SRV);
@@ -1387,6 +1400,7 @@ internal void CullInstances(CommandList cmdList, bool isSecondPass)
         device->BindResource(&occludedInstanceBuffer, ResourceType::UAV, 2, cmdList);
 #if 1
         device->BindResource(&cullingStatisticsBuffer, ResourceType::UAV, 3, cmdList);
+        device->BindResource(&debugAABBs, ResourceType::UAV, 4, cmdList);
 #endif
         if (!isSecondPass)
         {
@@ -1431,7 +1445,7 @@ internal void CullInstances(CommandList cmdList, bool isSecondPass)
 
     {
         GPUBarrier barriers[] = {
-            GPUBarrier::ComputeWriteToRead(&dispatchIndirectBuffer, ResourceUsage_None, ResourceUsage_Indirect),
+            GPUBarrier::Buffer(&dispatchIndirectBuffer, ResourceUsage_ComputeWrite, ResourceUsage_Indirect | ResourceUsage_ComputeRead),
             GPUBarrier::ComputeWriteToRead(&meshClusterIndexBuffer),
             GPUBarrier::ComputeWriteToRead(&indirectScratchBuffer, ResourceUsage_None, ResourceUsage_ComputeWrite),
         };
@@ -1472,9 +1486,9 @@ internal void CullInstances(CommandList cmdList, bool isSecondPass)
     // Draw compaction
     {
         device->BeginEvent(cmdList, "Draw Compaction");
+
         // DrawCompactionPushConstant pc;
         // pc.drawCount = meshClusterCount;
-
         device->BindCompute(&compactionPipeline, cmdList);
         // device->PushConstants(cmdList, sizeof(pc), &pc);
         device->BindResource(&indirectScratchBuffer, ResourceType::SRV, 0, cmdList);
@@ -1662,6 +1676,7 @@ internal void Render()
                     GPUBarrier::Buffer(&dispatchIndirectBuffer, ResourceUsage_Indirect, ResourceUsage_TransferDst),
 #if 1
                     GPUBarrier::Buffer(&cullingStatisticsBuffer, ResourceUsage_ComputeWrite, ResourceUsage_TransferDst),
+                    GPUBarrier::Buffer(&debugAABBs, ResourceUsage_ComputeWrite, ResourceUsage_TransferDst),
 #endif
                 };
                 device->Barrier(cmd, barriers, ArrayLength(barriers));
@@ -1676,6 +1691,8 @@ internal void Render()
             TempArena temp          = ScratchStart(0, 0);
             CullingStatistics stats = {};
             device->FrameAllocate(&cullingStatisticsBuffer, &stats, cmd);
+
+            device->ClearBuffer(cmd, &debugAABBs);
 
             DispatchIndirect *indirect                                  = PushArray(temp.arena, DispatchIndirect, NUM_DISPATCH_OFFSETS);
             indirect[CLUSTER_DISPATCH_OFFSET].groupCountX               = 0;
@@ -1716,6 +1733,9 @@ internal void Render()
             GPUBarrier barriers[] = {
                 GPUBarrier::Memory(ResourceUsage_TransferDst, ResourceUsage_ComputeRead | ResourceUsage_ComputeWrite),
                 GPUBarrier::Buffer(&indirectScratchBuffer, ResourceUsage_ComputeWrite, ResourceUsage_ComputeWrite),
+#if 1
+                GPUBarrier::Buffer(&debugAABBs, ResourceUsage_TransferDst, ResourceUsage_ComputeWrite),// | ResourceUsage_ComputeRead),
+#endif
             };
             device->Barrier(cmd, barriers, ArrayLength(barriers));
         }
@@ -1941,6 +1961,7 @@ internal void Render()
     // Get num culled
     {
         CullingStatistics *stats = (CullingStatistics *)cullingStatisticsBuffer.mappedData;
+        V4 *data                 = (V4 *)debugAABBs.mappedData;
         Printf("Num occlusion culled: %u\n", stats[0].numOcclusionCulled);
         Printf("Num frustum culled: %u\n", stats[0].numFrustumCulled);
     }
