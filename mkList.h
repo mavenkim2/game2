@@ -11,34 +11,44 @@ using list = std::vector<T, A>;
 // TODO: maybe explore move semantics or something
 // Basic dynamic array implementation
 template <typename T>
-struct DynamicArray
+struct Array
 {
     i32 size;
     i32 capacity;
     T *data;
 
-    DynamicArray()
+    Array()
     {
         size     = 0;
         capacity = 4;
         data     = (T *)Memory::Malloc(sizeof(T) * capacity);
     }
-    DynamicArray(u32 initialCapacity) : capacity(initialCapacity)
+    Array(u32 initialCapacity) : capacity(initialCapacity)
     {
         size = 0;
         data = (T *)Memory::Malloc(sizeof(T) * capacity);
     }
 
-    T &operator[](i32 index)
+    inline void RangeCheck(i32 index)
     {
-        Assert(index > 0 && index < size);
+        Assert(index >= 0 && index < size);
+    }
+
+    inline T &operator[](i32 index)
+    {
+        RangeCheck(index);
         return data[index];
     }
 
-    const T &operator[](i32 index) const
+    inline const T &operator[](i32 index) const
     {
-        Assert(index > 0 && index < size);
+        RangeCheck(index);
         return data[index];
+    }
+
+    const u32 Length()
+    {
+        return size;
     }
 
     void Emplace()
@@ -69,8 +79,15 @@ struct DynamicArray
 
     void Remove(u32 index)
     {
-        Assert(size);
-        (index != size - 1) ? (MemoryCopy(data + index + 1, data + index, sizeof(T) * (size - index)) : 0);
+        RangeCheck(index);
+        (index != size - 1) ? MemoryCopy(data + index + 1, data + index, sizeof(T) * (size - index)) : 0;
+        size--;
+    }
+
+    void RemoveSwapBack(u32 index)
+    {
+        RangeCheck(index);
+        (index != size - 1) ? data[index] = std::move(data[size - 1]) : 0;
         size--;
     }
 
@@ -85,28 +102,6 @@ private:
         }
     }
 };
-// template <typename T>
-// struct list
-// {
-//     i32 size;
-//     i32 capacity;
-//     T *data;
-//
-//     inline list()
-//     {
-//         size     = 0;
-//         capacity = 0;
-//         data     = 0;
-//     }
-//
-//     inline void clear()
-//     {
-//         size     = 0;
-//         capacity = 0;
-//         free(data);
-//         data = 0;
-//     }
-// };
 
 template <u32 hashSize, u32 indexSize>
 struct AtomicFixedHashTable
@@ -254,9 +249,10 @@ inline u32 AtomicFixedHashTable<hashSize, indexSize>::Find(const u32 inHash, con
     u32 key   = inHash & (hashSize - 1);
     for (u32 i = First(key); IsValid(i); i = Next(i))
     {
-        if (array[i] == key)
+        if (array[i] == inHash)
         {
             index = i;
+            break;
         }
     }
     return index;
@@ -273,6 +269,7 @@ inline u32 AtomicFixedHashTable<hashSize, indexSize>::Find(const u32 inHash, con
         if (array[i] == element)
         {
             index = i;
+            break;
         }
     }
     return index;

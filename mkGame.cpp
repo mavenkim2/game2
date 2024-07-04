@@ -234,16 +234,25 @@ G_INIT(G_Init)
         g_state->bindings.bindings[I_Button_RightClick] = OS_Mouse_R;
 
         // Testing Memory
-        {
-            Memory::Init();
-            DynamicArray<u32> array;
-            for (u32 i = 0; i < kilobytes(128) / sizeof(u32); i++)
-            {
-                array.Push(i);
-            }
-            u32 test   = array[40];
-            u32 amount = Memory::GetAllocationAmount();
-        }
+        // {
+        //     Memory::Init();
+        //     DynamicArray<u32> array;
+        //     for (u32 i = 0; i < 100; i++)
+        //     {
+        //         array.Push(i);
+        //     }
+        //     u32 test   = array[40];
+        //     u32 amount = Memory::GetAllocationAmount();
+        //
+        //     jobsystem::Counter counter = {};
+        //     jobsystem::KickJob(&counter, [&](jobsystem::JobArgs args) {
+        //         for (u32 i = 0; i < array.Length(); i++)
+        //         {
+        //             Printf("%u\n", array[i]);
+        //         }
+        //     });
+        //     jobsystem::WaitJobs(&counter);
+        // }
 
         // g_state->heightmap = CreateHeightmap(Str8Lit("data/heightmap.png"));
 

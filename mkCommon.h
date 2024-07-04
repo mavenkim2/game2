@@ -126,23 +126,23 @@ print_func *Printf;
 #define MemoryZero(ptr, size) MemorySet((ptr), 0, (size))
 #define MemoryZeroStruct(ptr) MemorySet((ptr), 0, sizeof(*(ptr)))
 
-#define ArrayInit(arena, array, type, _cap)         \
-    do                                              \
-    {                                               \
-        array.cap   = _cap;                         \
-        array.items = PushArray(arena, type, _cap); \
-    } while (0)
+// #define ArrayInit(arena, array, type, _cap)         \
+//     do                                              \
+//     {                                               \
+//         array.cap   = _cap;                         \
+//         array.items = PushArray(arena, type, _cap); \
+//     } while (0)
 
-#define Array(type)      \
-    struct               \
-    {                    \
-        type *items = 0; \
-        u32 count   = 0; \
-        u32 cap     = 0; \
-    }
-#define ArrayPush(array, item)             \
-    Assert((array)->count < (array)->cap); \
-    (array)->items[(array)->count++] = item
+// #define Array(type)      \
+//     struct               \
+//     {                    \
+//         type *items = 0; \
+//         u32 count   = 0; \
+//         u32 cap     = 0; \
+//     }
+// #define ArrayPush(array, item)             \
+//     Assert((array)->count < (array)->cap); \
+//     (array)->items[(array)->count++] = item
 
 // Loops
 #define DO_STRING_JOIN(arg1, arg2) arg1##arg2

@@ -96,25 +96,6 @@ ThreadLocalBin *CreateBin(u32 binElementSize);
 void *Allocate(ThreadLocalBin *bin);
 void Free(ThreadLocalBin *bin, void *ptr);
 
-// void *GetFreeAllocation(Run *run)
-// {
-//     u32 i = 0;
-//     while (run->bitmap[i] != 0)
-//     {
-//         i++;
-//     }
-//     u32 freeRegion = GetLowestSetBit(run->bitmap[i]) + 64 * i;
-//     u8 *ptr        = (u8 *)run->ptr + freeRegion * sizeClass;
-//     return ptr;
-// }
-//
-// internal void SplitRun(Run *run, u32 numPages)
-// {
-//     while (numPages > run->numPages)
-//     {
-//     }
-// }
-
 struct ThreadLocalCache
 {
     ThreadLocalBin *bins[cTotalNumGroups];

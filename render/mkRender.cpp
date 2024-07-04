@@ -890,11 +890,7 @@ u8 currentFrame;
 u8 currentBuffer;
 FrameData frameData[2];
 
-// graphics::GPUBuffer globalVertexBuffer;
-//
-// internal void AllocateGeometry(void *data, u64 size)
-// {
-// }
+rendergraph::RenderGraph renderGraph;
 
 internal void *
 FrameAlloc(i32 size)
@@ -1337,6 +1333,28 @@ internal void Initialize()
         desc.compute = &shaders[ShaderType_GenerateMips_CS];
         device->CreateComputePipeline(&desc, &generateMipsPipeline, "Generate Mips Compute");
     }
+
+    // Rendergraph testing
+    {
+        renderGraph.Init();
+        rendergraph::RGClearIndirect parametersIndirect;
+        parametersIndirect.indirectCommands.handle = renderGraph.CreateBuffer("Buffer");
+        AddPass(&renderGraph, "Test pass 2", &parametersIndirect, [&](CommandList cmd) {
+            // device->BindCompute(&skinPipeline, cmd);
+            // device->Dispatch(cmd, (mesh->vertexCount + SKINNING_GROUP_SIZE - 1) / SKINNING_GROUP_SIZE, 1, 1);
+            Printf("Nothing! :>)\n");
+        });
+
+        rendergraph::RGClearIndirect parametersIndirect2;
+        parametersIndirect2.indirectCommands.handle = renderGraph.CreateBuffer("Buffer");
+        AddPass(&renderGraph, "Test pass 1", &parametersIndirect2, [&](CommandList cmd) {
+            Printf("Nothing! :>)\n");
+        });
+
+        renderGraph.Compile();
+        // should print test pass 2, test pass 1
+    }
+    int stop = 5;
 }
 
 enum RenderPassType

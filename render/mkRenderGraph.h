@@ -4,6 +4,26 @@
 namespace rendergraph
 {
 
+typedef u32 PassHandle;
+typedef u32 BufferHandle;
+typedef u32 TextureHandle;
+const u32 INVALID_HANDLE = 0xffffffff;
+const BufferHandle INVALID_BUFFER_HANDLE   = INVALID_HANDLE;
+const TextureHandle INVALID_TEXTURE_HANDLE = INVALID_HANDLE;
+const PassHandle INVALID_PASS_HANDLE       = INVALID_HANDLE;
+
+struct PassResource;
+struct BufferView;
+struct TextureView;
+using ExecuteFunction          = std::function<void(graphics::CommandList cmd)>;
+using BufferEnumerateFunction  = std::function<void(PassResource *resources, BufferView *views)>;
+using TextureEnumerateFunction = std::function<void(PassResource *resources, TextureView *views)>;
+
+inline b32 IsValidHandle(u32 handle)
+{
+    return handle != INVALID_HANDLE;
+}
+
 enum class ResourceType : u32
 {
     StructuredBuffer,
@@ -105,8 +125,6 @@ struct BufferDesc
     u32 size;
 };
 
-typedef u32 PassHandle;
-
 enum class ViewAccess
 {
     ComputeSRV,
@@ -127,9 +145,6 @@ struct ResourceView
     ResourceViewType type;
     ViewAccess access;
 };
-
-typedef u32 BufferHandle;
-typedef u32 TextureHandle;
 
 struct BufferView : ResourceView
 {
@@ -160,10 +175,6 @@ struct BaseShaderParamType
     ShaderParamFlags flags;
 };
 
-using ExecuteFunction          = std::function<void(graphics::CommandList cmd)>;
-using BufferEnumerateFunction  = std::function<void(PassResource *resources, BufferView *views)>;
-using TextureEnumerateFunction = std::function<void(PassResource *resources, TextureView *views)>;
-
 // enum class PassFlags
 // {
 //     Uninitialized = 0,
@@ -173,6 +184,7 @@ using TextureEnumerateFunction = std::function<void(PassResource *resources, Tex
 
 struct RenderPass
 {
+    string name;
     void *parameters;
     ExecuteFunction func;
     u32 size;
@@ -183,19 +195,15 @@ struct RenderGraphBuffer
     // u32 numElements;
     // u32 bytesPerElement;
     // graphics::Format format;
+
     u32 numUses; // a reference count
+
+    PassHandle firstPass;
+    PassHandle lastPass;
+    PassHandle lastPassWriteHandle;
+    PassHandle lastPassReadHandle;
 };
 
-struct DependencyNode
-{
-    PassHandle handles[8]; // ordered
-    ViewAccess access[8];
-    u8 numDependencies;
-    DependencyNode *next;
-};
-
-const BufferHandle INVALID_BUFFER_HANDLE   = 0xffffffff;
-const TextureHandle INVALID_TEXTURE_HANDLE = 0xffffffff;
 /*
  */
 struct RenderGraph
@@ -209,7 +217,6 @@ struct RenderGraph
     AtomicFixedHashTable<512, 512> bufferNameHashTable;
     RenderGraphBuffer buffers[512];
     u32 bufferStringHashes[512];
-    DependencyNode **bufferDependencies;
     u32 numBuffers = 0;
 
     AtomicFixedHashTable<512, 512> textureNameHashTable;
@@ -220,6 +227,10 @@ struct RenderGraph
     u32 renderPassStringHashes[32];
     RenderPass passes[32];
     PassHandle passCount;
+
+    // Pass dependencies
+    PassHandle *passDependencies[32];
+    u32 passDependencyCounts[32];
     u32 numPasses;
 
     graphics::GPUBuffer transientResourceBuffer;
@@ -227,10 +238,10 @@ struct RenderGraph
     void Init();
     void Compile();
     PassHandle AddPassInternal(string passName, void *params, u32 size, const ExecuteFunction &func);
-    BufferHandle CreateBufferSRV(string name);
+    BufferHandle CreateBuffer(string name);
 };
 
-#define AddPass(graph, name, params, func) graph->AddPassInternal(name, params, sizeof(*params), func)
+#define AddPass(graph, name, params, func) (graph)->AddPassInternal((name), (params), sizeof(*(params)), (func))
 } // namespace rendergraph
 
 #endif
