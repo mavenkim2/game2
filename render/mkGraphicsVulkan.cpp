@@ -80,12 +80,12 @@ VkImageLayout ConvertToImageLayout(ResourceUsage usage)
     {
         return VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
     }
-    if (HasFlags(usage, ResourceUsage_TransferSrc)) return VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-    if (HasFlags(usage, ResourceUsage_TransferDst)) return VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    if (EnumHasAllFlags(usage, ResourceUsage_TransferSrc)) return VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    if (EnumHasAllFlags(usage, ResourceUsage_TransferDst)) return VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 
-    if (HasAnyFlags(usage, ResourceUsage_WriteOnly)) return VK_IMAGE_LAYOUT_GENERAL;
-    if (HasAnyFlags(usage, ResourceUsage_ReadOnly)) return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    if (HasFlags(usage, ResourceUsage_ColorAttachment)) return VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    if (EnumHasAnyFlags(usage, ResourceUsage_WriteOnly)) return VK_IMAGE_LAYOUT_GENERAL;
+    if (EnumHasAnyFlags(usage, ResourceUsage_ReadOnly)) return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    if (EnumHasAllFlags(usage, ResourceUsage_ColorAttachment)) return VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
     Assert(0);
     return VK_IMAGE_LAYOUT_MAX_ENUM;
@@ -118,7 +118,7 @@ VkPipelineStageFlags2 ConvertToPipelineStage(ResourceUsage usage)
     {
         outFlags |= VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
     }
-    if (HasAnyFlags(usage, ResourceUsage_ComputeRead | ResourceUsage_ComputeWrite))
+    if (EnumHasAnyFlags(usage, ResourceUsage_ComputeRead | ResourceUsage_ComputeWrite))
     {
         outFlags |= VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
     }
@@ -170,15 +170,15 @@ VkPipelineStageFlags2 ConvertPipelineStage(PipelineStage stage)
 // write after read
 inline b32 IsWAR(ResourceUsage before, ResourceUsage after)
 {
-    b32 result = HasAnyFlags(before, ResourceUsage_ReadOnly) && !HasAnyFlags(before, ResourceUsage_WriteOnly) &&
-                 HasAnyFlags(after, ResourceUsage_WriteOnly) && !HasAnyFlags(after, ResourceUsage_ReadOnly);
+    b32 result = EnumHasAnyFlags(before, ResourceUsage_ReadOnly) && !EnumHasAnyFlags(before, ResourceUsage_WriteOnly) &&
+                 EnumHasAnyFlags(after, ResourceUsage_WriteOnly) && !EnumHasAnyFlags(after, ResourceUsage_ReadOnly);
     return result;
 }
 
 VkAccessFlags2 ConvertToAccessMask(ResourceUsage usage)
 {
     VkAccessFlags2 outFlags = VK_ACCESS_2_NONE;
-    b32 hasGraphics         = HasFlags(usage, ResourceUsage_Graphics);
+    b32 hasGraphics         = EnumHasAllFlags(usage, ResourceUsage_Graphics);
     if (usage == ResourceUsage_Reset)
     {
         return VK_ACCESS_2_NONE;
@@ -203,11 +203,11 @@ VkAccessFlags2 ConvertToAccessMask(ResourceUsage usage)
     {
         outFlags |= VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT;
     }
-    if (HasAnyFlags(usage, ResourceUsage_ReadOnly))
+    if (EnumHasAnyFlags(usage, ResourceUsage_ReadOnly))
     {
         outFlags |= VK_ACCESS_2_SHADER_READ_BIT;
     }
-    if (HasAnyFlags(usage, ResourceUsage_WriteOnly))
+    if (EnumHasAnyFlags(usage, ResourceUsage_WriteOnly))
     {
         outFlags |= VK_ACCESS_2_SHADER_WRITE_BIT;
         // outFlags |= VK_ACCESS_2_SHADER_READ_BIT;
@@ -3740,7 +3740,7 @@ void mkGraphicsVulkan::BeginRenderPass(Swapchain *inSwapchain, CommandList inCom
     barrier.image                           = swapchain->images[swapchain->imageIndex];
     barrier.oldLayout                       = VK_IMAGE_LAYOUT_UNDEFINED;
     barrier.newLayout                       = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL; // VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    barrier.srcStageMask                    = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT; // VK_PIPELINE_STAGE_2_TRANSFER_BIT;     // VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+    barrier.srcStageMask                    = VK_PIPELINE_STAGE_2_NONE;             // VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT; // VK_PIPELINE_STAGE_2_TRANSFER_BIT;     // VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
     barrier.dstStageMask                    = VK_PIPELINE_STAGE_2_TRANSFER_BIT;     // VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
     barrier.srcAccessMask                   = VK_ACCESS_2_NONE;
     barrier.dstAccessMask                   = VK_ACCESS_2_TRANSFER_WRITE_BIT; // VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
@@ -3766,7 +3766,7 @@ void mkGraphicsVulkan::BeginRenderPass(Swapchain *inSwapchain, CommandList inCom
     barrier.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
     barrier.srcStageMask  = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-    barrier.dstStageMask  = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
+    barrier.dstStageMask  = VK_PIPELINE_STAGE_2_NONE;       // VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT;
     barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT; // VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
     barrier.dstAccessMask = VK_ACCESS_2_NONE;
 
@@ -4112,8 +4112,7 @@ void mkGraphicsVulkan::SubmitCommandLists()
             bufferInfo.sType                      = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
             bufferInfo.commandBuffer              = commandList->GetCommandBuffer();
 
-            // TODO: I'm not sure if this is ever more than one. also, when this code is extended to multiple queues,
-            // compute/transfer don't have these
+            // TODO: I'm not sure if this is ever more than one.
             for (auto &sc : commandList->updateSwapchains)
             {
                 SwapchainVulkan *swapchain = ToInternal(&sc);
@@ -4123,14 +4122,14 @@ void mkGraphicsVulkan::SubmitCommandLists()
                 waitSemaphore.sType                 = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
                 waitSemaphore.semaphore             = swapchain->acquireSemaphores[swapchain->acquireSemaphoreIndex];
                 waitSemaphore.value                 = 0;
-                waitSemaphore.stageMask             = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+                waitSemaphore.stageMask             = VK_PIPELINE_STAGE_2_TRANSFER_BIT; // VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
                 waitSemaphores[type].push_back(waitSemaphore);
 
                 VkSemaphoreSubmitInfo signalSemaphore = {};
                 signalSemaphore.sType                 = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
                 signalSemaphore.semaphore             = swapchain->releaseSemaphore;
                 signalSemaphore.value                 = 0;
-                signalSemaphore.stageMask             = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+                signalSemaphore.stageMask             = VK_PIPELINE_STAGE_2_TRANSFER_BIT; // VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
                 signalSemaphores[type].push_back(signalSemaphore);
 
                 submitSemaphores.push_back(swapchain->releaseSemaphore);

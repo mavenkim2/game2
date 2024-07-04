@@ -8,6 +8,83 @@
 template <typename T, typename A = std::allocator<T>>
 using list = std::vector<T, A>;
 
+// TODO: maybe explore move semantics or something
+// Basic dynamic array implementation
+template <typename T>
+struct DynamicArray
+{
+    i32 size;
+    i32 capacity;
+    T *data;
+
+    DynamicArray()
+    {
+        size     = 0;
+        capacity = 4;
+        data     = (T *)Memory::Malloc(sizeof(T) * capacity);
+    }
+    DynamicArray(u32 initialCapacity) : capacity(initialCapacity)
+    {
+        size = 0;
+        data = (T *)Memory::Malloc(sizeof(T) * capacity);
+    }
+
+    T &operator[](i32 index)
+    {
+        Assert(index > 0 && index < size);
+        return data[index];
+    }
+
+    const T &operator[](i32 index) const
+    {
+        Assert(index > 0 && index < size);
+        return data[index];
+    }
+
+    void Emplace()
+    {
+        AddOrGrow();
+    }
+
+    T &Back()
+    {
+        return data[size - 1];
+    }
+
+    const T &Back() const
+    {
+        return data[size - 1];
+    }
+
+    void Add(T element)
+    {
+        AddOrGrow();
+        data[size - 1] = element;
+    }
+
+    void Push(T element)
+    {
+        Add(element);
+    }
+
+    void Remove(u32 index)
+    {
+        Assert(size);
+        (index != size - 1) ? (MemoryCopy(data + index + 1, data + index, sizeof(T) * (size - index)) : 0);
+        size--;
+    }
+
+private:
+    inline void AddOrGrow()
+    {
+        size += 1;
+        if (size > capacity)
+        {
+            capacity *= 2;
+            data = (T *)Memory::Realloc(data, capacity * sizeof(T));
+        }
+    }
+};
 // template <typename T>
 // struct list
 // {
@@ -44,13 +121,19 @@ struct AtomicFixedHashTable
     void BeginLock(u32 lockIndex);
     void EndLock(u32 lockIndex);
     u32 First(u32 key) const;
-    u32 FirstAndLock(u32 key);
+    u32 FirstConcurrent(u32 key);
     u32 Next(u32 index) const;
     b8 IsValid(u32 index) const;
-    b8 IsValidLock(u32 key, u32 index);
+    b8 IsValidConcurrent(u32 key, u32 index);
 
     void Add(u32 key, u32 index);
-    void Remove(u32 key, u32 index);
+    void AddConcurrent(u32 key, u32 index);
+    void RemoveConcurrent(u32 key, u32 index);
+
+    u32 Find(const u32 inHash, const u32 *array) const;
+
+    template <typename T>
+    u32 Find(const u32 inHash, const T *array, const T element) const;
 };
 
 template <u32 hashSize, u32 indexSize>
@@ -68,7 +151,7 @@ inline b8 AtomicFixedHashTable<hashSize, indexSize>::IsValid(u32 index) const
 }
 
 template <u32 hashSize, u32 indexSize>
-inline b8 AtomicFixedHashTable<hashSize, indexSize>::IsValidLock(u32 key, u32 index)
+inline b8 AtomicFixedHashTable<hashSize, indexSize>::IsValidConcurrent(u32 key, u32 index)
 {
     if (index == 0xffffffff)
     {
@@ -102,7 +185,7 @@ inline void AtomicFixedHashTable<hashSize, indexSize>::EndLock(u32 lockIndex)
 }
 
 template <u32 hashSize, u32 indexSize>
-inline u32 AtomicFixedHashTable<hashSize, indexSize>::FirstAndLock(u32 key)
+inline u32 AtomicFixedHashTable<hashSize, indexSize>::FirstConcurrent(u32 key)
 {
     key &= (hashSize - 1);
     BeginLock(key);
@@ -123,7 +206,7 @@ inline u32 AtomicFixedHashTable<hashSize, indexSize>::Next(u32 index) const
 }
 
 template <u32 hashSize, u32 indexSize>
-inline void AtomicFixedHashTable<hashSize, indexSize>::Add(u32 key, u32 index)
+inline void AtomicFixedHashTable<hashSize, indexSize>::AddConcurrent(u32 key, u32 index)
 {
     Assert(index < indexSize);
     key &= (hashSize - 1);
@@ -134,7 +217,16 @@ inline void AtomicFixedHashTable<hashSize, indexSize>::Add(u32 key, u32 index)
 }
 
 template <u32 hashSize, u32 indexSize>
-inline void AtomicFixedHashTable<hashSize, indexSize>::Remove(u32 key, u32 index)
+inline void AtomicFixedHashTable<hashSize, indexSize>::Add(u32 key, u32 index)
+{
+    Assert(index < indexSize);
+    key &= (hashSize - 1);
+    nextIndex[index] = hash[key];
+    hash[key]        = index;
+}
+
+template <u32 hashSize, u32 indexSize>
+inline void AtomicFixedHashTable<hashSize, indexSize>::RemoveConcurrent(u32 key, u32 index)
 {
     key &= (hashSize - 1);
     BeginLock(key);
@@ -153,6 +245,37 @@ inline void AtomicFixedHashTable<hashSize, indexSize>::Remove(u32 key, u32 index
             }
         }
     }
+}
+
+template <u32 hashSize, u32 indexSize>
+inline u32 AtomicFixedHashTable<hashSize, indexSize>::Find(const u32 inHash, const u32 *array) const
+{
+    u32 index = 0xffffffff;
+    u32 key   = inHash & (hashSize - 1);
+    for (u32 i = First(key); IsValid(i); i = Next(i))
+    {
+        if (array[i] == key)
+        {
+            index = i;
+        }
+    }
+    return index;
+}
+
+template <u32 hashSize, u32 indexSize>
+template <typename T>
+inline u32 AtomicFixedHashTable<hashSize, indexSize>::Find(const u32 inHash, const T *array, const T element) const
+{
+    u32 index = 0xffffffff;
+    u32 key   = inHash & (hashSize - 1);
+    for (u32 i = First(key); IsValid(i); i = Next(i))
+    {
+        if (array[i] == element)
+        {
+            index = i;
+        }
+    }
+    return index;
 }
 
 struct HashIndex

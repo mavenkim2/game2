@@ -27,6 +27,11 @@ struct ShaderResource
     i32 bindingSlot;
 };
 
+struct ShaderPushConstant
+{
+    string name;
+};
+
 struct ShaderResources
 {
     string name;
@@ -148,7 +153,7 @@ int main(int argc, char *argv[])
             if (!(props.isDirectory))
             {
                 string fileExtension = GetFileExtension(props.name);
-                if (fileExtension == "hlsl" || fileExtension == "hlsli")
+                if (!(props.name == "globals.hlsli") && (fileExtension == "hlsl" || fileExtension == "hlsli"))
                 {
                     string path = PushStr8F(temp.arena, "%S%S", directoryPath, props.name);
                     jobsystem::KickJob(&counter, [&numShaders, &hashTable,
@@ -160,11 +165,29 @@ int main(int argc, char *argv[])
                         tokenizer.input  = result;
                         tokenizer.cursor = result.str;
 
-                        string shaderName = ConvertPathToStructName(temp.arena, PathSkipLastSlash(RemoveFileExtension(path)));
+                        rendergraph::ShaderParamFlags flags = rendergraph::ShaderParamFlags::None;
+                        string filename                     = PathSkipLastSlash(RemoveFileExtension(path));
+                        string shaderType                   = Substr8(filename, filename.size - 2, filename.size);
+                        {
+                            if (GetFileExtension(path) == "hlsli")
+                            {
+                                flags = rendergraph::ShaderParamFlags::Header;
+                            }
+                            else if (shaderType == "cs")
+                            {
+                                flags = rendergraph::ShaderParamFlags::Compute;
+                            }
+                            else if (shaderType == "vs" || shaderType == "fs")
+                            {
+                                flags = rendergraph::ShaderParamFlags::Graphics;
+                            }
+                        }
+
+                        string shaderName = ConvertPathToStructName(temp.arena, filename);
 
                         u32 sid           = Hash(shaderName);
                         b8 alreadyVisited = 0;
-                        for (i32 index = hashTable.FirstAndLock(sid); hashTable.IsValidLock(sid, index); hashTable.Next(index))
+                        for (i32 index = hashTable.FirstConcurrent(sid); hashTable.IsValidConcurrent(sid, index); hashTable.Next(index))
                         {
                             if (sids[index] == sid)
                             {
@@ -179,10 +202,15 @@ int main(int argc, char *argv[])
                         }
                         u32 shaderIndex   = numShaders.fetch_add(1);
                         sids[shaderIndex] = sid;
-                        hashTable.Add(sid, shaderIndex);
+                        hashTable.AddConcurrent(sid, shaderIndex);
                         ShaderResources *currentShader = &shaders[shaderIndex];
                         currentShader->name            = PushStr8Copy(temp.arena, shaderName);
                         currentShader->shaderIndex     = shaderIndex;
+
+                        u32 numBuffers  = 0;
+                        u32 numTextures = 0;
+                        b8 hasPush      = 0;
+                        ShaderPushConstant pc;
                         while (!EndOfBuffer(&tokenizer))
                         {
                             string line = ReadLine(&tokenizer);
@@ -190,8 +218,16 @@ int main(int argc, char *argv[])
                             {
                                 string includedFile;
                                 Assert(GetBetweenPair(includedFile, line, '"'));
-                                u32 sid = Hash(ConvertPathToStructName(temp.arena, RemoveFileExtension(includedFile)));
-                                currentShader->includeShaderSid.push_back(sid);
+                                if (!(includedFile == "globals.hlsli"))
+                                {
+                                    u32 sid = Hash(ConvertPathToStructName(temp.arena, RemoveFileExtension(includedFile)));
+                                    currentShader->includeShaderSid.push_back(sid);
+                                }
+                            }
+                            else if (Contains(line, "push_constant"))
+                            {
+                                hasPush = 1;
+                                pc.name = GetFirstWord(SkipToNextWord(line));
                             }
                             else if (Contains(line, "register") && line.str[0] != '/' && line.str[0] != '#')
                             {
@@ -200,22 +236,27 @@ int main(int argc, char *argv[])
                                 if (StartsWith(line, "RWStructuredBuffer"))
                                 {
                                     resource->type = rendergraph::ResourceType::RWStructuredBuffer;
+                                    numBuffers++;
                                 }
                                 else if (StartsWith(line, "StructuredBuffer"))
                                 {
                                     resource->type = rendergraph::ResourceType::StructuredBuffer;
+                                    numBuffers++;
                                 }
                                 else if (StartsWith(line, "Texture2DArray"))
                                 {
                                     resource->type = rendergraph::ResourceType::Texture2DArray;
+                                    numTextures++;
                                 }
                                 else if (StartsWith(line, "Texture2D"))
                                 {
                                     resource->type = rendergraph::ResourceType::Texture2D;
+                                    numTextures++;
                                 }
                                 else if (StartsWith(line, "RWTexture2D"))
                                 {
                                     resource->type = rendergraph::ResourceType::RWTexture2D;
+                                    numTextures++;
                                 }
                                 else if (StartsWith(line, "SamplerState"))
                                 {
@@ -267,32 +308,58 @@ int main(int argc, char *argv[])
                         PutLine(builder, 0, "struct %S", shaderName);
                         PutLine(builder, 0, "{");
                         PutLine(builder, 1, "const string name = Str8Lit(\"%S\");", currentShader->name);
-                        if (currentShader->resources.size() > 0)
+                        PutLine(builder, 1, "const u32 numResources = %u;", currentShader->resources.size());
+                        PutLine(builder, 1, "const u32 numBuffers = %u;", numBuffers);
+                        PutLine(builder, 1, "const u32 numTextures = %u;", numTextures);
+                        PutLine(builder, 1, "const ShaderParamFlags flags = %S;", ConvertShaderParamFlagsToString(flags));
+                        if (numTextures != 0)
                         {
-                            PutLine(builder, 1, "const PassResource resources[%u] = {", currentShader->resources.size());
+                            PutLine(builder, 1, "const PassResource textureResources[%u] = {", numTextures);
                             for (u32 i = 0; i < currentShader->resources.size(); i++)
                             {
                                 ShaderResource *resource = &currentShader->resources[i];
-                                // TODO: not checking currently for hash collisions.
-                                PutLine(builder, 2, "{%u, %S, %u},", HashCombine(Hash(currentShader->name), Hash(resource->name)),
-                                        rendergraph::ConvertResourceTypeToName(resource->type), resource->bindingSlot);
+                                if (IsTexture(resource->type))
+                                {
+                                    PutLine(builder, 2, "{%S, %S, %u},", rendergraph::ConvertResourceUsageToName(resource->usage),
+                                            rendergraph::ConvertResourceTypeToName(resource->type), resource->bindingSlot);
+                                }
+                            }
+                            PutLine(builder, 1, "};");
+                        }
+                        if (numBuffers != 0)
+                        {
+                            PutLine(builder, 1, "const PassResource bufferResources[%u] = {", numBuffers);
+                            for (u32 i = 0; i < currentShader->resources.size(); i++)
+                            {
+                                ShaderResource *resource = &currentShader->resources[i];
+                                if (IsBuffer(resource->type))
+                                {
+                                    PutLine(builder, 2, "{%S, %S, %u},", rendergraph::ConvertResourceUsageToName(resource->usage),
+                                            rendergraph::ConvertResourceTypeToName(resource->type), resource->bindingSlot);
+                                }
                             }
                             PutLine(builder, 1, "};");
                         }
                         for (u32 i = 0; i < currentShader->resources.size(); i++)
                         {
                             ShaderResource *resource = &currentShader->resources[i];
-                            if (resource->type == rendergraph::ResourceType::Texture2D ||
-                                resource->type == rendergraph::ResourceType::RWTexture2D)
+                            if (IsTexture(resource->type))
                             {
-                                PutLine(builder, 1, "graphics::Texture %S;", resource->name);
+                                PutLine(builder, 1, "TextureView %S;", resource->name);
                             }
-                            else if (resource->type == rendergraph::ResourceType::StructuredBuffer ||
-                                     resource->type == rendergraph::ResourceType::RWStructuredBuffer)
+                        }
+                        for (u32 i = 0; i < currentShader->resources.size(); i++)
+                        {
+                            ShaderResource *resource = &currentShader->resources[i];
+                            if (IsBuffer(resource->type))
 
                             {
-                                PutLine(builder, 1, "graphics::GPUBuffer %S;", resource->name);
+                                PutLine(builder, 1, "BufferView %S;", resource->name);
                             }
+                        }
+                        if (hasPush)
+                        {
+                            PutLine(builder, 1, "%S push;", pc.name);
                         }
                     });
                 }

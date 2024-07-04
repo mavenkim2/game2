@@ -1,170 +1,203 @@
 namespace rendergraph
 {
-struct RGCull
-{
-	const string name = Str8Lit("RGCull");
-	const PassResource resources[1] = {
-		{2658854520, ResourceType::Texture2D, 0},
-	};
-	graphics::Texture depthPyramid;
-};
-
-struct RGGlobals
-{
-	const string name = Str8Lit("RGGlobals");
-	const PassResource resources[5] = {
-		{2661457772, ResourceType::StructuredBuffer, 50},
-		{2661473902, ResourceType::StructuredBuffer, 51},
-		{2661462225, ResourceType::StructuredBuffer, 52},
-		{2661479358, ResourceType::StructuredBuffer, 53},
-		{2661505222, ResourceType::StructuredBuffer, 54},
-	};
-	graphics::GPUBuffer samplerLinearWrap;
-	graphics::GPUBuffer samplerNearestWrap;
-	graphics::GPUBuffer samplerLinearClamp;
-	graphics::GPUBuffer samplerNearestClamp;
-	graphics::GPUBuffer samplerShadowMap;
-};
-
 struct RGBlockcompress
 {
 	const string name = Str8Lit("RGBlockcompress");
-	const PassResource resources[2] = {
-		{2666927219, ResourceType::Texture2D, 0},
-		{2667042352, ResourceType::RWTexture2D, 0},
+	const u32 numResources = 2;
+	const u32 numBuffers = 0;
+	const u32 numTextures = 2;
+	const ShaderParamFlags flags = ShaderParamFlags::Compute;
+	const PassResource textureResources[2] = {
+		{ResourceUsage::SRV, ResourceType::Texture2D, 0},
+		{ResourceUsage::UAV, ResourceType::RWTexture2D, 0},
 	};
-	graphics::Texture input;
-	graphics::Texture output;
-	RGGlobals globals;
+	TextureView input;
+	TextureView output;
 };
 
-struct RGGenerateMips
+struct RGClearIndirect
 {
-	const string name = Str8Lit("RGGenerateMips");
-	const PassResource resources[2] = {
-		{2665542537, ResourceType::Texture2D, 0},
-		{2665491337, ResourceType::RWTexture2D, 0},
+	const string name = Str8Lit("RGClearIndirect");
+	const u32 numResources = 1;
+	const u32 numBuffers = 1;
+	const u32 numTextures = 0;
+	const ShaderParamFlags flags = ShaderParamFlags::Compute;
+	const PassResource bufferResources[1] = {
+		{ResourceUsage::UAV, ResourceType::RWStructuredBuffer, 0},
 	};
-	graphics::Texture mipInSRV;
-	graphics::Texture mipOutUAV;
-	RGGlobals globals;
+	BufferView indirectCommands;
 };
 
 struct RGCullTriangle
 {
 	const string name = Str8Lit("RGCullTriangle");
-	const PassResource resources[3] = {
-		{2665879977, ResourceType::StructuredBuffer, 0},
-		{2665933906, ResourceType::RWStructuredBuffer, 0},
-		{2665553398, ResourceType::RWStructuredBuffer, 1},
+	const u32 numResources = 3;
+	const u32 numBuffers = 3;
+	const u32 numTextures = 0;
+	const ShaderParamFlags flags = ShaderParamFlags::Compute;
+	const PassResource bufferResources[3] = {
+		{ResourceUsage::SRV, ResourceType::StructuredBuffer, 0},
+		{ResourceUsage::UAV, ResourceType::RWStructuredBuffer, 0},
+		{ResourceUsage::UAV, ResourceType::RWStructuredBuffer, 1},
 	};
-	graphics::GPUBuffer meshClusterIndices;
-	graphics::GPUBuffer indirectCommands;
-	graphics::GPUBuffer outputIndices;
-	RGGlobals globals;
+	BufferView meshClusterIndices;
+	BufferView indirectCommands;
+	BufferView outputIndices;
+	TriangleCullPushConstant push;
+};
+
+struct RGCull
+{
+	const string name = Str8Lit("RGCull");
+	const u32 numResources = 1;
+	const u32 numBuffers = 0;
+	const u32 numTextures = 1;
+	const ShaderParamFlags flags = ShaderParamFlags::Header;
+	const PassResource textureResources[1] = {
+		{ResourceUsage::SRV, ResourceType::Texture2D, 0},
+	};
+	TextureView depthPyramid;
+};
+
+struct RGCullCluster
+{
+	const string name = Str8Lit("RGCullCluster");
+	const u32 numResources = 4;
+	const u32 numBuffers = 4;
+	const u32 numTextures = 0;
+	const ShaderParamFlags flags = ShaderParamFlags::Compute;
+	const PassResource bufferResources[4] = {
+		{ResourceUsage::SRV, ResourceType::StructuredBuffer, 0},
+		{ResourceUsage::SRV, ResourceType::StructuredBuffer, 1},
+		{ResourceUsage::UAV, ResourceType::RWStructuredBuffer, 0},
+		{ResourceUsage::UAV, ResourceType::RWStructuredBuffer, 1},
+	};
+	BufferView meshChunks;
+	BufferView views;
+	BufferView dispatchIndirect;
+	BufferView outputMeshClusterIndex;
+	ClusterCullPushConstants push;
+	RGCull cull;
 };
 
 struct RGCullInstance
 {
 	const string name = Str8Lit("RGCullInstance");
-	const PassResource resources[6] = {
-		{2665521987, ResourceType::StructuredBuffer, 1},
-		{2665992211, ResourceType::RWStructuredBuffer, 0},
-		{2665501168, ResourceType::RWStructuredBuffer, 1},
-		{2665923702, ResourceType::RWStructuredBuffer, 2},
-		{2665596450, ResourceType::RWStructuredBuffer, 3},
-		{2665481457, ResourceType::RWStructuredBuffer, 4},
+	const u32 numResources = 6;
+	const u32 numBuffers = 6;
+	const u32 numTextures = 0;
+	const ShaderParamFlags flags = ShaderParamFlags::Compute;
+	const PassResource bufferResources[6] = {
+		{ResourceUsage::SRV, ResourceType::StructuredBuffer, 1},
+		{ResourceUsage::UAV, ResourceType::RWStructuredBuffer, 0},
+		{ResourceUsage::UAV, ResourceType::RWStructuredBuffer, 1},
+		{ResourceUsage::UAV, ResourceType::RWStructuredBuffer, 2},
+		{ResourceUsage::UAV, ResourceType::RWStructuredBuffer, 3},
+		{ResourceUsage::UAV, ResourceType::RWStructuredBuffer, 4},
 	};
-	graphics::GPUBuffer views;
-	graphics::GPUBuffer dispatchIndirectBuffer;
-	graphics::GPUBuffer meshChunks;
-	graphics::GPUBuffer occludedInstances;
-	graphics::GPUBuffer cullingStats;
-	graphics::GPUBuffer debugAABBs;
-	RGGlobals globals;
+	BufferView views;
+	BufferView dispatchIndirectBuffer;
+	BufferView meshChunks;
+	BufferView occludedInstances;
+	BufferView cullingStats;
+	BufferView debugAABBs;
+	InstanceCullPushConstants push;
 	RGCull cull;
+};
+
+struct RGGenerateMips
+{
+	const string name = Str8Lit("RGGenerateMips");
+	const u32 numResources = 2;
+	const u32 numBuffers = 0;
+	const u32 numTextures = 2;
+	const ShaderParamFlags flags = ShaderParamFlags::Compute;
+	const PassResource textureResources[2] = {
+		{ResourceUsage::SRV, ResourceType::Texture2D, 0},
+		{ResourceUsage::UAV, ResourceType::RWTexture2D, 0},
+	};
+	TextureView mipInSRV;
+	TextureView mipOutUAV;
 };
 
 struct RGMeshHeader
 {
 	const string name = Str8Lit("RGMeshHeader");
-	const PassResource resources[1] = {
-		{2663807856, ResourceType::Texture2DArray, 1},
+	const u32 numResources = 1;
+	const u32 numBuffers = 0;
+	const u32 numTextures = 1;
+	const ShaderParamFlags flags = ShaderParamFlags::Header;
+	const PassResource textureResources[1] = {
+		{ResourceUsage::SRV, ResourceType::Texture2DArray, 1},
 	};
-	RGGlobals globals;
+	TextureView shadowMaps;
+	PushConstant push;
+};
+
+struct RGDepth
+{
+	const string name = Str8Lit("RGDepth");
+	const u32 numResources = 0;
+	const u32 numBuffers = 0;
+	const u32 numTextures = 0;
+	const ShaderParamFlags flags = ShaderParamFlags::Graphics;
+	RGMeshHeader meshHeader;
+};
+
+struct RGDrawCompaction
+{
+	const string name = Str8Lit("RGDrawCompaction");
+	const u32 numResources = 5;
+	const u32 numBuffers = 5;
+	const u32 numTextures = 0;
+	const ShaderParamFlags flags = ShaderParamFlags::Compute;
+	const PassResource bufferResources[5] = {
+		{ResourceUsage::SRV, ResourceType::StructuredBuffer, 0},
+		{ResourceUsage::SRV, ResourceType::StructuredBuffer, 1},
+		{ResourceUsage::SRV, ResourceType::StructuredBuffer, 2},
+		{ResourceUsage::UAV, ResourceType::RWStructuredBuffer, 0},
+		{ResourceUsage::UAV, ResourceType::RWStructuredBuffer, 1},
+	};
+	BufferView indirectCommands;
+	BufferView meshClusterIndices;
+	BufferView dispatchIndirectBuffer;
+	BufferView commandCount;
+	BufferView outputIndirectCommands;
+	DrawCompactionPushConstant push;
 };
 
 struct RGMesh
 {
 	const string name = Str8Lit("RGMesh");
+	const u32 numResources = 0;
+	const u32 numBuffers = 0;
+	const u32 numTextures = 0;
+	const ShaderParamFlags flags = ShaderParamFlags::Graphics;
 	RGMeshHeader meshHeader;
 };
 
 struct RGDispatchPrep
 {
 	const string name = Str8Lit("RGDispatchPrep");
-	const PassResource resources[1] = {
-		{2665508678, ResourceType::RWStructuredBuffer, 0},
+	const u32 numResources = 1;
+	const u32 numBuffers = 1;
+	const u32 numTextures = 0;
+	const ShaderParamFlags flags = ShaderParamFlags::Compute;
+	const PassResource bufferResources[1] = {
+		{ResourceUsage::UAV, ResourceType::RWStructuredBuffer, 0},
 	};
-	graphics::GPUBuffer dispatch;
-	RGGlobals globals;
-};
-
-struct RGDepth
-{
-	const string name = Str8Lit("RGDepth");
-	RGMeshHeader meshHeader;
-};
-
-struct RGCullCluster
-{
-	const string name = Str8Lit("RGCullCluster");
-	const PassResource resources[4] = {
-		{2665106422, ResourceType::StructuredBuffer, 0},
-		{2664773733, ResourceType::StructuredBuffer, 1},
-		{2665154780, ResourceType::RWStructuredBuffer, 0},
-		{2664999176, ResourceType::RWStructuredBuffer, 1},
-	};
-	graphics::GPUBuffer meshChunks;
-	graphics::GPUBuffer views;
-	graphics::GPUBuffer dispatchIndirect;
-	graphics::GPUBuffer outputMeshClusterIndex;
-	RGGlobals globals;
-	RGCull cull;
+	BufferView dispatch;
+	DispatchPrepPushConstant push;
 };
 
 struct RGSkinning
 {
 	const string name = Str8Lit("RGSkinning");
-	RGGlobals globals;
-};
-
-struct RGDrawCompaction
-{
-	const string name = Str8Lit("RGDrawCompaction");
-	const PassResource resources[5] = {
-		{2667790792, ResourceType::StructuredBuffer, 0},
-		{2667818701, ResourceType::StructuredBuffer, 1},
-		{2667742757, ResourceType::StructuredBuffer, 2},
-		{2667343391, ResourceType::RWStructuredBuffer, 0},
-		{2667749956, ResourceType::RWStructuredBuffer, 1},
-	};
-	graphics::GPUBuffer indirectCommands;
-	graphics::GPUBuffer meshClusterIndices;
-	graphics::GPUBuffer dispatchIndirectBuffer;
-	graphics::GPUBuffer commandCount;
-	graphics::GPUBuffer outputIndirectCommands;
-	RGGlobals globals;
-};
-
-struct RGClearIndirect
-{
-	const string name = Str8Lit("RGClearIndirect");
-	const PassResource resources[1] = {
-		{2666378894, ResourceType::RWStructuredBuffer, 0},
-	};
-	graphics::GPUBuffer indirectCommands;
-	RGGlobals globals;
+	const u32 numResources = 0;
+	const u32 numBuffers = 0;
+	const u32 numTextures = 0;
+	const ShaderParamFlags flags = ShaderParamFlags::Compute;
+	SkinningPushConstants push;
 };
 
 }

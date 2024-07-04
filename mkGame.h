@@ -1,5 +1,6 @@
 #include "mkCommon.h"
 #include "mkMath.h"
+#include "mkMalloc.h"
 #include "mkMemory.h"
 #include "mkString.h"
 #include "mkList.h"

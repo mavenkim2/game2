@@ -52,63 +52,110 @@ enum
     DeviceCapabilities_VariableShading,
 };
 
-typedef u32 ResourceUsage;
-enum : u32
+enum class ResourceUsage : u32
 {
-    ResourceUsage_None     = 0,
-    ResourceUsage_Graphics = 1 << 1,
-    ResourceUsage_Depth    = 1 << 4,
-    ResourceUsage_Stencil  = 1 << 5,
+    None     = 0,
+    Graphics = 1 << 1,
+    Depth    = 1 << 4,
+    Stencil  = 1 << 5,
 
     // Pipeline stages
-    ResourceUsage_Indirect       = 1 << 8,
-    ResourceUsage_Vertex         = 1 << 9,
-    ResourceUsage_Fragment       = 1 << 10,
-    ResourceUsage_Index          = 1 << 11,
-    ResourceUsage_Input          = 1 << 12,
-    ResourceUsage_Shader         = 1 << 13,
-    PipelineStage_VertexInput    = ResourceUsage_Vertex | ResourceUsage_Input,
-    PipelineStage_IndexInput     = ResourceUsage_Index | ResourceUsage_Input,
-    PipelineStage_VertexShader   = ResourceUsage_Vertex | ResourceUsage_Shader,
-    PipelineStage_FragmentShader = ResourceUsage_Fragment | ResourceUsage_Shader,
+    Indirect       = 1 << 8,
+    Vertex         = 1 << 9,
+    Fragment       = 1 << 10,
+    Index          = 1 << 11,
+    Input          = 1 << 12,
+    Shader         = 1 << 13,
+    PipelineStage_VertexInput    = Vertex | Input,
+    PipelineStage_IndexInput     = Index | Input,
+    PipelineStage_VertexShader   = Vertex | Shader,
+    PipelineStage_FragmentShader = Fragment | Shader,
 
     // Transfer
-    ResourceUsage_TransferSrc = 1 << 14,
-    ResourceUsage_TransferDst = 1 << 15,
+    TransferSrc = 1 << 14,
+    TransferDst = 1 << 15,
 
     // Bindless
-    ResourceUsage_Bindless = (1 << 16) | ResourceUsage_TransferDst,
+    Bindless = (1 << 16) | TransferDst,
 
     // Attachments
-    ResourceUsage_ColorAttachment = 1 << 17,
+    ColorAttachment = 1 << 17,
 
-    ResourceUsage_ShaderRead  = 1 << 25,
-    ResourceUsage_UniformRead = 1 << 2,
+    ShaderRead  = 1 << 25,
+    UniformRead = 1 << 2,
 
-    ResourceUsage_ComputeRead  = 1 << 3,
-    ResourceUsage_ComputeWrite = 1 << 26,
+    ComputeRead  = 1 << 3,
+    ComputeWrite = 1 << 26,
 
-    ResourceUsage_VertexBuffer = (1 << 6) | ResourceUsage_Vertex,
-    ResourceUsage_IndexBuffer  = (1 << 7) | ResourceUsage_Index,
+    VertexBuffer = (1 << 6) | Vertex,
+    IndexBuffer  = (1 << 7) | Index,
 
-    ResourceUsage_DepthStencil = ResourceUsage_Depth | ResourceUsage_Stencil,
+    DepthStencil = Depth | Stencil,
 
-    ResourceUsage_UniformBuffer = (1 << 18),
-    ResourceUsage_UniformTexel  = (1 << 19),
+    UniformBuffer = (1 << 18),
+    UniformTexel  = (1 << 19),
 
-    ResourceUsage_StorageBufferRead = (1 << 20),
-    ResourceUsage_StorageBuffer     = (1 << 21),
-    ResourceUsage_StorageTexel      = (1 << 22),
+    StorageBufferRead = (1 << 20),
+    StorageBuffer     = (1 << 21),
+    StorageTexel      = (1 << 22),
 
-    ResourceUsage_SampledImage = (1 << 23),
-    ResourceUsage_StorageImage = (1 << 24),
+    SampledImage = (1 << 23),
+    StorageImage = (1 << 24),
 
-    ResourceUsage_ReadOnly  = ResourceUsage_ComputeRead | ResourceUsage_ShaderRead | ResourceUsage_SampledImage,
-    ResourceUsage_WriteOnly = ResourceUsage_ComputeWrite | ResourceUsage_StorageImage,
+    ReadOnly  = ComputeRead | ShaderRead | SampledImage,
+    WriteOnly = ComputeWrite | StorageImage,
 
-    ResourceUsage_ShaderGlobals = ResourceUsage_StorageBufferRead | ResourceUsage_Bindless,
-    ResourceUsage_Reset         = 0xffffffff,
+    ShaderGlobals = StorageBufferRead | Bindless,
+    Reset         = 0xffffffff,
 };
+
+ENUM_CLASS_FLAGS(ResourceUsage)
+
+#define ResourceUsage_None ResourceUsage::None
+#define ResourceUsage_Graphics ResourceUsage::Graphics
+#define ResourceUsage_Depth ResourceUsage::Depth
+#define ResourceUsage_Stencil ResourceUsage::Stencil
+
+#define ResourceUsage_Indirect ResourceUsage::Indirect
+#define ResourceUsage_Vertex         ResourceUsage::Vertex
+#define ResourceUsage_Fragment       ResourceUsage::Fragment
+#define ResourceUsage_Index          ResourceUsage::Index
+#define ResourceUsage_Input          ResourceUsage::Input
+#define ResourceUsage_Shader         ResourceUsage::Shader
+#define PipelineStage_VertexInput    ResourceUsage::Vertex | ResourceUsage::Input
+#define PipelineStage_IndexInput     ResourceUsage::Index | ResourceUsage::Input
+#define PipelineStage_VertexShader   ResourceUsage::Vertex | ResourceUsage::Shader
+#define PipelineStage_FragmentShader ResourceUsage::Fragment | ResourceUsage::Shader
+#define ResourceUsage_TransferSrc ResourceUsage::TransferSrc
+#define ResourceUsage_TransferDst ResourceUsage::TransferDst
+#define ResourceUsage_Bindless ResourceUsage::Bindless | ResourceUsage::TransferDst
+#define ResourceUsage_ColorAttachment ResourceUsage::ColorAttachment
+#define ResourceUsage_ShaderRead ResourceUsage::ShaderRead
+#define ResourceUsage_UniformRead ResourceUsage::UniformRead
+
+#define ResourceUsage_ComputeRead  ResourceUsage::ComputeRead
+#define ResourceUsage_ComputeWrite ResourceUsage::ComputeWrite
+
+#define ResourceUsage_VertexBuffer ResourceUsage::VertexBuffer | ResourceUsage::Vertex
+#define ResourceUsage_IndexBuffer  ResourceUsage::IndexBuffer | ResourceUsage::Index
+
+#define ResourceUsage_DepthStencil ResourceUsage::Depth | ResourceUsage::Stencil
+
+#define ResourceUsage_UniformBuffer ResourceUsage::UniformBuffer
+#define ResourceUsage_UniformTexel  ResourceUsage::UniformTexel
+
+#define ResourceUsage_StorageBufferRead ResourceUsage::StorageBufferRead
+#define ResourceUsage_StorageBuffer    ResourceUsage::StorageBuffer
+#define ResourceUsage_StorageTexel     ResourceUsage::StorageTexel
+
+#define ResourceUsage_SampledImage ResourceUsage::SampledImage
+#define ResourceUsage_StorageImage ResourceUsage::StorageImage
+
+#define ResourceUsage_ReadOnly  ResourceUsage::ComputeRead | ResourceUsage::ShaderRead | ResourceUsage::SampledImage
+#define ResourceUsage_WriteOnly ResourceUsage::ComputeWrite | ResourceUsage::StorageImage
+
+#define ResourceUsage_ShaderGlobals ResourceUsage::StorageBufferRead | ResourceUsage::Bindless
+#define ResourceUsage_Reset         ResourceUsage::Reset
 
 enum class Format
 {
@@ -147,57 +194,6 @@ enum class ResourceType
     SAM, // sampler
     CBV, // constant buffer view (read only)
 };
-
-//	https://www.justsoftwaresolutions.co.uk/cplusplus/using-enum-classes-as-bitfields.html
-// template <typename E>
-// struct enable_bitmask_operators
-// {
-//     static constexpr bool enable = false;
-// };
-// template <typename E>
-// constexpr typename std::enable_if<enable_bitmask_operators<E>::enable, E>::type operator|(E lhs, E rhs)
-// {
-//     typedef typename std::underlying_type<E>::type underlying;
-//     return static_cast<E>(
-//         static_cast<underlying>(lhs) | static_cast<underlying>(rhs));
-// }
-// template <typename E>
-// constexpr typename std::enable_if<enable_bitmask_operators<E>::enable, E &>::type operator|=(E &lhs, E rhs)
-// {
-//     typedef typename std::underlying_type<E>::type underlying;
-//     lhs = static_cast<E>(
-//         static_cast<underlying>(lhs) | static_cast<underlying>(rhs));
-//     return lhs;
-// }
-// template <typename E>
-// constexpr typename std::enable_if<enable_bitmask_operators<E>::enable, E>::type operator&(E lhs, E rhs)
-// {
-//     typedef typename std::underlying_type<E>::type underlying;
-//     return static_cast<E>(
-//         static_cast<underlying>(lhs) & static_cast<underlying>(rhs));
-// }
-// template <typename E>
-// constexpr typename std::enable_if<enable_bitmask_operators<E>::enable, E &>::type operator&=(E &lhs, E rhs)
-// {
-//     typedef typename std::underlying_type<E>::type underlying;
-//     lhs = static_cast<E>(
-//         static_cast<underlying>(lhs) & static_cast<underlying>(rhs));
-//     return lhs;
-// }
-// template <typename E>
-// constexpr typename std::enable_if<enable_bitmask_operators<E>::enable, E>::type operator~(E rhs)
-// {
-//     typedef typename std::underlying_type<E>::type underlying;
-//     rhs = static_cast<E>(
-//         ~static_cast<underlying>(rhs));
-//     return rhs;
-// }
-//
-// template <typename E>
-// inline b32 HasFlags(E lhs, E rhs)
-// {
-//     return (lhs & rhs) == rhs;
-// }
 
 enum class MemoryUsage
 {

@@ -4,6 +4,7 @@
 #ifdef LSP_INCLUDE
 #include "../mkMath.h"
 #include "../mkAsset.h"
+#include "../generated/render_graph_resources.h"
 #include "mkRender.h"
 #include "mkRenderCore.h"
 #include "../mkCamera.h"
@@ -1734,7 +1735,7 @@ internal void Render()
                 GPUBarrier::Memory(ResourceUsage_TransferDst, ResourceUsage_ComputeRead | ResourceUsage_ComputeWrite),
                 GPUBarrier::Buffer(&indirectScratchBuffer, ResourceUsage_ComputeWrite, ResourceUsage_ComputeWrite),
 #if 1
-                GPUBarrier::Buffer(&debugAABBs, ResourceUsage_TransferDst, ResourceUsage_ComputeWrite),// | ResourceUsage_ComputeRead),
+                GPUBarrier::Buffer(&debugAABBs, ResourceUsage_TransferDst, ResourceUsage_ComputeWrite), // | ResourceUsage_ComputeRead),
 #endif
             };
             device->Barrier(cmd, barriers, ArrayLength(barriers));
@@ -2046,5 +2047,36 @@ void BlockCompressImage(graphics::Texture *input, graphics::Texture *output, Com
         device->Barrier(cmd, barriers, ArrayLength(barriers));
     }
 }
+
+// void UpdateSkinning(rendergraph::RenderGraph *graph)
+// {
+//     rendergraph::RGSkinning skinning;
+//     skinning.push.skinningBuffer = device->GetDescriptorIndex(&skinningBuffer, ResourceType::SRV);
+//
+//     for (MeshIter iter = gameScene->BeginMeshIter(); !gameScene->End(&iter); gameScene->Next(&iter))
+//     {
+//         Mesh *mesh               = gameScene->Get(&iter);
+//         Entity entity            = gameScene->GetEntity(&iter);
+//         LoadedSkeleton *skeleton = gameScene->skeletons.GetFromEntity(entity);
+//         if (skeleton)
+//         {
+//             skinning.push.vertexPos        = mesh->vertexPosView.srvDescriptor;
+//             skinning.push.vertexNor        = mesh->vertexNorView.srvDescriptor;
+//             skinning.push.vertexTan        = mesh->vertexTanView.srvDescriptor;
+//             skinning.push.vertexBoneId     = mesh->vertexBoneIdView.srvDescriptor;
+//             skinning.push.vertexBoneWeight = mesh->vertexBoneWeightView.srvDescriptor;
+//
+//             skinning.push.soPos          = mesh->soPosView.uavDescriptor;
+//             skinning.push.soNor          = mesh->soNorView.uavDescriptor;
+//             skinning.push.soTan          = mesh->soTanView.uavDescriptor;
+//             skinning.push.skinningOffset = skeleton->skinningOffset;
+//
+//             AddPass(graph, "Skinning", &skinning, [&](CommandList cmd) {
+//                 device->BindCompute(&skinPipeline, cmd);
+//                 device->Dispatch(cmd, (mesh->vertexCount + SKINNING_GROUP_SIZE - 1) / SKINNING_GROUP_SIZE, 1, 1);
+//             });
+//         }
+//     }
+// }
 
 } // namespace render

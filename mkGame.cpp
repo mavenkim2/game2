@@ -1,5 +1,6 @@
 #include "mkGame.h"
 
+#include "mkMalloc.cpp"
 #include "mkInput.cpp"
 #include "mkThreadContext.cpp"
 
@@ -12,8 +13,8 @@
 #include "mkFont.cpp"
 #include "mkAsset.cpp"
 #include "mkAssetCache.cpp"
-#include "render/mkRender.cpp"
 #include "render/mkRenderGraph.cpp"
+#include "render/mkRender.cpp"
 #include "mkShaderCompiler.cpp"
 #include "mkDebug.cpp"
 #include "mkScene.cpp"
@@ -231,6 +232,18 @@ G_INIT(G_Init)
         g_state->bindings.bindings[I_Button_Swap]       = OS_Key_C;
         g_state->bindings.bindings[I_Button_LeftClick]  = OS_Mouse_L;
         g_state->bindings.bindings[I_Button_RightClick] = OS_Mouse_R;
+
+        // Testing Memory
+        {
+            Memory::Init();
+            DynamicArray<u32> array;
+            for (u32 i = 0; i < kilobytes(128) / sizeof(u32); i++)
+            {
+                array.Push(i);
+            }
+            u32 test   = array[40];
+            u32 amount = Memory::GetAllocationAmount();
+        }
 
         // g_state->heightmap = CreateHeightmap(Str8Lit("data/heightmap.png"));
 

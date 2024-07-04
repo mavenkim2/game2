@@ -2190,6 +2190,24 @@ inline u32 GetHighestBit(u64 num)
     return result;
 }
 
+inline u32 GetLowestSetBit(u64 num)
+{
+    u32 result = 0;
+#if WINDOWS
+    _BitScanForward64((unsigned long *)(&result), num);
+#else
+    for (u32 i = 0; i < 64; i++)
+    {
+        if ((1 << i) & num)
+        {
+            result = i;
+            break;
+        }
+    }
+#endif
+    return result;
+}
+
 inline u64 GetNextPowerOfTwo(u64 num)
 {
     u64 result = 1ULL << (GetHighestBit(Max(1, num) - 1) + 1);
