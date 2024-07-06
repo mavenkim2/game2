@@ -11,15 +11,15 @@ namespace rendergraph
 // TODO: IDEA: create a minimum spanning tree for each queue?
 void RenderGraph::Init()
 {
-    arena     = ArenaAlloc();
-    passCount = 0;
+    arena        = ArenaAlloc();
+    passCount    = 0;
+    numResources = 1;
+    for (u32 i = 0; i < ArrayLength(passDependencies); i++)
+    {
+        passDependencies[i].Init();
+    }
     // graphics::GPUBufferDesc desc;
-    // desc.resourceUsage = graphics::ResourceUsage::
-}
-
-inline BaseShaderParamType *GetBaseShaderParam(void *params)
-{
-    return (BaseShaderParamType *)params;
+    // desc.resourceUsage = graphics::ResourceViewType::
 }
 
 // TODO: some way to assert that this doesn't give you junk? like a magic #?
@@ -56,7 +56,7 @@ inline void EnumerateShaderBuffers(BaseShaderParamType *baseParams, const Buffer
     PassResource *bufferResources = GetBufferResources(baseParams);
     for (u32 i = 0; i < baseParams->numBuffers; i++)
     {
-        func(bufferResources, bufferViews);
+        func(&bufferResources[i], &bufferViews[i]);
     }
 }
 
@@ -64,10 +64,16 @@ inline void EnumerateShaderTextures(BaseShaderParamType *baseParams, const Textu
 {
     TextureView *textureViews      = GetTextureViews(baseParams);
     PassResource *textureResources = GetTextureResources(baseParams);
-    for (u32 i = 0; i < baseParams->numBuffers; i++)
+    for (u32 i = 0; i < baseParams->numTextures; i++)
     {
-        func(textureResources, textureViews);
+        func(&textureResources[i], &textureViews[i]);
     }
+}
+
+inline void EnumerateShaderResources(RenderPass *pass, const ResourceEnumerateFunction &func)
+{
+    EnumerateShaderBuffers(pass->parameters, (const BufferEnumerateFunction)func);
+    EnumerateShaderTextures(pass->parameters, (const TextureEnumerateFunction)func);
 }
 
 // void RenderGraph::BeginFrame()
@@ -75,11 +81,28 @@ inline void EnumerateShaderTextures(BaseShaderParamType *baseParams, const Textu
 //     arenaBeginFramePos = ArenaPos(arena);
 // }
 
-PassHandle RenderGraph::AddPassInternal(string passName, void *params, u32 size, const ExecuteFunction &func)
+template <typename ParameterType>
+ParameterType *RenderGraph::AllocParameters()
+{
+    ParameterType *result = new (PushArray(arena, u8, sizeof(ParameterType))) ParameterType();
+
+    return result;
+}
+
+inline PassHandle RenderGraph::AddPass(string passName, void *params, const ExecuteFunction &func)
+{
+    return AddPassInternal(passName, params, func, PassFlags::None);
+}
+
+inline PassHandle RenderGraph::AddPass(string passName, void *params, PassFlags flags, const ExecuteFunction &func)
+{
+    return AddPassInternal(passName, params, func, flags);
+}
+
+PassHandle RenderGraph::AddPassInternal(string passName, void *params, const ExecuteFunction &func, PassFlags flags)
 {
     u32 passHash = Hash(passName);
 
-    // Don't recreate pass every frame
     {
         u32 index = renderPassHashTable.Find(passHash, renderPassStringHashes);
         if (renderPassHashTable.IsValid(index)) return index;
@@ -90,120 +113,70 @@ PassHandle RenderGraph::AddPassInternal(string passName, void *params, u32 size,
     renderPassHashTable.Add(passHash, handle);
     renderPassStringHashes[handle] = handle;
 
+    BaseShaderParamType *baseParams = (BaseShaderParamType *)params;
+
     RenderPass *pass = &passes[handle];
     pass->name       = PushStr8Copy(arena, passName);
-    pass->parameters = (void *)PushArray(arena, u8, size);
-    MemoryCopy(pass->parameters, params, size);
-    pass->func = func;
-    pass->size = size;
+    pass->flags      = flags;
+    pass->parameters = baseParams;
+    pass->func       = func;
 
-    BaseShaderParamType *baseParams = GetBaseShaderParam(params);
-    bool isCompute                  = EnumHasAllFlags(baseParams->flags, ShaderParamFlags::Compute);
-    bool isGraphics                 = EnumHasAllFlags(baseParams->flags, ShaderParamFlags::Graphics);
-
-    // TODO: maybe something to think about for later, but I am kind of wary of nested lambdas in terms of code readability
-    auto SetResourceAccess = [&](PassResource *resource, ResourceView *view) {
-        switch (resource->usage)
-        {
-            case ResourceUsage::SRV:
-            {
-                if (isCompute) view->access = ViewAccess::ComputeSRV;
-                else if (isGraphics) view->access = ViewAccess::GraphicsSRV;
-                else Assert(!"Not implemented");
-            }
-            break;
-            case ResourceUsage::UAV:
-            {
-                if (isCompute) view->access = ViewAccess::ComputeUAV;
-                else if (isGraphics) view->access = ViewAccess::GraphicsUAV;
-                else Assert(!"Not implemented");
-            }
-            break;
-        }
-    };
+    bool isCompute  = EnumHasAllFlags(baseParams->flags, ShaderParamFlags::Compute);
+    bool isGraphics = EnumHasAllFlags(baseParams->flags, ShaderParamFlags::Graphics);
 
     u32 numPassDependencies = 0;
     // First pass, calculate the total # of dependencies for the pass
-    EnumerateShaderBuffers(baseParams, [&](PassResource *resource, BufferView *view) {
-        view->type = ResourceViewType::Buffer;
-        SetResourceAccess(resource, view);
-        RenderGraphBuffer *buffer = &buffers[view->handle];
-        buffer->numUses++;
-
-        if (buffer->firstPass == INVALID_PASS_HANDLE)
+    EnumerateShaderResources(pass, [&](const PassResource *resource, ResourceView *view) {
+        Assert(IsValidResourceHandle(view->handle));
+        view->type = IsBuffer(resource->objectType) ? ResourceType::Buffer : ResourceType::Texture;
+        switch (resource->viewType)
         {
-            buffer->firstPass = handle;
-        }
-        buffer->lastPass = handle;
-
-        switch (resource->usage)
-        {
-            case ResourceUsage::SRV:
+            case ResourceViewType::SRV:
             {
-                if (IsValidHandle(buffer->lastPassWriteHandle))
-                {
-                    numPassDependencies++;
-                }
-                // buffer->lastPassReadHandle = handle;
+                if (isCompute) view->access = ResourceAccess::ComputeSRV;
+                else if (isGraphics) view->access = ResourceAccess::GraphicsSRV;
+                else Assert(!"Not implemented");
             }
             break;
-            case ResourceUsage::UAV:
+            case ResourceViewType::UAV:
             {
-                if (IsValidHandle(buffer->lastPassWriteHandle))
-                {
-                    numPassDependencies++;
-                }
-                if (IsValidHandle(buffer->lastPassReadHandle))
-                {
-                    numPassDependencies++;
-                }
-                // buffer->lastPassWriteHandle = handle;
+                if (isCompute) view->access = ResourceAccess::ComputeUAV;
+                else if (isGraphics) view->access = ResourceAccess::GraphicsUAV;
+                else Assert(!"Not implemented");
             }
             break;
         }
-    });
 
-    // Allocate the dependencies
-    PassHandle *dependencies     = PushArray(arena, PassHandle, numPassDependencies);
-    passDependencies[handle]     = dependencies;
-    passDependencyCounts[handle] = numPassDependencies;
+        // Add dependencies
+        RenderGraphResource *graphResource = &resources[view->handle];
+        graphResource->numUses++;
 
-    // Second pass, fill in an array which contains the handles of the passes this pass is dependent on
-    u32 index = 0;
-    EnumerateShaderBuffers(baseParams, [&](PassResource *resource, BufferView *view) {
-        RenderGraphBuffer *buffer = &buffers[view->handle];
-        switch (resource->usage)
+        if (!IsValidPassHandle(graphResource->firstPass))
         {
-            case ResourceUsage::SRV:
-            {
-                // Read after write
-                if (IsValidHandle(buffer->lastPassWriteHandle))
-                {
-                    dependencies[index++] = buffer->lastPassWriteHandle;
-                }
-                buffer->lastPassReadHandle = handle;
-            }
-            case ResourceUsage::UAV:
-            {
-                // Write after write (and potentially read after write)
-                if (IsValidHandle(buffer->lastPassWriteHandle))
-                {
-                    dependencies[index++] = buffer->lastPassWriteHandle;
-                }
-                // Write after read
-                if (IsValidHandle(buffer->lastPassReadHandle))
-                {
-                    dependencies[index++] = buffer->lastPassReadHandle;
-                }
-                buffer->lastPassWriteHandle = handle;
-            }
-            break;
+            graphResource->firstPass = handle;
         }
-    });
+        graphResource->lastPass = handle;
 
-    EnumerateShaderTextures(baseParams, [&](PassResource *resource, TextureView *view) {
-        view->type = ResourceViewType::Texture;
-        SetResourceAccess(resource, view);
+        if (IsValidPassHandle(graphResource->lastPassWriteHandle))
+        {
+            b8 alreadyAdded = 0;
+            for (u32 i = 0; i < passDependencies[handle].Length(); i++)
+            {
+                if (passDependencies[handle][i] == graphResource->lastPassWriteHandle)
+                {
+                    alreadyAdded = 1;
+                    break;
+                }
+            }
+            if (!alreadyAdded)
+            {
+                passDependencies[handle].Add(graphResource->lastPassWriteHandle);
+            }
+        }
+        if (resource->viewType == ResourceViewType::UAV)
+        {
+            graphResource->lastPassWriteHandle = handle;
+        }
     });
     return handle;
 }
@@ -226,87 +199,161 @@ inline void ClearInBitmap(u32 *bitmap, u32 handle)
 void RenderGraph::Compile()
 {
     TempArena temp = ScratchStart(0, 0);
-    // 1. Topological sort
-    PassHandle *topologicalSortResult = PushArray(arena, PassHandle, passCount);
-    u32 topSortIndex                  = 0;
-    {
-        // TODO: this is kind of arbitrary
-        i32 stackCount     = passCount * 16;
-        PassHandle *stack  = PushArray(temp.arena, PassHandle, stackCount);
-        u32 *visitedBitmap = PushArray(temp.arena, u32, (passCount + 31) >> 5);
-        u32 *addedBitmap   = PushArray(temp.arena, u32, (passCount + 31) >> 5);
-        // used to check for cycles
-        u32 *stackBitmap = PushArray(temp.arena, u32, (passCount + 31) >> 5);
-        for (PassHandle handle = 0; handle < passCount; handle++)
-        {
-            if (CheckBitmap(visitedBitmap, handle)) continue;
 
-            i32 top    = 0;
-            stack[top] = handle;
-            while (top != -1)
+    // 1. Cull passes
+    PassHandle *cullingStack = PushArray(temp.arena, PassHandle, passCount);
+    i32 top                  = 0;
+    // TODO: better way of demarcating the 0th resource slot as null/unused
+    for (u32 i = NULL_HANDLE + 1; i < numResources; i++)
+    {
+        RenderGraphResource *resource = &resources[i];
+        PassHandle lastWritePass      = resource->lastPassWriteHandle;
+        if (IsValidPassHandle(lastWritePass))
+        {
+            cullingStack[top++] = lastWritePass;
+        }
+    }
+    while (top >= 0)
+    {
+        PassHandle handle = cullingStack[--top];
+        RenderPass *pass  = &passes[handle];
+        if (!EnumHasAnyFlags(pass->flags, PassFlags::NotCulled))
+        {
+            pass->flags |= PassFlags::NotCulled;
+            for (u32 dependentIndex = 0; dependentIndex < passDependencies[handle].Length(); dependentIndex++)
             {
-                PassHandle topHandle = stack[top];
-                // The second time the stack visits a pass, add it to the topological sort (should be after children
-                // and all of their dependents have been visited and added to the sort result)
-                if (CheckBitmap(visitedBitmap, topHandle))
-                {
-                    ClearInBitmap(stackBitmap, topHandle);
-                    top--;
-                    if (!CheckBitmap(addedBitmap, topHandle))
-                    {
-                        topologicalSortResult[topSortIndex++] = topHandle;
-                        AddToBitmap(addedBitmap, topHandle);
-                    }
-                    continue;
-                }
-                AddToBitmap(visitedBitmap, topHandle);
-                AddToBitmap(stackBitmap, topHandle);
-                for (u32 i = 0; i < passDependencyCounts[topHandle]; i++)
-                {
-                    PassHandle dependentHandle = passDependencies[topHandle][i];
-                    if (CheckBitmap(stackBitmap, dependentHandle))
-                    {
-                        // Assert if there is a cycle
-                        Assert(!"Cycle found in render graph.");
-                        return;
-                    }
-                    top++;
-                    Assert(top < stackCount);
-                    stack[top] = dependentHandle;
-                }
+                PassHandle dependentPassHandle = passDependencies[handle][dependentIndex];
+                cullingStack[top++]            = dependentPassHandle;
             }
         }
     }
-    // The top of the topological sort result list contains the first passes to be executed
-    // 2. idk what to do next lol
+
+    // 2. Create resource descriptions
+    for (u32 i = 0; i < numPasses; i++)
+    {
+        RenderPass *pass = &passes[i];
+        if (!EnumHasAnyFlags(pass->flags, PassFlags::NotCulled)) continue;
+        EnumerateShaderBuffers(pass->parameters, [&](const PassResource *resource, BufferView *view) {
+            RenderGraphResource *rgResource = &resources[view->handle];
+            graphics::GPUBuffer *buffer     = (graphics::GPUBuffer *)(&rgResource->resource);
+            switch (resource->objectType)
+            {
+                case HLSLType::StructuredBuffer:
+                {
+                    buffer->desc.resourceUsage |= ResourceUsage::StorageBufferRead;
+                }
+                break;
+                case HLSLType::RWStructuredBuffer:
+                {
+                    buffer->desc.resourceUsage |= ResourceUsage::StorageBufferRead;
+                }
+                break;
+                default:
+                    Assert("Buffers cannot have this hlsl object type.");
+            }
+        });
+        EnumerateShaderTextures(pass->parameters, [&](const PassResource *resource, TextureView *view) {
+            RenderGraphResource *rgResource = &resources[view->handle];
+            graphics::Texture *texture      = (graphics::Texture *)(&rgResource->resource);
+            switch (resource->objectType)
+            {
+                case HLSLType::Texture2D:
+                case HLSLType::Texture2DArray:
+                {
+                    // TODO: get rid of this initial usage/future usage stuff
+                    texture->desc.initialUsage |= ResourceUsage::SampledImage;
+                }
+                break;
+                case HLSLType::RWTexture2D:
+                {
+                    texture->desc.initialUsage |= ResourceUsage::StorageImage;
+                }
+                break;
+                default:
+                    Assert("Textures cannot have this hlsl object type.");
+            }
+        });
+    }
+
+    struct BarrierBatch
+    {
+        Array<graphics::GPUBarrier> barriers;
+        inline void Emplace()
+        {
+            barriers.Emplace();
+        }
+        inline graphics::GPUBarrier &Back()
+        {
+            return barriers.Back();
+        }
+    };
+
+    Array<BarrierBatch> barrierBatches;
+    barrierBatches.Init();
+    barrierBatches.Resize(passCount);
     for (u32 i = 0; i < passCount; i++)
     {
-        PassHandle handle = topologicalSortResult[i];
-        Printf("Pass: %S, Index: %u\n", passes[handle].name, handle);
+        BarrierBatch &batch = barrierBatches[i];
+        batch.barriers.Init();
+        RenderPass *pass = &passes[i];
+        if (!EnumHasAnyFlags(pass->flags, PassFlags::NotCulled)) continue;
+        EnumerateShaderResources(pass, [&](const PassResource *passResoure, ResourceView *view) {
+            RenderGraphResource *resource = &resources[view->handle];
+            if (NeedsTransition(resource->lastAccess, view->access))
+            {
+                batch.Emplace();
+                graphics::GPUBarrier &barrier = batch.Back();
+                switch (view->type)
+                {
+                    case ResourceType::Buffer:
+                    {
+                        // barrier = graphics::GPUBarrier::Buffer(&resource->resource, resource->lastPipelineStage, ,
+                        //                                        resource->lastAccess, view->access);
+                    }
+                    break;
+                    case ResourceType::Texture:
+                    {
+                        // barrier = graphics::GPUBarrier::Image(&resource->resource, );
+                    }
+                    break;
+                }
+                resource->lastAccess = view->access;
+            }
+        });
+    }
+}
+
+void RenderGraph::Execute()
+{
+    for (u32 i = 0; i < numPasses; i++)
+    {
     }
 }
 
 // NOTE: For now, dependencies will be built from submission order.
-BufferHandle RenderGraph::CreateBuffer(string name)
+ResourceHandle RenderGraph::CreateBuffer(string name)
 {
-    u32 hash                  = Hash(name);
-    BufferHandle bufferHandle = bufferNameHashTable.Find(hash, bufferStringHashes);
+    u32 hash              = Hash(name);
+    ResourceHandle handle = resourceNameHashTable.Find(hash, resourceStringHashes);
 
-    if (bufferNameHashTable.IsValid(bufferHandle))
+    if (resourceNameHashTable.IsValid(handle))
     {
-        return bufferHandle;
+        return handle;
     }
     else
     {
-        bufferHandle                = numBuffers++;
-        RenderGraphBuffer *buffer   = &buffers[bufferHandle];
+        handle                      = numResources++;
+        RenderGraphResource *buffer = &resources[handle];
+        buffer->lastAccess          = ResourceAccess::None;
+        buffer->lastPassFlags       = PassFlags::None;
+        buffer->lastPipelineStage   = graphics::PipelineStage::None;
+
         buffer->firstPass           = INVALID_PASS_HANDLE;
         buffer->lastPass            = INVALID_PASS_HANDLE;
         buffer->lastPassWriteHandle = INVALID_PASS_HANDLE;
-        buffer->lastPassReadHandle  = INVALID_PASS_HANDLE;
-        bufferNameHashTable.Add(hash, bufferHandle);
-        bufferStringHashes[bufferHandle] = hash;
-        return bufferHandle;
+        resourceNameHashTable.Add(hash, handle);
+        resourceStringHashes[handle] = hash;
+        return handle;
     }
 }
 

@@ -8,8 +8,8 @@ struct RGBlockcompress
 	const u32 numTextures = 2;
 	const ShaderParamFlags flags = ShaderParamFlags::Compute;
 	const PassResource textureResources[2] = {
-		{ResourceUsage::SRV, ResourceType::Texture2D, 0},
-		{ResourceUsage::UAV, ResourceType::RWTexture2D, 0},
+		{graphics::ResourceViewType::SRV, HLSLType::Texture2D, 0},
+		{graphics::ResourceViewType::UAV, HLSLType::RWTexture2D, 0},
 	};
 	TextureView input;
 	TextureView output;
@@ -23,27 +23,9 @@ struct RGClearIndirect
 	const u32 numTextures = 0;
 	const ShaderParamFlags flags = ShaderParamFlags::Compute;
 	const PassResource bufferResources[1] = {
-		{ResourceUsage::UAV, ResourceType::RWStructuredBuffer, 0},
+		{graphics::ResourceViewType::UAV, HLSLType::RWStructuredBuffer, 0},
 	};
 	BufferView indirectCommands;
-};
-
-struct RGCullTriangle
-{
-	const string name = Str8Lit("RGCullTriangle");
-	const u32 numResources = 3;
-	const u32 numBuffers = 3;
-	const u32 numTextures = 0;
-	const ShaderParamFlags flags = ShaderParamFlags::Compute;
-	const PassResource bufferResources[3] = {
-		{ResourceUsage::SRV, ResourceType::StructuredBuffer, 0},
-		{ResourceUsage::UAV, ResourceType::RWStructuredBuffer, 0},
-		{ResourceUsage::UAV, ResourceType::RWStructuredBuffer, 1},
-	};
-	BufferView meshClusterIndices;
-	BufferView indirectCommands;
-	BufferView outputIndices;
-	TriangleCullPushConstant push;
 };
 
 struct RGCull
@@ -54,30 +36,9 @@ struct RGCull
 	const u32 numTextures = 1;
 	const ShaderParamFlags flags = ShaderParamFlags::Header;
 	const PassResource textureResources[1] = {
-		{ResourceUsage::SRV, ResourceType::Texture2D, 0},
+		{graphics::ResourceViewType::SRV, HLSLType::Texture2D, 0},
 	};
 	TextureView depthPyramid;
-};
-
-struct RGCullCluster
-{
-	const string name = Str8Lit("RGCullCluster");
-	const u32 numResources = 4;
-	const u32 numBuffers = 4;
-	const u32 numTextures = 0;
-	const ShaderParamFlags flags = ShaderParamFlags::Compute;
-	const PassResource bufferResources[4] = {
-		{ResourceUsage::SRV, ResourceType::StructuredBuffer, 0},
-		{ResourceUsage::SRV, ResourceType::StructuredBuffer, 1},
-		{ResourceUsage::UAV, ResourceType::RWStructuredBuffer, 0},
-		{ResourceUsage::UAV, ResourceType::RWStructuredBuffer, 1},
-	};
-	BufferView meshChunks;
-	BufferView views;
-	BufferView dispatchIndirect;
-	BufferView outputMeshClusterIndex;
-	ClusterCullPushConstants push;
-	RGCull cull;
 };
 
 struct RGCullInstance
@@ -88,12 +49,12 @@ struct RGCullInstance
 	const u32 numTextures = 0;
 	const ShaderParamFlags flags = ShaderParamFlags::Compute;
 	const PassResource bufferResources[6] = {
-		{ResourceUsage::SRV, ResourceType::StructuredBuffer, 1},
-		{ResourceUsage::UAV, ResourceType::RWStructuredBuffer, 0},
-		{ResourceUsage::UAV, ResourceType::RWStructuredBuffer, 1},
-		{ResourceUsage::UAV, ResourceType::RWStructuredBuffer, 2},
-		{ResourceUsage::UAV, ResourceType::RWStructuredBuffer, 3},
-		{ResourceUsage::UAV, ResourceType::RWStructuredBuffer, 4},
+		{graphics::ResourceViewType::SRV, HLSLType::StructuredBuffer, 1},
+		{graphics::ResourceViewType::UAV, HLSLType::RWStructuredBuffer, 0},
+		{graphics::ResourceViewType::UAV, HLSLType::RWStructuredBuffer, 1},
+		{graphics::ResourceViewType::UAV, HLSLType::RWStructuredBuffer, 2},
+		{graphics::ResourceViewType::UAV, HLSLType::RWStructuredBuffer, 3},
+		{graphics::ResourceViewType::UAV, HLSLType::RWStructuredBuffer, 4},
 	};
 	BufferView views;
 	BufferView dispatchIndirectBuffer;
@@ -105,21 +66,6 @@ struct RGCullInstance
 	RGCull cull;
 };
 
-struct RGGenerateMips
-{
-	const string name = Str8Lit("RGGenerateMips");
-	const u32 numResources = 2;
-	const u32 numBuffers = 0;
-	const u32 numTextures = 2;
-	const ShaderParamFlags flags = ShaderParamFlags::Compute;
-	const PassResource textureResources[2] = {
-		{ResourceUsage::SRV, ResourceType::Texture2D, 0},
-		{ResourceUsage::UAV, ResourceType::RWTexture2D, 0},
-	};
-	TextureView mipInSRV;
-	TextureView mipOutUAV;
-};
-
 struct RGMeshHeader
 {
 	const string name = Str8Lit("RGMeshHeader");
@@ -128,7 +74,7 @@ struct RGMeshHeader
 	const u32 numTextures = 1;
 	const ShaderParamFlags flags = ShaderParamFlags::Header;
 	const PassResource textureResources[1] = {
-		{ResourceUsage::SRV, ResourceType::Texture2DArray, 1},
+		{graphics::ResourceViewType::SRV, HLSLType::Texture2DArray, 1},
 	};
 	TextureView shadowMaps;
 	PushConstant push;
@@ -144,26 +90,40 @@ struct RGDepth
 	RGMeshHeader meshHeader;
 };
 
-struct RGDrawCompaction
+struct RGGenerateMips
 {
-	const string name = Str8Lit("RGDrawCompaction");
-	const u32 numResources = 5;
-	const u32 numBuffers = 5;
+	const string name = Str8Lit("RGGenerateMips");
+	const u32 numResources = 2;
+	const u32 numBuffers = 0;
+	const u32 numTextures = 2;
+	const ShaderParamFlags flags = ShaderParamFlags::Compute;
+	const PassResource textureResources[2] = {
+		{graphics::ResourceViewType::SRV, HLSLType::Texture2D, 0},
+		{graphics::ResourceViewType::UAV, HLSLType::RWTexture2D, 0},
+	};
+	TextureView mipInSRV;
+	TextureView mipOutUAV;
+};
+
+struct RGCullCluster
+{
+	const string name = Str8Lit("RGCullCluster");
+	const u32 numResources = 4;
+	const u32 numBuffers = 4;
 	const u32 numTextures = 0;
 	const ShaderParamFlags flags = ShaderParamFlags::Compute;
-	const PassResource bufferResources[5] = {
-		{ResourceUsage::SRV, ResourceType::StructuredBuffer, 0},
-		{ResourceUsage::SRV, ResourceType::StructuredBuffer, 1},
-		{ResourceUsage::SRV, ResourceType::StructuredBuffer, 2},
-		{ResourceUsage::UAV, ResourceType::RWStructuredBuffer, 0},
-		{ResourceUsage::UAV, ResourceType::RWStructuredBuffer, 1},
+	const PassResource bufferResources[4] = {
+		{graphics::ResourceViewType::SRV, HLSLType::StructuredBuffer, 0},
+		{graphics::ResourceViewType::SRV, HLSLType::StructuredBuffer, 1},
+		{graphics::ResourceViewType::UAV, HLSLType::RWStructuredBuffer, 0},
+		{graphics::ResourceViewType::UAV, HLSLType::RWStructuredBuffer, 1},
 	};
-	BufferView indirectCommands;
-	BufferView meshClusterIndices;
-	BufferView dispatchIndirectBuffer;
-	BufferView commandCount;
-	BufferView outputIndirectCommands;
-	DrawCompactionPushConstant push;
+	BufferView meshChunks;
+	BufferView views;
+	BufferView dispatchIndirect;
+	BufferView outputMeshClusterIndex;
+	ClusterCullPushConstants push;
+	RGCull cull;
 };
 
 struct RGMesh
@@ -176,6 +136,46 @@ struct RGMesh
 	RGMeshHeader meshHeader;
 };
 
+struct RGDrawCompaction
+{
+	const string name = Str8Lit("RGDrawCompaction");
+	const u32 numResources = 5;
+	const u32 numBuffers = 5;
+	const u32 numTextures = 0;
+	const ShaderParamFlags flags = ShaderParamFlags::Compute;
+	const PassResource bufferResources[5] = {
+		{graphics::ResourceViewType::SRV, HLSLType::StructuredBuffer, 0},
+		{graphics::ResourceViewType::SRV, HLSLType::StructuredBuffer, 1},
+		{graphics::ResourceViewType::SRV, HLSLType::StructuredBuffer, 2},
+		{graphics::ResourceViewType::UAV, HLSLType::RWStructuredBuffer, 0},
+		{graphics::ResourceViewType::UAV, HLSLType::RWStructuredBuffer, 1},
+	};
+	BufferView indirectCommands;
+	BufferView meshClusterIndices;
+	BufferView dispatchIndirectBuffer;
+	BufferView commandCount;
+	BufferView outputIndirectCommands;
+	DrawCompactionPushConstant push;
+};
+
+struct RGCullTriangle
+{
+	const string name = Str8Lit("RGCullTriangle");
+	const u32 numResources = 3;
+	const u32 numBuffers = 3;
+	const u32 numTextures = 0;
+	const ShaderParamFlags flags = ShaderParamFlags::Compute;
+	const PassResource bufferResources[3] = {
+		{graphics::ResourceViewType::SRV, HLSLType::StructuredBuffer, 0},
+		{graphics::ResourceViewType::UAV, HLSLType::RWStructuredBuffer, 0},
+		{graphics::ResourceViewType::UAV, HLSLType::RWStructuredBuffer, 1},
+	};
+	BufferView meshClusterIndices;
+	BufferView indirectCommands;
+	BufferView outputIndices;
+	TriangleCullPushConstant push;
+};
+
 struct RGDispatchPrep
 {
 	const string name = Str8Lit("RGDispatchPrep");
@@ -184,7 +184,7 @@ struct RGDispatchPrep
 	const u32 numTextures = 0;
 	const ShaderParamFlags flags = ShaderParamFlags::Compute;
 	const PassResource bufferResources[1] = {
-		{ResourceUsage::UAV, ResourceType::RWStructuredBuffer, 0},
+		{graphics::ResourceViewType::UAV, HLSLType::RWStructuredBuffer, 0},
 	};
 	BufferView dispatch;
 	DispatchPrepPushConstant push;

@@ -76,6 +76,10 @@ void Init()
 
 void *Malloc(u32 size)
 {
+    if (!initialized)
+    {
+        Memory::Init();
+    }
     void *result = 0;
     if (size < cBinSize)
     {

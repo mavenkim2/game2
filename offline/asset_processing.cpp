@@ -858,8 +858,8 @@ int main(int argc, char *argv[])
 
                                 // Output block compression to intermediate texture
                                 device.BindCompute(&bc1Pipeline, cmd);
-                                device.BindResource(&uav, ResourceType::UAV, 0, cmd);
-                                device.BindResource(&src, ResourceType::SRV, 0, cmd);
+                                device.BindResource(&uav, ResourceViewType::UAV, 0, cmd);
+                                device.BindResource(&src, ResourceViewType::SRV, 0, cmd);
 
                                 device.UpdateDescriptorSet(cmd);
                                 device.Dispatch(cmd, (src.desc.width + 7) / 8, (src.desc.height + 7) / 8, 1);

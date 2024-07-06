@@ -17,16 +17,34 @@ struct Array
     i32 capacity;
     T *data;
 
-    Array()
+    // Array()
+    // {
+    //     size     = 0;
+    //     capacity = 4;
+    //     data     = (T *)Memory::Malloc(sizeof(T) * capacity);
+    // }
+    // Array(u32 initialCapacity) : capacity(initialCapacity)
+    // {
+    //     size = 0;
+    //     data = (T *)Memory::Malloc(sizeof(T) * capacity);
+    // }
+    void Init()
     {
         size     = 0;
         capacity = 4;
         data     = (T *)Memory::Malloc(sizeof(T) * capacity);
     }
-    Array(u32 initialCapacity) : capacity(initialCapacity)
+
+    void Init(u32 initialCapacity)
     {
-        size = 0;
-        data = (T *)Memory::Malloc(sizeof(T) * capacity);
+        size     = 0;
+        capacity = initialCapacity;
+        data     = (T *)Memory::Malloc(sizeof(T) * capacity);
+    }
+
+    void Destroy()
+    {
+        Memory::Free(data);
     }
 
     inline void RangeCheck(i32 index)
@@ -46,6 +64,17 @@ struct Array
         return data[index];
     }
 
+    inline void Reserve(const u32 num)
+    {
+        capacity = num;
+        data     = (T *)Memory::Realloc(sizeof(T) * capacity);
+    }
+
+    inline void Resize(const u32 num)
+    {
+        AddOrGrow(num - size);
+    }
+
     const u32 Length()
     {
         return size;
@@ -53,7 +82,7 @@ struct Array
 
     void Emplace()
     {
-        AddOrGrow();
+        AddOrGrow(1);
     }
 
     T &Back()
@@ -68,7 +97,7 @@ struct Array
 
     void Add(T element)
     {
-        AddOrGrow();
+        AddOrGrow(1);
         data[size - 1] = element;
     }
 
@@ -92,13 +121,13 @@ struct Array
     }
 
 private:
-    inline void AddOrGrow()
+    inline void AddOrGrow(u32 num)
     {
-        size += 1;
+        size += num;
         if (size > capacity)
         {
-            capacity *= 2;
-            data = (T *)Memory::Realloc(data, capacity * sizeof(T));
+            capacity = size * 2;
+            data     = (T *)Memory::Realloc(data, capacity * sizeof(T));
         }
     }
 };

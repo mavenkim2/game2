@@ -1337,17 +1337,17 @@ internal void Initialize()
     // Rendergraph testing
     {
         renderGraph.Init();
-        rendergraph::RGClearIndirect parametersIndirect;
-        parametersIndirect.indirectCommands.handle = renderGraph.CreateBuffer("Buffer");
-        AddPass(&renderGraph, "Test pass 2", &parametersIndirect, [&](CommandList cmd) {
+        rendergraph::RGClearIndirect *parametersIndirect = renderGraph.AllocParameters<rendergraph::RGClearIndirect>();
+        parametersIndirect->indirectCommands.handle      = renderGraph.CreateBuffer("Buffer");
+        renderGraph.AddPass("Test pass 2", parametersIndirect, rendergraph::PassFlags::Indirect, [&](CommandList cmd) {
             // device->BindCompute(&skinPipeline, cmd);
             // device->Dispatch(cmd, (mesh->vertexCount + SKINNING_GROUP_SIZE - 1) / SKINNING_GROUP_SIZE, 1, 1);
             Printf("Nothing! :>)\n");
         });
 
-        rendergraph::RGClearIndirect parametersIndirect2;
-        parametersIndirect2.indirectCommands.handle = renderGraph.CreateBuffer("Buffer");
-        AddPass(&renderGraph, "Test pass 1", &parametersIndirect2, [&](CommandList cmd) {
+        rendergraph::RGClearIndirect *parametersIndirect2 = renderGraph.AllocParameters<rendergraph::RGClearIndirect>();
+        parametersIndirect2->indirectCommands.handle      = renderGraph.CreateBuffer("Buffer");
+        renderGraph.AddPass("Test pass 1", parametersIndirect2, rendergraph::PassFlags::Indirect, [&](CommandList cmd) {
             Printf("Nothing! :>)\n");
         });
 
@@ -1370,9 +1370,9 @@ internal void DebugRectangle(CommandList cmdList)
 
 internal void CullInstances(CommandList cmdList, bool isSecondPass)
 {
-    i32 meshClusterDescriptor  = device->GetDescriptorIndex(&buffers[UploadType_MeshClusters], ResourceType::SRV);
-    i32 meshGeometryDescriptor = device->GetDescriptorIndex(&meshGeometryBuffer, ResourceType::SRV);
-    i32 meshParamsDescriptor   = device->GetDescriptorIndex(&meshParamsBuffer, ResourceType::SRV);
+    i32 meshClusterDescriptor  = device->GetDescriptorIndex(&buffers[UploadType_MeshClusters], ResourceViewType::SRV);
+    i32 meshGeometryDescriptor = device->GetDescriptorIndex(&meshGeometryBuffer, ResourceViewType::SRV);
+    i32 meshParamsDescriptor   = device->GetDescriptorIndex(&meshParamsBuffer, ResourceViewType::SRV);
 
     RenderState *renderState = engine->GetRenderState();
     {
@@ -1412,14 +1412,14 @@ internal void CullInstances(CommandList cmdList, bool isSecondPass)
             device->BindCompute(&instanceCullPass2Pipeline, cmdList);
         }
         device->PushConstants(cmdList, sizeof(pc), &pc);
-        device->BindResource(&depthPyramid, ResourceType::SRV, 0, cmdList);
-        device->BindResource(&viewsBuffer, ResourceType::SRV, 1, cmdList);
-        device->BindResource(&dispatchIndirectBuffer, ResourceType::UAV, 0, cmdList);
-        device->BindResource(&meshChunkBuffer, ResourceType::UAV, 1, cmdList);
-        device->BindResource(&occludedInstanceBuffer, ResourceType::UAV, 2, cmdList);
+        device->BindResource(&depthPyramid, ResourceViewType::SRV, 0, cmdList);
+        device->BindResource(&viewsBuffer, ResourceViewType::SRV, 1, cmdList);
+        device->BindResource(&dispatchIndirectBuffer, ResourceViewType::UAV, 0, cmdList);
+        device->BindResource(&meshChunkBuffer, ResourceViewType::UAV, 1, cmdList);
+        device->BindResource(&occludedInstanceBuffer, ResourceViewType::UAV, 2, cmdList);
 #if 1
-        device->BindResource(&cullingStatisticsBuffer, ResourceType::UAV, 3, cmdList);
-        device->BindResource(&debugAABBs, ResourceType::UAV, 4, cmdList);
+        device->BindResource(&cullingStatisticsBuffer, ResourceViewType::UAV, 3, cmdList);
+        device->BindResource(&debugAABBs, ResourceViewType::UAV, 4, cmdList);
 #endif
         if (!isSecondPass)
         {
@@ -1449,13 +1449,13 @@ internal void CullInstances(CommandList cmdList, bool isSecondPass)
         pc.pyramidHeight         = (f32)depthPyramid.desc.height;
         pc.nearZ                 = renderState->nearZ;
         pc.farZ                  = renderState->farZ;
-        pc.meshClusterDescriptor = device->GetDescriptorIndex(&buffers[UploadType_MeshClusters], ResourceType::SRV);
+        pc.meshClusterDescriptor = device->GetDescriptorIndex(&buffers[UploadType_MeshClusters], ResourceViewType::SRV);
         device->BindCompute(&clusterCullPipeline, cmdList);
         device->PushConstants(cmdList, sizeof(pc), &pc);
-        device->BindResource(&meshChunkBuffer, ResourceType::SRV, 0, cmdList);
-        device->BindResource(&viewsBuffer, ResourceType::SRV, 1, cmdList);
-        device->BindResource(&dispatchIndirectBuffer, ResourceType::UAV, 0, cmdList);
-        device->BindResource(&meshClusterIndexBuffer, ResourceType::UAV, 1, cmdList);
+        device->BindResource(&meshChunkBuffer, ResourceViewType::SRV, 0, cmdList);
+        device->BindResource(&viewsBuffer, ResourceViewType::SRV, 1, cmdList);
+        device->BindResource(&dispatchIndirectBuffer, ResourceViewType::UAV, 0, cmdList);
+        device->BindResource(&meshClusterIndexBuffer, ResourceViewType::UAV, 1, cmdList);
         // device->Dispatch(cmdList, (meshClusterCount + CLUSTER_CULL_GROUP_SIZE - 1) / CLUSTER_CULL_GROUP_SIZE, 1, 1);
         device->DispatchIndirect(cmdList, &dispatchIndirectBuffer,
                                  CLUSTER_DISPATCH_OFFSET * sizeof(DispatchIndirect) + Offset(DispatchIndirect, groupCountX));
@@ -1484,10 +1484,10 @@ internal void CullInstances(CommandList cmdList, bool isSecondPass)
         pc.nearZ                  = renderState->nearZ;
         device->BindCompute(&triangleCullPipeline, cmdList);
         device->PushConstants(cmdList, sizeof(pc), &pc);
-        device->BindResource(&meshClusterIndexBuffer, ResourceType::SRV, 0, cmdList);
-        device->BindResource(&indirectScratchBuffer, ResourceType::UAV, 0, cmdList);
-        device->BindResource(&meshIndexBuffer, ResourceType::UAV, 1, cmdList);
-        // device->BindResource(&depthPyramid, ResourceType::SRV, 0, cmdList);
+        device->BindResource(&meshClusterIndexBuffer, ResourceViewType::SRV, 0, cmdList);
+        device->BindResource(&indirectScratchBuffer, ResourceViewType::UAV, 0, cmdList);
+        device->BindResource(&meshIndexBuffer, ResourceViewType::UAV, 1, cmdList);
+        // device->BindResource(&depthPyramid, ResourceViewType::SRV, 0, cmdList);
         device->DispatchIndirect(cmdList, &dispatchIndirectBuffer,
                                  TRIANGLE_DISPATCH_OFFSET * sizeof(DispatchIndirect) + Offset(DispatchIndirect, groupCountX));
         device->EndEvent(cmdList);
@@ -1510,12 +1510,12 @@ internal void CullInstances(CommandList cmdList, bool isSecondPass)
         // pc.drawCount = meshClusterCount;
         device->BindCompute(&compactionPipeline, cmdList);
         // device->PushConstants(cmdList, sizeof(pc), &pc);
-        device->BindResource(&indirectScratchBuffer, ResourceType::SRV, 0, cmdList);
-        device->BindResource(&meshClusterIndexBuffer, ResourceType::SRV, 1, cmdList);
-        device->BindResource(&dispatchIndirectBuffer, ResourceType::SRV, 2, cmdList);
+        device->BindResource(&indirectScratchBuffer, ResourceViewType::SRV, 0, cmdList);
+        device->BindResource(&meshClusterIndexBuffer, ResourceViewType::SRV, 1, cmdList);
+        device->BindResource(&dispatchIndirectBuffer, ResourceViewType::SRV, 2, cmdList);
 
-        device->BindResource(&meshIndirectCountBuffer, ResourceType::UAV, 0, cmdList);
-        device->BindResource(&meshIndirectBuffer, ResourceType::UAV, 1, cmdList);
+        device->BindResource(&meshIndirectCountBuffer, ResourceViewType::UAV, 0, cmdList);
+        device->BindResource(&meshIndirectBuffer, ResourceViewType::UAV, 1, cmdList);
         // device->Dispatch(cmdList, (meshClusterCount + 63) / 64, 1, 1);
         device->DispatchIndirect(cmdList, &dispatchIndirectBuffer,
                                  DRAW_COMPACTION_DISPATCH_OFFSET * sizeof(DispatchIndirect) + Offset(DispatchIndirect, groupCountX));
@@ -1548,19 +1548,20 @@ internal void UpdateHZBPyramid(CommandList cmdList)
     i32 lastWriteIndex = 0;
     device->BindCompute(&generateMipsPipeline, cmdList);
     // THIS ONE
-    GPUBarrier barrier = GPUBarrier::Image(&depthPyramid, ImageUsage::ShaderRead, ImageUsage::General,
-                                           PipelineStage::Compute, PipelineStage::Compute,
-                                           Access::ShaderRead | Access::ShaderWrite, Access::ShaderWrite);
+    // GPUBarrier barrier = GPUBarrier::Image(&depthPyramid, ImageUsage::ShaderRead, ImageUsage::General,
+    //                                        PipelineStage::Compute, PipelineStage::Compute,
+    //                                        ResourceAccess::ComputeSRV | ResourceAccess::ComputeUAV, ResourceAccess::ComputeUAV);
+    GPUBarrier barrier = GPUBarrier::Image(&depthPyramid, ResourceUsage::ComputeRead, ResourceUsage::ComputeWrite);
     device->Barrier(cmdList, &barrier, 1);
     for (u32 i = 0; i < ArrayLength(depthPyramidSubresources) && (width > 0 || height > 0); i++)
     {
         if (i == 0)
         {
-            device->BindResource(&depthBufferMain, ResourceType::SRV, 0, cmdList);
+            device->BindResource(&depthBufferMain, ResourceViewType::SRV, 0, cmdList);
         }
         else
         {
-            device->BindResource(&depthPyramid, ResourceType::SRV, 0, cmdList, depthPyramidSubresources[i - 1]);
+            device->BindResource(&depthPyramid, ResourceViewType::SRV, 0, cmdList, depthPyramidSubresources[i - 1]);
         }
         GPUBarrier barriers[] = {
             i == 0 ? GPUBarrier::Image(&depthBufferMain, ResourceUsage_DepthStencil, ResourceUsage_ComputeRead)
@@ -1570,7 +1571,7 @@ internal void UpdateHZBPyramid(CommandList cmdList)
         lastWriteIndex = depthPyramidSubresources[i];
         device->Barrier(cmdList, barriers, ArrayLength(barriers));
 
-        device->BindResource(&depthPyramid, ResourceType::UAV, 0, cmdList, depthPyramidSubresources[i]);
+        device->BindResource(&depthPyramid, ResourceViewType::UAV, 0, cmdList, depthPyramidSubresources[i]);
         u32 groupCountX = (width + 7) / 8;
         u32 groupCountY = (height + 7) / 8;
         groupCountX     = groupCountX == 0 ? 1 : groupCountX;
@@ -1599,10 +1600,10 @@ internal void RenderMeshes(CommandList cmdList, RenderPassType type, i32 cascade
     RenderState *state = engine->GetRenderState();
     PushConstant pc;
     pc.worldToClip           = state->transform;
-    pc.meshParamsDescriptor  = device->GetDescriptorIndex(&meshParamsBuffer, ResourceType::SRV);
-    pc.meshClusterDescriptor = device->GetDescriptorIndex(&buffers[UploadType_MeshClusters], ResourceType::SRV);
-    pc.materialDescriptor    = device->GetDescriptorIndex(&materialBuffer, ResourceType::SRV);
-    pc.geometryDescriptor    = device->GetDescriptorIndex(&meshGeometryBuffer, ResourceType::SRV);
+    pc.meshParamsDescriptor  = device->GetDescriptorIndex(&meshParamsBuffer, ResourceViewType::SRV);
+    pc.meshClusterDescriptor = device->GetDescriptorIndex(&buffers[UploadType_MeshClusters], ResourceViewType::SRV);
+    pc.materialDescriptor    = device->GetDescriptorIndex(&materialBuffer, ResourceViewType::SRV);
+    pc.geometryDescriptor    = device->GetDescriptorIndex(&meshGeometryBuffer, ResourceViewType::SRV);
 
     if (shadowPass)
     {
@@ -1701,7 +1702,7 @@ internal void Render()
                 device->Barrier(cmd, barriers, ArrayLength(barriers));
             }
             device->BindCompute(&clearIndirectPipeline, cmd);
-            device->BindResource(&indirectScratchBuffer, ResourceType::UAV, 0, cmd);
+            device->BindResource(&indirectScratchBuffer, ResourceViewType::UAV, 0, cmd);
             device->Dispatch(cmd, (meshClusterCount + CLUSTER_SIZE - 1) / CLUSTER_SIZE, 1, 1);
 
             u32 zero = 0;
@@ -1778,7 +1779,7 @@ internal void Render()
         device->BeginEvent(cmd, "Skinning");
         device->BindCompute(&skinPipeline, cmd);
         SkinningPushConstants pc;
-        pc.skinningBuffer = device->GetDescriptorIndex(&skinningBuffer, ResourceType::SRV);
+        pc.skinningBuffer = device->GetDescriptorIndex(&skinningBuffer, ResourceViewType::SRV);
 
         for (MeshIter iter = gameScene->BeginMeshIter(); !gameScene->End(&iter); gameScene->Next(&iter))
         {
@@ -1848,7 +1849,7 @@ internal void Render()
 
             device->BeginRenderPass(images, ArrayLength(images), cmdList);
             device->BindPipeline(&shadowMapPipeline, cmdList);
-            device->BindResource(&cascadeParamsBuffer, ResourceType::SRV, CASCADE_PARAMS_BIND, cmdList);
+            device->BindResource(&cascadeParamsBuffer, ResourceViewType::SRV, CASCADE_PARAMS_BIND, cmdList);
             device->UpdateDescriptorSet(cmdList);
 
             Viewport viewport;
@@ -1885,8 +1886,8 @@ internal void Render()
 
         device->BeginRenderPass(images, ArrayLength(images), commandList);
         device->BindPipeline(&pipelineState, commandList);
-        device->BindResource(&cascadeParamsBuffer, ResourceType::SRV, CASCADE_PARAMS_BIND, commandList);
-        device->BindResource(&shadowDepthMap, ResourceType::SRV, SHADOW_MAP_BIND, commandList);
+        device->BindResource(&cascadeParamsBuffer, ResourceViewType::SRV, CASCADE_PARAMS_BIND, commandList);
+        device->BindResource(&shadowDepthMap, ResourceViewType::SRV, SHADOW_MAP_BIND, commandList);
         device->UpdateDescriptorSet(commandList);
 
         Viewport viewport;
@@ -1901,7 +1902,7 @@ internal void Render()
         device->SetScissor(commandList, scissor);
 
         PushConstant pc;
-        pc.meshParamsDescriptor = device->GetDescriptorIndex(&meshParamsBuffer, ResourceType::SRV);
+        pc.meshParamsDescriptor = device->GetDescriptorIndex(&meshParamsBuffer, ResourceViewType::SRV);
 
         RenderMeshes(commandList, RenderPassType_Main);
         device->EndRenderPass(commandList);
@@ -1920,7 +1921,7 @@ internal void Render()
             device->Barrier(cmdList, barriers, ArrayLength(barriers));
         }
         device->BindCompute(&clearIndirectPipeline, cmdList);
-        device->BindResource(&indirectScratchBuffer, ResourceType::UAV, 0, cmdList);
+        device->BindResource(&indirectScratchBuffer, ResourceViewType::UAV, 0, cmdList);
         device->Dispatch(cmdList, (meshClusterCount + CLUSTER_SIZE - 1) / CLUSTER_SIZE, 1, 1);
 
         u32 zero = 0;
@@ -2040,8 +2041,8 @@ void BlockCompressImage(graphics::Texture *input, graphics::Texture *output, Com
     // Output block compression to intermediate texture
     Shader *shader = &shaders[ShaderType_BC1_CS];
     device->BindCompute(&blockCompressPipeline, cmd);
-    device->BindResource(&bc1Uav, ResourceType::UAV, 0, cmd);
-    device->BindResource(input, ResourceType::SRV, 0, cmd);
+    device->BindResource(&bc1Uav, ResourceViewType::UAV, 0, cmd);
+    device->BindResource(input, ResourceViewType::SRV, 0, cmd);
 
     device->Dispatch(cmd, (desc.width + 7) / 8, (desc.height + 7) / 8, 1);
 
@@ -2069,7 +2070,7 @@ void BlockCompressImage(graphics::Texture *input, graphics::Texture *output, Com
 // void UpdateSkinning(rendergraph::RenderGraph *graph)
 // {
 //     rendergraph::RGSkinning skinning;
-//     skinning.push.skinningBuffer = device->GetDescriptorIndex(&skinningBuffer, ResourceType::SRV);
+//     skinning.push.skinningBuffer = device->GetDescriptorIndex(&skinningBuffer, ResourceViewType::SRV);
 //
 //     for (MeshIter iter = gameScene->BeginMeshIter(); !gameScene->End(&iter); gameScene->Next(&iter))
 //     {

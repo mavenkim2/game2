@@ -392,9 +392,9 @@ struct mkGraphicsVulkan : mkGraphics
     void DeleteTexture(Texture *texture) override;
     void CreateSampler(Sampler *sampler, SamplerDesc desc) override;
     void BindSampler(CommandList cmd, Sampler *sampler, u32 slot) override;
-    void BindResource(GPUResource *resource, ResourceType type, u32 slot, CommandList cmd, i32 subresource = -1) override;
-    i32 GetDescriptorIndex(GPUResource *resource, ResourceType type, i32 subresourceIndex = -1) override;
-    i32 CreateSubresource(GPUBuffer *buffer, ResourceType type, u64 offset = 0ull, u64 size = ~0ull, Format format = Format::Null,
+    void BindResource(GPUResource *resource, ResourceViewType type, u32 slot, CommandList cmd, i32 subresource = -1) override;
+    i32 GetDescriptorIndex(GPUResource *resource, ResourceViewType type, i32 subresourceIndex = -1) override;
+    i32 CreateSubresource(GPUBuffer *buffer, ResourceViewType type, u64 offset = 0ull, u64 size = ~0ull, Format format = Format::Null,
                           const char *name = 0) override;
     i32 CreateSubresource(Texture *texture, u32 baseLayer = 0, u32 numLayers = ~0u, u32 baseMip = 0, u32 numMips = ~0u) override;
     void UpdateDescriptorSet(CommandList cmd, b8 isCompute = 0);

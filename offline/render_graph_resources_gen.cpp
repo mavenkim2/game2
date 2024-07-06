@@ -22,8 +22,8 @@
 struct ShaderResource
 {
     string name;
-    rendergraph::ResourceType type;
-    rendergraph::ResourceUsage usage;
+    rendergraph::HLSLType type;
+    graphics::ResourceViewType viewType;
     i32 bindingSlot;
 };
 
@@ -235,27 +235,27 @@ int main(int argc, char *argv[])
                                 ShaderResource *resource = &currentShader->resources.back();
                                 if (StartsWith(line, "RWStructuredBuffer"))
                                 {
-                                    resource->type = rendergraph::ResourceType::RWStructuredBuffer;
+                                    resource->type = rendergraph::HLSLType::RWStructuredBuffer;
                                     numBuffers++;
                                 }
                                 else if (StartsWith(line, "StructuredBuffer"))
                                 {
-                                    resource->type = rendergraph::ResourceType::StructuredBuffer;
+                                    resource->type = rendergraph::HLSLType::StructuredBuffer;
                                     numBuffers++;
                                 }
                                 else if (StartsWith(line, "Texture2DArray"))
                                 {
-                                    resource->type = rendergraph::ResourceType::Texture2DArray;
+                                    resource->type = rendergraph::HLSLType::Texture2DArray;
                                     numTextures++;
                                 }
                                 else if (StartsWith(line, "Texture2D"))
                                 {
-                                    resource->type = rendergraph::ResourceType::Texture2D;
+                                    resource->type = rendergraph::HLSLType::Texture2D;
                                     numTextures++;
                                 }
                                 else if (StartsWith(line, "RWTexture2D"))
                                 {
-                                    resource->type = rendergraph::ResourceType::RWTexture2D;
+                                    resource->type = rendergraph::HLSLType::RWTexture2D;
                                     numTextures++;
                                 }
                                 else if (StartsWith(line, "SamplerState"))
@@ -273,19 +273,19 @@ int main(int argc, char *argv[])
                                 Assert(GetBetweenPair(reg, line, '('));
                                 if (reg.str[0] == 'u')
                                 {
-                                    resource->usage = rendergraph::ResourceUsage::UAV;
+                                    resource->viewType = graphics::ResourceViewType::UAV;
                                 }
                                 else if (reg.str[0] == 't')
                                 {
-                                    resource->usage = rendergraph::ResourceUsage::SRV;
+                                    resource->viewType = graphics::ResourceViewType::SRV;
                                 }
                                 else if (reg.str[0] == 'b')
                                 {
-                                    resource->usage = rendergraph::ResourceUsage::CBV;
+                                    resource->viewType = graphics::ResourceViewType::CBV;
                                 }
                                 else if (reg.str[0] == 's')
                                 {
-                                    resource->usage = rendergraph::ResourceUsage::SAM;
+                                    resource->viewType = graphics::ResourceViewType::SAM;
                                 }
                                 else
                                 {
@@ -320,8 +320,8 @@ int main(int argc, char *argv[])
                                 ShaderResource *resource = &currentShader->resources[i];
                                 if (IsTexture(resource->type))
                                 {
-                                    PutLine(builder, 2, "{%S, %S, %u},", rendergraph::ConvertResourceUsageToName(resource->usage),
-                                            rendergraph::ConvertResourceTypeToName(resource->type), resource->bindingSlot);
+                                    PutLine(builder, 2, "{%S, %S, %u},", rendergraph::ConvertResourceViewTypeToName(resource->viewType),
+                                            rendergraph::ConvertHLSLTypeToName(resource->type), resource->bindingSlot);
                                 }
                             }
                             PutLine(builder, 1, "};");
@@ -334,8 +334,8 @@ int main(int argc, char *argv[])
                                 ShaderResource *resource = &currentShader->resources[i];
                                 if (IsBuffer(resource->type))
                                 {
-                                    PutLine(builder, 2, "{%S, %S, %u},", rendergraph::ConvertResourceUsageToName(resource->usage),
-                                            rendergraph::ConvertResourceTypeToName(resource->type), resource->bindingSlot);
+                                    PutLine(builder, 2, "{%S, %S, %u},", rendergraph::ConvertResourceViewTypeToName(resource->viewType),
+                                            rendergraph::ConvertHLSLTypeToName(resource->type), resource->bindingSlot);
                                 }
                             }
                             PutLine(builder, 1, "};");

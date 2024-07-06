@@ -4,6 +4,7 @@
 namespace Memory
 {
 struct MallocArena;
+b8 initialized       = 0;
 const u32 cChunkSize = megabytes(4);
 const u32 cPageSize  = kilobytes(4); // 2 ^ 12
 

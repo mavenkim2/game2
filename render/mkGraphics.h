@@ -52,6 +52,7 @@ enum
     DeviceCapabilities_VariableShading,
 };
 
+// TODO: having just one struct to use for both buffer/texture creation and barriers was not a good idea.
 enum class ResourceUsage : u32
 {
     None     = 0,
@@ -60,12 +61,12 @@ enum class ResourceUsage : u32
     Stencil  = 1 << 5,
 
     // Pipeline stages
-    Indirect       = 1 << 8,
-    Vertex         = 1 << 9,
-    Fragment       = 1 << 10,
-    Index          = 1 << 11,
-    Input          = 1 << 12,
-    Shader         = 1 << 13,
+    Indirect                     = 1 << 8,
+    Vertex                       = 1 << 9,
+    Fragment                     = 1 << 10,
+    Index                        = 1 << 11,
+    Input                        = 1 << 12,
+    Shader                       = 1 << 13,
     PipelineStage_VertexInput    = Vertex | Input,
     PipelineStage_IndexInput     = Index | Input,
     PipelineStage_VertexShader   = Vertex | Shader,
@@ -108,30 +109,29 @@ enum class ResourceUsage : u32
     ShaderGlobals = StorageBufferRead | Bindless,
     Reset         = 0xffffffff,
 };
-
 ENUM_CLASS_FLAGS(ResourceUsage)
 
-#define ResourceUsage_None ResourceUsage::None
+#define ResourceUsage_None     ResourceUsage::None
 #define ResourceUsage_Graphics ResourceUsage::Graphics
-#define ResourceUsage_Depth ResourceUsage::Depth
-#define ResourceUsage_Stencil ResourceUsage::Stencil
+#define ResourceUsage_Depth    ResourceUsage::Depth
+#define ResourceUsage_Stencil  ResourceUsage::Stencil
 
-#define ResourceUsage_Indirect ResourceUsage::Indirect
-#define ResourceUsage_Vertex         ResourceUsage::Vertex
-#define ResourceUsage_Fragment       ResourceUsage::Fragment
-#define ResourceUsage_Index          ResourceUsage::Index
-#define ResourceUsage_Input          ResourceUsage::Input
-#define ResourceUsage_Shader         ResourceUsage::Shader
-#define PipelineStage_VertexInput    ResourceUsage::Vertex | ResourceUsage::Input
-#define PipelineStage_IndexInput     ResourceUsage::Index | ResourceUsage::Input
-#define PipelineStage_VertexShader   ResourceUsage::Vertex | ResourceUsage::Shader
-#define PipelineStage_FragmentShader ResourceUsage::Fragment | ResourceUsage::Shader
-#define ResourceUsage_TransferSrc ResourceUsage::TransferSrc
-#define ResourceUsage_TransferDst ResourceUsage::TransferDst
-#define ResourceUsage_Bindless ResourceUsage::Bindless | ResourceUsage::TransferDst
+#define ResourceUsage_Indirect        ResourceUsage::Indirect
+#define ResourceUsage_Vertex          ResourceUsage::Vertex
+#define ResourceUsage_Fragment        ResourceUsage::Fragment
+#define ResourceUsage_Index           ResourceUsage::Index
+#define ResourceUsage_Input           ResourceUsage::Input
+#define ResourceUsage_Shader          ResourceUsage::Shader
+#define PipelineStage_VertexInput     ResourceUsage::Vertex | ResourceUsage::Input
+#define PipelineStage_IndexInput      ResourceUsage::Index | ResourceUsage::Input
+#define PipelineStage_VertexShader    ResourceUsage::Vertex | ResourceUsage::Shader
+#define PipelineStage_FragmentShader  ResourceUsage::Fragment | ResourceUsage::Shader
+#define ResourceUsage_TransferSrc     ResourceUsage::TransferSrc
+#define ResourceUsage_TransferDst     ResourceUsage::TransferDst
+#define ResourceUsage_Bindless        ResourceUsage::Bindless | ResourceUsage::TransferDst
 #define ResourceUsage_ColorAttachment ResourceUsage::ColorAttachment
-#define ResourceUsage_ShaderRead ResourceUsage::ShaderRead
-#define ResourceUsage_UniformRead ResourceUsage::UniformRead
+#define ResourceUsage_ShaderRead      ResourceUsage::ShaderRead
+#define ResourceUsage_UniformRead     ResourceUsage::UniformRead
 
 #define ResourceUsage_ComputeRead  ResourceUsage::ComputeRead
 #define ResourceUsage_ComputeWrite ResourceUsage::ComputeWrite
@@ -145,8 +145,8 @@ ENUM_CLASS_FLAGS(ResourceUsage)
 #define ResourceUsage_UniformTexel  ResourceUsage::UniformTexel
 
 #define ResourceUsage_StorageBufferRead ResourceUsage::StorageBufferRead
-#define ResourceUsage_StorageBuffer    ResourceUsage::StorageBuffer
-#define ResourceUsage_StorageTexel     ResourceUsage::StorageTexel
+#define ResourceUsage_StorageBuffer     ResourceUsage::StorageBuffer
+#define ResourceUsage_StorageTexel      ResourceUsage::StorageTexel
 
 #define ResourceUsage_SampledImage ResourceUsage::SampledImage
 #define ResourceUsage_StorageImage ResourceUsage::StorageImage
@@ -186,7 +186,7 @@ enum class Format
     Count,
 };
 
-enum class ResourceType
+enum class ResourceViewType
 {
     // Used for resource bindings
     SRV, // shader resource view (read only)
@@ -227,32 +227,6 @@ struct Viewport
     f32 maxDepth = 1.f;
 };
 
-// typedef u32 ResourceUsage;
-// enum class ResourceUsage
-// {
-//     None               = 0,
-//     UniformBuffer      = 1 << 1,
-//     UniformTexelBuffer = 1 << 2,
-//     StorageBuffer      = 1 << 3,
-//     StorageTexelBuffer = 1 << 4,
-//
-//     VertexBuffer = 1 << 5,
-//     IndexBuffer  = 1 << 6,
-//
-//     TransferSrc = 1 << 7,
-//     TransferDst = 1 << 8,
-//
-//     SampledImage = 1 << 9,
-//     StorageImage = 1 << 10,
-//
-//     DepthStencil = 1 << 11,
-//
-//     IndirectBuffer = 1 << 12,
-//
-//     MegaBuffer  = 1 << 13, // e.g. subviews contain meaningful data, not the whole buffer itself
-//     NotBindless = 1 << 14,
-// };
-
 enum ImageUsage
 {
     None         = 0,
@@ -277,24 +251,55 @@ enum class PipelineStage : u32
     Compute              = 1 << 5,
     FragmentShader       = 1 << 6,
     Depth                = 1 << 7,
+    ColorAttachment      = 1 << 8,
     AllCommands          = 1u << 31,
 };
 ENUM_CLASS_FLAGS(PipelineStage)
 
-enum class Access
+enum class ResourceAccess
 {
-    None                = 0,
-    VertexAttributeRead = 1 << 0,
-    IndexRead           = 1 << 1,
-    UniformRead         = 1 << 2,
-    TransferRead        = 1 << 3,
-    TransferWrite       = 1 << 4,
-    ShaderRead          = 1 << 5,
-    ShaderWrite         = 1 << 6,
-    IndirectRead        = 1 << 7,
-    DepthStencil        = 1 << 8,
+    None = 0,
+    // Read only states
+    ComputeSRV   = 1 << 0,
+    GraphicsSRV  = 1 << 1,
+    TransferSrc  = 1 << 2,
+    TransferRead = TransferSrc,
+    IndirectRead = 1 << 3,
+    VertexBuffer = 1 << 4,
+    IndexBuffer  = 1 << 5,
+
+    // Write states
+    ComputeUAV      = 1 << 6,
+    GraphicsUAV     = 1 << 7,
+    DepthStencil    = 1 << 8,
+    TransferDst     = 1 << 10,
+    TransferWrite   = TransferDst,
+    ColorAttachment = 1 << 11,
+
+    ShaderSRVMask = ComputeSRV | GraphicsSRV,
+    ShaderUAVMask = ComputeUAV | GraphicsUAV,
+
+    // Mask of access types that can ONLY be read from
+    ReadOnly        = ShaderSRVMask | TransferSrc | IndirectRead | VertexBuffer | IndexBuffer,
+    ReadOnlyCompute = ComputeSRV | IndirectRead,
+
+    // TODO: for now this is probably just going to barrier all uavs with R/W even if they are write only
+    // TODO: how am I going to handle color attachments and indirects?
+    WriteOnly = TransferDst | ColorAttachment,
+    Writable  = WriteOnly | ShaderUAVMask | DepthStencil,
 };
-ENUM_CLASS_FLAGS(Access)
+ENUM_CLASS_FLAGS(ResourceAccess);
+
+inline b32 NeedsTransition(ResourceAccess last, ResourceAccess next)
+{
+    b32 result = ((last != next) && (last != ResourceAccess::None));
+    return result;
+}
+
+inline b32 IsWritable(ResourceAccess access)
+{
+    return EnumHasAnyFlags(access, ResourceAccess::Writable);
+}
 
 // inline b32 HasFlags(u32 lhs, u32 rhs)
 // {
@@ -569,8 +574,8 @@ struct GPUBarrier
     PipelineStage stageBefore;
     PipelineStage stageAfter;
 
-    Access accessBefore;
-    Access accessAfter;
+    ResourceAccess accessBefore;
+    ResourceAccess accessAfter;
 
     ImageUsage layoutBefore;
     ImageUsage layoutAfter;
@@ -587,6 +592,22 @@ struct GPUBarrier
         barrier.usageAfter  = inUsageAfter;
         barrier.offset      = inOffset;
         barrier.size        = inSize;
+
+        return barrier;
+    }
+
+    static inline GPUBarrier Buffer(GPUResource *resource, PipelineStage inStageBefore, PipelineStage inStageAfter,
+                                    ResourceAccess inResourceAccessBefore, ResourceAccess inResourceAccessAfter)
+    {
+        GPUBarrier barrier;
+
+        Assert(resource->resourceType == GPUResource::ResourceType::Buffer);
+        barrier.isVerbose    = 1;
+        barrier.type         = Type::Buffer;
+        barrier.stageBefore  = inStageBefore;
+        barrier.stageAfter   = inStageAfter;
+        barrier.accessBefore = inResourceAccessBefore;
+        barrier.accessAfter  = inResourceAccessAfter;
 
         return barrier;
     }
@@ -640,8 +661,8 @@ struct GPUBarrier
                             ImageUsage inLayoutAfter,
                             PipelineStage inStageBefore,
                             PipelineStage inStageAfter,
-                            Access inAccessBefore,
-                            Access inAccessAfter,
+                            ResourceAccess inResourceAccessBefore,
+                            ResourceAccess inResourceAccessAfter,
                             i32 inSubresource = -1)
     {
         GPUBarrier barrier;
@@ -653,8 +674,8 @@ struct GPUBarrier
         barrier.layoutAfter  = inLayoutAfter;
         barrier.stageBefore  = inStageBefore;
         barrier.stageAfter   = inStageAfter;
-        barrier.accessBefore = inAccessBefore;
-        barrier.accessAfter  = inAccessAfter;
+        barrier.accessBefore = inResourceAccessBefore;
+        barrier.accessAfter  = inResourceAccessAfter;
         barrier.subresource  = inSubresource;
         return barrier;
     }
@@ -901,9 +922,9 @@ struct mkGraphics
     virtual void DeleteTexture(Texture *texture)                                                                                   = 0;
     virtual void CreateSampler(Sampler *sampler, SamplerDesc desc)                                                                 = 0;
     virtual void BindSampler(CommandList cmd, Sampler *sampler, u32 slot)                                                          = 0;
-    virtual void BindResource(GPUResource *resource, ResourceType type, u32 slot, CommandList cmd, i32 subresource = -1)           = 0;
-    virtual i32 GetDescriptorIndex(GPUResource *resource, ResourceType type, i32 subresourceIndex = -1)                            = 0;
-    virtual i32 CreateSubresource(GPUBuffer *buffer, ResourceType type, u64 offset = 0ull, u64 size = ~0ull,
+    virtual void BindResource(GPUResource *resource, ResourceViewType type, u32 slot, CommandList cmd, i32 subresource = -1)       = 0;
+    virtual i32 GetDescriptorIndex(GPUResource *resource, ResourceViewType type, i32 subresourceIndex = -1)                        = 0;
+    virtual i32 CreateSubresource(GPUBuffer *buffer, ResourceViewType type, u64 offset = 0ull, u64 size = ~0ull,
                                   Format format = Format::Null, const char *name = 0)                                              = 0;
     virtual i32 CreateSubresource(Texture *texture, u32 baseLayer = 0, u32 numLayers = ~0u,
                                   u32 baseMip = 0, u32 numMips = ~0u)                                                              = 0;

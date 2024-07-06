@@ -235,7 +235,6 @@ G_INIT(G_Init)
 
         // Testing Memory
         // {
-        //     Memory::Init();
         //     DynamicArray<u32> array;
         //     for (u32 i = 0; i < 100; i++)
         //     {
@@ -697,11 +696,11 @@ DLL G_UPDATE(G_Update)
         if (mat->IsRenderable())
         {
             graphics::Texture *texture = GetTexture(mat->textures[TextureType_Diffuse]);
-            i32 descriptorIndex        = device->GetDescriptorIndex(texture, ResourceType::SRV);
+            i32 descriptorIndex        = device->GetDescriptorIndex(texture, ResourceViewType::SRV);
             material->albedo           = descriptorIndex;
 
             texture          = GetTexture(mat->textures[TextureType_Normal]);
-            descriptorIndex  = device->GetDescriptorIndex(texture, ResourceType::SRV);
+            descriptorIndex  = device->GetDescriptorIndex(texture, ResourceViewType::SRV);
             material->normal = descriptorIndex;
         }
     }

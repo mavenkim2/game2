@@ -648,34 +648,34 @@ internal void AS_LoadAsset(AS_Asset *asset)
             device->SetName(&mesh->buffer, "Mesh buffer");
 
             Assert(mesh->positions);
-            mesh->vertexPosView.srvIndex      = device->CreateSubresource(&mesh->buffer, ResourceType::SRV, mesh->vertexPosView.offset, mesh->vertexPosView.size, Format::R32G32B32_SFLOAT);
-            mesh->vertexPosView.srvDescriptor = device->GetDescriptorIndex(&mesh->buffer, ResourceType::SRV, mesh->vertexPosView.srvIndex);
+            mesh->vertexPosView.srvIndex      = device->CreateSubresource(&mesh->buffer, ResourceViewType::SRV, mesh->vertexPosView.offset, mesh->vertexPosView.size, Format::R32G32B32_SFLOAT);
+            mesh->vertexPosView.srvDescriptor = device->GetDescriptorIndex(&mesh->buffer, ResourceViewType::SRV, mesh->vertexPosView.srvIndex);
 
             Assert(mesh->normals);
-            mesh->vertexNorView.srvIndex      = device->CreateSubresource(&mesh->buffer, ResourceType::SRV, mesh->vertexNorView.offset, mesh->vertexNorView.size, Format::R32G32B32_SFLOAT);
-            mesh->vertexNorView.srvDescriptor = device->GetDescriptorIndex(&mesh->buffer, ResourceType::SRV, mesh->vertexNorView.srvIndex);
+            mesh->vertexNorView.srvIndex      = device->CreateSubresource(&mesh->buffer, ResourceViewType::SRV, mesh->vertexNorView.offset, mesh->vertexNorView.size, Format::R32G32B32_SFLOAT);
+            mesh->vertexNorView.srvDescriptor = device->GetDescriptorIndex(&mesh->buffer, ResourceViewType::SRV, mesh->vertexNorView.srvIndex);
 
             Assert(mesh->tangents);
-            mesh->vertexTanView.srvIndex      = device->CreateSubresource(&mesh->buffer, ResourceType::SRV, mesh->vertexTanView.offset, mesh->vertexTanView.size, Format::R32G32B32_SFLOAT);
-            mesh->vertexTanView.srvDescriptor = device->GetDescriptorIndex(&mesh->buffer, ResourceType::SRV, mesh->vertexTanView.srvIndex);
+            mesh->vertexTanView.srvIndex      = device->CreateSubresource(&mesh->buffer, ResourceViewType::SRV, mesh->vertexTanView.offset, mesh->vertexTanView.size, Format::R32G32B32_SFLOAT);
+            mesh->vertexTanView.srvDescriptor = device->GetDescriptorIndex(&mesh->buffer, ResourceViewType::SRV, mesh->vertexTanView.srvIndex);
 
             if (mesh->uvs)
             {
-                mesh->vertexUvView.srvIndex      = device->CreateSubresource(&mesh->buffer, ResourceType::SRV, mesh->vertexUvView.offset, mesh->vertexUvView.size, Format::R32G32_SFLOAT);
-                mesh->vertexUvView.srvDescriptor = device->GetDescriptorIndex(&mesh->buffer, ResourceType::SRV, mesh->vertexUvView.srvIndex);
+                mesh->vertexUvView.srvIndex      = device->CreateSubresource(&mesh->buffer, ResourceViewType::SRV, mesh->vertexUvView.offset, mesh->vertexUvView.size, Format::R32G32_SFLOAT);
+                mesh->vertexUvView.srvDescriptor = device->GetDescriptorIndex(&mesh->buffer, ResourceViewType::SRV, mesh->vertexUvView.srvIndex);
             }
             if (mesh->boneIds)
             {
-                mesh->vertexBoneIdView.srvIndex      = device->CreateSubresource(&mesh->buffer, ResourceType::SRV, mesh->vertexBoneIdView.offset, mesh->vertexBoneIdView.size, Format::R32G32B32A32_UINT);
-                mesh->vertexBoneIdView.srvDescriptor = device->GetDescriptorIndex(&mesh->buffer, ResourceType::SRV, mesh->vertexBoneIdView.srvIndex);
+                mesh->vertexBoneIdView.srvIndex      = device->CreateSubresource(&mesh->buffer, ResourceViewType::SRV, mesh->vertexBoneIdView.offset, mesh->vertexBoneIdView.size, Format::R32G32B32A32_UINT);
+                mesh->vertexBoneIdView.srvDescriptor = device->GetDescriptorIndex(&mesh->buffer, ResourceViewType::SRV, mesh->vertexBoneIdView.srvIndex);
 
                 Assert(mesh->boneWeights);
-                mesh->vertexBoneWeightView.srvIndex      = device->CreateSubresource(&mesh->buffer, ResourceType::SRV, mesh->vertexBoneWeightView.offset, mesh->vertexBoneWeightView.size, Format::R32G32B32A32_SFLOAT);
-                mesh->vertexBoneWeightView.srvDescriptor = device->GetDescriptorIndex(&mesh->buffer, ResourceType::SRV, mesh->vertexBoneWeightView.srvIndex);
+                mesh->vertexBoneWeightView.srvIndex      = device->CreateSubresource(&mesh->buffer, ResourceViewType::SRV, mesh->vertexBoneWeightView.offset, mesh->vertexBoneWeightView.size, Format::R32G32B32A32_SFLOAT);
+                mesh->vertexBoneWeightView.srvDescriptor = device->GetDescriptorIndex(&mesh->buffer, ResourceViewType::SRV, mesh->vertexBoneWeightView.srvIndex);
             }
 
-            mesh->indexView.srvIndex      = device->CreateSubresource(&mesh->buffer, ResourceType::SRV, mesh->indexView.offset, mesh->indexView.size);
-            mesh->indexView.srvDescriptor = device->GetDescriptorIndex(&mesh->buffer, ResourceType::SRV, mesh->indexView.srvIndex);
+            mesh->indexView.srvIndex      = device->CreateSubresource(&mesh->buffer, ResourceViewType::SRV, mesh->indexView.offset, mesh->indexView.size);
+            mesh->indexView.srvDescriptor = device->GetDescriptorIndex(&mesh->buffer, ResourceViewType::SRV, mesh->indexView.srvIndex);
 
             // Create skinning uavs
             if (mesh->boneIds)
@@ -702,20 +702,20 @@ internal void AS_LoadAsset(AS_Asset *asset)
                 device->CreateBuffer(&mesh->streamBuffer, streamDesc, 0);
                 device->SetName(&mesh->streamBuffer, "Mesh stream buffer");
 
-                mesh->soPosView.srvIndex      = device->CreateSubresource(&mesh->streamBuffer, ResourceType::SRV, mesh->soPosView.offset, mesh->soPosView.size, Format::R32G32B32_SFLOAT, "Streamout pos");
-                mesh->soPosView.srvDescriptor = device->GetDescriptorIndex(&mesh->streamBuffer, ResourceType::SRV, mesh->soPosView.srvIndex);
-                mesh->soPosView.uavIndex      = device->CreateSubresource(&mesh->streamBuffer, ResourceType::UAV, mesh->soPosView.offset, mesh->soPosView.size);
-                mesh->soPosView.uavDescriptor = device->GetDescriptorIndex(&mesh->streamBuffer, ResourceType::UAV, mesh->soPosView.uavIndex);
+                mesh->soPosView.srvIndex      = device->CreateSubresource(&mesh->streamBuffer, ResourceViewType::SRV, mesh->soPosView.offset, mesh->soPosView.size, Format::R32G32B32_SFLOAT, "Streamout pos");
+                mesh->soPosView.srvDescriptor = device->GetDescriptorIndex(&mesh->streamBuffer, ResourceViewType::SRV, mesh->soPosView.srvIndex);
+                mesh->soPosView.uavIndex      = device->CreateSubresource(&mesh->streamBuffer, ResourceViewType::UAV, mesh->soPosView.offset, mesh->soPosView.size);
+                mesh->soPosView.uavDescriptor = device->GetDescriptorIndex(&mesh->streamBuffer, ResourceViewType::UAV, mesh->soPosView.uavIndex);
 
-                mesh->soNorView.srvIndex      = device->CreateSubresource(&mesh->streamBuffer, ResourceType::SRV, mesh->soNorView.offset, mesh->soNorView.size, Format::R32G32B32_SFLOAT);
-                mesh->soNorView.srvDescriptor = device->GetDescriptorIndex(&mesh->streamBuffer, ResourceType::SRV, mesh->soNorView.srvIndex);
-                mesh->soNorView.uavIndex      = device->CreateSubresource(&mesh->streamBuffer, ResourceType::UAV, mesh->soNorView.offset, mesh->soNorView.size);
-                mesh->soNorView.uavDescriptor = device->GetDescriptorIndex(&mesh->streamBuffer, ResourceType::UAV, mesh->soNorView.uavIndex);
+                mesh->soNorView.srvIndex      = device->CreateSubresource(&mesh->streamBuffer, ResourceViewType::SRV, mesh->soNorView.offset, mesh->soNorView.size, Format::R32G32B32_SFLOAT);
+                mesh->soNorView.srvDescriptor = device->GetDescriptorIndex(&mesh->streamBuffer, ResourceViewType::SRV, mesh->soNorView.srvIndex);
+                mesh->soNorView.uavIndex      = device->CreateSubresource(&mesh->streamBuffer, ResourceViewType::UAV, mesh->soNorView.offset, mesh->soNorView.size);
+                mesh->soNorView.uavDescriptor = device->GetDescriptorIndex(&mesh->streamBuffer, ResourceViewType::UAV, mesh->soNorView.uavIndex);
 
-                mesh->soTanView.srvIndex      = device->CreateSubresource(&mesh->streamBuffer, ResourceType::SRV, mesh->soTanView.offset, mesh->soTanView.size, Format::R32G32B32_SFLOAT);
-                mesh->soTanView.srvDescriptor = device->GetDescriptorIndex(&mesh->streamBuffer, ResourceType::SRV, mesh->soTanView.srvIndex);
-                mesh->soTanView.uavIndex      = device->CreateSubresource(&mesh->streamBuffer, ResourceType::UAV, mesh->soTanView.offset, mesh->soTanView.size);
-                mesh->soTanView.uavDescriptor = device->GetDescriptorIndex(&mesh->streamBuffer, ResourceType::UAV, mesh->soTanView.uavIndex);
+                mesh->soTanView.srvIndex      = device->CreateSubresource(&mesh->streamBuffer, ResourceViewType::SRV, mesh->soTanView.offset, mesh->soTanView.size, Format::R32G32B32_SFLOAT);
+                mesh->soTanView.srvDescriptor = device->GetDescriptorIndex(&mesh->streamBuffer, ResourceViewType::SRV, mesh->soTanView.srvIndex);
+                mesh->soTanView.uavIndex      = device->CreateSubresource(&mesh->streamBuffer, ResourceViewType::UAV, mesh->soTanView.offset, mesh->soTanView.size);
+                mesh->soTanView.uavDescriptor = device->GetDescriptorIndex(&mesh->streamBuffer, ResourceViewType::UAV, mesh->soTanView.uavIndex);
 
                 mesh->posDescriptor = mesh->soPosView.srvDescriptor;
                 mesh->norDescriptor = mesh->soNorView.srvDescriptor;
