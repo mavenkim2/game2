@@ -18,6 +18,7 @@ void RenderGraph::Init()
     {
         passDependencies[i].Init();
     }
+    transientResourceAllocator.Init();
     // graphics::GPUBufferDesc desc;
     // desc.resourceUsage = graphics::ResourceViewType::
 }
@@ -233,6 +234,7 @@ void RenderGraph::Compile()
     {
         RenderPass *pass = &passes[i];
         if (!EnumHasAnyFlags(pass->flags, PassFlags::NotCulled)) continue;
+#if 0
         EnumerateShaderBuffers(pass->parameters, [&](const PassResource *resource, BufferView *view) {
             RenderGraphResource *rgResource = &resources[view->handle];
             graphics::GPUBuffer *buffer     = (graphics::GPUBuffer *)(&rgResource->resource);
@@ -252,9 +254,10 @@ void RenderGraph::Compile()
                     Assert("Buffers cannot have this hlsl object type.");
             }
         });
+#endif
         EnumerateShaderTextures(pass->parameters, [&](const PassResource *resource, TextureView *view) {
             RenderGraphResource *rgResource = &resources[view->handle];
-            graphics::Texture *texture      = (graphics::Texture *)(&rgResource->resource);
+            graphics::Texture *texture      = rgResource->texture;
             switch (resource->objectType)
             {
                 case HLSLType::Texture2D:
@@ -275,28 +278,38 @@ void RenderGraph::Compile()
         });
     }
 
-    struct BarrierBatch
+    // 4. Resource allocations
+    for (u32 i = NULL_HANDLE + 1; i < numResources; i++)
     {
-        Array<graphics::GPUBarrier> barriers;
-        inline void Emplace()
-        {
-            barriers.Emplace();
-        }
-        inline graphics::GPUBarrier &Back()
-        {
-            return barriers.Back();
-        }
-    };
+        RenderGraphResource *resource = &resources[i];
 
+        if (!EnumHasAnyFlags(resource->flags, ResourceFlags::NotTransient))
+        {
+            if (EnumHasAnyFlags(resource->flags, ResourceFlags::Buffer))
+            {
+                resource->bufferRange = transientResourceAllocator.CreateBuffer(resource->bufferSize);
+            }
+            if (EnumHasAnyFlags(resource->flags, ResourceFlags::Texture))
+            {
+                resource->texture = transientResourceAllocator.CreateTexture(resource->textureDesc);
+            }
+        }
+        else
+        {
+        }
+    }
+
+    // 5. Barrier transitions
     Array<BarrierBatch> barrierBatches;
     barrierBatches.Init();
     barrierBatches.Resize(passCount);
     for (u32 i = 0; i < passCount; i++)
     {
-        BarrierBatch &batch = barrierBatches[i];
-        batch.barriers.Init();
         RenderPass *pass = &passes[i];
         if (!EnumHasAnyFlags(pass->flags, PassFlags::NotCulled)) continue;
+
+        BarrierBatch &batch = barrierBatches[i];
+        batch.barriers.Init();
         EnumerateShaderResources(pass, [&](const PassResource *passResoure, ResourceView *view) {
             RenderGraphResource *resource = &resources[view->handle];
             if (NeedsTransition(resource->lastAccess, view->access))
@@ -307,13 +320,18 @@ void RenderGraph::Compile()
                 {
                     case ResourceType::Buffer:
                     {
-                        // barrier = graphics::GPUBarrier::Buffer(&resource->resource, resource->lastPipelineStage, ,
-                        //                                        resource->lastAccess, view->access);
+                        barrier = GPUBarrier::Buffer(resource->bufferRange.transientBackingBuffer,
+                                                     ConvertAccess(resource->lastAccess),
+                                                     ConvertAccess(view->access),
+                                                     resource->bufferRange.offset,
+                                                     resource->bufferRange.size);
                     }
                     break;
                     case ResourceType::Texture:
                     {
-                        // barrier = graphics::GPUBarrier::Image(&resource->resource, );
+                        barrier = GPUBarrier::Image(resource->texture,
+                                                    ConvertAccess(resource->lastAccess),
+                                                    ConvertAccess(view->access));
                     }
                     break;
                 }
@@ -330,31 +348,145 @@ void RenderGraph::Execute()
     }
 }
 
-// NOTE: For now, dependencies will be built from submission order.
-ResourceHandle RenderGraph::CreateBuffer(string name)
+ResourceHandle RenderGraph::CreateResourceInternal(string name, ResourceFlags flags, graphics::TextureDesc desc, u32 size)
 {
     u32 hash              = Hash(name);
     ResourceHandle handle = resourceNameHashTable.Find(hash, resourceStringHashes);
 
     if (resourceNameHashTable.IsValid(handle))
     {
+        RenderGraphResource *resource = &resources[handle];
+        Assert(EnumHasAnyFlags(resource->flags, flags));
+        // Assert(resource->resource.resourceType == GPUResource::ResourceType::Buffer);
         return handle;
     }
     else
     {
-        handle                      = numResources++;
-        RenderGraphResource *buffer = &resources[handle];
-        buffer->lastAccess          = ResourceAccess::None;
-        buffer->lastPassFlags       = PassFlags::None;
-        buffer->lastPipelineStage   = graphics::PipelineStage::None;
+        handle                        = numResources++;
+        RenderGraphResource *resource = &resources[handle];
+        // NOTE: this relies on the assumption that the resources array is 0 initialized. there's a chance that this could be
+        // false if I'm not careful (e.g swap the resources array from c array to the dynamic array type)
+        resource->flags |= flags;
+        resource->lastAccess        = ResourceAccess::None;
+        resource->lastPassFlags     = PassFlags::None;
+        resource->lastPipelineStage = graphics::PipelineStage::None;
+        switch (flags)
+        {
+            case ResourceFlags::Buffer:
+            {
+                resource->bufferSize = size;
+            }
+            break;
+            case ResourceFlags::Texture:
+            {
+                resource->textureDesc = desc;
+            }
+            break;
+        }
 
-        buffer->firstPass           = INVALID_PASS_HANDLE;
-        buffer->lastPass            = INVALID_PASS_HANDLE;
-        buffer->lastPassWriteHandle = INVALID_PASS_HANDLE;
+        resource->firstPass           = INVALID_PASS_HANDLE;
+        resource->lastPass            = INVALID_PASS_HANDLE;
+        resource->lastPassWriteHandle = INVALID_PASS_HANDLE;
         resourceNameHashTable.Add(hash, handle);
         resourceStringHashes[handle] = hash;
         return handle;
     }
+}
+
+ResourceHandle RenderGraph::CreateBuffer(string name, u32 size)
+{
+    return CreateResourceInternal(name, ResourceFlags::Buffer, {}, size);
+}
+
+ResourceHandle RenderGraph::CreateTexture(string name, TextureDesc desc)
+{
+    return CreateResourceInternal(name, ResourceFlags::Texture, desc);
+}
+
+void TransientResourceAllocator::Init()
+{
+    offsets.Init();
+    backingBuffers.Init();
+    backingTextures.Init();
+    textureInUseMasks.Init();
+}
+
+BufferRange TransientResourceAllocator::CreateBuffer(u32 size)
+{
+    BufferRange range;
+    for (u32 i = 0; i < backingBuffers.Length(); i++)
+    {
+        graphics::GPUBuffer *backingBuffer = &backingBuffers[i];
+        u32 totalSize                      = (u32)backingBuffer->desc.size;
+        u32 offset                         = offsets[i];
+        if (totalSize - offset >= size)
+        {
+            offsets[i] += size;
+            range.transientBackingBuffer = backingBuffer;
+            range.transientBufferId      = i;
+            range.size                   = size;
+            range.offset                 = offset;
+            return range;
+        }
+    }
+
+    u32 bufferSize = Max(pageSize, size);
+    graphics::GPUBufferDesc desc;
+    desc.size          = size;
+    desc.usage         = MemoryUsage::GPU_ONLY;
+    desc.resourceUsage = ResourceUsage::StorageBufferRead | ResourceUsage::VertexBuffer | ResourceUsage::IndexBuffer |
+                         ResourceUsage::StorageBuffer;
+    backingBuffers.Emplace();
+    device->CreateBuffer(&backingBuffers.Back(), desc, 0);
+
+    range.transientBufferId = backingBuffers.Length();
+    range.offset            = 0;
+    range.size              = size;
+    return range;
+}
+
+Texture *TransientResourceAllocator::CreateTexture(TextureDesc desc)
+{
+    for (u32 i = 0; i < backingTextures.Length(); i++)
+    {
+        if (backingTextures[i].desc == desc)
+        {
+            if (!(textureInUseMasks[i >> 5] & (1 << (i & 31))))
+            {
+                textureInUseMasks[i >> 5] |= (1 << (i & 31));
+                return &backingTextures[i];
+            }
+        }
+    }
+    backingTextures.Emplace();
+    if (backingTextures.Length() > (textureInUseMasks.Length() << 5))
+    {
+        offsets.Add(0);
+    }
+    device->CreateTexture(&backingTextures.Back(), desc, 0);
+    return &backingTextures.Back();
+}
+
+void TransientResourceAllocator::Reset()
+{
+    for (u32 i = 0; i < offsets.Length(); i++)
+    {
+        offsets[i] = 0;
+    }
+    for (u32 i = 0; i < textureInUseMasks.Length(); i++)
+    {
+        textureInUseMasks[i] = 0;
+    }
+}
+
+inline void BarrierBatch::Emplace()
+{
+    barriers.Emplace();
+}
+
+inline graphics::GPUBarrier &BarrierBatch::Back()
+{
+    return barriers.Back();
 }
 
 // void RenderGraph::Init()

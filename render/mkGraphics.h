@@ -61,16 +61,16 @@ enum class ResourceUsage : u32
     Stencil  = 1 << 5,
 
     // Pipeline stages
-    Indirect                     = 1 << 8,
-    Vertex                       = 1 << 9,
-    Fragment                     = 1 << 10,
-    Index                        = 1 << 11,
-    Input                        = 1 << 12,
-    Shader                       = 1 << 13,
-    PipelineStage_VertexInput    = Vertex | Input,
-    PipelineStage_IndexInput     = Index | Input,
-    PipelineStage_VertexShader   = Vertex | Shader,
-    PipelineStage_FragmentShader = Fragment | Shader,
+    Indirect       = 1 << 8,
+    Vertex         = 1 << 9,
+    Fragment       = 1 << 10,
+    Index          = 1 << 11,
+    Input          = 1 << 12,
+    Shader         = 1 << 13,
+    VertexInput    = Vertex | Input,
+    IndexInput     = Index | Input,
+    VertexShader   = Vertex | Shader,
+    FragmentShader = Fragment | Shader,
 
     // Transfer
     TransferSrc = 1 << 14,
@@ -294,6 +294,53 @@ inline b32 NeedsTransition(ResourceAccess last, ResourceAccess next)
 {
     b32 result = ((last != next) && (last != ResourceAccess::None));
     return result;
+}
+
+inline ResourceUsage ConvertAccess(ResourceAccess access)
+{
+    ResourceUsage outUsage = ResourceUsage::None;
+    if (EnumHasAnyFlags(access, ResourceAccess::ComputeSRV))
+    {
+        outUsage |= ResourceUsage::ComputeRead;
+    }
+    if (EnumHasAnyFlags(access, ResourceAccess::ComputeUAV))
+    {
+        outUsage |= ResourceUsage::ComputeWrite;
+    }
+    if (EnumHasAnyFlags(access, ResourceAccess::TransferSrc))
+    {
+        outUsage |= ResourceUsage::TransferSrc;
+    }
+    if (EnumHasAnyFlags(access, ResourceAccess::TransferDst))
+    {
+        outUsage |= ResourceUsage::TransferDst;
+    }
+    if (EnumHasAnyFlags(access, ResourceAccess::IndirectRead))
+    {
+        outUsage |= ResourceUsage::Indirect;
+    }
+    if (EnumHasAnyFlags(access, ResourceAccess::DepthStencil))
+    {
+        outUsage |= ResourceUsage::DepthStencil;
+    }
+    if (EnumHasAnyFlags(access, ResourceAccess::IndirectRead))
+    {
+        outUsage |= ResourceUsage::Indirect;
+    }
+    if (EnumHasAnyFlags(access, ResourceAccess::ColorAttachment))
+    {
+        outUsage |= ResourceUsage::ColorAttachment;
+    }
+    // TODO: not sure about these 2
+    if (EnumHasAnyFlags(access, ResourceAccess::GraphicsSRV))
+    {
+        outUsage |= ResourceUsage::Reset;
+    }
+    if (EnumHasAnyFlags(access, ResourceAccess::GraphicsUAV))
+    {
+        outUsage |= ResourceUsage::Reset;
+    }
+    return outUsage;
 }
 
 inline b32 IsWritable(ResourceAccess access)
@@ -707,6 +754,14 @@ struct TextureDesc
         Nearest,
         Linear,
     } sampler = DefaultSampler::None;
+
+    inline b32 operator==(TextureDesc &other)
+    {
+        b32 result = (width == other.width && height == other.height && depth == other.depth && numMips == other.numMips &&
+                      numLayers == other.numLayers && format == other.format && usage == other.usage &&
+                      initialUsage == other.initialUsage && futureUsages == other.futureUsages);
+        return result;
+    }
 };
 
 struct TextureMappedData

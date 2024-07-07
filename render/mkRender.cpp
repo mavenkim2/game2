@@ -1338,7 +1338,9 @@ internal void Initialize()
     {
         renderGraph.Init();
         rendergraph::RGClearIndirect *parametersIndirect = renderGraph.AllocParameters<rendergraph::RGClearIndirect>();
-        parametersIndirect->indirectCommands.handle      = renderGraph.CreateBuffer("Buffer");
+        const u32 indirectBufferSize                     = sizeof(DispatchIndirect) * NUM_DISPATCH_OFFSETS;
+
+        parametersIndirect->indirectCommands.handle = renderGraph.CreateBuffer("Buffer", indirectBufferSize);
         renderGraph.AddPass("Test pass 2", parametersIndirect, rendergraph::PassFlags::Indirect, [&](CommandList cmd) {
             // device->BindCompute(&skinPipeline, cmd);
             // device->Dispatch(cmd, (mesh->vertexCount + SKINNING_GROUP_SIZE - 1) / SKINNING_GROUP_SIZE, 1, 1);
@@ -1346,7 +1348,7 @@ internal void Initialize()
         });
 
         rendergraph::RGClearIndirect *parametersIndirect2 = renderGraph.AllocParameters<rendergraph::RGClearIndirect>();
-        parametersIndirect2->indirectCommands.handle      = renderGraph.CreateBuffer("Buffer");
+        parametersIndirect2->indirectCommands.handle      = renderGraph.CreateBuffer("Buffer", indirectBufferSize);
         renderGraph.AddPass("Test pass 1", parametersIndirect2, rendergraph::PassFlags::Indirect, [&](CommandList cmd) {
             Printf("Nothing! :>)\n");
         });

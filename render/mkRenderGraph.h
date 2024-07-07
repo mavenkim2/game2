@@ -186,23 +186,82 @@ struct RenderPass
     ExecuteFunction func;
 };
 
+struct BufferRange
+{
+    graphics::GPUBuffer *transientBackingBuffer;
+    u32 transientBufferId;
+    u32 offset;
+    u32 size;
+};
+
+enum class ResourceFlags
+{
+    None       = 0,
+    Buffer     = 1 << 0,
+    Texture    = 1 << 1,
+    Import     = 1 << 2,
+    Export     = 1 << 3,
+    NotTransient = Import | Export,
+};
+ENUM_CLASS_FLAGS(ResourceFlags)
+
 struct RenderGraphResource
 {
     u32 numUses;
 
+    ResourceFlags flags;
+
     graphics::ResourceAccess lastAccess;
+    PassHandle lastPassWriteHandle;
+
+    // TODO: these two may not be used
     graphics::PipelineStage lastPipelineStage;
     PassFlags lastPassFlags;
-    PassHandle lastPassWriteHandle;
 
     PassHandle firstPass;
     PassHandle lastPass;
 
-    graphics::GPUResource resource;
+    // Initialization data (provided by user)
+
+    // Buffer size
+    u32 bufferSize;
+    // Texture desc
+    graphics::TextureDesc textureDesc;
+
+    // Backing resource information
+    union
+    {
+        // Transient buffer
+        BufferRange bufferRange;
+
+        // Transient texture
+        graphics::Texture *texture;
+    };
 };
 
-/*
- */
+struct BarrierBatch
+{
+    Array<graphics::GPUBarrier> barriers;
+    inline void Emplace();
+    inline graphics::GPUBarrier &Back();
+};
+
+// Transient resource allocator
+struct TransientResourceAllocator
+{
+    const u32 pageSize = megabytes(2);
+    Array<u32> offsets;
+    Array<graphics::GPUBuffer> backingBuffers;
+
+    Array<u32> textureInUseMasks;
+    Array<graphics::Texture> backingTextures;
+    void Init();
+    // TODO: save the buffer range so it can be aliased
+    BufferRange CreateBuffer(u32 size);
+    graphics::Texture *CreateTexture(graphics::TextureDesc desc);
+    void Reset();
+};
+
 struct RenderGraph
 {
     Arena *arena;
@@ -222,9 +281,8 @@ struct RenderGraph
     Array<PassHandle> passDependencies[32];
     u32 numPasses;
 
-    // Transitions
-
-    graphics::GPUBuffer transientResourceBuffer;
+    // Transient resource allocator
+    TransientResourceAllocator transientResourceAllocator;
 
     void Init();
     void Compile();
@@ -236,7 +294,10 @@ struct RenderGraph
     PassHandle AddPassInternal(string passName, void *params, const ExecuteFunction &func, PassFlags flags);
     PassHandle AddPass(string passName, void *params, const ExecuteFunction &func);
     PassHandle AddPass(string passName, void *params, PassFlags flags, const ExecuteFunction &func);
-    ResourceHandle CreateBuffer(string name);
+    ResourceHandle CreateBuffer(string name, u32 size);
+    ResourceHandle CreateTexture(string name, graphics::TextureDesc desc);
+    ResourceHandle CreateResourceInternal(string name, ResourceFlags flags, graphics::TextureDesc desc = {}, u32 size = 0);
+    void ExtendLifetime(ResourceHandle handle, ResourceFlags lifetime);
 };
 
 } // namespace rendergraph
