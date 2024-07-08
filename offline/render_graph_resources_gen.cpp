@@ -36,7 +36,15 @@ struct ShaderResources
 {
     string name;
     u32 shaderIndex;
+    rendergraph::ShaderParamFlags flags;
+
     list<ShaderResource> resources;
+    u32 numBuffers;
+    u32 numTextures;
+
+    b32 hasPush;
+    ShaderPushConstant push;
+
     list<u32> includeShaderSid; // integer sid of shaders you include
     list<u32> includeShaderIndex;
 };
@@ -205,12 +213,12 @@ int main(int argc, char *argv[])
                         hashTable.AddConcurrent(sid, shaderIndex);
                         ShaderResources *currentShader = &shaders[shaderIndex];
                         currentShader->name            = PushStr8Copy(temp.arena, shaderName);
+                        currentShader->flags           = flags;
+                        currentShader->numBuffers      = 0;
+                        currentShader->numTextures     = 0;
                         currentShader->shaderIndex     = shaderIndex;
+                        currentShader->hasPush         = 0;
 
-                        u32 numBuffers  = 0;
-                        u32 numTextures = 0;
-                        b8 hasPush      = 0;
-                        ShaderPushConstant pc;
                         while (!EndOfBuffer(&tokenizer))
                         {
                             string line = ReadLine(&tokenizer);
@@ -226,8 +234,8 @@ int main(int argc, char *argv[])
                             }
                             else if (Contains(line, "push_constant"))
                             {
-                                hasPush = 1;
-                                pc.name = GetFirstWord(SkipToNextWord(line));
+                                currentShader->hasPush |= 1;
+                                currentShader->push.name = PushStr8Copy(temp.arena, GetFirstWord(SkipToNextWord(line)));
                             }
                             else if (Contains(line, "register") && line.str[0] != '/' && line.str[0] != '#')
                             {
@@ -236,27 +244,27 @@ int main(int argc, char *argv[])
                                 if (StartsWith(line, "RWStructuredBuffer"))
                                 {
                                     resource->type = rendergraph::HLSLType::RWStructuredBuffer;
-                                    numBuffers++;
+                                    currentShader->numBuffers++;
                                 }
                                 else if (StartsWith(line, "StructuredBuffer"))
                                 {
                                     resource->type = rendergraph::HLSLType::StructuredBuffer;
-                                    numBuffers++;
+                                    currentShader->numBuffers++;
                                 }
                                 else if (StartsWith(line, "Texture2DArray"))
                                 {
                                     resource->type = rendergraph::HLSLType::Texture2DArray;
-                                    numTextures++;
+                                    currentShader->numTextures++;
                                 }
                                 else if (StartsWith(line, "Texture2D"))
                                 {
                                     resource->type = rendergraph::HLSLType::Texture2D;
-                                    numTextures++;
+                                    currentShader->numTextures++;
                                 }
                                 else if (StartsWith(line, "RWTexture2D"))
                                 {
                                     resource->type = rendergraph::HLSLType::RWTexture2D;
-                                    numTextures++;
+                                    currentShader->numTextures++;
                                 }
                                 else if (StartsWith(line, "SamplerState"))
                                 {
@@ -300,67 +308,6 @@ int main(int argc, char *argv[])
                                 break;
                             }
                         }
-
-                        u32 builderIndex       = shaderIndex;
-                        StringBuilder *builder = &stringBuilders[builderIndex];
-                        builder->arena         = temp.arena;
-
-                        PutLine(builder, 0, "struct %S", shaderName);
-                        PutLine(builder, 0, "{");
-                        PutLine(builder, 1, "const string name = Str8Lit(\"%S\");", currentShader->name);
-                        PutLine(builder, 1, "const u32 numResources = %u;", currentShader->resources.size());
-                        PutLine(builder, 1, "const u32 numBuffers = %u;", numBuffers);
-                        PutLine(builder, 1, "const u32 numTextures = %u;", numTextures);
-                        PutLine(builder, 1, "const ShaderParamFlags flags = %S;", ConvertShaderParamFlagsToString(flags));
-                        if (numTextures != 0)
-                        {
-                            PutLine(builder, 1, "const PassResource textureResources[%u] = {", numTextures);
-                            for (u32 i = 0; i < currentShader->resources.size(); i++)
-                            {
-                                ShaderResource *resource = &currentShader->resources[i];
-                                if (IsTexture(resource->type))
-                                {
-                                    PutLine(builder, 2, "{%S, %S, %u},", rendergraph::ConvertResourceViewTypeToName(resource->viewType),
-                                            rendergraph::ConvertHLSLTypeToName(resource->type), resource->bindingSlot);
-                                }
-                            }
-                            PutLine(builder, 1, "};");
-                        }
-                        if (numBuffers != 0)
-                        {
-                            PutLine(builder, 1, "const PassResource bufferResources[%u] = {", numBuffers);
-                            for (u32 i = 0; i < currentShader->resources.size(); i++)
-                            {
-                                ShaderResource *resource = &currentShader->resources[i];
-                                if (IsBuffer(resource->type))
-                                {
-                                    PutLine(builder, 2, "{%S, %S, %u},", rendergraph::ConvertResourceViewTypeToName(resource->viewType),
-                                            rendergraph::ConvertHLSLTypeToName(resource->type), resource->bindingSlot);
-                                }
-                            }
-                            PutLine(builder, 1, "};");
-                        }
-                        for (u32 i = 0; i < currentShader->resources.size(); i++)
-                        {
-                            ShaderResource *resource = &currentShader->resources[i];
-                            if (IsTexture(resource->type))
-                            {
-                                PutLine(builder, 1, "TextureView %S;", resource->name);
-                            }
-                        }
-                        for (u32 i = 0; i < currentShader->resources.size(); i++)
-                        {
-                            ShaderResource *resource = &currentShader->resources[i];
-                            if (IsBuffer(resource->type))
-
-                            {
-                                PutLine(builder, 1, "BufferView %S;", resource->name);
-                            }
-                        }
-                        if (hasPush)
-                        {
-                            PutLine(builder, 1, "%S push;", pc.name);
-                        }
                     });
                 }
             }
@@ -398,7 +345,16 @@ int main(int argc, char *argv[])
                 {
                     includeShaderIndex              = index;
                     ShaderResources *includedShader = &shaders[index];
-                    PutLine(builder, 1, "%S %S;", includedShader->name, ConvertStructNameToMemberName(temp.arena, includedShader->name));
+                    shader->numBuffers += includedShader->numBuffers;
+                    shader->numTextures += includedShader->numTextures;
+                    shader->resources.insert(shader->resources.end(), includedShader->resources.begin(), includedShader->resources.end());
+                    if (includedShader->hasPush)
+                    {
+                        Assert(!shader->hasPush);
+                        shader->hasPush = 1;
+                        shader->push    = includedShader->push;
+                    }
+                    // PutLine(builder, 1, "%S %S;", includedShader->name, ConvertStructNameToMemberName(temp.arena, includedShader->name));
                     break;
                 }
             }
@@ -409,7 +365,6 @@ int main(int argc, char *argv[])
                 shader->includeShaderIndex.push_back(includeShaderIndex);
             }
         }
-        PutLine(builder, 0, "};\n");
     }
 
     u32 *data         = PushArray(temp.arena, u32, size);
@@ -433,20 +388,70 @@ int main(int argc, char *argv[])
 
     u32 *topologicalSortResult = TopologicalSort(temp.arena, data, numChildren, finalShaderCount);
 
-    OS_Handle handle = OS_OpenFile(OS_AccessFlag_Write | OS_AccessFlag_ShareWrite, "src\\generated\\render_graph_resources.h");
-    string result    = CombineBuilderNodes(&startBuilder);
-    Assert(OS_WriteFileIncremental(handle, result.str, result.size));
     for (u32 i = 0; i < finalShaderCount; i++)
     {
-        StringBuilder *builder = &stringBuilders[topologicalSortResult[i]];
-        result                 = CombineBuilderNodes(builder);
-        Assert(OS_WriteFileIncremental(handle, result.str, result.size));
+        ShaderResources *currentShader = &shaders[topologicalSortResult[i]];
+        StringBuilder *builder         = &startBuilder;
+
+        PutLine(builder, 0, "struct %S", currentShader->name);
+        PutLine(builder, 0, "{");
+        PutLine(builder, 1, "const string name = Str8Lit(\"%S\");", currentShader->name);
+        PutLine(builder, 1, "const u32 numResources = %u;", currentShader->resources.size());
+        PutLine(builder, 1, "const u32 numBuffers = %u;", currentShader->numBuffers);
+        PutLine(builder, 1, "const u32 numTextures = %u;", currentShader->numTextures);
+        PutLine(builder, 1, "const ShaderParamFlags flags = %S;", ConvertShaderParamFlagsToString(currentShader->flags, currentShader->hasPush));
+        if (currentShader->numTextures != 0)
+        {
+            PutLine(builder, 1, "const PassResource textureResources[%u] = {", currentShader->numTextures);
+            for (u32 i = 0; i < currentShader->resources.size(); i++)
+            {
+                ShaderResource *resource = &currentShader->resources[i];
+                if (IsTexture(resource->type))
+                {
+                    PutLine(builder, 2, "{%S, %S, %u},", rendergraph::ConvertResourceViewTypeToName(resource->viewType),
+                            rendergraph::ConvertHLSLTypeToName(resource->type), resource->bindingSlot);
+                }
+            }
+            PutLine(builder, 1, "};");
+        }
+        if (currentShader->numBuffers != 0)
+        {
+            PutLine(builder, 1, "const PassResource bufferResources[%u] = {", currentShader->numBuffers);
+            for (u32 i = 0; i < currentShader->resources.size(); i++)
+            {
+                ShaderResource *resource = &currentShader->resources[i];
+                if (IsBuffer(resource->type))
+                {
+                    PutLine(builder, 2, "{%S, %S, %u},", rendergraph::ConvertResourceViewTypeToName(resource->viewType),
+                            rendergraph::ConvertHLSLTypeToName(resource->type), resource->bindingSlot);
+                }
+            }
+            PutLine(builder, 1, "};");
+        }
+        for (u32 i = 0; i < currentShader->resources.size(); i++)
+        {
+            ShaderResource *resource = &currentShader->resources[i];
+            if (IsTexture(resource->type))
+            {
+                PutLine(builder, 1, "TextureView %S;", resource->name);
+            }
+        }
+        for (u32 i = 0; i < currentShader->resources.size(); i++)
+        {
+            ShaderResource *resource = &currentShader->resources[i];
+            if (IsBuffer(resource->type))
+            {
+                PutLine(builder, 1, "BufferView %S;", resource->name);
+            }
+        }
+        if (currentShader->hasPush)
+        {
+            PutLine(builder, 1, "%S push;", currentShader->push.name);
+        }
+        PutLine(builder, 0, "};");
     }
-    StringBuilder endBuilder;
-    endBuilder.arena = temp.arena;
-    PutLine(&endBuilder, 0, "}");
-    result = CombineBuilderNodes(&endBuilder);
-    Assert(OS_WriteFileIncremental(handle, result.str, result.size));
-    OS_CloseFile(handle);
+    PutLine(&startBuilder, 0, "}");
+    b32 result = WriteEntireFile(&startBuilder, "src\\generated\\render_graph_resources.h");
+    Assert(result);
     return 0;
 }

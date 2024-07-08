@@ -101,6 +101,12 @@ struct Array
         data[size - 1] = element;
     }
 
+    void Append(Array<T> &other)
+    {
+        AddOrGrow(other.size);
+        MemoryCopy(data + size - 1, other.data, sizeof(T) * other.size);
+    }
+
     void Push(T element)
     {
         Add(element);
@@ -118,6 +124,11 @@ struct Array
         RangeCheck(index);
         (index != size - 1) ? data[index] = std::move(data[size - 1]) : 0;
         size--;
+    }
+
+    void Clear()
+    {
+        size = 0;
     }
 
 private:

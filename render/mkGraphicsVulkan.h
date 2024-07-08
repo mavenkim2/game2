@@ -209,7 +209,12 @@ struct mkGraphicsVulkan : mkGraphics
         {
             DescriptorType type;
             VkDescriptorBufferInfo info;
-            VkBufferView view   = VK_NULL_HANDLE;
+
+            // Texel buffer views infromation
+            Format format;
+            VkBufferView view = VK_NULL_HANDLE;
+
+            // Bindless descriptor index
             i32 descriptorIndex = -1;
 
             b32 IsBindless()

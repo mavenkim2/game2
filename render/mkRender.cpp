@@ -892,6 +892,8 @@ FrameData frameData[2];
 
 rendergraph::RenderGraph renderGraph;
 
+rendergraph::ResourceHandle depthPyramidResourceHandle;
+
 internal void *
 FrameAlloc(i32 size)
 {
@@ -1255,6 +1257,7 @@ internal void Initialize()
         {
             depthPyramidSubresources[i] = device->CreateSubresource(&depthPyramid, 0, ~0u, i, 1);
         }
+        depthPyramidResourceHandle = renderGraph.Import("depthPyramid", &depthPyramid);
     }
 
     // Initialize rasterization state
@@ -1337,26 +1340,25 @@ internal void Initialize()
     // Rendergraph testing
     {
         renderGraph.Init();
-        rendergraph::RGClearIndirect *parametersIndirect = renderGraph.AllocParameters<rendergraph::RGClearIndirect>();
-        const u32 indirectBufferSize                     = sizeof(DispatchIndirect) * NUM_DISPATCH_OFFSETS;
-
-        parametersIndirect->indirectCommands.handle = renderGraph.CreateBuffer("Buffer", indirectBufferSize);
-        renderGraph.AddPass("Test pass 2", parametersIndirect, rendergraph::PassFlags::Indirect, [&](CommandList cmd) {
-            // device->BindCompute(&skinPipeline, cmd);
-            // device->Dispatch(cmd, (mesh->vertexCount + SKINNING_GROUP_SIZE - 1) / SKINNING_GROUP_SIZE, 1, 1);
-            Printf("Nothing! :>)\n");
-        });
-
-        rendergraph::RGClearIndirect *parametersIndirect2 = renderGraph.AllocParameters<rendergraph::RGClearIndirect>();
-        parametersIndirect2->indirectCommands.handle      = renderGraph.CreateBuffer("Buffer", indirectBufferSize);
-        renderGraph.AddPass("Test pass 1", parametersIndirect2, rendergraph::PassFlags::Indirect, [&](CommandList cmd) {
-            Printf("Nothing! :>)\n");
-        });
-
-        renderGraph.Compile();
-        // should print test pass 2, test pass 1
+        //     rendergraph::RGClearIndirect *parametersIndirect = renderGraph.AllocParameters<rendergraph::RGClearIndirect>();
+        //     const u32 indirectBufferSize                     = sizeof(DispatchIndirect) * NUM_DISPATCH_OFFSETS;
+        //
+        //     parametersIndirect->indirectCommands.handle = renderGraph.CreateBuffer("Buffer", indirectBufferSize);
+        //     renderGraph.AddPass("Test pass 2", parametersIndirect, rendergraph::PassFlags::Indirect, [&](CommandList cmd) {
+        //         // device->BindCompute(&skinPipeline, cmd);
+        //         // device->Dispatch(cmd, (mesh->vertexCount + SKINNING_GROUP_SIZE - 1) / SKINNING_GROUP_SIZE, 1, 1);
+        //         Printf("Nothing! :>)\n");
+        //     });
+        //
+        //     rendergraph::RGClearIndirect *parametersIndirect2 = renderGraph.AllocParameters<rendergraph::RGClearIndirect>();
+        //     parametersIndirect2->indirectCommands.handle      = renderGraph.CreateBuffer("Buffer", indirectBufferSize);
+        //     renderGraph.AddPass("Test pass 1", parametersIndirect2, rendergraph::PassFlags::Indirect, [&](CommandList cmd) {
+        //         Printf("Nothing! :>)\n");
+        //     });
+        //
+        //     renderGraph.Compile();
+        //     // should print test pass 2, test pass 1
     }
-    int stop = 5;
 }
 
 enum RenderPassType
@@ -1367,7 +1369,6 @@ enum RenderPassType
 
 internal void DebugRectangle(CommandList cmdList)
 {
-    // device->BindPipeline()
 }
 
 internal void CullInstances(CommandList cmdList, bool isSecondPass)
@@ -1377,6 +1378,7 @@ internal void CullInstances(CommandList cmdList, bool isSecondPass)
     i32 meshParamsDescriptor   = device->GetDescriptorIndex(&meshParamsBuffer, ResourceViewType::SRV);
 
     RenderState *renderState = engine->GetRenderState();
+#if 1
     {
         GPUBarrier barriers[] = {
             // GPUBarrier::ComputeReadToWrite(&dispatchIndirectBuffer),
@@ -1385,33 +1387,51 @@ internal void CullInstances(CommandList cmdList, bool isSecondPass)
         };
         device->Barrier(cmdList, barriers, ArrayLength(barriers));
     }
+#endif
     // Instance frustum/occlusion culling
     {
+        string passName;
         if (!isSecondPass)
         {
-            device->BeginEvent(cmdList, "Instance Cull First Pass");
+            passName = Str8Lit("Instance Cull First Pass");
+            // device->BeginEvent(cmdList, "Instance Cull First Pass");
         }
         else
         {
-            device->BeginEvent(cmdList, "Instance Cull Second Pass");
+            passName = Str8Lit("Instance Cull Second Pass");
+            // device->BeginEvent(cmdList, "Instance Cull Second Pass");
         }
-        u32 numInstances = gameScene->meshes.GetTotal();
-        InstanceCullPushConstants pc;
-        pc.pyramidWidth         = (f32)depthPyramid.desc.width;
-        pc.pyramidHeight        = (f32)depthPyramid.desc.height;
-        pc.nearZ                = renderState->nearZ;
-        pc.farZ                 = renderState->farZ;
-        pc.numInstances         = numInstances;
-        pc.meshParamsDescriptor = meshParamsDescriptor;
-        pc.screenSize.x         = (u32)swapchain.desc.width;
-        pc.screenSize.y         = (u32)swapchain.desc.height;
+        rendergraph::RGCullInstance *cullInstance = renderGraph.AllocParameters<rendergraph::RGCullInstance>();
+        cullInstance->depthPyramid.handle         = depthPyramidResourceHandle;
+        cullInstance->views.handle                = renderGraph.CreateBuffer("viewsBuffer", kilobytes(4));
+        cullInstance->occludedInstances.handle    = renderGraph.CreateBuffer("occludedInstances", kilobytes(16));
+
+        u32 numInstances              = gameScene->meshes.GetTotal();
+        InstanceCullPushConstants *pc = &cullInstance->push;
+        pc->pyramidWidth              = (f32)depthPyramid.desc.width;
+        pc->pyramidHeight             = (f32)depthPyramid.desc.height;
+        pc->nearZ                     = renderState->nearZ;
+        pc->farZ                      = renderState->farZ;
+        pc->numInstances              = numInstances;
+        pc->meshParamsDescriptor      = meshParamsDescriptor;
+        pc->screenSize.x              = (u32)swapchain.desc.width;
+        pc->screenSize.y              = (u32)swapchain.desc.height;
+
         if (!isSecondPass)
         {
-            device->BindCompute(&instanceCullPass1Pipeline, cmdList);
+            renderGraph.AddComputePass(
+                "Instance Cull First Pass",
+                cullInstance,
+                &instanceCullPass1Pipeline,
+                {(numInstances + INSTANCE_CULL_GROUP_SIZE - 1) / INSTANCE_CULL_GROUP_SIZE, 1, 1});
         }
         else
         {
-            device->BindCompute(&instanceCullPass2Pipeline, cmdList);
+            renderGraph.AddComputeIndirectPass("Instance Cull Second Pass",
+                                               cullInstance,
+                                               &instanceCullPass2Pipeline,
+                                               &dispatchIndirectBuffer,
+                                               INSTANCE_SECOND_PASS_DISPATCH_OFFSET);
         }
         device->PushConstants(cmdList, sizeof(pc), &pc);
         device->BindResource(&depthPyramid, ResourceViewType::SRV, 0, cmdList);
@@ -1423,15 +1443,6 @@ internal void CullInstances(CommandList cmdList, bool isSecondPass)
         device->BindResource(&cullingStatisticsBuffer, ResourceViewType::UAV, 3, cmdList);
         device->BindResource(&debugAABBs, ResourceViewType::UAV, 4, cmdList);
 #endif
-        if (!isSecondPass)
-        {
-            device->Dispatch(cmdList, (numInstances + INSTANCE_CULL_GROUP_SIZE - 1) / INSTANCE_CULL_GROUP_SIZE, 1, 1);
-        }
-        else
-        {
-            device->DispatchIndirect(cmdList, &dispatchIndirectBuffer,
-                                     sizeof(DispatchIndirect) * INSTANCE_SECOND_PASS_DISPATCH_OFFSET + Offset(DispatchIndirect, groupCountX));
-        }
         device->EndEvent(cmdList);
     }
 

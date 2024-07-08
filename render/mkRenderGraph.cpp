@@ -19,6 +19,7 @@ void RenderGraph::Init()
         passDependencies[i].Init();
     }
     transientResourceAllocator.Init();
+    barrierBatches.Init();
     // graphics::GPUBufferDesc desc;
     // desc.resourceUsage = graphics::ResourceViewType::
 }
@@ -51,21 +52,36 @@ inline BufferView *GetBufferViews(BaseShaderParamType *params)
     return views;
 }
 
-inline void EnumerateShaderBuffers(BaseShaderParamType *baseParams, const BufferEnumerateFunction &func)
+inline u8 *GetPushConstantPtr(BaseShaderParamType *params)
 {
-    BufferView *bufferViews       = GetBufferViews(baseParams);
-    PassResource *bufferResources = GetBufferResources(baseParams);
-    for (u32 i = 0; i < baseParams->numBuffers; i++)
+    u8 *ptr = (u8 *)params + sizeof(BaseShaderParamType) + sizeof(PassResource) * params->numResources +
+              sizeof(TextureView) * params->numTextures + sizeof(BufferView) * params->numBuffers;
+    return ptr;
+}
+
+inline u32 GetPushConstantSize(BaseShaderParamType *params)
+{
+    u32 paramsSize = *((u32 *)params - 1);
+    u32 pcSize     = paramsSize - (sizeof(BaseShaderParamType) + sizeof(PassResource) * params->numResources +
+                               sizeof(TextureView) * params->numTextures + sizeof(BufferView) * params->numBuffers);
+    return pcSize;
+}
+
+inline void EnumerateShaderBuffers(RenderPass *pass, const BufferEnumerateFunction &func)
+{
+    BufferView *bufferViews       = GetBufferViews(pass->parameters);
+    PassResource *bufferResources = GetBufferResources(pass->parameters);
+    for (u32 i = 0; i < pass->parameters->numBuffers; i++)
     {
         func(&bufferResources[i], &bufferViews[i]);
     }
 }
 
-inline void EnumerateShaderTextures(BaseShaderParamType *baseParams, const TextureEnumerateFunction &func)
+inline void EnumerateShaderTextures(RenderPass *pass, const TextureEnumerateFunction &func)
 {
-    TextureView *textureViews      = GetTextureViews(baseParams);
-    PassResource *textureResources = GetTextureResources(baseParams);
-    for (u32 i = 0; i < baseParams->numTextures; i++)
+    TextureView *textureViews      = GetTextureViews(pass->parameters);
+    PassResource *textureResources = GetTextureResources(pass->parameters);
+    for (u32 i = 0; i < pass->parameters->numTextures; i++)
     {
         func(&textureResources[i], &textureViews[i]);
     }
@@ -73,34 +89,32 @@ inline void EnumerateShaderTextures(BaseShaderParamType *baseParams, const Textu
 
 inline void EnumerateShaderResources(RenderPass *pass, const ResourceEnumerateFunction &func)
 {
-    EnumerateShaderBuffers(pass->parameters, (const BufferEnumerateFunction)func);
-    EnumerateShaderTextures(pass->parameters, (const TextureEnumerateFunction)func);
+    EnumerateShaderBuffers(pass, (const BufferEnumerateFunction)func);
+    EnumerateShaderTextures(pass, (const TextureEnumerateFunction)func);
 }
-
-// void RenderGraph::BeginFrame()
-// {
-//     arenaBeginFramePos = ArenaPos(arena);
-// }
 
 template <typename ParameterType>
 ParameterType *RenderGraph::AllocParameters()
 {
-    ParameterType *result = new (PushArray(arena, u8, sizeof(ParameterType))) ParameterType();
+    // TODO: this is kind of jank. maybe I just need to use templates for these
+    u8 *bytes             = PushArray(arena, u8, sizeof(ParameterType) + sizeof(u32));
+    *(u32 *)bytes         = sizeof(ParameterType);
+    ParameterType *result = new (bytes + sizeof(u32)) ParameterType();
 
     return result;
 }
 
-inline PassHandle RenderGraph::AddPass(string passName, void *params, const ExecuteFunction &func)
+inline PassHandle RenderGraph::AddPass(string passName, void *params, PipelineState *state, const ExecuteFunction &func)
 {
-    return AddPassInternal(passName, params, func, PassFlags::None);
+    return AddPassInternal(passName, params, state, func, PassFlags::None);
 }
 
-inline PassHandle RenderGraph::AddPass(string passName, void *params, PassFlags flags, const ExecuteFunction &func)
+inline PassHandle RenderGraph::AddPass(string passName, void *params, PipelineState *state, PassFlags flags, const ExecuteFunction &func)
 {
-    return AddPassInternal(passName, params, func, flags);
+    return AddPassInternal(passName, params, state, func, flags);
 }
 
-PassHandle RenderGraph::AddPassInternal(string passName, void *params, const ExecuteFunction &func, PassFlags flags)
+PassHandle RenderGraph::AddPassInternal(string passName, void *params, PipelineState *state, const ExecuteFunction &func, PassFlags flags)
 {
     u32 passHash = Hash(passName);
 
@@ -116,11 +130,12 @@ PassHandle RenderGraph::AddPassInternal(string passName, void *params, const Exe
 
     BaseShaderParamType *baseParams = (BaseShaderParamType *)params;
 
-    RenderPass *pass = &passes[handle];
-    pass->name       = PushStr8Copy(arena, passName);
-    pass->flags      = flags;
-    pass->parameters = baseParams;
-    pass->func       = func;
+    RenderPass *pass    = &passes[handle];
+    pass->name          = PushStr8Copy(arena, passName);
+    pass->flags         = flags;
+    pass->parameters    = baseParams;
+    pass->func          = func;
+    pass->pipelineState = state;
 
     bool isCompute  = EnumHasAllFlags(baseParams->flags, ShaderParamFlags::Compute);
     bool isGraphics = EnumHasAllFlags(baseParams->flags, ShaderParamFlags::Graphics);
@@ -255,7 +270,7 @@ void RenderGraph::Compile()
             }
         });
 #endif
-        EnumerateShaderTextures(pass->parameters, [&](const PassResource *resource, TextureView *view) {
+        EnumerateShaderTextures(pass, [&](const PassResource *resource, TextureView *view) {
             RenderGraphResource *rgResource = &resources[view->handle];
             graphics::Texture *texture      = rgResource->texture;
             switch (resource->objectType)
@@ -294,14 +309,18 @@ void RenderGraph::Compile()
                 resource->texture = transientResourceAllocator.CreateTexture(resource->textureDesc);
             }
         }
+        // should already be allocated
         else
         {
+            // not handled yet
+            if (EnumHasAnyFlags(resource->flags, ResourceFlags::Buffer))
+            {
+                Assert(0);
+            }
         }
     }
 
     // 5. Barrier transitions
-    Array<BarrierBatch> barrierBatches;
-    barrierBatches.Init();
     barrierBatches.Resize(passCount);
     for (u32 i = 0; i < passCount; i++)
     {
@@ -341,11 +360,40 @@ void RenderGraph::Compile()
     }
 }
 
-void RenderGraph::Execute()
+CommandList RenderGraph::Execute()
 {
+    CommandList cmd = device->BeginCommandList(graphics::QueueType_Graphics);
     for (u32 i = 0; i < numPasses; i++)
     {
+        RenderPass *pass = &passes[i];
+        if (!EnumHasAnyFlags(pass->flags, PassFlags::NotCulled)) continue;
+
+        BarrierBatch &batch = barrierBatches[i];
+        device->Barrier(cmd, batch.Data(), batch.Length());
+
+        device->BindPipeline(pass->pipelineState, cmd);
+        if (EnumHasAnyFlags(pass->parameters->flags, ShaderParamFlags::Push))
+        {
+            device->PushConstants(cmd, GetPushConstantSize(pass->parameters), GetPushConstantPtr(pass->parameters));
+        }
+        EnumerateShaderBuffers(pass, [&](const PassResource *resource, ResourceView *view) {
+            RenderGraphResource *rgResource = &resources[view->handle];
+            graphics::GPUBuffer *buffer     = rgResource->bufferRange.transientBackingBuffer;
+            // TODO: old subresources ranges aren't cleared yet
+            i32 subresource = device->CreateSubresource(buffer,
+                                                        resource->viewType,
+                                                        rgResource->bufferRange.offset,
+                                                        rgResource->bufferRange.size);
+            device->BindResource(buffer, resource->viewType, resource->binding, cmd, subresource);
+        });
+        EnumerateShaderTextures(pass, [&](const PassResource *resource, TextureView *view) {
+            RenderGraphResource *rgResource = &resources[view->handle];
+            device->BindResource(rgResource->texture, resource->viewType, resource->binding, cmd);
+        });
+        device->UpdateDescriptorSet(cmd);
+        pass->func(cmd);
     }
+    return cmd;
 }
 
 ResourceHandle RenderGraph::CreateResourceInternal(string name, ResourceFlags flags, graphics::TextureDesc desc, u32 size)
@@ -357,6 +405,19 @@ ResourceHandle RenderGraph::CreateResourceInternal(string name, ResourceFlags fl
     {
         RenderGraphResource *resource = &resources[handle];
         Assert(EnumHasAnyFlags(resource->flags, flags));
+        switch (flags)
+        {
+            case ResourceFlags::Buffer:
+            {
+                Assert(resource->bufferSize == size);
+            }
+            break;
+            case ResourceFlags::Texture:
+            {
+                Assert(resource->textureDesc == desc);
+            }
+            break;
+        }
         // Assert(resource->resource.resourceType == GPUResource::ResourceType::Buffer);
         return handle;
     }
@@ -366,10 +427,7 @@ ResourceHandle RenderGraph::CreateResourceInternal(string name, ResourceFlags fl
         RenderGraphResource *resource = &resources[handle];
         // NOTE: this relies on the assumption that the resources array is 0 initialized. there's a chance that this could be
         // false if I'm not careful (e.g swap the resources array from c array to the dynamic array type)
-        resource->flags |= flags;
-        resource->lastAccess        = ResourceAccess::None;
-        resource->lastPassFlags     = PassFlags::None;
-        resource->lastPipelineStage = graphics::PipelineStage::None;
+        resource->Init(flags);
         switch (flags)
         {
             case ResourceFlags::Buffer:
@@ -384,9 +442,6 @@ ResourceHandle RenderGraph::CreateResourceInternal(string name, ResourceFlags fl
             break;
         }
 
-        resource->firstPass           = INVALID_PASS_HANDLE;
-        resource->lastPass            = INVALID_PASS_HANDLE;
-        resource->lastPassWriteHandle = INVALID_PASS_HANDLE;
         resourceNameHashTable.Add(hash, handle);
         resourceStringHashes[handle] = hash;
         return handle;
@@ -403,6 +458,74 @@ ResourceHandle RenderGraph::CreateTexture(string name, TextureDesc desc)
     return CreateResourceInternal(name, ResourceFlags::Texture, desc);
 }
 
+void RenderGraph::ExtendLifetime(ResourceHandle handle, ResourceFlags lifetime)
+{
+    RenderGraphResource *resource = &resources[handle];
+    Assert(EnumHasAnyFlags(resource->flags, ResourceFlags::Texture | ResourceFlags::Buffer));
+    resource->flags |= lifetime;
+}
+
+ResourceHandle RenderGraph::Import(string name, Texture *texture)
+{
+    u32 hash              = Hash(name);
+    ResourceHandle handle = resourceNameHashTable.Find(hash, resourceStringHashes);
+    Assert(!resourceNameHashTable.IsValid(handle));
+
+    handle                        = numResources++;
+    RenderGraphResource *resource = &resources[handle];
+    resource->Init(ResourceFlags::Texture | ResourceFlags::NotTransient);
+    resource->texture = texture;
+    resourceNameHashTable.Add(hash, handle);
+    resourceStringHashes[handle] = hash;
+    return handle;
+}
+
+inline ResourceHandle RenderGraph::AddComputePass(string passName,
+                                                  void *params,
+                                                  PipelineState *state,
+                                                  V3U32 groupCounts,
+                                                  const ComputeFunction &func)
+{
+    return AddPass(passName, params, state, [groupCounts, callback = std::move(func)](CommandList cmd) {
+        if (callback)
+        {
+            callback();
+        }
+        device->Dispatch(cmd, groupCounts.x, groupCounts.y, groupCounts.z);
+    });
+}
+
+inline ResourceHandle RenderGraph::AddComputeIndirectPass(string passName,
+                                                          void *params,
+                                                          PipelineState *state,
+                                                          graphics::GPUBuffer *indirectBuffer,
+                                                          u32 offset,
+                                                          const ComputeFunction &func)
+{
+    return AddPass(passName, params, state, [indirectBuffer, offset, callback = std::move(func)](CommandList cmd) {
+        if (callback)
+        {
+            callback();
+        }
+        device->DispatchIndirect(cmd, indirectBuffer, sizeof(DispatchIndirect) * offset + Offset(DispatchIndirect, groupCountX));
+    });
+}
+
+void RenderGraph::BeginFrame()
+{
+    arenaBeginFramePos = ArenaPos(arena);
+}
+
+void RenderGraph::EndFrame()
+{
+    transientResourceAllocator.Reset();
+    barrierBatches.Clear();
+    ArenaPopTo(arena, arenaBeginFramePos);
+}
+
+//////////////////////////////
+// TransientResourceAllocator
+//
 void TransientResourceAllocator::Init()
 {
     offsets.Init();
@@ -477,6 +600,10 @@ void TransientResourceAllocator::Reset()
     {
         textureInUseMasks[i] = 0;
     }
+    // TODO: clear the subresources
+    for (u32 i = 0; i < backingBuffers.Length(); i++)
+    {
+    }
 }
 
 inline void BarrierBatch::Emplace()
@@ -487,6 +614,16 @@ inline void BarrierBatch::Emplace()
 inline graphics::GPUBarrier &BarrierBatch::Back()
 {
     return barriers.Back();
+}
+
+inline graphics::GPUBarrier *BarrierBatch::Data()
+{
+    return barriers.data;
+}
+
+inline u32 BarrierBatch::Length()
+{
+    return barriers.Length();
 }
 
 // void RenderGraph::Init()

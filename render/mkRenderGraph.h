@@ -19,6 +19,7 @@ struct BufferView;
 struct TextureView;
 struct ResourceView;
 using ExecuteFunction           = std::function<void(graphics::CommandList cmd)>;
+using ComputeFunction           = std::function<void(void)>;
 using ResourceEnumerateFunction = std::function<void(const PassResource *resource, ResourceView *views)>;
 using BufferEnumerateFunction   = std::function<void(const PassResource *resource, BufferView *views)>;
 using TextureEnumerateFunction  = std::function<void(const PassResource *resource, TextureView *views)>;
@@ -52,7 +53,10 @@ enum class ShaderParamFlags : u32
     Header   = 1 << 0,
     Compute  = 1 << 1,
     Graphics = 1 << 2,
+
+    Push = 1 << 3,
 };
+ENUM_CLASS_FLAGS(ShaderParamFlags)
 
 inline b8 IsTexture(HLSLType type)
 {
@@ -102,16 +106,34 @@ inline string ConvertResourceViewTypeToName(graphics::ResourceViewType type)
     }
 }
 
-inline string ConvertShaderParamFlagsToString(ShaderParamFlags flags)
+inline string ConvertShaderParamFlagsToString(ShaderParamFlags flags, b32 hasPush)
 {
+    string result;
     switch (flags)
     {
-        case ShaderParamFlags::Header: return Str8Lit("ShaderParamFlags::Header");
-        case ShaderParamFlags::Compute: return Str8Lit("ShaderParamFlags::Compute");
-        case ShaderParamFlags::Graphics: return Str8Lit("ShaderParamFlags::Graphics");
-        case ShaderParamFlags::None: return Str8Lit("ShaderParamFlags::None");
+        case ShaderParamFlags::Header:
+        {
+            result = hasPush ? Str8Lit("ShaderParamFlags::Header | ShaderParamFlags::Push") : Str8Lit("ShaderParamFlags::Header");
+        }
+        break;
+        case ShaderParamFlags::Compute:
+        {
+            result = hasPush ? Str8Lit("ShaderParamFlags::Compute | ShaderParamFlags::Push") : Str8Lit("ShaderParamFlags::Compute");
+        }
+        break;
+        case ShaderParamFlags::Graphics:
+        {
+            result = hasPush ? Str8Lit("ShaderParamFlags::Graphics | ShaderParamFlags::Push") : Str8Lit(" ShaderParamFlags::Graphics ");
+        }
+        break;
+        case ShaderParamFlags::None:
+        {
+            result = hasPush ? Str8Lit("ShaderParamFlags::None | ShaderParamFlags::Push") : Str8Lit("ShaderParamFlags::None");
+        }
+        break;
         default: Assert(0); return Str8Lit("Invalid");
     }
+    return result;
 }
 
 struct PassResource
@@ -145,6 +167,7 @@ struct BufferView : ResourceView
 
 struct TextureView : ResourceView
 {
+    i32 subresourceIndex;
 };
 
 // u32 numElements;
@@ -184,6 +207,9 @@ struct RenderPass
     PassFlags flags;
     BaseShaderParamType *parameters;
     ExecuteFunction func;
+    graphics::PipelineState *pipelineState;
+    // TODO: going to need additional resources here (e.g. ColorAttachments, DepthStencil, Indirect Buffers)
+    Array<ResourceHandle> nonShaderBoundResources;
 };
 
 struct BufferRange
@@ -196,11 +222,11 @@ struct BufferRange
 
 enum class ResourceFlags
 {
-    None       = 0,
-    Buffer     = 1 << 0,
-    Texture    = 1 << 1,
-    Import     = 1 << 2,
-    Export     = 1 << 3,
+    None         = 0,
+    Buffer       = 1 << 0,
+    Texture      = 1 << 1,
+    Import       = 1 << 2,
+    Export       = 1 << 3,
     NotTransient = Import | Export,
 };
 ENUM_CLASS_FLAGS(ResourceFlags)
@@ -237,6 +263,17 @@ struct RenderGraphResource
         // Transient texture
         graphics::Texture *texture;
     };
+
+    void Init(ResourceFlags inFlags)
+    {
+        flags |= inFlags;
+        lastAccess          = graphics::ResourceAccess::None;
+        lastPassFlags       = PassFlags::None;
+        lastPipelineStage   = graphics::PipelineStage::None;
+        firstPass           = INVALID_PASS_HANDLE;
+        lastPass            = INVALID_PASS_HANDLE;
+        lastPassWriteHandle = INVALID_PASS_HANDLE;
+    }
 };
 
 struct BarrierBatch
@@ -244,6 +281,8 @@ struct BarrierBatch
     Array<graphics::GPUBarrier> barriers;
     inline void Emplace();
     inline graphics::GPUBarrier &Back();
+    inline graphics::GPUBarrier *Data();
+    inline u32 Length();
 };
 
 // Transient resource allocator
@@ -265,11 +304,11 @@ struct TransientResourceAllocator
 struct RenderGraph
 {
     Arena *arena;
-    u32 arenaBeginFramePos; // reset to this pos at end of frame
+    u64 arenaBeginFramePos; // reset to this pos at end of frame
 
     AtomicFixedHashTable<512, 512> resourceNameHashTable;
-    RenderGraphResource resources[512];
-    u32 resourceStringHashes[512];
+    RenderGraphResource resources[256];
+    u32 resourceStringHashes[256];
     u32 numResources;
 
     AtomicFixedHashTable<64, 64> renderPassHashTable;
@@ -281,23 +320,40 @@ struct RenderGraph
     Array<PassHandle> passDependencies[32];
     u32 numPasses;
 
+    // Barrier batches
+    Array<BarrierBatch> barrierBatches;
+
     // Transient resource allocator
     TransientResourceAllocator transientResourceAllocator;
 
     void Init();
     void Compile();
-    void Execute();
+    graphics::CommandList Execute();
+    void BeginFrame();
+    void EndFrame();
 
     template <typename ParameterType>
     ParameterType *AllocParameters();
 
-    PassHandle AddPassInternal(string passName, void *params, const ExecuteFunction &func, PassFlags flags);
-    PassHandle AddPass(string passName, void *params, const ExecuteFunction &func);
-    PassHandle AddPass(string passName, void *params, PassFlags flags, const ExecuteFunction &func);
+    PassHandle AddPassInternal(string passName, void *params, graphics::PipelineState *state, const ExecuteFunction &func, PassFlags flags);
+    PassHandle AddPass(string passName, void *params, graphics::PipelineState *state, const ExecuteFunction &func);
+    PassHandle AddPass(string passName, void *params, graphics::PipelineState *state, PassFlags flags, const ExecuteFunction &func);
     ResourceHandle CreateBuffer(string name, u32 size);
     ResourceHandle CreateTexture(string name, graphics::TextureDesc desc);
     ResourceHandle CreateResourceInternal(string name, ResourceFlags flags, graphics::TextureDesc desc = {}, u32 size = 0);
     void ExtendLifetime(ResourceHandle handle, ResourceFlags lifetime);
+    ResourceHandle Import(string name, graphics::Texture *texture);
+    ResourceHandle AddComputeIndirectPass(string passName,
+                                          void *params,
+                                          graphics::PipelineState *state,
+                                          graphics::GPUBuffer *indirectBuffer,
+                                          u32 offset,
+                                          const ComputeFunction &func = ComputeFunction());
+    ResourceHandle AddComputePass(string passName,
+                                  void *params,
+                                  graphics::PipelineState *state,
+                                  V3U32 groupCounts,
+                                  const ComputeFunction &func = ComputeFunction());
 };
 
 } // namespace rendergraph

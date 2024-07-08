@@ -64,6 +64,18 @@ VkFormat ConvertFormat(Format value)
     }
 }
 
+VkDescriptorType ConvertDescriptorType(DescriptorType type)
+{
+    switch (type)
+    {
+        case DescriptorType_UniformTexel: return VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
+        case DescriptorType_StorageBuffer: return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        case DescriptorType_StorageTexelBuffer: return VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
+        case DescriptorType_SampledImage: return VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+        default: Assert(0); return VK_DESCRIPTOR_TYPE_MAX_ENUM;
+    }
+}
+
 VkImageLayout ConvertToImageLayout(ResourceUsage usage)
 {
 
@@ -2297,6 +2309,11 @@ void mkGraphicsVulkan::CreateBufferCopy(GPUBuffer *inBuffer, GPUBufferDesc inDes
         {
             buffer->subresourceSrv = 0;
         }
+        if (HasFlags(inDesc.resourceUsage, ResourceUsage_StorageTexel) ||
+            HasFlags(inDesc.resourceUsage, ResourceUsage_UniformTexel))
+        {
+            Assert(0);
+        }
     }
     else
     {
@@ -2724,9 +2741,37 @@ i32 mkGraphicsVulkan::GetDescriptorIndex(GPUResource *resource, ResourceViewType
             case GPUResource::ResourceType::Buffer:
             {
                 GPUBufferVulkan *buffer = ToInternal((GPUBuffer *)resource);
+
+                auto CreateBufferDescriptorIndex = [&](i32 &descriptorIndex, i32 subresourceIndex) {
+                    GPUBufferVulkan::Subresource *subresource = &buffer->subresources[subresourceIndex];
+                    descriptorIndex                           = subresource->descriptorIndex;
+                    if (descriptorIndex == -1)
+                    {
+                        BindlessDescriptorPool &descriptorPool = bindlessDescriptorPools[subresource->type];
+                        descriptorIndex                        = descriptorPool.Allocate();
+
+                        VkWriteDescriptorSet write = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+                        write.dstSet               = descriptorPool.set;
+                        write.dstBinding           = 0;
+                        write.descriptorCount      = 1;
+                        write.dstArrayElement      = descriptorIndex;
+                        write.descriptorType       = ConvertDescriptorType(subresource->type);
+                        write.pBufferInfo          = &subresource->info;
+
+                        if (subresource->format != Format::Null)
+                        {
+                            write.pTexelBufferView = &subresource->view;
+                        }
+
+                        vkUpdateDescriptorSets(device, 1, &write, 0, 0);
+
+                        subresource->descriptorIndex = descriptorIndex;
+                    }
+                };
+
                 if (subresourceIndex != -1)
                 {
-                    descriptorIndex = buffer->subresources[subresourceIndex].descriptorIndex;
+                    CreateBufferDescriptorIndex(descriptorIndex, subresourceIndex);
                 }
                 else
                 {
@@ -2735,13 +2780,13 @@ i32 mkGraphicsVulkan::GetDescriptorIndex(GPUResource *resource, ResourceViewType
                         case ResourceViewType::SRV:
                         {
                             Assert(buffer->subresourceSrv != -1);
-                            descriptorIndex = buffer->subresources[buffer->subresourceSrv].descriptorIndex;
+                            CreateBufferDescriptorIndex(descriptorIndex, buffer->subresourceSrv);
                         }
                         break;
                         case ResourceViewType::UAV:
                         {
                             Assert(buffer->subresourceUav != -1);
-                            descriptorIndex = buffer->subresources[buffer->subresourceUav].descriptorIndex;
+                            CreateBufferDescriptorIndex(descriptorIndex, buffer->subresourceUav);
                         }
                         break;
                     }
@@ -2768,35 +2813,31 @@ i32 mkGraphicsVulkan::GetDescriptorIndex(GPUResource *resource, ResourceViewType
     return descriptorIndex;
 }
 
-// Only used to create bindless subresources
 i32 mkGraphicsVulkan::CreateSubresource(GPUBuffer *buffer, ResourceViewType type, u64 offset, u64 size, Format format, const char *name)
 {
     i32 subresourceIndex     = -1;
     GPUBufferVulkan *bufVulk = ToInternal(buffer);
 
     DescriptorType descriptorType;
-    VkDescriptorType vkDescriptorType;
     if (format == Format::Null && (type == ResourceViewType::SRV || type == ResourceViewType::UAV))
     {
-        descriptorType   = DescriptorType_StorageBuffer;
-        vkDescriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        descriptorType = DescriptorType_StorageBuffer;
     }
     else if (format != Format::Null && type == ResourceViewType::SRV)
     {
-        descriptorType   = DescriptorType_UniformTexel;
-        vkDescriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER;
+        descriptorType = DescriptorType_UniformTexel;
     }
     else if (format != Format::Null && type == ResourceViewType::UAV)
     {
-        descriptorType   = DescriptorType_StorageTexelBuffer;
-        vkDescriptorType = VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER;
+        descriptorType = DescriptorType_StorageTexelBuffer;
     }
     else
     {
         Assert(0);
     }
 
-    GPUBufferVulkan::Subresource subresource;
+    bufVulk->subresources.emplace_back();
+    GPUBufferVulkan::Subresource &subresource = bufVulk->subresources.back();
     if (format != Format::Null)
     {
         VkBufferViewCreateInfo createView = {};
@@ -2813,34 +2854,14 @@ i32 mkGraphicsVulkan::CreateSubresource(GPUBuffer *buffer, ResourceViewType type
         }
     }
 
-    BindlessDescriptorPool &descriptorPool = bindlessDescriptorPools[descriptorType];
-    i32 subresourceDescriptorIndex         = descriptorPool.Allocate();
-
-    VkWriteDescriptorSet write = {};
-    write.sType                = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-    write.dstSet               = descriptorPool.set;
-    write.dstBinding           = 0;
-    write.descriptorCount      = 1;
-    write.dstArrayElement      = subresourceDescriptorIndex;
-    write.descriptorType       = vkDescriptorType;
-
+    subresource.format      = format;
     subresource.info.buffer = bufVulk->buffer;
     subresource.info.offset = offset;
     subresource.info.range  = size;
-    write.pBufferInfo       = &subresource.info;
+    subresource.type        = descriptorType;
 
-    if (format != Format::Null)
-    {
-        write.pTexelBufferView = &subresource.view;
-    }
-
-    vkUpdateDescriptorSets(device, 1, &write, 0, 0);
-
-    subresource.descriptorIndex = subresourceDescriptorIndex;
-    subresource.type            = descriptorType;
-    bufVulk->subresources.push_back(subresource);
-    i32 nusubresources = (i32)bufVulk->subresources.size();
-    subresourceIndex   = nusubresources - 1;
+    i32 numSubresources = (i32)bufVulk->subresources.size();
+    subresourceIndex    = numSubresources - 1;
     return subresourceIndex;
 }
 
